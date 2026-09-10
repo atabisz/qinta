@@ -2,6 +2,7 @@
 #define TINTA_MARKDOWN_H
 
 #include "types.h"
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <memory>

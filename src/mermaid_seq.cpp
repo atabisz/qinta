@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>

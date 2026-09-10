@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cerrno>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <deque>
 #include <limits>

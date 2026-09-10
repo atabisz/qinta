@@ -1,5 +1,7 @@
 #include "markdown.h"
+#include "portable_str.h"
 #include <md4c.h>
+#include <cstdint>
 #include <fstream>
 #include <sstream>
 #include <chrono>
@@ -23,7 +25,7 @@ const char* const kFileRefExtensions[] = {
 static bool endsWithNoCase(const std::string& s, const char* suffix) {
     size_t len = strlen(suffix);
     return s.size() > len &&
-           _strnicmp(s.c_str() + s.size() - len, suffix, len) == 0;
+           tinta::strnicmp(s.c_str() + s.size() - len, suffix, len) == 0;
 }
 
 bool fileRefKnownExtension(const std::string& path) {
@@ -947,7 +949,7 @@ static void splitFileRefs(const ElementPtr& parent) {
             for (const char* extension : kFileRefExtensions) {
                 size_t length = strlen(extension);
                 if (dot + length <= text.size() &&
-                    _strnicmp(text.c_str() + dot, extension, length) == 0 &&
+                    tinta::strnicmp(text.c_str() + dot, extension, length) == 0 &&
                     fileRefBoundary(text, dot + length)) {
                     extLength = length;
                     break;

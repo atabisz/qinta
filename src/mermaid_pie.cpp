@@ -8,6 +8,7 @@
 #include "mermaid_ext.h"
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <vector>
 

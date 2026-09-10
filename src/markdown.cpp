@@ -1,5 +1,6 @@
 #include "markdown.h"
 #include "portable_str.h"
+#include <cstdio>
 #include <md4c.h>
 #include <cstdint>
 #include <fstream>

@@ -121,8 +121,11 @@ set(HEADERS
 )
 
 # The app itself is Windows-only (Direct2D/DirectWrite/Win32). Guarding it lets
-# the platform-independent test targets below configure and run on Linux/macOS,
-# which is how the portable core is kept honest in CI.
+# the platform-independent test targets below configure and run on Linux/macOS.
+# That is the mechanism for keeping the portable core honest; nothing currently
+# exercises it, because the CI job that ran those targets off Windows was removed
+# on 2026-09-10. The guard is still correct and still worth keeping accurate --
+# it is just not enforced today.
 if(WIN32)
 
 # Windows resource file (icon)
@@ -163,8 +166,12 @@ endif()  # WIN32 — app target
 
 if(BUILD_TESTING)
     # --- Platform-independent targets: these build and run on every platform.
-    # They link no Windows libraries, so a regression that drags Windows into
-    # the portable core breaks them on the Linux CI job rather than silently.
+    # They link no Windows libraries, so a regression that drags Windows into the
+    # portable core breaks them WHEN THEY ARE BUILT OFF WINDOWS -- which nothing
+    # does right now (see the note on the WIN32 guard above). On Windows these
+    # targets compile happily either way, so a green run here is not evidence of
+    # portability. Measure that with `cl /showIncludes` on the changed file, or by
+    # building this block with a non-Windows compiler.
     add_executable(keymap_tests tests/keymap_tests.cpp src/keymap.cpp)
     target_include_directories(keymap_tests PRIVATE include)
     add_test(NAME keymap COMMAND keymap_tests)

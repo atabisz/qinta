@@ -10,12 +10,16 @@
 // logic and its tests build unchanged off Windows. Values read from the Windows
 // SDK's WinUser.h.
 //
-// The asserts below need BOTH builds to mean anything, which is precisely why
-// the portable-core CI job exists: on Windows they check the literals against
-// the SDK's own macros, and off Windows they check these fallbacks against the
-// same literals. Neither build alone proves the fallbacks match Windows; run
-// together they do. A fallback that drifts therefore fails the Linux/macOS job,
-// and a literal that drifts fails the Windows one.
+// The asserts below need BOTH builds to mean anything: on Windows they check the
+// literals against the SDK's own macros, and off Windows they check these
+// fallbacks against the same literals. Neither build alone proves the fallbacks
+// match Windows; run together they do.
+//
+// WARNING: only the Windows half currently runs anywhere. The CI job that built
+// the other half was removed on 2026-09-10, so a fallback below can now drift
+// from the SDK and every build in use will still pass. Until a non-Windows build
+// is running again, treat these values as unverified after any edit and check
+// them against WinUser.h by hand.
 #ifdef _WIN32
 #include <windows.h>
 #else

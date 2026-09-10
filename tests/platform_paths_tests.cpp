@@ -89,6 +89,53 @@ int main() {
     check(platform::userConfigDirectory(appName) == configDir,
           "resolving twice is idempotent and does not fail on an existing dir");
 
+    // --- UTF-8 <-> wide conversion ------------------------------------------
+    // This pair replaced ten hand-rolled copies, so it is the one place the
+    // behaviour can be pinned. The wide side is UTF-16 on Windows and UTF-32 on
+    // POSIX, so assertions are on round-trip identity and on the UTF-8 bytes,
+    // never on wide length -- a wide-length assertion would pass on one platform
+    // and fail on the other for correct code.
+    check(platform::toUtf8(L"").empty(), "empty wide converts to empty UTF-8");
+    check(platform::fromUtf8("").empty(), "empty UTF-8 converts to empty wide");
+    check(platform::toUtf8(L"plain ascii") == "plain ascii", "ASCII passes through");
+
+    // U+00E9 (2 bytes), U+65E5 (3 bytes), U+1F600 (4 bytes) -- one case per
+    // UTF-8 length, because a decoder can be right about three and wrong about
+    // the fourth, and the 4-byte case is the one that needs a surrogate pair on
+    // Windows and a single wchar_t on POSIX.
+    const std::string twoByte = "caf\xC3\xA9";
+    const std::string threeByte = "\xE6\x97\xA5\xE6\x9C\xAC";
+    const std::string fourByte = "\xF0\x9F\x98\x80";
+    check(platform::toUtf8(platform::fromUtf8(twoByte)) == twoByte,
+          "2-byte sequence round-trips");
+    check(platform::toUtf8(platform::fromUtf8(threeByte)) == threeByte,
+          "3-byte sequence round-trips");
+    check(platform::toUtf8(platform::fromUtf8(fourByte)) == fourByte,
+          "4-byte sequence round-trips (surrogate pair on Windows)");
+
+    const std::string mixed = "a" + twoByte + "-" + threeByte + "/" + fourByte + "z";
+    check(platform::toUtf8(platform::fromUtf8(mixed)) == mixed,
+          "mixed-width string round-trips byte for byte");
+
+    // CONTROL: round-trip identity alone would also hold for an implementation
+    // that returned its input unchanged, or that dropped every non-ASCII byte in
+    // both directions. These pin the actual byte counts, so a pass-through or a
+    // lossy stub fails here rather than sailing through the checks above.
+    check(platform::fromUtf8(twoByte).size() == 4,
+          "CONTROL: 2-byte sequence decodes to one wide unit, not two");
+    check(platform::toUtf8(platform::fromUtf8(threeByte)).size() == 6,
+          "CONTROL: non-ASCII is not dropped on the way through");
+    check(platform::fromUtf8(threeByte).size() == 2,
+          "CONTROL: 3 UTF-8 bytes become 1 wide unit per character");
+
+    // A lone continuation byte is not valid UTF-8. The contract is U+FFFD, not a
+    // drop and not an empty result: a path we cannot decode must stay visibly
+    // wrong rather than silently becoming a different valid path.
+    std::wstring replaced = platform::fromUtf8("ok\x80tail");
+    check(!replaced.empty(), "malformed input does not yield an empty string");
+    check(replaced.find(static_cast<wchar_t>(0xFFFD)) != std::wstring::npos,
+          "malformed UTF-8 becomes U+FFFD rather than being dropped");
+
     // --- config_dir.cpp links and behaves ----------------------------------
     check(configFilePathForShell(L"").empty(), "empty shell path stays empty");
     check(!configFilePathForShell(optIn.wstring()).empty(),

@@ -1,6 +1,7 @@
 #include "search.h"
 #include "utils.h"
 #include "render.h"
+#include "platform_paths.h"
 
 #include <algorithm>
 #include <cwctype>
@@ -18,12 +19,7 @@ struct FolderScanMsg {
 };
 
 std::wstring utf8ToWideString(const std::string& bytes) {
-    if (bytes.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, bytes.data(), (int)bytes.size(), nullptr, 0);
-    if (len <= 0) return {};
-    std::wstring wide((size_t)len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, bytes.data(), (int)bytes.size(), wide.data(), len);
-    return wide;
+    return platform::fromUtf8(bytes);
 }
 }
 

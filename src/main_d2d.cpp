@@ -2,6 +2,7 @@
 // Much faster startup than OpenGL
 
 #include "app.h"
+#include "platform_paths.h"
 
 #include <windowsx.h>
 #include <shellapi.h>
@@ -1899,10 +1900,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
             posY = _wtoi(argv[++i]);
             hasPos = true;
         } else if (arg[0] != L'-' && arg[0] != L'/') {
-            // Convert to UTF-8
-            int len = WideCharToMultiByte(CP_UTF8, 0, arg.c_str(), -1, nullptr, 0, nullptr, nullptr);
-            inputFile.resize(len - 1);
-            WideCharToMultiByte(CP_UTF8, 0, arg.c_str(), -1, &inputFile[0], len, nullptr, nullptr);
+            inputFile = platform::toUtf8(arg);
         }
     }
     LocalFree(argv);
@@ -1921,11 +1919,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
             std::wstring wide = toWide(inputFile);
             wchar_t full[MAX_PATH];
             if (GetFullPathNameW(wide.c_str(), MAX_PATH, full, nullptr)) {
-                int len = WideCharToMultiByte(CP_UTF8, 0, full, -1, nullptr, 0,
-                                              nullptr, nullptr);
-                std::string absolute(len - 1, '\0');
-                WideCharToMultiByte(CP_UTF8, 0, full, -1, &absolute[0], len,
-                                    nullptr, nullptr);
+                // full is NUL-terminated, so constructing the wstring stops
+                // there -- same result the explicit -1 conversion produced.
+                std::string absolute = platform::toUtf8(full);
                 COPYDATASTRUCT data;
                 data.dwData = 1;
                 data.cbData = (DWORD)absolute.size() + 1;

@@ -19,7 +19,6 @@
 // getting one each.
 
 namespace platform {
-namespace {
 
 // UTF-8 <-> wchar_t conversion. std::wstring_convert is deprecated in C++17, so
 // this is hand-rolled rather than pulled from <codecvt>. wchar_t is 4 bytes on
@@ -102,6 +101,8 @@ std::string toUtf8(const std::wstring& in) {
     }
     return out;
 }
+
+namespace {
 
 std::string executablePathUtf8() {
 #if defined(__APPLE__)

@@ -1,6 +1,7 @@
 #include "i18n.h"
 #include "app.h"
 #include "settings.h"
+#include "platform_paths.h"
 
 #include <windows.h>
 #include <string.h>
@@ -1373,11 +1374,7 @@ void ensureBaseLanguages() {
 }
 
 std::wstring langUtf8ToWide(const std::string& s) {
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(len > 0 ? len - 1 : 0, L'\0');
-    if (len > 1) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
-    return w;
+    return platform::fromUtf8(s);
 }
 
 std::wstring languagesIniPath() {
@@ -1509,14 +1506,7 @@ void openLanguagesIniFile() {
             f << "\n[" << lang.id << "]\n";
             f << "name=" << lang.nativeUtf8 << "\n";
             for (const Entry& e : kEntries) {
-                int len = WideCharToMultiByte(CP_UTF8, 0, e.en, -1, nullptr, 0,
-                                              nullptr, nullptr);
-                std::string en(len > 0 ? len - 1 : 0, '\0');
-                if (len > 1) {
-                    WideCharToMultiByte(CP_UTF8, 0, e.en, -1, &en[0], len,
-                                        nullptr, nullptr);
-                }
-                f << ";" << e.key << "=" << en << "\n";
+                f << ";" << e.key << "=" << platform::toUtf8(e.en) << "\n";
             }
         }
     }

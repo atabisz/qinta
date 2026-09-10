@@ -239,6 +239,7 @@ const int THEME_COUNT = sizeof(THEMES) / sizeof(THEMES[0]);
 //   ...
 
 #include "settings.h"
+#include "platform_paths.h"
 
 #include <shlobj.h>
 #include <fstream>
@@ -281,20 +282,16 @@ std::string colorToHex(const D2D1_COLOR_F& c) {
     return buf;
 }
 
+// The seam passes an explicit length where these passed -1 and trimmed the
+// terminator. The two agree on every input without an embedded NUL, and theme
+// names, font families and hex colours cannot contain one -- they come from
+// ini keys and values, which are newline-delimited text.
 std::wstring utf8ToWideTheme(const std::string& s) {
-    if (s.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
-    std::wstring w(len > 0 ? len - 1 : 0, L'\0');
-    if (len > 1) MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, &w[0], len);
-    return w;
+    return platform::fromUtf8(s);
 }
 
 std::string wideToUtf8Theme(const std::wstring& w) {
-    if (w.empty()) return "";
-    int len = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string s(len > 0 ? len - 1 : 0, '\0');
-    if (len > 1) WideCharToMultiByte(CP_UTF8, 0, w.c_str(), -1, &s[0], len, nullptr, nullptr);
-    return s;
+    return platform::toUtf8(w);
 }
 
 // Repoint the D2DTheme string members at the owned wstrings. Must be called

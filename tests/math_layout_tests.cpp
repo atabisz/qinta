@@ -1,4 +1,5 @@
 #include "math_render.h"
+#include "platform_paths.h"
 
 #include <cmath>
 #include <fstream>
@@ -41,11 +42,7 @@ void checkMarkdownFixture(App& app, const char* filename, size_t minimumMath,
         if (element->type == ElementType::MathInline || element->type == ElementType::MathDisplay) {
             ++equations;
             for (auto ancestor : ancestors) ++mathWithin[ancestor];
-            int length = MultiByteToWideChar(CP_UTF8, 0, element->text.data(),
-                                            static_cast<int>(element->text.size()), nullptr, 0);
-            std::wstring tex(length, L'\0');
-            MultiByteToWideChar(CP_UTF8, 0, element->text.data(),
-                               static_cast<int>(element->text.size()), tex.data(), length);
+            std::wstring tex = platform::fromUtf8(element->text);
             if (!mathParse(app, tex, 24, element->type == ElementType::MathDisplay)) {
                 std::cerr << filename << ": unrendered equation: " << element->text << '\n';
                 check(false, "every mixed fixture equation renders");

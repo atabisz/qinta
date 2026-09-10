@@ -1,4 +1,5 @@
 #include "input.h"
+#include "platform_paths.h"
 #include "annotations.h"
 #include "drafts.h"
 #include "editrail.h"
@@ -263,9 +264,7 @@ bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
 
     app.root = result.root;
     app.parseTimeUs = result.parseTimeUs;
-    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, fullPath.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    app.currentFile.resize(utf8Len - 1);
-    WideCharToMultiByte(CP_UTF8, 0, fullPath.c_str(), -1, &app.currentFile[0], utf8Len, nullptr, nullptr);
+    app.currentFile = platform::toUtf8(fullPath);
     // Start page recents: every open (including tab switches) refreshes
     // the document's spot at the head of the list
     persistRecentFile(app.currentFile);
@@ -4189,11 +4188,9 @@ void handleDropFiles(App& app, HWND hwnd, WPARAM wParam) {
             !isSupportedDropPath(wpath)) {
             continue;
         }
-        int utf8Len = WideCharToMultiByte(CP_UTF8, 0, wpath, -1, nullptr, 0,
-                                          nullptr, nullptr);
-        std::string filepath(utf8Len - 1, '\0');
-        WideCharToMultiByte(CP_UTF8, 0, wpath, -1, &filepath[0], utf8Len,
-                            nullptr, nullptr);
+        // wpath is a NUL-terminated MAX_PATH buffer from DragQueryFileW, so the
+        // wstring conversion stops at the terminator as the -1 form did.
+        std::string filepath = platform::toUtf8(wpath);
         tabOpenPath(app, hwnd, filepath, !activated);
         activated = true;
     }

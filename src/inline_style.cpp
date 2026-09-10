@@ -1,30 +1,22 @@
 #include "inline_style.h"
+#include "platform_paths.h"
 
 #include <cctype>
 #include <filesystem>
 
 namespace {
 
-// Local converters keep this file free of editor.cpp for the test target
+// These stay as local names so the call sites below read unchanged, but the
+// conversion itself now lives in the platform seam. The original comment here
+// said "Local converters keep this file free of editor.cpp for the test target"
+// -- that was the real reason for the duplication, and the seam serves it
+// better: no editor.cpp, and no windows.h either.
 std::wstring refToWide(const std::string& str) {
-    if (str.empty()) return {};
-    int length = MultiByteToWideChar(CP_UTF8, 0, str.c_str(),
-                                     (int)str.size(), nullptr, 0);
-    std::wstring out(length, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.size(), &out[0],
-                        length);
-    return out;
+    return platform::fromUtf8(str);
 }
 
 std::string refToUtf8(const std::wstring& wide) {
-    if (wide.empty()) return {};
-    int length = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(),
-                                     (int)wide.size(), nullptr, 0, nullptr,
-                                     nullptr);
-    std::string out(length, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), &out[0],
-                        length, nullptr, nullptr);
-    return out;
+    return platform::toUtf8(wide);
 }
 
 // %20 and friends, for [text](my%20notes.md) targets

@@ -2,17 +2,14 @@
 #include "render.h"
 #include "i18n.h"
 #include "signals.h"
+#include "platform_paths.h"
 
 #include <windows.h>
 #include <shellapi.h>
 #include <algorithm>
 
 std::wstring toWide(const std::string& str) {
-    if (str.empty()) return L"";
-    int len = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), nullptr, 0);
-    std::wstring result(len, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.c_str(), (int)str.length(), &result[0], len);
-    return result;
+    return platform::fromUtf8(str);
 }
 
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
@@ -152,12 +149,7 @@ std::string slugifyHeading(const std::wstring& text) {
     }
     if (filtered.empty()) return {};
 
-    int len = WideCharToMultiByte(CP_UTF8, 0, filtered.c_str(), (int)filtered.size(),
-                                   nullptr, 0, nullptr, nullptr);
-    std::string out(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, filtered.c_str(), (int)filtered.size(),
-                         &out[0], len, nullptr, nullptr);
-    return out;
+    return platform::toUtf8(filtered);
 }
 
 void scrollToHeadingY(App& app, float headingY) {

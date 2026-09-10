@@ -1,5 +1,6 @@
 #include "math_render.h"
 #include "math_parser.h"
+#include "platform_paths.h"
 
 #include <algorithm>
 #include <cmath>
@@ -783,13 +784,7 @@ void mathClearCache() {
 namespace {
 
 std::string svgUtf8(const std::wstring& wide) {
-    if (wide.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(),
-                                  nullptr, 0, nullptr, nullptr);
-    std::string out(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), out.data(),
-                        len, nullptr, nullptr);
-    return out;
+    return platform::toUtf8(wide);
 }
 
 std::string svgEscape(const std::string& text) {

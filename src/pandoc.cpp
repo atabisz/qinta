@@ -10,6 +10,7 @@
 #include "export.h"
 #include "i18n.h"
 #include "settings.h"
+#include "platform_paths.h"
 
 #include <commdlg.h>
 #include <shlobj.h>
@@ -35,22 +36,11 @@ const PandocFormat kFormats[PANDOC_FORMAT_COUNT] = {
 };
 
 std::wstring toWideStr(const std::string& s) {
-    if (s.empty()) return {};
-    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(),
-                                  nullptr, 0);
-    std::wstring out(len, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), (int)s.size(), &out[0], len);
-    return out;
+    return platform::fromUtf8(s);
 }
 
 std::string toUtf8Str(const std::wstring& s) {
-    if (s.empty()) return {};
-    int len = WideCharToMultiByte(CP_UTF8, 0, s.c_str(), (int)s.size(),
-                                  nullptr, 0, nullptr, nullptr);
-    std::string out(len, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, s.c_str(), (int)s.size(), &out[0], len,
-                        nullptr, nullptr);
-    return out;
+    return platform::toUtf8(s);
 }
 
 bool fileExists(const std::wstring& path) {

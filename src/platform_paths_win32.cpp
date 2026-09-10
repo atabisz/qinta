@@ -34,6 +34,32 @@ bool regularFileExists(const std::wstring& path) {
     return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+// An explicit length is passed rather than -1, so an embedded NUL is carried
+// through instead of truncating the string, and the result needs no terminator
+// trimming. WC_ERR_INVALID_CHARS is deliberately NOT set: the seam's contract is
+// that malformed input degrades to U+FFFD, which is what the default does, and
+// failing the call instead would lose the whole string rather than one character.
+std::wstring fromUtf8(const std::string& utf8) {
+    if (utf8.empty()) return std::wstring();
+    int length = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(),
+                                     nullptr, 0);
+    if (length <= 0) return std::wstring();
+    std::wstring out((size_t)length, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), (int)utf8.size(), &out[0], length);
+    return out;
+}
+
+std::string toUtf8(const std::wstring& wide) {
+    if (wide.empty()) return std::string();
+    int length = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(),
+                                     nullptr, 0, nullptr, nullptr);
+    if (length <= 0) return std::string();
+    std::string out((size_t)length, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), &out[0], length,
+                        nullptr, nullptr);
+    return out;
+}
+
 std::wstring userConfigDirectory(const std::wstring& appName) {
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {

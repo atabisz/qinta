@@ -1,11 +1,22 @@
 #include "i18n.h"
-#include "app.h"
-#include "settings.h"
+#include "config_dir.h"
 #include "platform_paths.h"
 
-#include <windows.h>
-#include <string.h>
+// No app.h, no settings.h, no windows.h. This file resolves language tags and
+// reads an ini -- none of that needs the Windows GUI stack, and it only had it
+// because settings.h includes app.h. The three Windows calls it did make
+// (GetUserPreferredUILanguages, ShellExecuteW, GetFileAttributesW) are now
+// behind the platform seam.
+//
+// The standard headers below were previously arriving transitively through
+// app.h. They are listed explicitly because this file no longer has a large
+// header to hide behind, which is the point.
+#include <cctype>
 #include <cstring>
+#include <fstream>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 // Language metadata. nativeFont is a hint - the chooser uses it so each
 // language's name shows in its native typeface. Empty string falls back to
@@ -461,58 +472,51 @@ const wchar_t* tr(int langIndex, const char* key) {
     return fallback.c_str();
 }
 
-const wchar_t* tr(const App& app, const char* key) {
-    return tr(app.currentLanguageIndex, key);
-}
+// tr(const App&, const char*) is defined in i18n_app.cpp, not here. It is the
+// single reason this file would still need app.h -- one line of forwarding
+// against a struct that drags in windows.h, d2d1.h and dwrite.h. Its 169 call
+// sites are untouched: the declaration stays in i18n.h, so only the definition
+// moved.
 
 int clampLanguageIndex(int index) {
     return (index >= 0 && index < languageCount()) ? index : LANG_INDEX_EN;
 }
 
 int detectSystemLanguage() {
-    // GetUserPreferredUILanguages returns a double-NUL-terminated list of
-    // BCP 47 tags ("en-US\0zh-Hans-CN\0\0"). We pick the first one we recognize.
-    ULONG numLanguages = 0;
-    ULONG bufferSize = 0;
-    if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &numLanguages, nullptr, &bufferSize)) {
-        std::wstring buffer(bufferSize, L'\0');
-        if (GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &numLanguages, buffer.data(), &bufferSize) && numLanguages > 0) {
-            // Walk each NUL-terminated tag in the buffer.
-            const wchar_t* p = buffer.c_str();
-            for (ULONG i = 0; i < numLanguages; ++i) {
-                std::wstring tag(p);
-                // ci-compare prefix
-                auto startsWith = [&](const wchar_t* prefix) {
-                    size_t n = 0;
-                    while (prefix[n]) ++n;
-                    if (tag.size() < n) return false;
-                    for (size_t k = 0; k < n; ++k) {
-                        wchar_t a = tag[k], b = prefix[k];
-                        if (a >= L'A' && a <= L'Z') a += (L'a' - L'A');
-                        if (b >= L'A' && b <= L'Z') b += (L'a' - L'A');
-                        if (a != b) return false;
-                    }
-                    return true;
-                };
-                // zh-Hans* (Simplified) -> Simplified Chinese.
-                // zh-Hant* (Traditional) is not yet translated -> falls through to English.
-                if (startsWith(L"zh-hans") || startsWith(L"zh-cn") || startsWith(L"zh-sg")) {
-                    return 1;
-                }
-                if (startsWith(L"zh-hant") || startsWith(L"zh-tw") || startsWith(L"zh-hk")) {
-                    int idx = languageIndexById("zh-tw");
-                    if (idx >= 0) return idx;  // translated via languages.ini
-                }
-                if (startsWith(L"ja")) return 2;
-                if (startsWith(L"ko")) return 3;
-                // Languages registered from languages.ini match by prefix
-                for (int li = LANG_COUNT; li < languageCount(); li++) {
-                    std::string id = languageIdAt(li);
-                    std::wstring wid(id.begin(), id.end());
-                    if (startsWith(wid.c_str())) return li;
-                }
-                p += tag.size() + 1;  // skip past the NUL
+    // The seam hands back BCP 47 tags in preference order ("en-US", then
+    // "zh-Hans-CN", ...); we take the first one we recognize. Only the source of
+    // the list moved -- the matching below is unchanged, including its
+    // deliberate omissions.
+    for (const std::wstring& tag : platform::preferredUiLanguages()) {
+        // ci-compare prefix
+        auto startsWith = [&](const wchar_t* prefix) {
+            size_t n = 0;
+            while (prefix[n]) ++n;
+            if (tag.size() < n) return false;
+            for (size_t k = 0; k < n; ++k) {
+                wchar_t a = tag[k], b = prefix[k];
+                if (a >= L'A' && a <= L'Z') a += (L'a' - L'A');
+                if (b >= L'A' && b <= L'Z') b += (L'a' - L'A');
+                if (a != b) return false;
             }
+            return true;
+        };
+        // zh-Hans* (Simplified) -> Simplified Chinese.
+        // zh-Hant* (Traditional) is not yet translated -> falls through to English.
+        if (startsWith(L"zh-hans") || startsWith(L"zh-cn") || startsWith(L"zh-sg")) {
+            return 1;
+        }
+        if (startsWith(L"zh-hant") || startsWith(L"zh-tw") || startsWith(L"zh-hk")) {
+            int idx = languageIndexById("zh-tw");
+            if (idx >= 0) return idx;  // translated via languages.ini
+        }
+        if (startsWith(L"ja")) return 2;
+        if (startsWith(L"ko")) return 3;
+        // Languages registered from languages.ini match by prefix
+        for (int li = LANG_COUNT; li < languageCount(); li++) {
+            std::string id = languageIdAt(li);
+            std::wstring wid(id.begin(), id.end());
+            if (startsWith(wid.c_str())) return li;
         }
     }
     return LANG_INDEX_EN;
@@ -526,11 +530,11 @@ int detectSystemLanguage() {
 // key=value lines override or fill strings. Lookup order per language:
 // override -> compiled column (if any) -> compiled English -> the key.
 
-#include <shlobj.h>
-#include <shellapi.h>
-#include <fstream>
-#include <unordered_map>
-#include <vector>
+// This section used to open with #include <shlobj.h> and <shellapi.h>, for
+// SHGetFolderPathW and ShellExecuteW. Both calls are behind the platform seam
+// now, and shlobj.h was the last thing in this file reaching windows.h --
+// measured with cl /showIncludes, not assumed. The <fstream>/<unordered_map>/
+// <vector> that followed them are declared at the top of the file instead.
 
 namespace {
 
@@ -1381,7 +1385,7 @@ std::wstring languagesIniPath() {
     // Follows the config home: portable beside the exe, else %APPDATA%
     std::wstring dir = tintaConfigDir();
     if (dir.empty()) return L"";
-    return dir + L"\\languages.ini";
+    return dir + platform::pathSeparator() + L"languages.ini";
 }
 
 // Section-name aliases onto the compiled languages
@@ -1493,7 +1497,12 @@ void loadLanguageOverrides() {
 void openLanguagesIniFile() {
     std::wstring path = languagesIniPath();
     if (path.empty()) return;
-    if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    // regularFileExists rather than a bare existence test. The behaviour is the
+    // same for the case that matters: if a *directory* named languages.ini is in
+    // the way this now enters the seeding branch instead of skipping it, but the
+    // ofstream below then fails to open, every << is a no-op, and the open
+    // attempt still happens -- which is exactly what the old code did.
+    if (!platform::regularFileExists(path)) {
         std::ofstream f(path, std::ios::binary);
         f << "; Tinta UI translations \xe2\x80\x94 UTF-8, key=value under a language section.\n";
         f << "; Uncomment a line, translate the right-hand side, restart Tinta \xe2\x80\x94\n";
@@ -1510,6 +1519,7 @@ void openLanguagesIniFile() {
             }
         }
     }
-    ShellExecuteW(nullptr, L"open", configFilePathForShell(path).c_str(),
-                  nullptr, nullptr, SW_SHOWNORMAL);
+    // configFilePathForShell stays at the call site: quoting a path for a shell
+    // is a config_dir concern, and on POSIX it is the identity function.
+    platform::openInDefaultApplication(configFilePathForShell(path));
 }

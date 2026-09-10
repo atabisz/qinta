@@ -7,10 +7,12 @@
 #include "platform_paths.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -135,6 +137,55 @@ int main() {
     check(!replaced.empty(), "malformed input does not yield an empty string");
     check(replaced.find(static_cast<wchar_t>(0xFFFD)) != std::wstring::npos,
           "malformed UTF-8 becomes U+FFFD rather than being dropped");
+
+    // --- preferredUiLanguages ----------------------------------------------
+    // openInDefaultApplication is deliberately NOT exercised here. Calling it
+    // would launch a real application on the machine running the test suite,
+    // which is a side effect a test has no business having; its only caller is
+    // a menu item a person clicks.
+    //
+    // The list itself cannot be asserted -- it is whatever the user has
+    // configured -- so what is checked is the *shape contract*, which is the
+    // part a caller depends on and the part the POSIX normalization can get
+    // wrong.
+    std::vector<std::wstring> tags = platform::preferredUiLanguages();
+    for (const std::wstring& tag : tags) {
+        check(!tag.empty(), "no reported language tag is empty");
+        // A POSIX locale name is "zh_CN.UTF-8@pinyin". If any of these survive,
+        // the implementation returned a locale name instead of a BCP 47 tag and
+        // every caller matching against "zh-cn" would silently miss.
+        check(tag.find(L'_') == std::wstring::npos, "tag uses '-' not '_'");
+        check(tag.find(L'.') == std::wstring::npos, "tag carries no codeset suffix");
+        check(tag.find(L'@') == std::wstring::npos, "tag carries no @modifier suffix");
+        check(tag != L"C" && tag != L"POSIX", "the C/POSIX locale is not a language");
+    }
+    check(platform::preferredUiLanguages() == tags, "the language list is stable across calls");
+
+    // POSITIVE CONTROL. Every assertion in the loop above passes vacuously on an
+    // empty list, and an empty list is a legitimate result on a container with no
+    // locale set -- so without something below, a stub returning {} would look
+    // exactly like a pass. These make the instrument speak on both platforms.
+#ifdef _WIN32
+    // Windows always reports at least one UI language.
+    check(!tags.empty(), "CONTROL: Windows reports at least one UI language");
+#else
+    // On POSIX the input is the environment, so it can be supplied: LANGUAGE is
+    // the colon-separated preference list, and both entries here are written in
+    // native locale form specifically to make the normalization do work.
+    setenv("LANGUAGE", "zh_CN.UTF-8:ja_JP@x", 1);
+    std::vector<std::wstring> forced = platform::preferredUiLanguages();
+    check(forced.size() >= 2, "CONTROL: LANGUAGE supplies a preference list");
+    if (forced.size() >= 2) {
+        check(forced[0] == L"zh-CN", "CONTROL: locale name normalizes to a BCP 47 tag");
+        check(forced[1] == L"ja-JP", "CONTROL: preference order is preserved");
+    }
+    setenv("LANGUAGE", "C", 1);
+    check(platform::preferredUiLanguages().empty() ||
+              platform::preferredUiLanguages()[0] != L"C",
+          "CONTROL: the C locale is filtered out rather than reported");
+    unsetenv("LANGUAGE");
+#endif
+    std::cout << "preferred UI languages: " << tags.size() << '\n';
 
     // --- config_dir.cpp links and behaves ----------------------------------
     check(configFilePathForShell(L"").empty(), "empty shell path stays empty");

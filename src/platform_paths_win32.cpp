@@ -2,6 +2,7 @@
 
 #include <windows.h>
 #include <shlobj.h>
+#include <shellapi.h>
 
 // Win32 implementation of the platform path seam. Every call here is one the
 // tree already made from config_dir.cpp, kept identical on purpose: this file
@@ -58,6 +59,38 @@ std::string toUtf8(const std::wstring& wide) {
     WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), (int)wide.size(), &out[0], length,
                         nullptr, nullptr);
     return out;
+}
+
+std::vector<std::wstring> preferredUiLanguages() {
+    // GetUserPreferredUILanguages hands back a double-NUL-terminated list of
+    // BCP 47 tags ("en-US\0zh-Hans-CN\0\0"), which is already the shape this
+    // seam promises -- so unlike the POSIX side there is nothing to normalize.
+    std::vector<std::wstring> tags;
+    ULONG count = 0;
+    ULONG bufferSize = 0;
+    if (!GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, nullptr, &bufferSize)) {
+        return tags;
+    }
+    std::wstring buffer(bufferSize, L'\0');
+    if (!GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &count, buffer.data(), &bufferSize)) {
+        return tags;
+    }
+
+    const wchar_t* p = buffer.c_str();
+    for (ULONG i = 0; i < count; ++i) {
+        std::wstring tag(p);
+        // The count and the NULs are two separate sources of truth for where
+        // the list ends. Trusting only the count walks off the end of the data
+        // if they ever disagree, so an empty tag stops the walk as well.
+        if (tag.empty()) break;
+        tags.push_back(tag);
+        p += tag.size() + 1;
+    }
+    return tags;
+}
+
+void openInDefaultApplication(const std::wstring& path) {
+    ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 std::wstring userConfigDirectory(const std::wstring& appName) {

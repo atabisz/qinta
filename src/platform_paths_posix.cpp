@@ -7,6 +7,7 @@
 #include <string>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #if defined(__APPLE__)
@@ -181,6 +182,98 @@ std::wstring userConfigDirectory(const std::wstring& appName) {
     std::string full = base + "/" + toUtf8(appName);
     if (!makeDirectories(full)) return std::wstring();
     return fromUtf8(full);
+}
+
+namespace {
+
+// "zh_CN.UTF-8@pinyin" -> "zh-CN". A POSIX locale name is not a BCP 47 tag, and
+// the seam promises tags, so the shapes are reconciled here rather than in every
+// caller. Returns empty for anything that is not a language.
+std::string localeToBcp47(const std::string& locale) {
+    std::string tag;
+    for (char c : locale) {
+        if (c == '.' || c == '@') break;  // codeset and @modifier suffixes
+        tag.push_back(c == '_' ? '-' : c);
+    }
+    // "C" and "POSIX" are the *absence* of a locale, not a language named C.
+    // Reporting them as tags would have the caller matching them against its
+    // language table, which is how "C" ends up looking like a near-miss.
+    if (tag == "C" || tag == "POSIX") return std::string();
+    return tag;
+}
+
+} // namespace
+
+// KNOWN GAP (macOS): this reads the environment, and a GUI-launched .app does
+// not inherit LANG -- only a terminal-launched build sees it. The correct call
+// there is CFLocaleCopyPreferredLanguages, which already returns BCP 47 tags.
+// It is not written here because no macOS host was available to compile it on,
+// and untested CoreFoundation code would be a worse record than a named gap.
+// The degradation is benign: an empty list, and every caller falls back to
+// English.
+std::vector<std::wstring> preferredUiLanguages() {
+    std::vector<std::wstring> tags;
+    auto add = [&tags](const std::string& raw) {
+        std::string tag = localeToBcp47(raw);
+        if (tag.empty()) return;
+        std::wstring wide = fromUtf8(tag);
+        for (const std::wstring& seen : tags) {
+            if (seen == wide) return;  // first mention wins, so order is preference
+        }
+        tags.push_back(wide);
+    };
+
+    // LANGUAGE comes first and is the only variable holding a *list*: the GNU
+    // extension is colon-separated ("de:fr:en") and exists precisely to express
+    // a fallback order, which is exactly what this function returns.
+    if (const char* language = std::getenv("LANGUAGE")) {
+        std::string list(language);
+        size_t start = 0;
+        while (start <= list.size()) {
+            size_t colon = list.find(':', start);
+            if (colon == std::string::npos) {
+                add(list.substr(start));
+                break;
+            }
+            add(list.substr(start, colon - start));
+            start = colon + 1;
+        }
+    }
+    // Then the standard precedence: LC_ALL beats LC_MESSAGES beats LANG.
+    for (const char* name : {"LC_ALL", "LC_MESSAGES", "LANG"}) {
+        if (const char* value = std::getenv(name)) add(value);
+    }
+    return tags;
+}
+
+void openInDefaultApplication(const std::wstring& path) {
+    std::string utf8 = toUtf8(path);
+    if (utf8.empty()) return;
+
+#if defined(__APPLE__)
+    const char* opener = "open";
+#else
+    const char* opener = "xdg-open";
+#endif
+
+    // Double fork, so the opener is reparented to init. The intermediate child
+    // is reaped immediately below and the grandchild that actually execs is
+    // never this process's child, so it cannot become a zombie. A single fork
+    // would need either a blocking waitpid -- freezing the UI until the user
+    // closes their editor -- or a process-wide SIGCHLD handler, and installing
+    // one of those from a path-lookup seam is not this file's business.
+    pid_t intermediate = fork();
+    if (intermediate < 0) return;
+    if (intermediate == 0) {
+        if (fork() == 0) {
+            execlp(opener, opener, utf8.c_str(), static_cast<char*>(nullptr));
+            _exit(127);  // exec failed: never fall back into the parent's code
+        }
+        _exit(0);
+    }
+    // Returns at once -- the intermediate child does nothing but fork and exit.
+    int status = 0;
+    waitpid(intermediate, &status, 0);
 }
 
 } // namespace platform

@@ -80,6 +80,7 @@ set(SOURCES
     src/inline_style.cpp
     src/print.cpp
     src/i18n.cpp
+    src/i18n_app.cpp
     src/selection.cpp
     src/math_render.cpp
     src/math_parser.cpp
@@ -282,6 +283,28 @@ if(BUILD_TESTING)
     target_link_libraries(document_tests PRIVATE md4c)
     add_test(NAME document_types COMMAND document_tests)
 
+    # i18n_tests moved out of the if(WIN32) block below when i18n.cpp came off
+    # app.h. tests/i18n_tests.cpp itself never needed Windows -- it includes
+    # i18n.h, <iostream> and <string> and nothing else -- so the guard was there
+    # purely because the file it links against pulled in windows.h. A non-Windows
+    # compiler accepting src/i18n.cpp is the only real proof of that, which is why
+    # the target moved rather than a comment being added.
+    add_executable(i18n_tests
+        tests/i18n_tests.cpp
+        src/i18n.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(i18n_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        # shell32 for ShellExecuteW/SHGetFolderPathW inside the win32 seam.
+        target_link_libraries(i18n_tests PRIVATE shell32)
+        target_compile_definitions(i18n_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME i18n COMMAND i18n_tests)
+
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
     if(WIN32)
     add_executable(inline_style_tests
@@ -299,19 +322,6 @@ if(BUILD_TESTING)
     target_link_libraries(inline_style_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32)
     target_compile_definitions(inline_style_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME inline_styles COMMAND inline_style_tests)
-
-    add_executable(i18n_tests
-        tests/i18n_tests.cpp
-        src/i18n.cpp
-        src/config_dir.cpp
-        ${PLATFORM_PATHS_SOURCE}
-    )
-    target_include_directories(i18n_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_link_libraries(i18n_tests PRIVATE shell32)
-    target_compile_definitions(i18n_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME i18n COMMAND i18n_tests)
 
     add_executable(config_path_tests
         tests/config_path_tests.cpp

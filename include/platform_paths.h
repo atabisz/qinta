@@ -2,6 +2,7 @@
 #define TINTA_PLATFORM_PATHS_H
 
 #include <string>
+#include <vector>
 
 // The first seam of the platform layer: path and configuration-home lookups.
 //
@@ -58,6 +59,24 @@ wchar_t pathSeparator();
 // becoming a different valid string.
 std::wstring fromUtf8(const std::string& utf8);
 std::string toUtf8(const std::wstring& wide);
+
+// The user's preferred UI languages as BCP 47 tags, most preferred first, e.g.
+// { L"en-AU", L"ja-JP" }. Empty when the platform reports nothing usable --
+// callers are expected to fall back to English, not to treat empty as an error.
+//
+// Tags are normalized to BCP 47 by each implementation so callers never have to
+// know which shape the OS handed over. That matters on POSIX, where the native
+// form is a locale name like "zh_CN.UTF-8": the underscore becomes a hyphen and
+// the codeset and @modifier suffixes are dropped. The "C" and "POSIX" locales
+// mean "no preference" and are omitted rather than reported as a language.
+std::vector<std::wstring> preferredUiLanguages();
+
+// Hand `path` to the desktop's default handler -- the equivalent of a
+// double-click. Fire and forget: it does not wait for the application, and it
+// reports nothing, because no caller in the tree checks and the failure mode
+// that matters (no handler registered) is not distinguishable from success on
+// every platform anyway.
+void openInDefaultApplication(const std::wstring& path);
 
 } // namespace platform
 

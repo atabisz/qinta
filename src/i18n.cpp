@@ -13,6 +13,7 @@
 // header to hide behind, which is the point.
 #include <cctype>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <unordered_map>
@@ -1459,7 +1460,15 @@ void loadLanguageOverrides() {
 
     std::wstring path = languagesIniPath();
     if (path.empty()) return;
-    std::ifstream file(path);
+    // std::filesystem::path, not the bare std::wstring. Passing a wstring to an
+    // fstream compiles on MSVC only -- the wide-path constructor is a Microsoft
+    // extension, and libstdc++ rejects it. fs::path is the standard spelling and
+    // is identical on Windows, where fs::path already stores a wstring natively.
+    // Named, not std::ifstream file(std::filesystem::path(path)) -- that spelling
+    // is the most vexing parse and declares a *function* taking a path, which
+    // then fails later at the getline rather than here.
+    const std::filesystem::path iniPath(path);
+    std::ifstream file(iniPath);
     if (!file) return;
 
     int locale = -1;
@@ -1503,7 +1512,9 @@ void openLanguagesIniFile() {
     // ofstream below then fails to open, every << is a no-op, and the open
     // attempt still happens -- which is exactly what the old code did.
     if (!platform::regularFileExists(path)) {
-        std::ofstream f(path, std::ios::binary);
+        // fs::path for the same reason as the ifstream above: a wstring here is
+        // an MSVC-only extension.
+        std::ofstream f(std::filesystem::path(path), std::ios::binary);
         f << "; Tinta UI translations \xe2\x80\x94 UTF-8, key=value under a language section.\n";
         f << "; Uncomment a line, translate the right-hand side, restart Tinta \xe2\x80\x94\n";
         f << "; the language appears in Settings once it has translations.\n";

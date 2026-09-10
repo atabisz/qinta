@@ -4,18 +4,7 @@
   <p><em>Markdown, distilled.</em></p>
   <p>A fast, lightweight Markdown and Mermaid viewer for Windows</p>
 
-  <p>
-    <a href="https://apps.microsoft.com/detail/9MZ5MZ3L9RKF">
-      <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200" alt="Get Tinta from the Microsoft Store">
-    </a>
-  </p>
-
-  <a href="https://github.com/oipoistar/tinta/releases/latest">
-    <img src="https://img.shields.io/github/v/release/oipoistar/tinta?label=Portable&style=for-the-badge&color=1a1a2e" alt="Portable download">
-  </a>
-  <a href="https://tinta.cc">
-    <img src="https://img.shields.io/badge/website-tinta.cc-8b4513?style=for-the-badge" alt="Website">
-  </a>
+  
   <a href="LICENSE">
     <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="MIT License">
   </a>

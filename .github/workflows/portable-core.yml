@@ -1,0 +1,71 @@
+name: Portable core
+
+# Builds and runs only the platform-independent test targets on Linux and macOS.
+# The app itself stays Windows-only; this job exists so that code which is meant
+# to be platform-independent cannot quietly acquire a Windows dependency —
+# CMakeLists.txt leaves exactly four targets outside its if(WIN32) guards, and
+# this is what proves they still build without Direct2D, DirectWrite or Win32.
+
+on:
+  push:
+    # This project's default branch is master. main is listed too so a future
+    # rename does not silently stop the job from ever running.
+    branches:
+      - master
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  portable:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux (GCC)
+            os: ubuntu-latest
+            cc: gcc
+            cxx: g++
+          - name: Linux (Clang)
+            os: ubuntu-latest
+            cc: clang
+            cxx: clang++
+          - name: macOS (AppleClang)
+            os: macos-latest
+            cc: clang
+            cxx: clang++
+
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      # Named explicitly rather than building everything: if a new portable
+      # target is added it must be listed here deliberately, and if one of these
+      # stops being portable the failure names the target.
+      - name: Build portable targets
+        run: cmake --build build --target keymap_tests math_parser_tests mermaid_tests document_tests
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -R '^(keymap|math_parser|mermaid_parser|document_types)$'
+
+      # A pass above is only meaningful if those four tests actually ran. ctest
+      # exits 0 on an empty selection, so assert the count rather than trust it.
+      - name: Assert all four tests ran
+        shell: bash
+        run: |
+          count=$(ctest --test-dir build -N -R '^(keymap|math_parser|mermaid_parser|document_types)$' \
+                  | sed -n 's/^Total Tests: \([0-9]*\)$/\1/p')
+          echo "selected tests: $count"
+          if [ "$count" != "4" ]; then
+            echo "::error::expected 4 portable tests, ctest selected $count"
+            exit 1
+          fi

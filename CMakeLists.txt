@@ -108,6 +108,11 @@ set(HEADERS
     include/math_render.h
 )
 
+# The app itself is Windows-only (Direct2D/DirectWrite/Win32). Guarding it lets
+# the platform-independent test targets below configure and run on Linux/macOS,
+# which is how the portable core is kept honest in CI.
+if(WIN32)
+
 # Windows resource file (icon)
 set(RESOURCES
     resources/tinta.rc
@@ -142,11 +147,17 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
     TINTA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     TINTA_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
+endif()  # WIN32 — app target
+
 if(BUILD_TESTING)
+    # --- Platform-independent targets: these build and run on every platform.
+    # They link no Windows libraries, so a regression that drags Windows into
+    # the portable core breaks them on the Linux CI job rather than silently.
     add_executable(keymap_tests tests/keymap_tests.cpp src/keymap.cpp)
     target_include_directories(keymap_tests PRIVATE include)
     add_test(NAME keymap COMMAND keymap_tests)
 
+    if(WIN32)
     # Exercise the real input handlers and editor with a message-only test
     # window, including layout-dependent character sequences (#195).
     set(INPUT_TEST_SOURCES ${SOURCES})
@@ -194,11 +205,13 @@ if(BUILD_TESTING)
     target_link_libraries(context_menu_tests PRIVATE md4c shell32)
     target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME context_menu COMMAND context_menu_tests)
+    endif()  # WIN32
 
     add_executable(math_parser_tests tests/math_parser_tests.cpp src/math_parser.cpp src/math_macros.cpp)
     target_include_directories(math_parser_tests PRIVATE src)
     add_test(NAME math_parser COMMAND math_parser_tests)
 
+    if(WIN32)
     add_executable(math_layout_tests tests/math_layout_tests.cpp
         src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp)
     target_include_directories(math_layout_tests PRIVATE include src ${md4c_SOURCE_DIR}/src)
@@ -206,6 +219,7 @@ if(BUILD_TESTING)
     target_compile_definitions(math_layout_tests PRIVATE UNICODE _UNICODE
         TINTA_MATH_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/math-compatibility.md")
     add_test(NAME math_layout COMMAND math_layout_tests)
+    endif()  # WIN32
 
     add_executable(mermaid_tests
         tests/mermaid_tests.cpp
@@ -240,6 +254,8 @@ if(BUILD_TESTING)
     target_link_libraries(document_tests PRIVATE md4c)
     add_test(NAME document_types COMMAND document_tests)
 
+    # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
+    if(WIN32)
     add_executable(inline_style_tests
         tests/inline_style_tests.cpp
         src/inline_style.cpp
@@ -277,7 +293,10 @@ if(BUILD_TESTING)
     target_link_libraries(config_path_tests PRIVATE shell32)
     target_compile_definitions(config_path_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME config_paths COMMAND config_path_tests)
+    endif()  # WIN32
 endif()
 
 # Install
-install(TARGETS tinta RUNTIME DESTINATION bin)
+if(WIN32)
+    install(TARGETS tinta RUNTIME DESTINATION bin)
+endif()

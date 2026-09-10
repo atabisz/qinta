@@ -233,10 +233,20 @@ int main() {
                 double asc = face->size->metrics.ascender / 64.0;
                 double desc = face->size->metrics.descender / 64.0;
                 double height = face->size->metrics.height / 64.0;
-                check(asc > 0 && desc < 0 && height >= asc - desc,
+                // `height >= asc - desc` is WRONG and the first run of this probe
+                // failed on it: FreeType grid-fits ascender and descender to whole
+                // pixels independently, so each can round up while `height` rounds
+                // down. DejaVu at 16px/96dpi gave 20 / -6 / 25 — a 1px shortfall
+                // that is rounding, not a metrics defect. Tolerance is 2px, and the
+                // delta is printed so a real disagreement is still visible.
+                double sum = asc - desc;
+                double delta = sum - height;
+                check(asc > 0 && desc < 0 && height > 0 && delta <= 2.0 && delta >= -2.0,
                       "ascent/descent/line-height at 16px/96dpi",
-                      "asc=" + std::to_string(asc) + " desc=" + std::to_string(desc) +
-                      " height=" + std::to_string(height));
+                      "asc=" + std::to_string((int)asc) + " desc=" + std::to_string((int)desc) +
+                      " height=" + std::to_string((int)height) +
+                      " (asc+|desc|=" + std::to_string((int)sum) +
+                      ", grid-fit delta " + std::to_string((int)delta) + "px)");
                 FT_Done_Face(face);
             }
         }

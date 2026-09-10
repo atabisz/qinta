@@ -235,7 +235,7 @@ void render(App& app) {
         // surface first, then the document clips into the sheet
         renderEditSheetChrome(app);
         {
-            D2D1_RECT_F sheet = editSheetRect(app);
+            tinta::RectF sheet = editSheetRect(app);
             app.renderTarget->PushAxisAlignedClip(
                 sheet, D2D1_ANTIALIAS_MODE_ALIASED);
         }
@@ -311,7 +311,7 @@ render_document:
         }
         app.brush->SetColor(rect.color);
         app.renderTarget->FillRectangle(
-            D2D1::RectF(rect.rect.left - app.scrollX, rect.rect.top - app.scrollY,
+            tinta::rectF(rect.rect.left - app.scrollX, rect.rect.top - app.scrollY,
                        rect.rect.right - app.scrollX, rect.rect.bottom - app.scrollY),
             app.brush);
         app.drawCalls++;
@@ -350,8 +350,8 @@ render_document:
             const auto& from = connector.points[i - 1];
             const auto& to = connector.points[i];
             app.renderTarget->DrawLine(
-                D2D1::Point2F(from.x - app.scrollX, from.y - app.scrollY),
-                D2D1::Point2F(to.x - app.scrollX, to.y - app.scrollY),
+                tinta::pointF(from.x - app.scrollX, from.y - app.scrollY),
+                tinta::pointF(to.x - app.scrollX, to.y - app.scrollY),
                 app.brush, connector.stroke,
                 connector.dashed ? dashedStrokeStyle : nullptr);
             app.drawCalls++;
@@ -367,21 +367,21 @@ render_document:
                 dx /= length;
                 dy /= length;
                 float wing = connector.arrowSize * 0.5f;
-                D2D1_POINT_2F left = D2D1::Point2F(
+                tinta::PointF left = tinta::pointF(
                     tip.x - dx * connector.arrowSize + dy * wing,
                     tip.y - dy * connector.arrowSize - dx * wing);
-                D2D1_POINT_2F right = D2D1::Point2F(
+                tinta::PointF right = tinta::pointF(
                     tip.x - dx * connector.arrowSize - dy * wing,
                     tip.y - dy * connector.arrowSize + dx * wing);
-                D2D1_POINT_2F screenTip =
-                    D2D1::Point2F(tip.x - app.scrollX, tip.y - app.scrollY);
+                tinta::PointF screenTip =
+                    tinta::pointF(tip.x - app.scrollX, tip.y - app.scrollY);
                 app.renderTarget->DrawLine(
                     screenTip,
-                    D2D1::Point2F(left.x - app.scrollX, left.y - app.scrollY),
+                    tinta::pointF(left.x - app.scrollX, left.y - app.scrollY),
                     app.brush, connector.stroke);
                 app.renderTarget->DrawLine(
                     screenTip,
-                    D2D1::Point2F(right.x - app.scrollX, right.y - app.scrollY),
+                    tinta::pointF(right.x - app.scrollX, right.y - app.scrollY),
                     app.brush, connector.stroke);
                 app.drawCalls += 2;
             }
@@ -389,7 +389,7 @@ render_document:
     }
     // Draws a cached polygon geometry (built lazily in local space) at the
     // shape's screen position via a translation transform
-    auto drawPolygon = [&](const D2D1_POINT_2F* localPoints, size_t count,
+    auto drawPolygon = [&](const tinta::PointF* localPoints, size_t count,
                            App::LayoutShape& shape) {
         if (count < 3) return;
 
@@ -399,7 +399,7 @@ render_document:
             ID2D1GeometrySink* sink = nullptr;
             if (SUCCEEDED(geometry->Open(&sink)) && sink) {
                 sink->BeginFigure(localPoints[0], D2D1_FIGURE_BEGIN_FILLED);
-                sink->AddLines(localPoints + 1, static_cast<UINT32>(count - 1));
+                sink->AddLines(tinta::asD2DPointArray(localPoints + 1), static_cast<UINT32>(count - 1));
                 sink->EndFigure(D2D1_FIGURE_END_CLOSED);
                 sink->Close();
                 sink->Release();
@@ -437,7 +437,7 @@ render_document:
             continue;
         }
 
-        D2D1_RECT_F rect = D2D1::RectF(
+        tinta::RectF rect = tinta::rectF(
             shape.rect.left - app.scrollX,
             shape.rect.top - app.scrollY,
             shape.rect.right - app.scrollX,
@@ -470,11 +470,11 @@ render_document:
         if (shape.type == App::LayoutShapeType::Diamond) {
             float w = shape.rect.right - shape.rect.left;
             float h = shape.rect.bottom - shape.rect.top;
-            D2D1_POINT_2F points[] = {
-                D2D1::Point2F(w * 0.5f, 0),
-                D2D1::Point2F(w, h * 0.5f),
-                D2D1::Point2F(w * 0.5f, h),
-                D2D1::Point2F(0, h * 0.5f),
+            tinta::PointF points[] = {
+                tinta::pointF(w * 0.5f, 0),
+                tinta::pointF(w, h * 0.5f),
+                tinta::pointF(w * 0.5f, h),
+                tinta::pointF(0, h * 0.5f),
             };
             drawPolygon(points, 4, shape);
             continue;
@@ -484,13 +484,13 @@ render_document:
             float w = shape.rect.right - shape.rect.left;
             float h = shape.rect.bottom - shape.rect.top;
             float inset = w * 0.18f;
-            D2D1_POINT_2F points[] = {
-                D2D1::Point2F(inset, 0),
-                D2D1::Point2F(w - inset, 0),
-                D2D1::Point2F(w, h * 0.5f),
-                D2D1::Point2F(w - inset, h),
-                D2D1::Point2F(inset, h),
-                D2D1::Point2F(0, h * 0.5f),
+            tinta::PointF points[] = {
+                tinta::pointF(inset, 0),
+                tinta::pointF(w - inset, 0),
+                tinta::pointF(w, h * 0.5f),
+                tinta::pointF(w - inset, h),
+                tinta::pointF(inset, h),
+                tinta::pointF(0, h * 0.5f),
             };
             drawPolygon(points, 6, shape);
             continue;
@@ -498,8 +498,8 @@ render_document:
 
         app.brush->SetColor(shape.fill);
         if (shape.type == App::LayoutShapeType::Ellipse) {
-            D2D1_ELLIPSE ellipse = D2D1::Ellipse(
-                D2D1::Point2F(
+            tinta::Ellipse ellipse = tinta::ellipse(
+                tinta::pointF(
                     (rect.left + rect.right) * 0.5f,
                     (rect.top + rect.bottom) * 0.5f),
                 (rect.right - rect.left) * 0.5f,
@@ -522,7 +522,7 @@ render_document:
             float radius = shape.type == App::LayoutShapeType::Stadium
                 ? (rect.bottom - rect.top) * 0.5f
                 : shape.radius;
-            D2D1_ROUNDED_RECT rounded = D2D1::RoundedRect(rect, radius, radius);
+            tinta::RoundedRect rounded = tinta::roundedRect(rect, radius, radius);
             if (shape.fill.a > 0.0f) {
                 app.renderTarget->FillRoundedRectangle(rounded, app.brush);
                 app.drawCalls++;
@@ -556,7 +556,7 @@ render_document:
         if (bmp.destRect.right < viewportLeft - cullMargin ||
             bmp.destRect.left > viewportRight + cullMargin) continue;
         app.renderTarget->DrawBitmap(bmp.bitmap,
-            D2D1::RectF(bmp.destRect.left - app.scrollX,
+            tinta::rectF(bmp.destRect.left - app.scrollX,
                          bmp.destRect.top - app.scrollY,
                          bmp.destRect.right - app.scrollX,
                          bmp.destRect.bottom - app.scrollY));
@@ -573,7 +573,7 @@ render_document:
             continue;
         }
         app.brush->SetColor(run.color);
-        D2D1_POINT_2F drawPos = D2D1::Point2F(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
+        tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
         if (app.deviceContext) {
             app.deviceContext->DrawTextLayout(drawPos, run.layout, app.brush,
                 D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
@@ -591,8 +591,8 @@ render_document:
         }
         app.brush->SetColor(line.color);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(line.p1.x - app.scrollX, line.p1.y - app.scrollY),
-            D2D1::Point2F(line.p2.x - app.scrollX, line.p2.y - app.scrollY),
+            tinta::pointF(line.p1.x - app.scrollX, line.p1.y - app.scrollY),
+            tinta::pointF(line.p2.x - app.scrollX, line.p2.y - app.scrollY),
             app.brush, line.stroke);
         app.drawCalls++;
     }
@@ -612,17 +612,17 @@ render_document:
             float btnY = cb.bounds.top + btnPad - app.scrollY;
 
             // Button background
-            app.brush->SetColor(D2D1::ColorF(
+            app.brush->SetColor(tinta::colorF(
                 app.theme.isDark ? 0.3f : 0.85f,
                 app.theme.isDark ? 0.3f : 0.85f,
                 app.theme.isDark ? 0.3f : 0.85f,
                 0.9f));
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(D2D1::RectF(btnX, btnY, btnX + btnW, btnY + btnH), 4, 4),
+                tinta::roundedRect(tinta::rectF(btnX, btnY, btnX + btnW, btnY + btnH), 4, 4),
                 app.brush);
 
             // Localized copy label centered in the button
-            app.brush->SetColor(D2D1::ColorF(
+            app.brush->SetColor(tinta::colorF(
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
@@ -635,7 +635,7 @@ render_document:
                 btnLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 btnLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 app.renderTarget->DrawTextLayout(
-                    D2D1::Point2F(btnX, btnY), btnLayout, app.brush);
+                    tinta::pointF(btnX, btnY), btnLayout, app.brush);
                 btnLayout->Release();
             }
 
@@ -648,17 +648,17 @@ render_document:
                 if (cb.fitCandidate) {
                     float fitW = dpi(app, 44.0f);
                     float fitX = pngX - fitW - dpi(app, 6.0f);
-                    app.brush->SetColor(D2D1::ColorF(
+                    app.brush->SetColor(tinta::colorF(
                         app.theme.isDark ? 0.3f : 0.85f,
                         app.theme.isDark ? 0.3f : 0.85f,
                         app.theme.isDark ? 0.3f : 0.85f,
                         0.9f));
                     app.renderTarget->FillRoundedRectangle(
-                        D2D1::RoundedRect(
-                            D2D1::RectF(fitX, btnY, fitX + fitW,
+                        tinta::roundedRect(
+                            tinta::rectF(fitX, btnY, fitX + fitW,
                                         btnY + btnH), 4, 4),
                         app.brush);
-                    app.brush->SetColor(D2D1::ColorF(
+                    app.brush->SetColor(tinta::colorF(
                         app.theme.isDark ? 0.9f : 0.15f,
                         app.theme.isDark ? 0.9f : 0.15f,
                         app.theme.isDark ? 0.9f : 0.15f,
@@ -675,21 +675,21 @@ render_document:
                         fitLayout->SetParagraphAlignment(
                             DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                         app.renderTarget->DrawTextLayout(
-                            D2D1::Point2F(fitX, btnY), fitLayout,
+                            tinta::pointF(fitX, btnY), fitLayout,
                             app.brush);
                         fitLayout->Release();
                     }
                 }
-                app.brush->SetColor(D2D1::ColorF(
+                app.brush->SetColor(tinta::colorF(
                     app.theme.isDark ? 0.3f : 0.85f,
                     app.theme.isDark ? 0.3f : 0.85f,
                     app.theme.isDark ? 0.3f : 0.85f,
                     0.9f));
                 app.renderTarget->FillRoundedRectangle(
-                    D2D1::RoundedRect(
-                        D2D1::RectF(pngX, btnY, pngX + pngW, btnY + btnH), 4, 4),
+                    tinta::roundedRect(
+                        tinta::rectF(pngX, btnY, pngX + pngW, btnY + btnH), 4, 4),
                     app.brush);
-                app.brush->SetColor(D2D1::ColorF(
+                app.brush->SetColor(tinta::colorF(
                     app.theme.isDark ? 0.9f : 0.15f,
                     app.theme.isDark ? 0.9f : 0.15f,
                     app.theme.isDark ? 0.9f : 0.15f,
@@ -704,7 +704,7 @@ render_document:
                     pngLayout->SetParagraphAlignment(
                         DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                     app.renderTarget->DrawTextLayout(
-                        D2D1::Point2F(pngX, btnY), pngLayout, app.brush);
+                        tinta::pointF(pngX, btnY), pngLayout, app.brush);
                     pngLayout->Release();
                 }
             }
@@ -726,17 +726,17 @@ render_document:
             float btnX = rightEdge - btnW - btnPad - app.scrollX;
             float btnY = tb.bounds.top + btnPad - app.scrollY;
 
-            app.brush->SetColor(D2D1::ColorF(
+            app.brush->SetColor(tinta::colorF(
                 app.theme.isDark ? 0.3f : 0.85f,
                 app.theme.isDark ? 0.3f : 0.85f,
                 app.theme.isDark ? 0.3f : 0.85f,
                 0.9f));
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(
-                    D2D1::RectF(btnX, btnY, btnX + btnW, btnY + btnH), 4, 4),
+                tinta::roundedRect(
+                    tinta::rectF(btnX, btnY, btnX + btnW, btnY + btnH), 4, 4),
                 app.brush);
 
-            app.brush->SetColor(D2D1::ColorF(
+            app.brush->SetColor(tinta::colorF(
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
@@ -751,7 +751,7 @@ render_document:
                 btnLayout->SetParagraphAlignment(
                     DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                 app.renderTarget->DrawTextLayout(
-                    D2D1::Point2F(btnX, btnY), btnLayout, app.brush);
+                    tinta::pointF(btnX, btnY), btnLayout, app.brush);
                 btnLayout->Release();
             }
 
@@ -759,17 +759,17 @@ render_document:
             if (tb.fitCandidate) {
                 float fitW = dpi(app, 44.0f);
                 float fitX = btnX - fitW - dpi(app, 6.0f);
-                app.brush->SetColor(D2D1::ColorF(
+                app.brush->SetColor(tinta::colorF(
                     app.theme.isDark ? 0.3f : 0.85f,
                     app.theme.isDark ? 0.3f : 0.85f,
                     app.theme.isDark ? 0.3f : 0.85f,
                     0.9f));
                 app.renderTarget->FillRoundedRectangle(
-                    D2D1::RoundedRect(
-                        D2D1::RectF(fitX, btnY, fitX + fitW, btnY + btnH),
+                    tinta::roundedRect(
+                        tinta::rectF(fitX, btnY, fitX + fitW, btnY + btnH),
                         4, 4),
                     app.brush);
-                app.brush->SetColor(D2D1::ColorF(
+                app.brush->SetColor(tinta::colorF(
                     app.theme.isDark ? 0.9f : 0.15f,
                     app.theme.isDark ? 0.9f : 0.15f,
                     app.theme.isDark ? 0.9f : 0.15f,
@@ -785,7 +785,7 @@ render_document:
                     fitLayout->SetParagraphAlignment(
                         DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
                     app.renderTarget->DrawTextLayout(
-                        D2D1::Point2F(fitX, btnY), fitLayout, app.brush);
+                        tinta::pointF(fitX, btnY), fitLayout, app.brush);
                     fitLayout->Release();
                 }
             }
@@ -816,9 +816,9 @@ render_document:
         float sbWidth = (app.scrollbarHovered || app.scrollbarDragging) ? dpi(app, 10.0f) : dpi(app, 6.0f);
         float sbAlpha = (app.scrollbarHovered || app.scrollbarDragging) ? 0.5f : 0.3f;
 
-        app.brush->SetColor(D2D1::ColorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
+        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(documentWidth - sbWidth - dpi(app, 4.0f), sbY,
+            tinta::roundedRect(tinta::rectF(documentWidth - sbWidth - dpi(app, 4.0f), sbY,
                                           documentWidth - dpi(app, 4.0f), sbY + sbHeight), 3, 3),
             app.brush);
         app.drawCalls++;
@@ -846,12 +846,12 @@ render_document:
                 ty = std::min(ty, trackTop + trackHeight - dpi(app, 2.0f));
                 return true;
             };
-            app.brush->SetColor(D2D1::ColorF(1.0f, 0.82f, 0.0f, 0.55f));
+            app.brush->SetColor(tinta::colorF(1.0f, 0.82f, 0.0f, 0.55f));
             for (size_t i = 0; i < app.searchMatches.size(); i += step) {
                 float ty;
                 if (!tickY(app.searchMatches[i], ty)) continue;
                 app.renderTarget->FillRectangle(
-                    D2D1::RectF(tickLeft, ty, tickRight, ty + dpi(app, 2.0f)),
+                    tinta::rectF(tickLeft, ty, tickRight, ty + dpi(app, 2.0f)),
                     app.brush);
             }
             // The current match always gets its tick, stepping or not
@@ -859,9 +859,9 @@ render_document:
                 app.searchCurrentIndex < (int)app.searchMatches.size()) {
                 float ty;
                 if (tickY(app.searchMatches[app.searchCurrentIndex], ty)) {
-                    app.brush->SetColor(D2D1::ColorF(1.0f, 0.6f, 0.0f, 0.95f));
+                    app.brush->SetColor(tinta::colorF(1.0f, 0.6f, 0.0f, 0.95f));
                     app.renderTarget->FillRectangle(
-                        D2D1::RectF(tickLeft, ty - dpi(app, 0.5f), tickRight,
+                        tinta::rectF(tickLeft, ty - dpi(app, 0.5f), tickRight,
                                     ty + dpi(app, 2.5f)),
                         app.brush);
                 }
@@ -881,9 +881,9 @@ render_document:
         float sbHeight = (app.hScrollbarHovered || app.hScrollbarDragging) ? dpi(app, 10.0f) : dpi(app, 6.0f);
         float sbAlpha = (app.hScrollbarHovered || app.hScrollbarDragging) ? 0.5f : 0.3f;
 
-        app.brush->SetColor(D2D1::ColorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
+        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(sbX, app.height - sbHeight - dpi(app, 4.0f),
+            tinta::roundedRect(tinta::rectF(sbX, app.height - sbHeight - dpi(app, 4.0f),
                                           sbX + sbWidth, app.height - dpi(app, 4.0f)), 3, 3),
             app.brush);
         app.drawCalls++;
@@ -897,16 +897,16 @@ render_document:
         size_t selA = std::min(app.selAnchor, app.selFocus);
         size_t selB = std::max(app.selAnchor, app.selFocus);
 
-        std::vector<D2D1_RECT_F> bars;
+        std::vector<tinta::RectF> bars;
         selectionHighlightRects(app, selA, selB, bars);
 
-        app.brush->SetColor(D2D1::ColorF(0.2f, 0.4f, 0.9f, 0.35f));
+        app.brush->SetColor(tinta::colorF(0.2f, 0.4f, 0.9f, 0.35f));
         float viewTop = app.scrollY - 50.0f;
         float viewBottom = app.scrollY + app.height + 50.0f;
         for (const auto& bar : bars) {
             if (bar.bottom < viewTop || bar.top > viewBottom) continue;
             app.renderTarget->FillRectangle(
-                D2D1::RectF(bar.left - app.scrollX, bar.top - app.scrollY,
+                tinta::rectF(bar.left - app.scrollX, bar.top - app.scrollY,
                             bar.right - app.scrollX, bar.bottom - app.scrollY),
                 app.brush);
             app.drawCalls++;
@@ -917,7 +917,7 @@ render_document:
     if (app.showSearch && !app.searchQuery.empty() && !app.textRects.empty() && !app.searchMatches.empty()) {
         // Collect visible match rects by intersecting search matches with text rects
         struct VisibleMatch {
-            D2D1_RECT_F rect;
+            tinta::RectF rect;
             size_t matchIndex;
         };
         std::vector<VisibleMatch> visibleMatches;
@@ -954,7 +954,7 @@ render_document:
                 if (overlapStart < overlapEnd) {
                     // Glyph-precise via the run layout (shared with text
                     // selection); falls back to interpolation for code
-                    D2D1_RECT_F highlightRect;
+                    tinta::RectF highlightRect;
                     if (selectionRangeRect(app, tr, overlapStart, overlapEnd,
                                            highlightRect)) {
                         // Extend slightly for better visibility
@@ -980,13 +980,13 @@ render_document:
                               vm.matchIndex == (size_t)app.searchCurrentIndex);
 
             if (isCurrent) {
-                app.brush->SetColor(D2D1::ColorF(1.0f, 0.6f, 0.0f, 0.5f));  // Orange
+                app.brush->SetColor(tinta::colorF(1.0f, 0.6f, 0.0f, 0.5f));  // Orange
             } else {
-                app.brush->SetColor(D2D1::ColorF(1.0f, 0.9f, 0.0f, 0.3f));  // Yellow
+                app.brush->SetColor(tinta::colorF(1.0f, 0.9f, 0.0f, 0.3f));  // Yellow
             }
 
             app.renderTarget->FillRectangle(
-                D2D1::RectF(vm.rect.left - app.scrollX, vm.rect.top - app.scrollY,
+                tinta::rectF(vm.rect.left - app.scrollX, vm.rect.top - app.scrollY,
                             vm.rect.right - app.scrollX, vm.rect.bottom - app.scrollY),
                 app.brush);
             app.drawCalls++;
@@ -1026,16 +1026,16 @@ render_document:
         float statsWidth = dpi(app, 600.0f);
         float statsHeight = dpi(app, 50.0f);
 
-        app.brush->SetColor(D2D1::ColorF(0, 0, 0, 0.8f));
+        app.brush->SetColor(tinta::colorF(0, 0, 0, 0.8f));
         app.renderTarget->FillRectangle(
-            D2D1::RectF(app.width - statsWidth - dpi(app, 10.0f), app.height - statsHeight - dpi(app, 10.0f),
+            tinta::rectF(app.width - statsWidth - dpi(app, 10.0f), app.height - statsHeight - dpi(app, 10.0f),
                        app.width - dpi(app, 10.0f), app.height - dpi(app, 10.0f)),
             app.brush);
 
-        app.brush->SetColor(D2D1::ColorF(0.7f, 0.9f, 0.7f));
+        app.brush->SetColor(tinta::colorF(0.7f, 0.9f, 0.7f));
         app.renderTarget->DrawText(stats, (UINT32)wcslen(stats),
             app.statsFormat ? app.statsFormat : app.codeFormat,
-            D2D1::RectF(app.width - statsWidth - dpi(app, 5.0f), app.height - statsHeight - dpi(app, 5.0f),
+            tinta::rectF(app.width - statsWidth - dpi(app, 5.0f), app.height - statsHeight - dpi(app, 5.0f),
                        app.width - dpi(app, 15.0f), app.height - dpi(app, 15.0f)),
             app.brush);
     }

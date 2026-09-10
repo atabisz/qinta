@@ -95,12 +95,12 @@ bool rasterize(const std::vector<MathBoxPtr>& boxes, const wchar_t* path = nullp
     auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
     if (FAILED(d2d->CreateWicBitmapRenderTarget(bitmap.Get(), props, &target))) return false;
     ComPtr<ID2D1SolidColorBrush> brush;
-    if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &brush))) return false;
+    if (FAILED(target->CreateSolidColorBrush(tinta::colorF(0.0f, 0.0f, 0.0f), &brush))) return false;
     target->BeginDraw();
-    target->Clear(D2D1::ColorF(D2D1::ColorF::White));
+    target->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
     float y = 16;
     for (const auto& box : boxes) {
-        mathBoxDrawTo(target.Get(), brush.Get(), box, 16, y, D2D1::ColorF(0x17212B));
+        mathBoxDrawTo(target.Get(), brush.Get(), box, 16, y, tinta::colorFromHex(0x17212B));
         y += std::ceil(mathBoxHeight(box)) + 24;
     }
     if (FAILED(target->EndDraw())) return false;
@@ -207,7 +207,7 @@ int main(int argc, char** argv) {
         auto textSvg = mathBoxSvg(mathParse(app, LR"(\text{for all }x\in\mathbb{R})", 24, true), "#111", "Segoe UI");
         check(textSvg.find("for all ") != std::string::npos && textSvg.find("xml:space=\"preserve\"") != std::string::npos,
               "SVG preserves text spaces");
-        mathBoxRetain(app, tall, 5, 10, D2D1::ColorF(D2D1::ColorF::Black));
+        mathBoxRetain(app, tall, 5, 10, tinta::colorF(0.0f, 0.0f, 0.0f));
         check(!app.layoutTextRuns.empty() && !app.layoutLines.empty(), "retained viewer receives same primitives");
         app.clearLayoutCache();
         check(rasterize({simple, tall, nested}), "native Direct2D offscreen drawing produces pixels");

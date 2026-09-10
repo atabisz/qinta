@@ -15,11 +15,11 @@
 
 struct InlineStyle {
     IDWriteTextFormat* format = nullptr;
-    D2D1_COLOR_F color{};
+    tinta::Color color{};
     std::string linkUrl;
     bool isLink = false;
     bool hasBg = false;
-    D2D1_COLOR_F bgColor{};
+    tinta::Color bgColor{};
     bool hasStrike = false;
     float drawYOffset = 0.0f;
     bool bold = false;

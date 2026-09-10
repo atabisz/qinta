@@ -364,7 +364,7 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
     return tokens;
 }
 
-D2D1_COLOR_F getTokenColor(const D2DTheme& theme, SyntaxTokenType ttype) {
+tinta::Color getTokenColor(const D2DTheme& theme, SyntaxTokenType ttype) {
     switch (ttype) {
         case SyntaxTokenType::Keyword:  return theme.syntaxKeyword;
         case SyntaxTokenType::String:   return theme.syntaxString;

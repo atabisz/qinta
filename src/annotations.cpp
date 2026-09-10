@@ -20,7 +20,7 @@ const wchar_t kElision[] = L" ... ";
 
 // The review hue is deliberately theme-independent so annotations read the
 // same across themes: a warm marker red, softened on dark backgrounds
-D2D1_COLOR_F annotColor(const App& app) {
+tinta::Color annotColor(const App& app) {
     return app.theme.isDark ? hexColor(0xE06A50) : hexColor(0xC2401A);
 }
 
@@ -297,11 +297,11 @@ size_t insertOffsetAfterBlock(const std::string& src, int lineTo) {
 // ---- editor overlay geometry (single window, recomputed on demand) ----
 
 struct EditorGeom {
-    D2D1_RECT_F panel{};
-    D2D1_RECT_F textArea{};
-    D2D1_RECT_F okBtn{};
-    D2D1_RECT_F cancelBtn{};
-    D2D1_RECT_F trashBtn{};
+    tinta::RectF panel{};
+    tinta::RectF textArea{};
+    tinta::RectF okBtn{};
+    tinta::RectF cancelBtn{};
+    tinta::RectF trashBtn{};
     float textHeight = 0.0f;
 };
 
@@ -336,16 +336,16 @@ EditorGeom editorGeom(const App& app) {
     float btnRow = btnH + pad;
     float h = pad + headerH + textH + pad * 0.5f + btnRow;
 
-    g.panel = D2D1::RectF(x, y, x + w, y + h);
-    g.textArea = D2D1::RectF(x + pad, y + pad + headerH,
+    g.panel = tinta::rectF(x, y, x + w, y + h);
+    g.textArea = tinta::rectF(x + pad, y + pad + headerH,
                              x + w - pad, y + pad + headerH + textH);
     float by = g.panel.bottom - pad - btnH + dpi(app, 4.0f);
     float bw = dpi(app, 30.0f);
-    g.okBtn = D2D1::RectF(x + w - pad - bw, by, x + w - pad, by + btnH);
-    g.cancelBtn = D2D1::RectF(g.okBtn.left - bw - dpi(app, 6.0f), by,
+    g.okBtn = tinta::rectF(x + w - pad - bw, by, x + w - pad, by + btnH);
+    g.cancelBtn = tinta::rectF(g.okBtn.left - bw - dpi(app, 6.0f), by,
                               g.okBtn.left - dpi(app, 6.0f), by + btnH);
     if (app.annotEditorIndex >= 0) {
-        g.trashBtn = D2D1::RectF(x + pad, by, x + pad + bw, by + btnH);
+        g.trashBtn = tinta::rectF(x + pad, by, x + pad + bw, by + btnH);
     }
     g.textHeight = textH;
     return g;
@@ -421,7 +421,7 @@ void annotationsParseSource(App& app) {
 
 void renderAnnotations(App& app) {
     app.annotationMarks.clear();
-    app.annotCopyBtnRect = D2D1_RECT_F{};
+    app.annotCopyBtnRect = tinta::RectF{};
     if (app.editMode || app.annotations.empty() || !app.renderTarget || !app.brush) {
         return;
     }
@@ -445,7 +445,7 @@ void renderAnnotations(App& app) {
     float viewX = documentViewportX(app);
     float viewW = documentViewportWidth(app);
     float topBound = chromeTopHeight(app);
-    D2D1_COLOR_F color = annotColor(app);
+    tinta::Color color = annotColor(app);
 
     // Tint the anchored text and remember where each annotation sits on
     // screen (first fragment centers the rail square, last ends the leader)
@@ -462,14 +462,14 @@ void renderAnnotations(App& app) {
     };
     std::vector<Anchor> anchors(app.annotations.size());
 
-    D2D1_COLOR_F tint = color;
+    tinta::Color tint = color;
     tint.a = 0.16f;
     for (size_t ai = 0; ai < app.annotations.size(); ai++) {
         const auto& a = app.annotations[ai];
         if (a.docStart == kNone || a.docEnd <= a.docStart) continue;
         // Word-granular textRects merge into one run per visual line so
         // the tint is continuous across spaces
-        D2D1_RECT_F lineRun{};
+        tinta::RectF lineRun{};
         bool runOpen = false;
         auto flushRun = [&]() {
             if (!runOpen) return;
@@ -490,13 +490,13 @@ void renderAnnotations(App& app) {
             an.boxBottom = std::max(an.boxBottom, sy1);
             app.brush->SetColor(tint);
             app.renderTarget->FillRectangle(
-                D2D1::RectF(sx0 - 1, sy0, sx1 + 1, sy1), app.brush);
+                tinta::rectF(sx0 - 1, sy0, sx1 + 1, sy1), app.brush);
             app.drawCalls++;
         };
         for (const auto& trc : app.textRects) {
             size_t rs = trc.docStart, re = rs + trc.docLength;
             if (re <= a.docStart || rs >= a.docEnd || trc.docLength == 0) continue;
-            D2D1_RECT_F frag;
+            tinta::RectF frag;
             if (!selectionRangeRect(app, trc,
                                     std::max(rs, a.docStart),
                                     std::min(re, a.docEnd), frag)) {
@@ -575,23 +575,23 @@ void renderAnnotations(App& app) {
         bool hovered = app.hoveredAnnotation == m.index;
         // Leader line from the square toward the end of the tinted text
         if (m.onText) {
-            D2D1_COLOR_F lead = color;
+            tinta::Color lead = color;
             lead.a = hovered ? 0.55f : 0.28f;
             app.brush->SetColor(lead);
             app.renderTarget->DrawLine(
-                D2D1::Point2F(m.textRight + dpi(app, 4.0f), m.textY),
-                D2D1::Point2F(railLeft - dpi(app, 3.0f), m.y),
+                tinta::pointF(m.textRight + dpi(app, 4.0f), m.textY),
+                tinta::pointF(railLeft - dpi(app, 3.0f), m.y),
                 app.brush, 1.0f);
         }
-        D2D1_COLOR_F fill = color;
+        tinta::Color fill = color;
         fill.a = m.onText ? (hovered ? 1.0f : 0.85f) : 0.35f;
         app.brush->SetColor(fill);
         float grow = hovered ? dpi(app, 1.5f) : 0.0f;
-        D2D1_RECT_F rect = D2D1::RectF(railLeft - grow, m.y - sq * 0.5f - grow,
+        tinta::RectF rect = tinta::rectF(railLeft - grow, m.y - sq * 0.5f - grow,
                                        railLeft + sq + grow,
                                        m.y + sq * 0.5f + grow);
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(rect, 2, 2), app.brush);
+            tinta::roundedRect(rect, 2, 2), app.brush);
         app.annotationMarks.push_back({rect, m.index, m.onText});
     }
 
@@ -601,21 +601,21 @@ void renderAnnotations(App& app) {
         float bh = dpi(app, 24.0f);
         float bx = railRight - bw + sq;
         float by = topBound + dpi(app, 8.0f);
-        D2D1_RECT_F btn = D2D1::RectF(bx, by, bx + bw, by + bh);
+        tinta::RectF btn = tinta::rectF(bx, by, bx + bw, by + bh);
         bool hovered = app.mouseX >= btn.left && app.mouseX <= btn.right &&
                        app.mouseY >= btn.top && app.mouseY <= btn.bottom;
-        D2D1_COLOR_F bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.95f)
+        tinta::Color bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.95f)
                                            : hexColor(0xF8F8F8, 0.95f);
         app.brush->SetColor(bg);
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(btn, 5, 5), app.brush);
-        D2D1_COLOR_F border = color;
+            tinta::roundedRect(btn, 5, 5), app.brush);
+        tinta::Color border = color;
         border.a = hovered ? 0.9f : 0.5f;
         app.brush->SetColor(border);
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(btn, 5, 5), app.brush, 1.0f);
+            tinta::roundedRect(btn, 5, 5), app.brush, 1.0f);
 
-        D2D1_COLOR_F glyph = app.theme.text;
+        tinta::Color glyph = app.theme.text;
         glyph.a = hovered ? 1.0f : 0.75f;
         app.brush->SetColor(glyph);
         // Copy: two offset rectangles
@@ -623,36 +623,36 @@ void renderAnnotations(App& app) {
         float gx = bx + dpi(app, 7.0f);
         float gy = by + (bh - g - dpi(app, 3.0f)) / 2.0f;
         app.renderTarget->DrawRectangle(
-            D2D1::RectF(gx + dpi(app, 3.0f), gy + dpi(app, 3.0f),
+            tinta::rectF(gx + dpi(app, 3.0f), gy + dpi(app, 3.0f),
                         gx + dpi(app, 3.0f) + g, gy + dpi(app, 3.0f) + g),
             app.brush, 1.0f);
         app.brush->SetColor(bg);
         app.renderTarget->FillRectangle(
-            D2D1::RectF(gx, gy, gx + g, gy + g), app.brush);
+            tinta::rectF(gx, gy, gx + g, gy + g), app.brush);
         app.brush->SetColor(glyph);
         app.renderTarget->DrawRectangle(
-            D2D1::RectF(gx, gy, gx + g, gy + g), app.brush, 1.0f);
+            tinta::rectF(gx, gy, gx + g, gy + g), app.brush, 1.0f);
         // Agent: robot head with antenna and two eyes
         float hx = gx + g + dpi(app, 9.0f);
         float hw = dpi(app, 12.0f);
         float hh = dpi(app, 9.0f);
         float hy = by + (bh - hh) / 2.0f + dpi(app, 1.5f);
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(hx, hy, hx + hw, hy + hh), 2, 2),
+            tinta::roundedRect(tinta::rectF(hx, hy, hx + hw, hy + hh), 2, 2),
             app.brush, 1.0f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(hx + hw / 2.0f, hy),
-            D2D1::Point2F(hx + hw / 2.0f, hy - dpi(app, 3.0f)), app.brush, 1.0f);
+            tinta::pointF(hx + hw / 2.0f, hy),
+            tinta::pointF(hx + hw / 2.0f, hy - dpi(app, 3.0f)), app.brush, 1.0f);
         app.renderTarget->FillEllipse(
-            D2D1::Ellipse(D2D1::Point2F(hx + hw / 2.0f, hy - dpi(app, 3.5f)),
+            tinta::ellipse(tinta::pointF(hx + hw / 2.0f, hy - dpi(app, 3.5f)),
                           dpi(app, 1.2f), dpi(app, 1.2f)),
             app.brush);
         float eye = dpi(app, 1.3f);
         app.renderTarget->FillEllipse(
-            D2D1::Ellipse(D2D1::Point2F(hx + hw * 0.32f, hy + hh * 0.45f),
+            tinta::ellipse(tinta::pointF(hx + hw * 0.32f, hy + hh * 0.45f),
                           eye, eye), app.brush);
         app.renderTarget->FillEllipse(
-            D2D1::Ellipse(D2D1::Point2F(hx + hw * 0.68f, hy + hh * 0.45f),
+            tinta::ellipse(tinta::pointF(hx + hw * 0.68f, hy + hh * 0.45f),
                           eye, eye), app.brush);
         app.annotCopyBtnRect = btn;
     }
@@ -719,33 +719,33 @@ void renderAnnotations(App& app) {
             py = std::min(y, (float)app.height - h - gap);
         }
 
-        D2D1_RECT_F panel = D2D1::RectF(px, py, px + w, py + h);
-        D2D1_COLOR_F bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.97f)
+        tinta::RectF panel = tinta::rectF(px, py, px + w, py + h);
+        tinta::Color bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.97f)
                                            : hexColor(0xFCFCFA, 0.97f);
         app.brush->SetColor(bg);
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(panel, 6, 6), app.brush);
-        D2D1_COLOR_F border = color;
+            tinta::roundedRect(panel, 6, 6), app.brush);
+        tinta::Color border = color;
         border.a = 0.55f;
         app.brush->SetColor(border);
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(panel, 6, 6), app.brush, 1.0f);
+            tinta::roundedRect(panel, 6, 6), app.brush, 1.0f);
         app.brush->SetColor(color);
         app.renderTarget->FillRectangle(
-            D2D1::RectF(px, py + 6, px + dpi(app, 3.0f), py + h - 6), app.brush);
+            tinta::rectF(px, py + 6, px + dpi(app, 3.0f), py + h - 6), app.brush);
 
-        D2D1_COLOR_F quoteColor = app.theme.text;
+        tinta::Color quoteColor = app.theme.text;
         quoteColor.a = 0.55f;
         app.brush->SetColor(quoteColor);
         app.renderTarget->DrawText(
             quote.c_str(), (UINT32)quote.size(), app.folderBrowserFormat,
-            D2D1::RectF(px + pad + dpi(app, 4.0f), py + pad,
+            tinta::rectF(px + pad + dpi(app, 4.0f), py + pad,
                         px + w - pad, py + pad + quoteH),
             app.brush);
         if (noteLayout) {
             app.brush->SetColor(app.theme.text);
             app.renderTarget->DrawTextLayout(
-                D2D1::Point2F(px + pad + dpi(app, 4.0f),
+                tinta::pointF(px + pad + dpi(app, 4.0f),
                               py + pad + quoteH + dpi(app, 4.0f)),
                 noteLayout, app.brush);
             noteLayout->Release();
@@ -762,7 +762,7 @@ int annotationAtDocPoint(App& app, float docX, float docY) {
         const auto& a = app.annotations[ai];
         if (a.docStart == kNone) continue;
         if (re <= a.docStart || rs >= a.docEnd) continue;
-        D2D1_RECT_F frag;
+        tinta::RectF frag;
         if (selectionRangeRect(app, *trc, std::max(rs, a.docStart),
                                std::min(re, a.docEnd), frag) &&
             docX >= frag.left - 1 && docX <= frag.right + 1) {
@@ -783,7 +783,7 @@ int annotationRailHit(const App& app, float x, float y) {
 }
 
 bool annotationCopyButtonHit(const App& app, float x, float y) {
-    const D2D1_RECT_F& r = app.annotCopyBtnRect;
+    const tinta::RectF& r = app.annotCopyBtnRect;
     if (r.right <= r.left) return false;
     return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
 }
@@ -996,7 +996,7 @@ bool annotationEditorChar(App& app, WPARAM ch) {
 int annotationEditorButtonAt(const App& app, float x, float y) {
     if (!app.annotEditorOpen) return 0;
     EditorGeom g = editorGeom(app);
-    auto in = [&](const D2D1_RECT_F& r) {
+    auto in = [&](const tinta::RectF& r) {
         return r.right > r.left && x >= r.left && x <= r.right &&
                y >= r.top && y <= r.bottom;
     };
@@ -1019,18 +1019,18 @@ void renderAnnotationEditor(App& app) {
         return;
     }
     EditorGeom g = editorGeom(app);
-    D2D1_COLOR_F color = annotColor(app);
+    tinta::Color color = annotColor(app);
 
-    D2D1_COLOR_F bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.98f)
+    tinta::Color bg = app.theme.isDark ? hexColor(0x1E1E1E, 0.98f)
                                        : hexColor(0xFCFCFA, 0.98f);
     app.brush->SetColor(bg);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(g.panel, 8, 8), app.brush);
-    D2D1_COLOR_F border = color;
+        tinta::roundedRect(g.panel, 8, 8), app.brush);
+    tinta::Color border = color;
     border.a = 0.7f;
     app.brush->SetColor(border);
     app.renderTarget->DrawRoundedRectangle(
-        D2D1::RoundedRect(g.panel, 8, 8), app.brush, 1.0f);
+        tinta::roundedRect(g.panel, 8, 8), app.brush, 1.0f);
 
     // Header: the quote this note is anchored to
     std::string quoteU8 = app.annotEditorIndex >= 0 &&
@@ -1039,27 +1039,27 @@ void renderAnnotationEditor(App& app) {
                               : app.annotPendingQuote;
     std::wstring quote = toWide(quoteU8);
     if (quote.size() > 52) quote = quote.substr(0, 52) + L"...";
-    D2D1_COLOR_F quoteColor = app.theme.text;
+    tinta::Color quoteColor = app.theme.text;
     quoteColor.a = 0.55f;
     app.brush->SetColor(quoteColor);
     float pad = dpi(app, 14.0f);
     app.renderTarget->DrawText(
         quote.c_str(), (UINT32)quote.size(), app.folderBrowserFormat,
-        D2D1::RectF(g.panel.left + pad, g.panel.top + pad * 0.7f,
+        tinta::rectF(g.panel.left + pad, g.panel.top + pad * 0.7f,
                     g.panel.right - pad, g.textArea.top),
         app.brush);
 
     // Text area
-    D2D1_COLOR_F fieldBg = app.theme.isDark ? hexColor(0x161616, 1.0f)
+    tinta::Color fieldBg = app.theme.isDark ? hexColor(0x161616, 1.0f)
                                             : hexColor(0xFFFFFF, 1.0f);
     app.brush->SetColor(fieldBg);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(g.textArea, 4, 4), app.brush);
-    D2D1_COLOR_F fieldBorder = app.theme.text;
+        tinta::roundedRect(g.textArea, 4, 4), app.brush);
+    tinta::Color fieldBorder = app.theme.text;
     fieldBorder.a = 0.2f;
     app.brush->SetColor(fieldBorder);
     app.renderTarget->DrawRoundedRectangle(
-        D2D1::RoundedRect(g.textArea, 4, 4), app.brush, 1.0f);
+        tinta::roundedRect(g.textArea, 4, 4), app.brush, 1.0f);
 
     float tx = g.textArea.left + dpi(app, 6.0f);
     float ty = g.textArea.top + dpi(app, 4.0f);
@@ -1072,19 +1072,19 @@ void renderAnnotationEditor(App& app) {
     if (layout) layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     if (text.empty()) {
         const wchar_t* hint = tr(app, "annot.note_hint");
-        D2D1_COLOR_F hintColor = app.theme.text;
+        tinta::Color hintColor = app.theme.text;
         hintColor.a = 0.35f;
         app.brush->SetColor(hintColor);
         app.renderTarget->DrawText(
             hint, (UINT32)wcslen(hint), app.folderBrowserFormat,
-            D2D1::RectF(tx, ty, g.textArea.right - dpi(app, 6.0f),
+            tinta::rectF(tx, ty, g.textArea.right - dpi(app, 6.0f),
                         g.textArea.bottom),
             app.brush);
     }
     float caretX = tx, caretY = ty, caretH = dpi(app, 16.0f);
     if (layout) {
         app.brush->SetColor(app.theme.text);
-        app.renderTarget->DrawTextLayout(D2D1::Point2F(tx, ty), layout,
+        app.renderTarget->DrawTextLayout(tinta::pointF(tx, ty), layout,
                                          app.brush);
         DWRITE_HIT_TEST_METRICS m{};
         FLOAT cx = 0, cy = 0;
@@ -1099,35 +1099,35 @@ void renderAnnotationEditor(App& app) {
     }
     if (app.cursorBlinkOn) {
         app.brush->SetColor(app.theme.text);
-        app.renderTarget->DrawLine(D2D1::Point2F(caretX, caretY),
-                                   D2D1::Point2F(caretX, caretY + caretH),
+        app.renderTarget->DrawLine(tinta::pointF(caretX, caretY),
+                                   tinta::pointF(caretX, caretY + caretH),
                                    app.brush, 1.0f);
     }
 
     // Buttons: vector glyphs so no icon font dependency
-    auto buttonBg = [&](const D2D1_RECT_F& r, bool hovered) {
-        D2D1_COLOR_F hb = app.theme.text;
+    auto buttonBg = [&](const tinta::RectF& r, bool hovered) {
+        tinta::Color hb = app.theme.text;
         hb.a = hovered ? 0.12f : 0.05f;
         app.brush->SetColor(hb);
-        app.renderTarget->FillRoundedRectangle(D2D1::RoundedRect(r, 4, 4),
+        app.renderTarget->FillRoundedRectangle(tinta::roundedRect(r, 4, 4),
                                                app.brush);
     };
     int hoveredBtn = annotationEditorButtonAt(app, (float)app.mouseX,
                                               (float)app.mouseY);
     // Confirm: check mark
     buttonBg(g.okBtn, hoveredBtn == 1);
-    D2D1_COLOR_F ok = app.theme.isDark ? hexColor(0x5FBF6E) : hexColor(0x2F8F44);
+    tinta::Color ok = app.theme.isDark ? hexColor(0x5FBF6E) : hexColor(0x2F8F44);
     app.brush->SetColor(ok);
     {
         float cx = (g.okBtn.left + g.okBtn.right) / 2.0f;
         float cy = (g.okBtn.top + g.okBtn.bottom) / 2.0f;
         float s = dpi(app, 4.5f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - s, cy), D2D1::Point2F(cx - s * 0.2f, cy + s * 0.8f),
+            tinta::pointF(cx - s, cy), tinta::pointF(cx - s * 0.2f, cy + s * 0.8f),
             app.brush, 2.0f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - s * 0.2f, cy + s * 0.8f),
-            D2D1::Point2F(cx + s, cy - s * 0.7f), app.brush, 2.0f);
+            tinta::pointF(cx - s * 0.2f, cy + s * 0.8f),
+            tinta::pointF(cx + s, cy - s * 0.7f), app.brush, 2.0f);
     }
     // Cancel: X
     buttonBg(g.cancelBtn, hoveredBtn == 2);
@@ -1136,15 +1136,15 @@ void renderAnnotationEditor(App& app) {
         float cx = (g.cancelBtn.left + g.cancelBtn.right) / 2.0f;
         float cy = (g.cancelBtn.top + g.cancelBtn.bottom) / 2.0f;
         float s = dpi(app, 4.0f);
-        app.renderTarget->DrawLine(D2D1::Point2F(cx - s, cy - s),
-                                   D2D1::Point2F(cx + s, cy + s), app.brush, 1.5f);
-        app.renderTarget->DrawLine(D2D1::Point2F(cx - s, cy + s),
-                                   D2D1::Point2F(cx + s, cy - s), app.brush, 1.5f);
+        app.renderTarget->DrawLine(tinta::pointF(cx - s, cy - s),
+                                   tinta::pointF(cx + s, cy + s), app.brush, 1.5f);
+        app.renderTarget->DrawLine(tinta::pointF(cx - s, cy + s),
+                                   tinta::pointF(cx + s, cy - s), app.brush, 1.5f);
     }
     // Delete: trash can (existing annotations only)
     if (g.trashBtn.right > g.trashBtn.left) {
         buttonBg(g.trashBtn, hoveredBtn == 3);
-        D2D1_COLOR_F trash = app.theme.isDark ? hexColor(0xE06A50)
+        tinta::Color trash = app.theme.isDark ? hexColor(0xE06A50)
                                               : hexColor(0xB03A24);
         app.brush->SetColor(trash);
         float cx = (g.trashBtn.left + g.trashBtn.right) / 2.0f;
@@ -1152,18 +1152,18 @@ void renderAnnotationEditor(App& app) {
         float bw2 = dpi(app, 3.5f);
         float bh2 = dpi(app, 4.5f);
         app.renderTarget->DrawRectangle(
-            D2D1::RectF(cx - bw2, cy - bh2 + dpi(app, 2.0f),
+            tinta::rectF(cx - bw2, cy - bh2 + dpi(app, 2.0f),
                         cx + bw2, cy + bh2), app.brush, 1.2f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - bw2 - dpi(app, 1.5f), cy - bh2 + dpi(app, 2.0f)),
-            D2D1::Point2F(cx + bw2 + dpi(app, 1.5f), cy - bh2 + dpi(app, 2.0f)),
+            tinta::pointF(cx - bw2 - dpi(app, 1.5f), cy - bh2 + dpi(app, 2.0f)),
+            tinta::pointF(cx + bw2 + dpi(app, 1.5f), cy - bh2 + dpi(app, 2.0f)),
             app.brush, 1.2f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - dpi(app, 1.2f), cy - bh2),
-            D2D1::Point2F(cx + dpi(app, 1.2f), cy - bh2), app.brush, 1.2f);
+            tinta::pointF(cx - dpi(app, 1.2f), cy - bh2),
+            tinta::pointF(cx + dpi(app, 1.2f), cy - bh2), app.brush, 1.2f);
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx, cy - dpi(app, 1.0f)),
-            D2D1::Point2F(cx, cy + dpi(app, 2.5f)), app.brush, 1.0f);
+            tinta::pointF(cx, cy - dpi(app, 1.0f)),
+            tinta::pointF(cx, cy + dpi(app, 2.5f)), app.brush, 1.0f);
     }
 }
 

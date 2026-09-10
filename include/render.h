@@ -23,7 +23,7 @@ void ensureLayoutComplete(App& app);
 void completeAsyncImage(App& app, void* asyncResult);
 
 // Theme color for a diagram primitive's role (shared with the exporters)
-D2D1_COLOR_F resolveDiagramRole(const App& app, const mermaidext::Prim& prim,
+tinta::Color resolveDiagramRole(const App& app, const mermaidext::Prim& prim,
                                 mermaidext::Role role);
 
 #endif // TINTA_RENDER_H

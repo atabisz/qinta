@@ -69,12 +69,12 @@ static const App::LayoutBitmap* layoutBitmapAt(const App& app, float docX,
     return nullptr;
 }
 
-static bool cursorPointInRect(float x, float y, const D2D1_RECT_F& rect) {
+static bool cursorPointInRect(float x, float y, const tinta::RectF& rect) {
     return x >= rect.left && x <= rect.right &&
            y >= rect.top && y <= rect.bottom;
 }
 
-static void setCursorFromHits(const std::vector<std::pair<D2D1_RECT_F, int>>& hits,
+static void setCursorFromHits(const std::vector<std::pair<tinta::RectF, int>>& hits,
                               float x, float y, bool textFields = false,
                               bool sliders = false) {
     for (auto it = hits.rbegin(); it != hits.rend(); ++it) {
@@ -492,7 +492,7 @@ static void applyZoomDelta(App& app, float delta) {
 
 // --- Theme editor helpers ---
 
-static std::wstring colorToHexW(const D2D1_COLOR_F& c) {
+static std::wstring colorToHexW(const tinta::Color& c) {
     wchar_t buf[8];
     swprintf_s(buf, L"%02X%02X%02X",
                (int)(c.r * 255.0f + 0.5f), (int)(c.g * 255.0f + 0.5f),
@@ -500,7 +500,7 @@ static std::wstring colorToHexW(const D2D1_COLOR_F& c) {
     return buf;
 }
 
-static bool hexToColorW(const std::wstring& s, D2D1_COLOR_F& out) {
+static bool hexToColorW(const std::wstring& s, tinta::Color& out) {
     if (s.size() != 6) return false;
     unsigned v = 0;
     for (wchar_t ch : s) {
@@ -515,7 +515,7 @@ static bool hexToColorW(const std::wstring& s, D2D1_COLOR_F& out) {
 }
 
 // The six editable slots, in TE_FIELD_* / themeEditorHex order
-static D2D1_COLOR_F* themeEditorSlot(App& app, int field) {
+static tinta::Color* themeEditorSlot(App& app, int field) {
     D2DTheme& t = app.themeEditorTheme;
     switch (field) {
         case 0: return &t.background;
@@ -579,7 +579,7 @@ static void closeThemeEditor(App& app, bool backToSettings) {
 
 // Reading-width sliders: map a mouse X onto the stored track rect (#82)
 static void settingsSliderApply(App& app, int which, float mx) {
-    const D2D1_RECT_F& track =
+    const tinta::RectF& track =
         app.settingsSliderTrack[which == SET_SLIDER_ZEN ? 1 : 0];
     float t = (mx - track.left) / std::max(1.0f, track.right - track.left);
     int pct = 30 + (int)(t * 70.0f + 0.5f);
@@ -763,7 +763,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Theme editor: wheel scrolls the font list
     if (app.showThemeEditor) {
         float delta = (float)GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-        const D2D1_RECT_F& list = app.themeEditorFontListRect;
+        const tinta::RectF& list = app.themeEditorFontListRect;
         if (app.mouseX >= list.left && app.mouseX <= list.right &&
             app.mouseY >= list.top && app.mouseY <= list.bottom) {
             app.themeEditorFontScroll -= delta * dpi(app, 78.0f);
@@ -933,7 +933,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.lightboxPanY = app.lightboxDragPanY + (float)dy;
             InvalidateRect(hwnd, nullptr, FALSE);
         }
-        D2D1_RECT_F img = lightboxImageRect(app);
+        tinta::RectF img = lightboxImageRect(app);
         bool over = (float)app.mouseX >= img.left &&
                     (float)app.mouseX <= img.right &&
                     (float)app.mouseY >= img.top &&
@@ -1179,7 +1179,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.draggingSeparator || app.editorSelecting) return;
         // Quick-note empty state: hover feedback for the Open button
         if (quickNoteEmptyStateActive(app) && app.editorShowPreview) {
-            const D2D1_RECT_F& r = app.quickNoteButtonRect;
+            const tinta::RectF& r = app.quickNoteButtonRect;
             bool over = (float)app.mouseX >= r.left &&
                         (float)app.mouseX <= r.right &&
                         (float)app.mouseY >= r.top &&
@@ -1308,7 +1308,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
 
     // Check link hover
     std::string prevHoveredLink = app.hoveredLink;
-    D2D1_RECT_F hoveredLinkBounds{};
+    tinta::RectF hoveredLinkBounds{};
     app.hoveredLink.clear();
     for (const auto& lr : app.linkRects) {
         if (docX >= lr.bounds.left && docX <= lr.bounds.right &&
@@ -1770,7 +1770,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showLightbox) {
         int mx = GET_X_LPARAM(lParam);
         int my = GET_Y_LPARAM(lParam);
-        D2D1_RECT_F img = lightboxImageRect(app);
+        tinta::RectF img = lightboxImageRect(app);
         if ((float)mx >= img.left && (float)mx <= img.right &&
             (float)my >= img.top && (float)my <= img.bottom) {
             app.lightboxDragging = true;
@@ -2760,7 +2760,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showPrintPreview) {
         float mx = (float)GET_X_LPARAM(lParam);
         float my = (float)GET_Y_LPARAM(lParam);
-        auto hit = [&](const D2D1_RECT_F& r) {
+        auto hit = [&](const tinta::RectF& r) {
             return mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom;
         };
         if (hit(app.printPreviewPrintBtn)) {
@@ -3103,7 +3103,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         copyToClipboard(hwnd, app.codeBlocks[app.hoveredCodeBlock].codeText);
         {
             // The Copied pill keeps its code-block anchor (t13)
-            D2D1_RECT_F anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
+            tinta::RectF anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
             signalPush(app, SIG_SUCCESS, SIGI_CHECK,
                        tr(app, "codeblock.copied"), L"", L"", SIGA_NONE,
                        SIGC_NONE, true, &anchor);
@@ -3120,7 +3120,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         if (copyDiagramImage(
                 app, hwnd,
                 toUtf8(app.codeBlocks[app.hoveredCodeBlock].codeText))) {
-            D2D1_RECT_F anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
+            tinta::RectF anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
             signalPush(app, SIG_SUCCESS, SIGI_CHECK,
                        tr(app, "diagram.copied"), L"", L"", SIGA_NONE,
                        SIGC_NONE, true, &anchor);
@@ -3137,7 +3137,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         // spreadsheet as a grid
         copyToClipboard(hwnd, app.tableRects[app.hoveredTable].tsv);
         {
-            D2D1_RECT_F anchor = app.tableRects[app.hoveredTable].bounds;
+            tinta::RectF anchor = app.tableRects[app.hoveredTable].bounds;
             signalPush(app, SIG_SUCCESS, SIGI_CHECK,
                        tr(app, "table.copied"), L"", L"", SIGA_NONE,
                        SIGC_NONE, true, &anchor);
@@ -4041,7 +4041,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             } else if (iswxdigit(ch) && hex.size() < 6) {
                 hex += towupper(ch);
             }
-            D2D1_COLOR_F parsed;
+            tinta::Color parsed;
             if (hexToColorW(hex, parsed)) {
                 *themeEditorSlot(app, f) = parsed;
             }
@@ -4243,7 +4243,7 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     float py = std::max(chrome + dpi(app, 10.0f),
                         std::min(anchorTop - dpi(app, 30.0f),
                                  (float)app.height - h - dpi(app, 12.0f)));
-    app.linkPeekPanel = D2D1::RectF(px, py, px + w, py + h);
+    app.linkPeekPanel = tinta::rectF(px, py, px + w, py + h);
 
     float titleH = dpi(app, 22.0f);
     float contentH = h - titleH - 2.0f;

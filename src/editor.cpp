@@ -1132,21 +1132,21 @@ void renderQuickNoteEmptyState(App& app) {
     float cx = paneX + paneW * 0.5f;
     float cy = chromeTop + ((float)app.height - chromeTop) * 0.5f -
                dpi(app, 40.0f);
-    D2D1_RECT_F btn = D2D1::RectF(cx - btnW * 0.5f, cy - btnH * 0.5f,
+    tinta::RectF btn = tinta::rectF(cx - btnW * 0.5f, cy - btnH * 0.5f,
                                   cx + btnW * 0.5f, cy + btnH * 0.5f);
     app.quickNoteButtonRect = btn;
 
     // Raised card over the empty pane; a touch stronger under the cursor
-    D2D1_COLOR_F fill = app.theme.text;
+    tinta::Color fill = app.theme.text;
     fill.a = app.quickNoteButtonHover ? 0.10f : 0.06f;
     app.brush->SetColor(fill);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(btn, dpi(app, 8.0f), dpi(app, 8.0f)), app.brush);
-    D2D1_COLOR_F border = app.theme.text;
+        tinta::roundedRect(btn, dpi(app, 8.0f), dpi(app, 8.0f)), app.brush);
+    tinta::Color border = app.theme.text;
     border.a = 0.12f;
     app.brush->SetColor(border);
     app.renderTarget->DrawRoundedRectangle(
-        D2D1::RoundedRect(btn, dpi(app, 8.0f), dpi(app, 8.0f)), app.brush,
+        tinta::roundedRect(btn, dpi(app, 8.0f), dpi(app, 8.0f)), app.brush,
         1.0f);
 
     // Folder icon: tab flap over a rounded body, in the accent color
@@ -1154,12 +1154,12 @@ void renderQuickNoteEmptyState(App& app) {
     float iy = cy - dpi(app, 7.5f);
     app.brush->SetColor(app.theme.accent);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(ix, iy, ix + dpi(app, 9.0f),
+        tinta::roundedRect(tinta::rectF(ix, iy, ix + dpi(app, 9.0f),
                                       iy + dpi(app, 6.0f)),
                           dpi(app, 1.5f), dpi(app, 1.5f)),
         app.brush);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(ix, iy + dpi(app, 2.5f), ix + iconW,
+        tinta::roundedRect(tinta::rectF(ix, iy + dpi(app, 2.5f), ix + iconW,
                                       iy + dpi(app, 15.0f)),
                           dpi(app, 2.0f), dpi(app, 2.0f)),
         app.brush);
@@ -1168,24 +1168,24 @@ void renderQuickNoteEmptyState(App& app) {
     float labelX = ix + iconW + dpi(app, 10.0f);
     app.brush->SetColor(app.theme.text);
     app.renderTarget->DrawTextLayout(
-        D2D1::Point2F(labelX, cy - lm.height * 0.5f), labelLayout, app.brush);
+        tinta::pointF(labelX, cy - lm.height * 0.5f), labelLayout, app.brush);
 
     // Ctrl+O keycap chip
     float chipX = labelX + lm.width + dpi(app, 12.0f);
     float chipH = dpi(app, 22.0f);
-    D2D1_RECT_F chipRect = D2D1::RectF(chipX, cy - chipH * 0.5f,
+    tinta::RectF chipRect = tinta::rectF(chipX, cy - chipH * 0.5f,
                                        chipX + chipW, cy + chipH * 0.5f);
-    D2D1_COLOR_F chipBg = app.theme.text;
+    tinta::Color chipBg = app.theme.text;
     chipBg.a = 0.08f;
     app.brush->SetColor(chipBg);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(chipRect, dpi(app, 4.0f), dpi(app, 4.0f)),
+        tinta::roundedRect(chipRect, dpi(app, 4.0f), dpi(app, 4.0f)),
         app.brush);
-    D2D1_COLOR_F chipText = app.theme.text;
+    tinta::Color chipText = app.theme.text;
     chipText.a = 0.55f;
     app.brush->SetColor(chipText);
     app.renderTarget->DrawTextLayout(
-        D2D1::Point2F(chipX + dpi(app, 8.0f), cy - cm.height * 0.5f),
+        tinta::pointF(chipX + dpi(app, 8.0f), cy - cm.height * 0.5f),
         chipLayout, app.brush);
     labelLayout->Release();
     chipLayout->Release();
@@ -1201,11 +1201,11 @@ void renderQuickNoteEmptyState(App& app) {
         if (layout) {
             DWRITE_TEXT_METRICS hm{};
             layout->GetMetrics(&hm);
-            D2D1_COLOR_F muted = app.theme.text;
+            tinta::Color muted = app.theme.text;
             muted.a = 0.5f;
             app.brush->SetColor(muted);
             app.renderTarget->DrawTextLayout(
-                D2D1::Point2F(cx - hm.width * 0.5f, hintY), layout,
+                tinta::pointF(cx - hm.width * 0.5f, hintY), layout,
                 app.brush);
             hintY += hm.height + dpi(app, 4.0f);
             layout->Release();
@@ -2761,12 +2761,12 @@ static void editorDrawLineNumber(App& app, size_t lineIdx, float lineY,
                          (unsigned)(lineIdx + 1));
     if (len <= 0) return;
     float railW = dpi(app, 48.0f);
-    D2D1_COLOR_F c = isCaretLine ? app.theme.accent : app.theme.text;
+    tinta::Color c = isCaretLine ? app.theme.accent : app.theme.text;
     c.a = isCaretLine ? 0.8f : 0.3f;
     app.brush->SetColor(c);
     app.renderTarget->DrawTextW(
         num, (UINT32)len, app.editorGutterFormat,
-        D2D1::RectF(railW, lineY,
+        tinta::rectF(railW, lineY,
                     railW + editorGutterWidth(app) - dpi(app, 8.0f),
                     lineY + lineHeight),
         app.brush);
@@ -2775,18 +2775,18 @@ static void editorDrawLineNumber(App& app, size_t lineIdx, float lineY,
 // The caret line's soft accent wash, spanning gutter and text (design t11)
 static void editorFillCaretLine(App& app, float lineY, float rowsHeight,
                                 float editorWidth) {
-    D2D1_COLOR_F c = app.theme.accent;
+    tinta::Color c = app.theme.accent;
     c.a = 0.08f;
     app.brush->SetColor(c);
     app.renderTarget->FillRectangle(
-        D2D1::RectF(dpi(app, 48.0f), lineY, editorWidth, lineY + rowsHeight),
+        tinta::rectF(dpi(app, 48.0f), lineY, editorWidth, lineY + rowsHeight),
         app.brush);
 }
 
 static void editorFillRangeRects(App& app, IDWriteTextLayout* layout,
                                  float originX, float originY,
                                  size_t rangeStart, size_t rangeLen,
-                                 const D2D1_COLOR_F& color) {
+                                 const tinta::Color& color) {
     if (!layout || rangeLen == 0) return;
     UINT32 count = 0;
     layout->HitTestTextRange((UINT32)rangeStart, (UINT32)rangeLen, 0, 0,
@@ -2800,7 +2800,7 @@ static void editorFillRangeRects(App& app, IDWriteTextLayout* layout,
     app.brush->SetColor(color);
     for (UINT32 i = 0; i < count; i++) {
         app.renderTarget->FillRectangle(
-            D2D1::RectF(originX + metrics[i].left, originY + metrics[i].top,
+            tinta::rectF(originX + metrics[i].left, originY + metrics[i].top,
                         originX + metrics[i].left + metrics[i].width,
                         originY + metrics[i].top + metrics[i].height),
             app.brush);
@@ -2821,10 +2821,10 @@ static void renderEditorWrapped(App& app, float editorWidth) {
     // The source sits directly on the desk (design 10a) — no pane box
     app.brush->SetColor(editDeskColor(app));
     app.renderTarget->FillRectangle(
-        D2D1::RectF(0, 0, editorWidth, (float)app.height), app.brush);
+        tinta::rectF(0, 0, editorWidth, (float)app.height), app.brush);
 
     app.renderTarget->PushAxisAlignedClip(
-        D2D1::RectF(0, 0, editorWidth, (float)app.height),
+        tinta::rectF(0, 0, editorWidth, (float)app.height),
         D2D1_ANTIALIAS_MODE_ALIASED);
 
     size_t selMin = 0, selMax = 0;
@@ -2863,7 +2863,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
         if (app.editorHasSelection && selMax > lineStart && selMin < lineStart + lineLen + 1) {
             size_t hlStart = (selMin > lineStart) ? selMin - lineStart : 0;
             size_t hlEnd = std::min(selMax - lineStart, lineLen);
-            D2D1_COLOR_F selColor = D2D1::ColorF(0.2f, 0.4f, 0.9f, 0.35f);
+            tinta::Color selColor = tinta::colorF(0.2f, 0.4f, 0.9f, 0.35f);
             editorFillRangeRects(app, lineLayout, textX, lineY, hlStart, hlEnd - hlStart, selColor);
             if (selMax > lineStart + lineLen && selMin <= lineStart + lineLen) {
                 // Newline included: mark one cell past the end of the last row
@@ -2871,7 +2871,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
                 editorCaretXY(lineLayout, lineLen, ex, ey);
                 app.brush->SetColor(selColor);
                 app.renderTarget->FillRectangle(
-                    D2D1::RectF(textX + ex, lineY + ey,
+                    tinta::rectF(textX + ex, lineY + ey,
                                 textX + ex + charWidth, lineY + ey + lineHeight),
                     app.brush);
             }
@@ -2892,9 +2892,9 @@ static void renderEditorWrapped(App& app, float editorWidth) {
                 size_t overlapEnd = std::min(lineEnd, m.startPos + m.length);
                 if (overlapStart >= overlapEnd) continue;
                 bool isCurrent = ((int)si == app.editorSearchCurrentIndex);
-                D2D1_COLOR_F hlColor = isCurrent
-                    ? D2D1::ColorF(1.0f, 0.6f, 0.0f, 0.5f)
-                    : D2D1::ColorF(1.0f, 0.9f, 0.0f, 0.3f);
+                tinta::Color hlColor = isCurrent
+                    ? tinta::colorF(1.0f, 0.6f, 0.0f, 0.5f)
+                    : tinta::colorF(1.0f, 0.9f, 0.0f, 0.3f);
                 editorFillRangeRects(app, lineLayout, textX, lineY,
                                      overlapStart - lineStart,
                                      overlapEnd - overlapStart, hlColor);
@@ -2905,7 +2905,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
             app.renderTarget->DrawTextLayout(
-                D2D1::Point2F(textX, lineY), lineLayout, app.brush);
+                tinta::pointF(textX, lineY), lineLayout, app.brush);
         }
 
         // Caret
@@ -2914,7 +2914,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
             editorCaretXY(lineLayout, app.editorCursorPos - lineStart, cx, cy);
             app.brush->SetColor(app.theme.text);
             app.renderTarget->FillRectangle(
-                D2D1::RectF(textX + cx, lineY + cy,
+                tinta::rectF(textX + cx, lineY + cy,
                             textX + cx + dpi(app, 2.0f), lineY + cy + lineHeight),
                 app.brush);
         }
@@ -2935,9 +2935,9 @@ static void renderEditorWrapped(App& app, float editorWidth) {
         float sbY = (maxScroll > 0) ? (app.editorScrollY / maxScroll * (app.height - sbHeight)) : 0;
 
         float sbColorValue = app.theme.isDark ? 1.0f : 0.0f;
-        app.brush->SetColor(D2D1::ColorF(sbColorValue, sbColorValue, sbColorValue, 0.3f));
+        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, 0.3f));
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(editorWidth - dpi(app, 10.0f), sbY,
+            tinta::roundedRect(tinta::rectF(editorWidth - dpi(app, 10.0f), sbY,
                                            editorWidth - dpi(app, 4.0f), sbY + sbHeight), 3, 3),
             app.brush);
     }
@@ -2960,11 +2960,11 @@ void renderEditor(App& app, float editorWidth) {
     // Editor background: the desk surface (design 10a)
     app.brush->SetColor(editDeskColor(app));
     app.renderTarget->FillRectangle(
-        D2D1::RectF(0, 0, editorWidth, (float)app.height), app.brush);
+        tinta::rectF(0, 0, editorWidth, (float)app.height), app.brush);
 
     // Clip to editor area
     app.renderTarget->PushAxisAlignedClip(
-        D2D1::RectF(0, 0, editorWidth, (float)app.height),
+        tinta::rectF(0, 0, editorWidth, (float)app.height),
         D2D1_ANTIALIAS_MODE_ALIASED);
 
     // Calculate visible line range
@@ -3028,9 +3028,9 @@ void renderEditor(App& app, float editorWidth) {
             } else {
                 hlX2 = textBase + editorColToX(app, lineLayout, hlEnd);
             }
-            app.brush->SetColor(D2D1::ColorF(0.2f, 0.4f, 0.9f, 0.35f));
+            app.brush->SetColor(tinta::colorF(0.2f, 0.4f, 0.9f, 0.35f));
             app.renderTarget->FillRectangle(
-                D2D1::RectF(hlX1, lineY, hlX2, lineY + lineHeight), app.brush);
+                tinta::rectF(hlX1, lineY, hlX2, lineY + lineHeight), app.brush);
         }
 
         // Search match highlights on this line
@@ -3052,12 +3052,12 @@ void renderEditor(App& app, float editorWidth) {
 
                     bool isCurrent = ((int)si == app.editorSearchCurrentIndex);
                     if (isCurrent) {
-                        app.brush->SetColor(D2D1::ColorF(1.0f, 0.6f, 0.0f, 0.5f));  // Orange
+                        app.brush->SetColor(tinta::colorF(1.0f, 0.6f, 0.0f, 0.5f));  // Orange
                     } else {
-                        app.brush->SetColor(D2D1::ColorF(1.0f, 0.9f, 0.0f, 0.3f));  // Yellow
+                        app.brush->SetColor(tinta::colorF(1.0f, 0.9f, 0.0f, 0.3f));  // Yellow
                     }
                     app.renderTarget->FillRectangle(
-                        D2D1::RectF(hlX1, lineY, hlX2, lineY + lineHeight), app.brush);
+                        tinta::rectF(hlX1, lineY, hlX2, lineY + lineHeight), app.brush);
                 }
                 si++;
             }
@@ -3072,7 +3072,7 @@ void renderEditor(App& app, float editorWidth) {
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
             app.renderTarget->DrawTextLayout(
-                D2D1::Point2F(textBase, lineY), lineLayout, app.brush);
+                tinta::pointF(textBase, lineY), lineLayout, app.brush);
         }
 
     }
@@ -3088,23 +3088,23 @@ void renderEditor(App& app, float editorWidth) {
 
         app.brush->SetColor(app.theme.text);
         app.renderTarget->FillRectangle(
-            D2D1::RectF(curX, curY, curX + dpi(app, 2.0f), curY + lineHeight), app.brush);
+            tinta::rectF(curX, curY, curX + dpi(app, 2.0f), curY + lineHeight), app.brush);
     }
 
     // The rail + gutter column last: horizontally scrolled text slides
     // under it, then the line numbers draw on top (design t11)
     app.brush->SetColor(editDeskColor(app));
     app.renderTarget->FillRectangle(
-        D2D1::RectF(0, 0, gutterRight, (float)app.height), app.brush);
+        tinta::rectF(0, 0, gutterRight, (float)app.height), app.brush);
     for (int i = firstVisible; i <= lastVisible && i < (int)app.editorLineStarts.size(); i++) {
         float lineY = chromeTopHeight(app) + padding + i * lineHeight - app.editorScrollY;
         if ((size_t)i == curLine) {
             // Re-lay the caret wash over the blanked gutter strip
-            D2D1_COLOR_F c = app.theme.accent;
+            tinta::Color c = app.theme.accent;
             c.a = 0.08f;
             app.brush->SetColor(c);
             app.renderTarget->FillRectangle(
-                D2D1::RectF(dpi(app, 48.0f), lineY, gutterRight,
+                tinta::rectF(dpi(app, 48.0f), lineY, gutterRight,
                             lineY + lineHeight),
                 app.brush);
         }
@@ -3126,9 +3126,9 @@ void renderEditor(App& app, float editorWidth) {
         float sbY = (maxScroll > 0) ? (app.editorScrollY / maxScroll * (app.height - sbHeight)) : 0;
 
         float sbColorValue = app.theme.isDark ? 1.0f : 0.0f;
-        app.brush->SetColor(D2D1::ColorF(sbColorValue, sbColorValue, sbColorValue, 0.3f));
+        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, 0.3f));
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(editorWidth - dpi(app, 10.0f), sbY,
+            tinta::roundedRect(tinta::rectF(editorWidth - dpi(app, 10.0f), sbY,
                                            editorWidth - dpi(app, 4.0f), sbY + sbHeight), 3, 3),
             app.brush);
     }

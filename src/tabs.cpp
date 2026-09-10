@@ -350,9 +350,9 @@ namespace {
 float captionButtonWidth(const App& app) { return dpi(app, 46.0f); }
 // Always-on-top pin, left of the caption buttons
 float pinButtonWidth(const App& app) { return dpi(app, 34.0f); }
-D2D1_RECT_F pinButtonRect(const App& app) {
+tinta::RectF pinButtonRect(const App& app) {
     float right = (float)app.width - captionButtonWidth(app) * 3.0f;
-    return D2D1::RectF(right - pinButtonWidth(app), 0.0f, right,
+    return tinta::rectF(right - pinButtonWidth(app), 0.0f, right,
                        chromeTopHeight(app));
 }
 
@@ -402,10 +402,10 @@ StripMetrics stripMetrics(const App& app) {
 
 }  // namespace
 
-D2D1_RECT_F captionButtonRect(const App& app, int button) {
+tinta::RectF captionButtonRect(const App& app, int button) {
     float w = captionButtonWidth(app);
     float right = (float)app.width - w * (2 - button);
-    return D2D1::RectF(right - w, 0.0f, right, chromeTopHeight(app));
+    return tinta::rectF(right - w, 0.0f, right, chromeTopHeight(app));
 }
 
 // Left edge of the caption island (pin + window buttons); in sheet mode
@@ -418,7 +418,7 @@ float captionIslandLeft(const App& app) {
 int captionHitTest(const App& app, float x, float y) {
     if (y < 0.0f || y >= chromeTopHeight(app)) return 0;
     for (int i = 0; i < 3; i++) {
-        D2D1_RECT_F r = captionButtonRect(app, i);
+        tinta::RectF r = captionButtonRect(app, i);
         if (x >= r.left && x < r.right) return i + 1;
     }
     return 0;
@@ -426,8 +426,8 @@ int captionHitTest(const App& app, float x, float y) {
 
 // --- rendering ---
 
-D2D1_COLOR_F tabStripBackground(const App& app) {
-    D2D1_COLOR_F c = app.theme.background;
+tinta::Color tabStripBackground(const App& app) {
+    tinta::Color c = app.theme.background;
     float f = app.theme.isDark ? 0.78f : 0.955f;
     c.r *= f;
     c.g *= f;
@@ -437,40 +437,40 @@ D2D1_COLOR_F tabStripBackground(const App& app) {
 
 namespace {
 
-D2D1_COLOR_F stripBackground(const App& app) {
+tinta::Color stripBackground(const App& app) {
     return tabStripBackground(app);
 }
 
 // Rounded-top tab body: rounded rect extended past the strip bottom, the
 // caller clips to the strip so the bottom corners stay square
-void fillTabBody(App& app, const D2D1_RECT_F& r, float radius,
-                 const D2D1_COLOR_F& color) {
+void fillTabBody(App& app, const tinta::RectF& r, float radius,
+                 const tinta::Color& color) {
     app.brush->SetColor(color);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(
-            D2D1::RectF(r.left, r.top, r.right, r.bottom + radius * 2.0f),
+        tinta::roundedRect(
+            tinta::rectF(r.left, r.top, r.right, r.bottom + radius * 2.0f),
             radius, radius),
         app.brush);
 }
 
 void drawCloseGlyph(App& app, float cx, float cy, float arm,
-                    const D2D1_COLOR_F& color) {
+                    const tinta::Color& color) {
     app.brush->SetColor(color);
-    app.renderTarget->DrawLine(D2D1::Point2F(cx - arm, cy - arm),
-                               D2D1::Point2F(cx + arm, cy + arm),
+    app.renderTarget->DrawLine(tinta::pointF(cx - arm, cy - arm),
+                               tinta::pointF(cx + arm, cy + arm),
                                app.brush, dpi(app, 1.1f));
-    app.renderTarget->DrawLine(D2D1::Point2F(cx - arm, cy + arm),
-                               D2D1::Point2F(cx + arm, cy - arm),
+    app.renderTarget->DrawLine(tinta::pointF(cx - arm, cy + arm),
+                               tinta::pointF(cx + arm, cy - arm),
                                app.brush, dpi(app, 1.1f));
 }
 
 // The + new-tab button, shared by the full strip and the tabless title
 // (where it is the visible hint that the window can hold tabs)
 void drawPlusButton(App& app, float plusX, float stripH,
-                    const D2D1_COLOR_F& faint, const D2D1_COLOR_F& muted) {
+                    const tinta::Color& faint, const tinta::Color& muted) {
     float plusSize = dpi(app, 30.0f);
     float plusY = (stripH - plusSize) * 0.5f;
-    D2D1_RECT_F plusRect = D2D1::RectF(plusX, plusY, plusX + plusSize,
+    tinta::RectF plusRect = tinta::rectF(plusX, plusY, plusX + plusSize,
                                        plusY + plusSize);
     bool plusHover = app.mouseX >= plusRect.left &&
                      app.mouseX <= plusRect.right &&
@@ -479,18 +479,18 @@ void drawPlusButton(App& app, float plusX, float stripH,
     if (plusHover) {
         app.brush->SetColor(faint);
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(plusRect, dpi(app, 6.0f), dpi(app, 6.0f)),
+            tinta::roundedRect(plusRect, dpi(app, 6.0f), dpi(app, 6.0f)),
             app.brush);
     }
     app.brush->SetColor(muted);
     float pcx = (plusRect.left + plusRect.right) * 0.5f;
     float pcy = (plusRect.top + plusRect.bottom) * 0.5f;
     float parm = dpi(app, 5.0f);
-    app.renderTarget->DrawLine(D2D1::Point2F(pcx - parm, pcy),
-                               D2D1::Point2F(pcx + parm, pcy), app.brush,
+    app.renderTarget->DrawLine(tinta::pointF(pcx - parm, pcy),
+                               tinta::pointF(pcx + parm, pcy), app.brush,
                                dpi(app, 1.2f));
-    app.renderTarget->DrawLine(D2D1::Point2F(pcx, pcy - parm),
-                               D2D1::Point2F(pcx, pcy + parm), app.brush,
+    app.renderTarget->DrawLine(tinta::pointF(pcx, pcy - parm),
+                               tinta::pointF(pcx, pcy + parm), app.brush,
                                dpi(app, 1.2f));
     App::TabHit plusHit;
     plusHit.rect = plusRect;
@@ -506,10 +506,10 @@ void renderTabStrip(App& app) {
     tabsInit(app);
     syncActiveTab(app);
 
-    D2D1_COLOR_F text = app.theme.text;
-    D2D1_COLOR_F muted = text;
+    tinta::Color text = app.theme.text;
+    tinta::Color muted = text;
     muted.a = 0.7f;
-    D2D1_COLOR_F faint = text;
+    tinta::Color faint = text;
     faint.a = 0.06f;
 
     // Strip background: with the floating sheet the strip only spans the
@@ -518,7 +518,7 @@ void renderTabStrip(App& app) {
     float stripRight = sheetMode ? editorPaneWidth(app) : (float)app.width;
     app.brush->SetColor(stripBackground(app));
     app.renderTarget->FillRectangle(
-        D2D1::RectF(0, 0, stripRight, stripH), app.brush);
+        tinta::rectF(0, 0, stripRight, stripH), app.brush);
 
     // App icon (16px, centered in a 40px cell)
     float iconCell = dpi(app, 40.0f);
@@ -553,7 +553,7 @@ void renderTabStrip(App& app) {
         float iy = (stripH - iconSize) * 0.5f;
         app.renderTarget->DrawBitmap(
             app.titleIconBitmap,
-            D2D1::RectF(ix, iy, ix + iconSize, iy + iconSize));
+            tinta::rectF(ix, iy, ix + iconSize, iy + iconSize));
     }
 
     app.tabHits.clear();
@@ -580,7 +580,7 @@ void renderTabStrip(App& app) {
             app.brush->SetColor(muted);
             app.renderTarget->DrawText(
                 title.c_str(), (UINT32)title.size(), app.folderBrowserFormat,
-                D2D1::RectF(textLeft, (stripH - dpi(app, 17.0f)) * 0.5f,
+                tinta::rectF(textLeft, (stripH - dpi(app, 17.0f)) * 0.5f,
                             maxRight, stripH),
                 app.brush);
             IDWriteTextLayout* layout = nullptr;
@@ -603,17 +603,17 @@ void renderTabStrip(App& app) {
             float cbX = std::min(nextX, maxRight - dpi(app, 38.0f) -
                                             cbSize - dpi(app, 6.0f));
             float cbY = (stripH - cbSize) * 0.5f;
-            D2D1_RECT_F cb =
-                D2D1::RectF(cbX, cbY, cbX + cbSize, cbY + cbSize);
+            tinta::RectF cb =
+                tinta::rectF(cbX, cbY, cbX + cbSize, cbY + cbSize);
             bool closeHover =
                 app.mouseX >= cb.left && app.mouseX <= cb.right &&
                 app.mouseY >= cb.top && app.mouseY <= cb.bottom;
             if (closeHover) {
-                D2D1_COLOR_F cbBg = text;
+                tinta::Color cbBg = text;
                 cbBg.a = 0.12f;
                 app.brush->SetColor(cbBg);
                 app.renderTarget->FillRoundedRectangle(
-                    D2D1::RoundedRect(cb, dpi(app, 4.0f), dpi(app, 4.0f)),
+                    tinta::roundedRect(cb, dpi(app, 4.0f), dpi(app, 4.0f)),
                     app.brush);
             }
             drawCloseGlyph(app, (cb.left + cb.right) * 0.5f,
@@ -624,7 +624,7 @@ void renderTabStrip(App& app) {
             hit.index = 0;
             hit.closeRect = cb;
             hit.hasClose = true;
-            hit.contextRect = D2D1::RectF(textLeft, 0, cb.right, stripH);
+            hit.contextRect = tinta::rectF(textLeft, 0, cb.right, stripH);
             app.tabHits.push_back(hit);
             nextX = cb.right + dpi(app, 6.0f);
         }
@@ -636,7 +636,7 @@ void renderTabStrip(App& app) {
         float gap = dpi(app, 2.0f);
 
         app.renderTarget->PushAxisAlignedClip(
-            D2D1::RectF(0, 0, stripRight, stripH),
+            tinta::rectF(0, 0, stripRight, stripH),
             D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
         for (size_t i = 0; i < app.tabs.size(); i++) {
@@ -653,7 +653,7 @@ void renderTabStrip(App& app) {
                              std::min(follow, m.tabsRight - m.tabWidth));
             }
             float top = active ? dpi(app, 6.0f) : dpi(app, 10.0f);
-            D2D1_RECT_F r = D2D1::RectF(x, top, x + m.tabWidth, stripH);
+            tinta::RectF r = tinta::rectF(x, top, x + m.tabWidth, stripH);
 
             if (active) {
                 // The active tab drops a soft shadow onto its neighbors
@@ -662,11 +662,11 @@ void renderTabStrip(App& app) {
                 float shadowAlpha = app.theme.isDark ? 0.34f : 0.16f;
                 for (int ring = 3; ring >= 1; ring--) {
                     float spread = dpi(app, (float)ring * 2.2f);
-                    D2D1_COLOR_F shadow =
-                        D2D1::ColorF(0.0f, 0.0f, 0.0f,
+                    tinta::Color shadow =
+                        tinta::colorF(0.0f, 0.0f, 0.0f,
                                      shadowAlpha / (float)(ring * ring));
                     fillTabBody(app,
-                                D2D1::RectF(r.left - spread,
+                                tinta::rectF(r.left - spread,
                                             r.top - spread * 0.6f,
                                             r.right + spread, r.bottom),
                                 radius + spread * 0.5f, shadow);
@@ -684,9 +684,9 @@ void renderTabStrip(App& app) {
             // Status dot: orange = unsaved changes, red-grey = the file
             // vanished from disk
             bool showDot = dirty || missing;
-            D2D1_COLOR_F dotColor =
-                dirty ? D2D1::ColorF(0.94f, 0.56f, 0.12f)
-                      : D2D1::ColorF(0.74f, 0.36f, 0.34f);
+            tinta::Color dotColor =
+                dirty ? tinta::colorF(0.94f, 0.56f, 0.12f)
+                      : tinta::colorF(0.74f, 0.36f, 0.34f);
 
             // Label, ellipsis-trimmed, leaving room for the close/dot
             float labelRight = r.right - dpi(app, showClose ? 30.0f : 20.0f);
@@ -695,7 +695,7 @@ void renderTabStrip(App& app) {
                 app.renderTarget->DrawText(
                     app.tabs[i].title.c_str(), (UINT32)app.tabs[i].title.size(),
                     app.folderBrowserFormat,
-                    D2D1::RectF(r.left + dpi(app, 12.0f),
+                    tinta::rectF(r.left + dpi(app, 12.0f),
                                 top + (stripH - top - dpi(app, 17.0f)) * 0.5f,
                                 labelRight, stripH),
                     app.brush);
@@ -708,17 +708,17 @@ void renderTabStrip(App& app) {
                 float cbSize = dpi(app, 20.0f);
                 float cbX = r.right - cbSize - dpi(app, 6.0f);
                 float cbY = top + (stripH - top - cbSize) * 0.5f;
-                D2D1_RECT_F cb = D2D1::RectF(cbX, cbY, cbX + cbSize,
+                tinta::RectF cb = tinta::rectF(cbX, cbY, cbX + cbSize,
                                              cbY + cbSize);
                 bool closeHover =
                     app.mouseX >= cb.left && app.mouseX <= cb.right &&
                     app.mouseY >= cb.top && app.mouseY <= cb.bottom;
                 if (closeHover || !active) {
-                    D2D1_COLOR_F cbBg = text;
+                    tinta::Color cbBg = text;
                     cbBg.a = closeHover ? 0.12f : 0.07f;
                     app.brush->SetColor(cbBg);
                     app.renderTarget->FillRoundedRectangle(
-                        D2D1::RoundedRect(cb, dpi(app, 4.0f), dpi(app, 4.0f)),
+                        tinta::roundedRect(cb, dpi(app, 4.0f), dpi(app, 4.0f)),
                         app.brush);
                 }
                 if (showDot && !closeHover && !hovered) {
@@ -726,8 +726,8 @@ void renderTabStrip(App& app) {
                     app.brush->SetColor(dotColor);
                     float dotR = dpi(app, 3.5f);
                     app.renderTarget->FillEllipse(
-                        D2D1::Ellipse(
-                            D2D1::Point2F((cb.left + cb.right) * 0.5f,
+                        tinta::ellipse(
+                            tinta::pointF((cb.left + cb.right) * 0.5f,
                                           (cb.top + cb.bottom) * 0.5f),
                             dotR, dotR),
                         app.brush);
@@ -743,8 +743,8 @@ void renderTabStrip(App& app) {
                 float dotR = dpi(app, 3.5f);
                 float cx = r.right - dpi(app, 13.0f);
                 app.renderTarget->FillEllipse(
-                    D2D1::Ellipse(
-                        D2D1::Point2F(cx, top + (stripH - top) * 0.5f),
+                    tinta::ellipse(
+                        tinta::pointF(cx, top + (stripH - top) * 0.5f),
                         dotR, dotR),
                     app.brush);
             }
@@ -760,25 +760,25 @@ void renderTabStrip(App& app) {
         // Overflow chevron when compressed
         if (m.compressed) {
             float chW = dpi(app, 30.0f);
-            D2D1_RECT_F chRect = D2D1::RectF(m.chevronX, plusY,
+            tinta::RectF chRect = tinta::rectF(m.chevronX, plusY,
                                              m.chevronX + chW,
                                              plusY + plusSize);
-            D2D1_COLOR_F chBg = text;
+            tinta::Color chBg = text;
             chBg.a = 0.07f;
             app.brush->SetColor(chBg);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(chRect, dpi(app, 6.0f), dpi(app, 6.0f)),
+                tinta::roundedRect(chRect, dpi(app, 6.0f), dpi(app, 6.0f)),
                 app.brush);
             app.brush->SetColor(muted);
             float ccx = (chRect.left + chRect.right) * 0.5f;
             float ccy = (chRect.top + chRect.bottom) * 0.5f - dpi(app, 1.0f);
             float carm = dpi(app, 3.5f);
             app.renderTarget->DrawLine(
-                D2D1::Point2F(ccx - carm, ccy),
-                D2D1::Point2F(ccx, ccy + carm), app.brush, dpi(app, 1.2f));
+                tinta::pointF(ccx - carm, ccy),
+                tinta::pointF(ccx, ccy + carm), app.brush, dpi(app, 1.2f));
             app.renderTarget->DrawLine(
-                D2D1::Point2F(ccx, ccy + carm),
-                D2D1::Point2F(ccx + carm, ccy), app.brush, dpi(app, 1.2f));
+                tinta::pointF(ccx, ccy + carm),
+                tinta::pointF(ccx + carm, ccy), app.brush, dpi(app, 1.2f));
             App::TabHit chHit;
             chHit.rect = chRect;
             chHit.index = -3;
@@ -792,33 +792,33 @@ void renderTabStrip(App& app) {
     float islandTop = sheetMode ? dpi(app, 6.0f) : 0.0f;
     float islandBottom = sheetMode ? stripH - dpi(app, 6.0f) : stripH;
     if (sheetMode) {
-        D2D1_RECT_F island = D2D1::RectF(
+        tinta::RectF island = tinta::rectF(
             pinButtonRect(app).left - dpi(app, 8.0f), islandTop,
             (float)app.width - dpi(app, 6.0f), islandBottom);
-        D2D1_COLOR_F ibg = stripBackground(app);
+        tinta::Color ibg = stripBackground(app);
         ibg.a = 0.94f;
         app.brush->SetColor(ibg);
         app.renderTarget->FillRoundedRectangle(
-            D2D1::RoundedRect(island, dpi(app, 8.0f), dpi(app, 8.0f)),
+            tinta::roundedRect(island, dpi(app, 8.0f), dpi(app, 8.0f)),
             app.brush);
-        D2D1_COLOR_F ibd = text;
+        tinta::Color ibd = text;
         ibd.a = 0.1f;
         app.brush->SetColor(ibd);
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(island, dpi(app, 8.0f), dpi(app, 8.0f)),
+            tinta::roundedRect(island, dpi(app, 8.0f), dpi(app, 8.0f)),
             app.brush, 1.0f);
     }
     for (int b = 0; b < 3; b++) {
-        D2D1_RECT_F r = captionButtonRect(app, b);
+        tinta::RectF r = captionButtonRect(app, b);
         r.top = islandTop;
         r.bottom = islandBottom;
         if (sheetMode) r.right = std::min(r.right, (float)app.width - dpi(app, 8.0f));
         bool hover = app.captionButtonHover == b + 1;
         bool pressed = app.captionButtonPressed == b + 1;
         if (hover || pressed) {
-            D2D1_COLOR_F bg;
+            tinta::Color bg;
             if (b == 2) {
-                bg = D2D1::ColorF(0.77f, 0.17f, 0.11f, pressed ? 0.8f : 1.0f);
+                bg = tinta::colorF(0.77f, 0.17f, 0.11f, pressed ? 0.8f : 1.0f);
             } else {
                 bg = text;
                 bg.a = pressed ? 0.12f : 0.07f;
@@ -826,8 +826,8 @@ void renderTabStrip(App& app) {
             app.brush->SetColor(bg);
             if (sheetMode) {
                 app.renderTarget->FillRoundedRectangle(
-                    D2D1::RoundedRect(
-                        D2D1::RectF(r.left + dpi(app, 2.0f),
+                    tinta::roundedRect(
+                        tinta::rectF(r.left + dpi(app, 2.0f),
                                     r.top + dpi(app, 2.0f),
                                     r.right - dpi(app, 2.0f),
                                     r.bottom - dpi(app, 2.0f)),
@@ -837,16 +837,16 @@ void renderTabStrip(App& app) {
                 app.renderTarget->FillRectangle(r, app.brush);
             }
         }
-        D2D1_COLOR_F glyph = (b == 2 && (hover || pressed))
-                                 ? D2D1::ColorF(1.0f, 1.0f, 1.0f)
+        tinta::Color glyph = (b == 2 && (hover || pressed))
+                                 ? tinta::colorF(1.0f, 1.0f, 1.0f)
                                  : text;
         float cx = (r.left + r.right) * 0.5f;
         float cy = (r.top + r.bottom) * 0.5f;
         app.brush->SetColor(glyph);
         if (b == 0) {
             app.renderTarget->DrawLine(
-                D2D1::Point2F(cx - dpi(app, 5.0f), cy),
-                D2D1::Point2F(cx + dpi(app, 5.0f), cy), app.brush,
+                tinta::pointF(cx - dpi(app, 5.0f), cy),
+                tinta::pointF(cx + dpi(app, 5.0f), cy), app.brush,
                 dpi(app, 1.0f));
         } else if (b == 1) {
             float half = dpi(app, 4.5f);
@@ -854,17 +854,17 @@ void renderTabStrip(App& app) {
                 // restore: two offset squares
                 float off = dpi(app, 2.0f);
                 app.renderTarget->DrawRectangle(
-                    D2D1::RectF(cx - half + off, cy - half - off + dpi(app, 1.0f),
+                    tinta::rectF(cx - half + off, cy - half - off + dpi(app, 1.0f),
                                 cx + half + off - dpi(app, 1.0f), cy + half - off),
                     app.brush, dpi(app, 1.0f));
                 app.brush->SetColor(stripBackground(app));
                 app.renderTarget->FillRectangle(
-                    D2D1::RectF(cx - half, cy - half, cx + half, cy + half),
+                    tinta::rectF(cx - half, cy - half, cx + half, cy + half),
                     app.brush);
                 app.brush->SetColor(glyph);
             }
             app.renderTarget->DrawRectangle(
-                D2D1::RectF(cx - half, cy - half, cx + half, cy + half),
+                tinta::rectF(cx - half, cy - half, cx + half, cy + half),
                 app.brush, dpi(app, 1.0f));
         } else {
             drawCloseGlyph(app, cx, cy, dpi(app, 4.5f), glyph);
@@ -873,19 +873,19 @@ void renderTabStrip(App& app) {
 
     // Always-on-top pin: an upright pushpin, accent-filled while pinned
     {
-        D2D1_RECT_F r = pinButtonRect(app);
+        tinta::RectF r = pinButtonRect(app);
         r.top = islandTop;
         r.bottom = islandBottom;
         bool hover = (float)app.mouseX >= r.left && (float)app.mouseX < r.right &&
                      (float)app.mouseY >= r.top && (float)app.mouseY < r.bottom;
         if (hover) {
-            D2D1_COLOR_F bg = text;
+            tinta::Color bg = text;
             bg.a = 0.07f;
             app.brush->SetColor(bg);
             if (sheetMode) {
                 app.renderTarget->FillRoundedRectangle(
-                    D2D1::RoundedRect(
-                        D2D1::RectF(r.left + dpi(app, 2.0f),
+                    tinta::roundedRect(
+                        tinta::rectF(r.left + dpi(app, 2.0f),
                                     r.top + dpi(app, 2.0f),
                                     r.right - dpi(app, 2.0f),
                                     r.bottom - dpi(app, 2.0f)),
@@ -897,12 +897,12 @@ void renderTabStrip(App& app) {
         }
         float cx = (r.left + r.right) * 0.5f;
         float cy = (r.top + r.bottom) * 0.5f - dpi(app, 1.0f);
-        D2D1_COLOR_F pin = app.alwaysOnTop ? app.theme.accent : text;
+        tinta::Color pin = app.alwaysOnTop ? app.theme.accent : text;
         if (!app.alwaysOnTop && !hover) pin.a = 0.45f;
         app.brush->SetColor(pin);
         float bw = dpi(app, 3.0f);   // body half-width
         float bh = dpi(app, 4.0f);   // body half-height
-        D2D1_RECT_F body = D2D1::RectF(cx - bw, cy - bh, cx + bw, cy + bh - 1);
+        tinta::RectF body = tinta::rectF(cx - bw, cy - bh, cx + bw, cy + bh - 1);
         if (app.alwaysOnTop) {
             app.renderTarget->FillRectangle(body, app.brush);
         } else {
@@ -910,16 +910,16 @@ void renderTabStrip(App& app) {
         }
         // Head bar, flange, and needle
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - bw - dpi(app, 1.0f), cy - bh),
-            D2D1::Point2F(cx + bw + dpi(app, 1.0f), cy - bh), app.brush,
+            tinta::pointF(cx - bw - dpi(app, 1.0f), cy - bh),
+            tinta::pointF(cx + bw + dpi(app, 1.0f), cy - bh), app.brush,
             dpi(app, 1.2f));
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx - bw - dpi(app, 2.0f), cy + bh - 1),
-            D2D1::Point2F(cx + bw + dpi(app, 2.0f), cy + bh - 1), app.brush,
+            tinta::pointF(cx - bw - dpi(app, 2.0f), cy + bh - 1),
+            tinta::pointF(cx + bw + dpi(app, 2.0f), cy + bh - 1), app.brush,
             dpi(app, 1.2f));
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx, cy + bh - 1),
-            D2D1::Point2F(cx, cy + bh + dpi(app, 4.0f)), app.brush,
+            tinta::pointF(cx, cy + bh - 1),
+            tinta::pointF(cx, cy + bh + dpi(app, 4.0f)), app.brush,
             dpi(app, 1.2f));
         App::TabHit pinHit;
         pinHit.rect = r;
@@ -941,14 +941,14 @@ void renderTabSwitcher(App& app) {
     if (x < dpi(app, 8.0f)) x = dpi(app, 8.0f);
     float y = stripH + dpi(app, 4.0f);
 
-    D2D1_COLOR_F text = app.theme.text;
-    D2D1_COLOR_F panel = stripBackground(app);
+    tinta::Color text = app.theme.text;
+    tinta::Color panel = stripBackground(app);
     panel.a = 0.97f;
-    D2D1_COLOR_F border = text;
+    tinta::Color border = text;
     border.a = 0.12f;
 
-    D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(
-        D2D1::RectF(x, y, x + width, y + height), dpi(app, 8.0f),
+    tinta::RoundedRect rr = tinta::roundedRect(
+        tinta::rectF(x, y, x + width, y + height), dpi(app, 8.0f),
         dpi(app, 8.0f));
     app.brush->SetColor(panel);
     app.renderTarget->FillRoundedRectangle(rr, app.brush);
@@ -962,12 +962,12 @@ void renderTabSwitcher(App& app) {
         wchar_t header[96];
         swprintf_s(header, _countof(header), L"%ls \u2014 %d",
                    tr(app, "tabs.switcher.header"), (int)app.tabs.size());
-        D2D1_COLOR_F headColor = text;
+        tinta::Color headColor = text;
         headColor.a = 0.5f;
         app.brush->SetColor(headColor);
         app.renderTarget->DrawText(
             header, (UINT32)wcslen(header), app.themeHeaderFormat,
-            D2D1::RectF(x + dpi(app, 14.0f), y + dpi(app, 9.0f), x + width,
+            tinta::rectF(x + dpi(app, 14.0f), y + dpi(app, 9.0f), x + width,
                         y + headH),
             app.brush);
     }
@@ -976,36 +976,36 @@ void renderTabSwitcher(App& app) {
         bool active = (int)i == app.activeTab;
         bool hovered = (int)i == app.tabSwitcherHover;
         float rowY = y + headH + padY + rowH * (float)i;
-        D2D1_RECT_F row = D2D1::RectF(x + dpi(app, 4.0f), rowY,
+        tinta::RectF row = tinta::rectF(x + dpi(app, 4.0f), rowY,
                                       x + width - dpi(app, 4.0f),
                                       rowY + rowH - dpi(app, 2.0f));
         if (active || hovered) {
-            D2D1_COLOR_F rowBg = text;
+            tinta::Color rowBg = text;
             rowBg.a = active ? 0.09f : 0.05f;
             app.brush->SetColor(rowBg);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(row, dpi(app, 5.0f), dpi(app, 5.0f)),
+                tinta::roundedRect(row, dpi(app, 5.0f), dpi(app, 5.0f)),
                 app.brush);
         }
         if (active) {
             app.brush->SetColor(app.theme.accent);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(
-                    D2D1::RectF(row.left, rowY + dpi(app, 7.0f),
+                tinta::roundedRect(
+                    tinta::rectF(row.left, rowY + dpi(app, 7.0f),
                                 row.left + dpi(app, 3.0f),
                                 rowY + rowH - dpi(app, 9.0f)),
                     dpi(app, 1.5f), dpi(app, 1.5f)),
                 app.brush);
         }
         // Document glyph
-        D2D1_COLOR_F glyph = text;
+        tinta::Color glyph = text;
         glyph.a = 0.55f;
         app.brush->SetColor(glyph);
         float gx = row.left + dpi(app, 12.0f);
         float gy = rowY + (rowH - dpi(app, 14.0f)) * 0.5f - dpi(app, 1.0f);
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(
-                D2D1::RectF(gx, gy, gx + dpi(app, 11.0f), gy + dpi(app, 14.0f)),
+            tinta::roundedRect(
+                tinta::rectF(gx, gy, gx + dpi(app, 11.0f), gy + dpi(app, 14.0f)),
                 dpi(app, 2.0f), dpi(app, 2.0f)),
             app.brush, 1.0f);
 
@@ -1015,23 +1015,23 @@ void renderTabSwitcher(App& app) {
         bool showDot = dirty || missing;
         float nameRight = row.right - dpi(app, showDot ? 66.0f : 56.0f);
         if (app.folderBrowserFormat) {
-            D2D1_COLOR_F nameColor = text;
+            tinta::Color nameColor = text;
             if (!active) nameColor.a = 0.8f;
             app.brush->SetColor(nameColor);
             app.renderTarget->DrawText(
                 app.tabs[i].title.c_str(), (UINT32)app.tabs[i].title.size(),
                 app.folderBrowserFormat,
-                D2D1::RectF(gx + dpi(app, 19.0f),
+                tinta::rectF(gx + dpi(app, 19.0f),
                             rowY + (rowH - dpi(app, 17.0f)) * 0.5f - 1.0f,
                             nameRight, rowY + rowH),
                 app.brush);
         }
         if (showDot) {
-            app.brush->SetColor(dirty ? D2D1::ColorF(0.94f, 0.56f, 0.12f)
-                                      : D2D1::ColorF(0.74f, 0.36f, 0.34f));
+            app.brush->SetColor(dirty ? tinta::colorF(0.94f, 0.56f, 0.12f)
+                                      : tinta::colorF(0.74f, 0.36f, 0.34f));
             float dotR = dpi(app, 3.5f);
             app.renderTarget->FillEllipse(
-                D2D1::Ellipse(D2D1::Point2F(row.right - dpi(app, 60.0f),
+                tinta::ellipse(tinta::pointF(row.right - dpi(app, 60.0f),
                                             rowY + rowH * 0.5f - 1.0f),
                               dotR, dotR),
                 app.brush);
@@ -1040,12 +1040,12 @@ void renderTabSwitcher(App& app) {
         if (i < 9 && app.folderBrowserFormat) {
             wchar_t hint[16];
             swprintf_s(hint, _countof(hint), L"Ctrl+%d", (int)i + 1);
-            D2D1_COLOR_F hintColor = text;
+            tinta::Color hintColor = text;
             hintColor.a = 0.4f;
             app.brush->SetColor(hintColor);
             app.renderTarget->DrawText(
                 hint, (UINT32)wcslen(hint), app.folderBrowserFormat,
-                D2D1::RectF(row.right - dpi(app, 54.0f),
+                tinta::rectF(row.right - dpi(app, 54.0f),
                             rowY + (rowH - dpi(app, 17.0f)) * 0.5f - 1.0f,
                             row.right - dpi(app, 4.0f), rowY + rowH),
                 app.brush);
@@ -1286,16 +1286,16 @@ void renderTabMenu(App& app) {
     float w = tabMenuWidth(app);
     float h = tabMenuTotalHeight(app);
 
-    D2D1_COLOR_F panelBg = app.theme.isDark ? hexColor(0x1E1E1E, 0.97f)
+    tinta::Color panelBg = app.theme.isDark ? hexColor(0x1E1E1E, 0.97f)
                                             : hexColor(0xF8F8F8, 0.97f);
-    D2D1_COLOR_F borderColor = app.theme.isDark ? hexColor(0x3A3A40, 0.9f)
+    tinta::Color borderColor = app.theme.isDark ? hexColor(0x3A3A40, 0.9f)
                                                 : hexColor(0xC8C8C8, 0.9f);
     app.brush->SetColor(panelBg);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(x, y, x + w, y + h), 6, 6), app.brush);
+        tinta::roundedRect(tinta::rectF(x, y, x + w, y + h), 6, 6), app.brush);
     app.brush->SetColor(borderColor);
     app.renderTarget->DrawRoundedRectangle(
-        D2D1::RoundedRect(D2D1::RectF(x, y, x + w, y + h), 6, 6), app.brush,
+        tinta::roundedRect(tinta::rectF(x, y, x + w, y + h), 6, 6), app.brush,
         1.0f);
 
     app.tabMenuHover = tabMenuItemAt(app, (float)app.mouseX, (float)app.mouseY);
@@ -1308,23 +1308,23 @@ void renderTabMenu(App& app) {
         bool enabled = tabMenuItemEnabled(app, i);
 
         if (i == app.tabMenuHover && enabled) {
-            D2D1_COLOR_F hoverColor = app.theme.accent;
+            tinta::Color hoverColor = app.theme.accent;
             hoverColor.a = 0.18f * anim;
             app.brush->SetColor(hoverColor);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(
-                    D2D1::RectF(x + pad, top, x + w - pad, top + itemH), 4, 4),
+                tinta::roundedRect(
+                    tinta::rectF(x + pad, top, x + w - pad, top + itemH), 4, 4),
                 app.brush);
         }
 
-        D2D1_COLOR_F textColor = app.theme.text;
+        tinta::Color textColor = app.theme.text;
         textColor.a = (enabled ? 1.0f : 0.35f) * anim;
         app.brush->SetColor(textColor);
         float textY = top + (itemH - dpi(app, 18.0f)) / 2;
         const wchar_t* label = tr(app, TAB_MENU[i].key);
         app.renderTarget->DrawText(
             label, (UINT32)wcslen(label), format,
-            D2D1::RectF(x + inset, textY, x + w - inset, top + itemH),
+            tinta::rectF(x + inset, textY, x + w - inset, top + itemH),
             app.brush);
 
         if (TAB_MENU[i].shortcut[0]) {
@@ -1335,11 +1335,11 @@ void renderTabMenu(App& app) {
             if (hint) {
                 DWRITE_TEXT_METRICS metrics{};
                 hint->GetMetrics(&metrics);
-                D2D1_COLOR_F hintColor = app.theme.text;
+                tinta::Color hintColor = app.theme.text;
                 hintColor.a = 0.4f * anim;
                 app.brush->SetColor(hintColor);
                 app.renderTarget->DrawTextLayout(
-                    D2D1::Point2F(x + w - inset - metrics.width, textY), hint,
+                    tinta::pointF(x + w - inset - metrics.width, textY), hint,
                     app.brush);
                 hint->Release();
             }
@@ -1348,8 +1348,8 @@ void renderTabMenu(App& app) {
         if (TAB_MENU[i].separatorAfter) {
             float sepY = top + itemH + tabMenuSeparator(app) * 0.5f;
             app.brush->SetColor(borderColor);
-            app.renderTarget->DrawLine(D2D1::Point2F(x + pad, sepY),
-                                       D2D1::Point2F(x + w - pad, sepY),
+            app.renderTarget->DrawLine(tinta::pointF(x + pad, sepY),
+                                       tinta::pointF(x + w - pad, sepY),
                                        app.brush, 1.0f);
         }
     }
@@ -1405,7 +1405,7 @@ namespace {
 
 const wchar_t* kGhostClass = L"TintaTabGhost";
 
-COLORREF toColorref(const D2D1_COLOR_F& c) {
+COLORREF toColorref(const tinta::Color& c) {
     return RGB((BYTE)(c.r * 255.0f + 0.5f), (BYTE)(c.g * 255.0f + 0.5f),
                (BYTE)(c.b * 255.0f + 0.5f));
 }
@@ -1464,7 +1464,7 @@ void ghostCreate(App& app, const std::wstring& title, int screenX,
                                          (int)(radius * 2), (int)(radius * 2));
         HBRUSH fill = CreateSolidBrush(toColorref(tabStripBackground(app)));
         FillRgn(memory, region, fill);
-        D2D1_COLOR_F borderColor = app.theme.text;
+        tinta::Color borderColor = app.theme.text;
         HBRUSH border = CreateSolidBrush(toColorref(borderColor));
         FrameRgn(memory, region, border, 1, 1);
         DeleteObject(fill);

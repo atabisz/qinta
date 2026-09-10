@@ -139,8 +139,8 @@ void openContextMenu(App& app, float x, float y, bool application) {
     app.hoveredLink.clear();
 }
 
-D2D1_RECT_F appMenuButtonRect(const App& app) {
-    return D2D1::RectF(0, 0, dpi(app, app.editMode ? 48.0f : 40.0f), chromeTopHeight(app));
+tinta::RectF appMenuButtonRect(const App& app) {
+    return tinta::rectF(0, 0, dpi(app, app.editMode ? 48.0f : 40.0f), chromeTopHeight(app));
 }
 
 bool appMenuButtonAt(const App& app, float x, float y) {

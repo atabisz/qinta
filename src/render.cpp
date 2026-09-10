@@ -69,7 +69,7 @@ static LayoutInfo createLayout(App& app, std::wstring_view text, IDWriteTextForm
     return info;
 }
 
-static void addTextRect(App& app, const D2D1_RECT_F& rect, size_t docStart, size_t docLength,
+static void addTextRect(App& app, const tinta::RectF& rect, size_t docStart, size_t docLength,
                         size_t runIndex = (size_t)-1) {
     size_t idx = app.textRects.size();
     app.textRects.push_back({rect, docStart, docLength, runIndex});
@@ -112,8 +112,8 @@ static void addTextRect(App& app, const D2D1_RECT_F& rect, size_t docStart, size
     app.lineBuckets.insert(insertAt, std::move(bucket));
 }
 
-static void addTextRun(App& app, LayoutInfo&& info, const D2D1_POINT_2F& pos,
-                       const D2D1_RECT_F& bounds, D2D1_COLOR_F color,
+static void addTextRun(App& app, LayoutInfo&& info, const tinta::PointF& pos,
+                       const tinta::RectF& bounds, tinta::Color color,
                        size_t docStart, size_t docLength, bool selectable) {
     if (!info.layout) return;
 
@@ -392,7 +392,7 @@ void analyzeBreakOpportunities(App& app, const std::wstring& text, std::vector<b
 
 static void layoutInlineContent(App& app, const std::vector<ElementPtr>& elements,
                                 float startX, float& y, float maxWidth,
-                                IDWriteTextFormat* baseFormat, D2D1_COLOR_F baseColor,
+                                IDWriteTextFormat* baseFormat, tinta::Color baseColor,
                                 const std::string& baseLinkUrl = {}, float customLineHeight = 0.0f) {
     float x = startX;
     float lineHeight = customLineHeight > 0 ? customLineHeight : baseFormat->GetFontSize() * 1.7f;
@@ -402,7 +402,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     float spaceWidth = getSpaceWidth(app, baseFormat);
 
     auto addLinkSegment = [&](float lineStartX, float lineEndX, float lineY,
-                              const std::string& linkUrl, D2D1_COLOR_F color) {
+                              const std::string& linkUrl, tinta::Color color) {
         if (lineEndX <= lineStartX) return;
         bool refLive = linkUrl.rfind("fileref-ok:", 0) == 0;
         bool refMissing = linkUrl.rfind("fileref-missing:", 0) == 0;
@@ -411,23 +411,23 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             // .md references underline dashed; a missing target keeps a
             // faint ghost of the same treatment, and its click offers to
             // create the file (#127)
-            D2D1_COLOR_F dashColor = color;
+            tinta::Color dashColor = color;
             dashColor.a *= 0.55f;
             float dash = normalLineHeight * 0.16f;
             float gap = normalLineHeight * 0.12f;
             for (float sx = lineStartX; sx < lineEndX; sx += dash + gap) {
                 float ex = std::min(sx + dash, lineEndX);
-                app.layoutLines.push_back({D2D1::Point2F(sx, underlineY),
-                                           D2D1::Point2F(ex, underlineY),
+                app.layoutLines.push_back({tinta::pointF(sx, underlineY),
+                                           tinta::pointF(ex, underlineY),
                                            dashColor, 1.0f});
             }
         } else {
-            app.layoutLines.push_back({D2D1::Point2F(lineStartX, underlineY),
-                                       D2D1::Point2F(lineEndX, underlineY),
+            app.layoutLines.push_back({tinta::pointF(lineStartX, underlineY),
+                                       tinta::pointF(lineEndX, underlineY),
                                        color, 1.0f});
         }
         App::LinkRect lr;
-        lr.bounds = D2D1::RectF(lineStartX, lineY, lineEndX, lineY + lineHeight);
+        lr.bounds = tinta::rectF(lineStartX, lineY, lineEndX, lineY + lineHeight);
         lr.url = linkUrl;
         app.linkRects.push_back(lr);
     };
@@ -474,12 +474,12 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         const auto& run = runs[runIndex];
         const ElementPtr& elem = run.elem;
         IDWriteTextFormat* format = run.style.format;
-        D2D1_COLOR_F color = run.style.color;
+        tinta::Color color = run.style.color;
         const std::string& linkUrl = run.style.linkUrl;
         bool isLink = run.style.isLink;
         bool hasBg = run.style.hasBg;
         bool hasStrike = run.style.hasStrike;
-        D2D1_COLOR_F bgColor = run.style.bgColor;
+        tinta::Color bgColor = run.style.bgColor;
         float drawYOffset = run.style.drawYOffset + mathTextOffset;
 
         std::wstring text;
@@ -507,15 +507,15 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                     y += lineHeight;
                 }
 
-                app.layoutRects.push_back({D2D1::RectF(x - 2, y + mathTextOffset,
+                app.layoutRects.push_back({tinta::rectF(x - 2, y + mathTextOffset,
                                                       x + textWidth + kCodeSpanPadding,
                                                       y + mathTextOffset + normalLineHeight),
                                            app.theme.codeBackground});
 
                 float codeFontHeight = format->GetFontSize() * 1.2f;
                 float verticalOffset = mathTextOffset + (normalLineHeight - codeFontHeight) / 2.0f;
-                D2D1_POINT_2F pos = D2D1::Point2F(x, y + verticalOffset);
-                D2D1_RECT_F bounds = D2D1::RectF(x, y, x + textWidth, y + lineHeight);
+                tinta::PointF pos = tinta::pointF(x, y + verticalOffset);
+                tinta::RectF bounds = tinta::rectF(x, y, x + textWidth, y + lineHeight);
                 addTextRun(app, std::move(info), pos, bounds, color,
                            codeDocStart, text.length(), true);
 
@@ -550,15 +550,15 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 float textBaseline = mathBaselines[runIndex];
                 float boxTop = y + drawYOffset + textBaseline - mathBoxBaseline(box);
                 if (hasBg) {
-                    app.layoutRects.push_back({D2D1::RectF(x - 2,
+                    app.layoutRects.push_back({tinta::rectF(x - 2,
                         std::min(boxTop, y + mathTextOffset + 1), x + w + 2,
                         std::max(boxTop + mathBoxHeight(box), y + mathTextOffset + normalLineHeight - 1)),
                         bgColor});
                 }
                 if (hasStrike) {
                     float strikeY = y + mathTextOffset + normalLineHeight * 0.55f;
-                    app.layoutLines.push_back({D2D1::Point2F(x, strikeY),
-                                               D2D1::Point2F(x + w, strikeY), color, 1.0f});
+                    app.layoutLines.push_back({tinta::pointF(x, strikeY),
+                                               tinta::pointF(x + w, strikeY), color, 1.0f});
                 }
                 mathBoxRetain(app, box, x, boxTop, color);
                 if (isLink) addLinkSegment(x, x + w, y, linkUrl, color);
@@ -567,7 +567,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 std::wstring source = L"$" + latex + L"$";
                 app.docText += source;
                 addTextRect(app,
-                            D2D1::RectF(x, y, x + w, y + lineHeight),
+                            tinta::rectF(x, y, x + w, y + lineHeight),
                             docStart, source.size());
                 x += w;
                 continue;
@@ -652,16 +652,16 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
 
                 // Draw ruby annotation (above base text, not selectable)
                 if (rubyInfo.layout) {
-                    D2D1_COLOR_F rubyColor = baseColor;
+                    tinta::Color rubyColor = baseColor;
                     rubyColor.a *= 0.7f;
-                    D2D1_POINT_2F rubyPos = D2D1::Point2F(rubyPosX, y + mathTextOffset);
-                    D2D1_RECT_F rubyBounds = D2D1::RectF(rubyPosX, y + mathTextOffset, rubyPosX + rubyWidth, y + mathTextOffset + rubyLineHeight);
+                    tinta::PointF rubyPos = tinta::pointF(rubyPosX, y + mathTextOffset);
+                    tinta::RectF rubyBounds = tinta::rectF(rubyPosX, y + mathTextOffset, rubyPosX + rubyWidth, y + mathTextOffset + rubyLineHeight);
                     addTextRun(app, std::move(rubyInfo), rubyPos, rubyBounds, rubyColor, 0, 0, false);
                 }
 
                 // Draw base text (selectable)
-                D2D1_POINT_2F basePos = D2D1::Point2F(basePosX, baseY);
-                D2D1_RECT_F baseBounds = D2D1::RectF(basePosX, baseY, basePosX + baseWidth, baseY + lineHeight);
+                tinta::PointF basePos = tinta::pointF(basePosX, baseY);
+                tinta::RectF baseBounds = tinta::rectF(basePosX, baseY, basePosX + baseWidth, baseY + lineHeight);
                 addTextRun(app, std::move(baseInfo), basePos, baseBounds, baseColor,
                            rubyDocStart, baseText.length(), true);
 
@@ -755,18 +755,18 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             float segWidth = widthOf(segStart, segEnd);
             if (hasBg) {
                 app.layoutRects.push_back({
-                    D2D1::RectF(segX - 2, y + mathTextOffset + 1, segX + segWidth + 2,
+                    tinta::rectF(segX - 2, y + mathTextOffset + 1, segX + segWidth + 2,
                                 y + mathTextOffset + normalLineHeight - 1),
                     bgColor});
             }
             if (hasStrike) {
                 float strikeY = y + mathTextOffset + normalLineHeight * 0.55f;
-                app.layoutLines.push_back({D2D1::Point2F(segX, strikeY),
-                                           D2D1::Point2F(segX + segWidth, strikeY),
+                app.layoutLines.push_back({tinta::pointF(segX, strikeY),
+                                           tinta::pointF(segX + segWidth, strikeY),
                                            color, 1.0f});
             }
-            D2D1_POINT_2F segPos = D2D1::Point2F(segX, y + drawYOffset);
-            D2D1_RECT_F segBounds = D2D1::RectF(segX, y, segX + segWidth, y + lineHeight);
+            tinta::PointF segPos = tinta::pointF(segX, y + drawYOffset);
+            tinta::RectF segBounds = tinta::rectF(segX, y, segX + segWidth, y + lineHeight);
             size_t runsBefore = app.layoutTextRuns.size();
             addTextRun(app, std::move(info), segPos, segBounds, color,
                        textDocStart + segStart, segEnd - segStart, false);
@@ -775,7 +775,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 ? app.layoutTextRuns.size() - 1 : (size_t)-1;
             for (const auto& w : segWords) {
                 float wx = segX + widthOf(segStart, w.start);
-                D2D1_RECT_F wb = D2D1::RectF(wx, y, wx + widthOf(w.start, w.start + w.len),
+                tinta::RectF wb = tinta::rectF(wx, y, wx + widthOf(w.start, w.start + w.len),
                                              y + lineHeight);
                 addTextRect(app, wb, textDocStart + w.start, w.len, segRun);
             }
@@ -903,7 +903,7 @@ static void layoutMathBlock(App& app, const ElementPtr& elem, float& y,
 
     size_t docStart = app.docText.size();
     app.docText += latex;
-    addTextRect(app, D2D1::RectF(x, y, x + w, y + mathBoxHeight(box)),
+    addTextRect(app, tinta::rectF(x, y, x + w, y + mathBoxHeight(box)),
                 docStart, latex.size());
     app.docText += L"\n\n";
 
@@ -972,11 +972,11 @@ static void layoutHeading(App& app, const ElementPtr& elem, float& y, float inde
 
     if (elem->level <= 2 && app.headingRules) {
         y += 6 * scale;
-        D2D1_COLOR_F lineColor = app.theme.heading;
+        tinta::Color lineColor = app.theme.heading;
         lineColor.a = 0.3f;
         float lineWidth = (elem->level == 1) ? 2.0f * scale : 1.0f * scale;
-        app.layoutLines.push_back({D2D1::Point2F(indent, y),
-                                   D2D1::Point2F(indent + maxWidth, y),
+        app.layoutLines.push_back({tinta::pointF(indent, y),
+                                   tinta::pointF(indent + maxWidth, y),
                                    lineColor, lineWidth});
         y += lineWidth;
     }
@@ -1016,8 +1016,8 @@ static LayoutInfo createWrappedLayout(App& app, std::wstring_view text,
     return info;
 }
 
-static D2D1_COLOR_F mermaidColor(const mermaid::Color& color) {
-    return D2D1::ColorF(
+static tinta::Color mermaidColor(const mermaid::Color& color) {
+    return tinta::colorF(
         ((color.rgb >> 16) & 0xFF) / 255.0f,
         ((color.rgb >> 8) & 0xFF) / 255.0f,
         (color.rgb & 0xFF) / 255.0f,
@@ -1025,9 +1025,9 @@ static D2D1_COLOR_F mermaidColor(const mermaid::Color& color) {
 }
 
 struct ResolvedMermaidStyle {
-    D2D1_COLOR_F fill{};
-    D2D1_COLOR_F stroke{};
-    D2D1_COLOR_F text{};
+    tinta::Color fill{};
+    tinta::Color stroke{};
+    tinta::Color text{};
     float strokeWidth = 1.0f;
 };
 
@@ -1080,7 +1080,7 @@ static App::LayoutShapeType mermaidShapeType(mermaid::NodeShape shape) {
 static bool layoutMermaidDiagram(App& app, const std::string& source,
                                  size_t sourceOffset, float& y,
                                  float indent, float maxWidth,
-                                 D2D1_RECT_F* renderedBounds = nullptr,
+                                 tinta::RectF* renderedBounds = nullptr,
                                  float scaleMul = 1.0f) {
     auto parsed = mermaid::parse(source);
     if (!parsed.success || parsed.diagram.nodes.empty()) return false;
@@ -1176,10 +1176,10 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
     float diagramRight = baseX + graphLayout.width;
     float diagramBottom = baseY + graphLayout.height;
 
-    std::vector<D2D1_RECT_F> nodeRects;
+    std::vector<tinta::RectF> nodeRects;
     nodeRects.reserve(graphLayout.nodes.size());
     for (const auto& rect : graphLayout.nodes) {
-        nodeRects.push_back(D2D1::RectF(
+        nodeRects.push_back(tinta::rectF(
             baseX + rect.left,
             baseY + rect.top,
             baseX + rect.right,
@@ -1188,13 +1188,13 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
 
     struct MermaidTextItem {
         std::wstring text;
-        D2D1_RECT_F rect{};
-        D2D1_COLOR_F color{};
+        tinta::RectF rect{};
+        tinta::Color color{};
     };
     std::vector<MermaidTextItem> textItems;
     textItems.reserve(diagram.nodes.size() + diagram.edges.size());
 
-    D2D1_COLOR_F connectorColor = app.theme.text;
+    tinta::Color connectorColor = app.theme.text;
     connectorColor.a = app.theme.isDark ? 0.7f : 0.6f;
 
     // Subgraph group boxes: fill goes through layoutRects (drawn before the
@@ -1205,10 +1205,10 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
         float boxPad = 10.0f * scale;
         float titleHeight = 20.0f * scale;
         constexpr float kEmpty = std::numeric_limits<float>::max();
-        std::vector<D2D1_RECT_F> boxes(
+        std::vector<tinta::RectF> boxes(
             diagram.subgraphs.size(),
-            D2D1::RectF(kEmpty, kEmpty, -kEmpty, -kEmpty));
-        auto grow = [](D2D1_RECT_F& box, const D2D1_RECT_F& rect) {
+            tinta::rectF(kEmpty, kEmpty, -kEmpty, -kEmpty));
+        auto grow = [](tinta::RectF& box, const tinta::RectF& rect) {
             box.left = std::min(box.left, rect.left);
             box.top = std::min(box.top, rect.top);
             box.right = std::max(box.right, rect.right);
@@ -1230,11 +1230,11 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             boxes[s].right += boxPad;
             boxes[s].bottom += boxPad;
         }
-        D2D1_COLOR_F groupFill = app.theme.codeBackground;
+        tinta::Color groupFill = app.theme.codeBackground;
         groupFill.a *= 0.55f;
-        D2D1_COLOR_F groupBorder = app.theme.text;
+        tinta::Color groupBorder = app.theme.text;
         groupBorder.a = 0.28f;
-        D2D1_COLOR_F groupTitle = app.theme.text;
+        tinta::Color groupTitle = app.theme.text;
         groupTitle.a = 0.78f;
         for (size_t s = 0; s < diagram.subgraphs.size(); s++) {
             if (boxes[s].left == kEmpty) continue;
@@ -1242,12 +1242,12 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             app.layoutShapes.push_back({
                 App::LayoutShapeType::Rectangle,
                 boxes[s],
-                D2D1::ColorF(0, 0, 0, 0),
+                tinta::colorF(0, 0, 0, 0),
                 groupBorder,
                 1.2f * scale,
                 0.0f,
             });
-            D2D1_RECT_F titleRect = D2D1::RectF(
+            tinta::RectF titleRect = tinta::rectF(
                 boxes[s].left + 8.0f * scale, boxes[s].top + 2.0f * scale,
                 boxes[s].right - 8.0f * scale,
                 boxes[s].top + titleHeight + 2.0f * scale);
@@ -1263,7 +1263,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
     app.layoutConnectors.reserve(
         app.layoutConnectors.size() + diagram.edges.size());
     size_t exteriorLane = 0;
-    std::vector<D2D1_RECT_F> placedLabelRects;
+    std::vector<tinta::RectF> placedLabelRects;
     placedLabelRects.reserve(diagram.edges.size());
     for (size_t edgeIndex = 0; edgeIndex < diagram.edges.size(); edgeIndex++) {
         const auto& edge = diagram.edges[edgeIndex];
@@ -1304,38 +1304,38 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
                 (topToBottom ? toCenterY > fromCenterY : toCenterY < fromCenterY);
             if (selfLoop) {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(from.right, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(fromCenterX, from.bottom);
+                tinta::PointF start = tinta::pointF(from.right, fromCenterY);
+                tinta::PointF end = tinta::pointF(fromCenterX, from.bottom);
                 float laneX = from.right + lane;
                 float laneY = from.bottom + lane;
                 connector.points = {
                     start,
-                    D2D1::Point2F(laneX, start.y),
-                    D2D1::Point2F(laneX, laneY),
-                    D2D1::Point2F(end.x, laneY),
+                    tinta::pointF(laneX, start.y),
+                    tinta::pointF(laneX, laneY),
+                    tinta::pointF(end.x, laneY),
                     end,
                 };
             } else if (forward) {
-                D2D1_POINT_2F start = D2D1::Point2F(
+                tinta::PointF start = tinta::pointF(
                     fromCenterX, topToBottom ? from.bottom : from.top);
-                D2D1_POINT_2F end = D2D1::Point2F(
+                tinta::PointF end = tinta::pointF(
                     toCenterX, topToBottom ? to.top : to.bottom);
                 float middleY = (start.y + end.y) * 0.5f;
                 connector.points = {
                     start,
-                    D2D1::Point2F(start.x, middleY),
-                    D2D1::Point2F(end.x, middleY),
+                    tinta::pointF(start.x, middleY),
+                    tinta::pointF(end.x, middleY),
                     end,
                 };
             } else {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(from.right, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(to.right, toCenterY);
+                tinta::PointF start = tinta::pointF(from.right, fromCenterY);
+                tinta::PointF end = tinta::pointF(to.right, toCenterY);
                 float laneX = std::max(from.right, to.right) + lane;
                 connector.points = {
                     start,
-                    D2D1::Point2F(laneX, start.y),
-                    D2D1::Point2F(laneX, end.y),
+                    tinta::pointF(laneX, start.y),
+                    tinta::pointF(laneX, end.y),
                     end,
                 };
             }
@@ -1346,44 +1346,44 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
                 (leftToRight ? toCenterX > fromCenterX : toCenterX < fromCenterX);
             if (selfLoop) {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(fromCenterX, from.bottom);
-                D2D1_POINT_2F end = D2D1::Point2F(from.right, fromCenterY);
+                tinta::PointF start = tinta::pointF(fromCenterX, from.bottom);
+                tinta::PointF end = tinta::pointF(from.right, fromCenterY);
                 float laneX = from.right + lane;
                 float laneY = from.bottom + lane;
                 connector.points = {
                     start,
-                    D2D1::Point2F(start.x, laneY),
-                    D2D1::Point2F(laneX, laneY),
-                    D2D1::Point2F(laneX, end.y),
+                    tinta::pointF(start.x, laneY),
+                    tinta::pointF(laneX, laneY),
+                    tinta::pointF(laneX, end.y),
                     end,
                 };
             } else if (forward) {
-                D2D1_POINT_2F start = D2D1::Point2F(
+                tinta::PointF start = tinta::pointF(
                     leftToRight ? from.right : from.left, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(
+                tinta::PointF end = tinta::pointF(
                     leftToRight ? to.left : to.right, toCenterY);
                 float middleX = (start.x + end.x) * 0.5f;
                 connector.points = {
                     start,
-                    D2D1::Point2F(middleX, start.y),
-                    D2D1::Point2F(middleX, end.y),
+                    tinta::pointF(middleX, start.y),
+                    tinta::pointF(middleX, end.y),
                     end,
                 };
             } else {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(fromCenterX, from.bottom);
-                D2D1_POINT_2F end = D2D1::Point2F(toCenterX, to.bottom);
+                tinta::PointF start = tinta::pointF(fromCenterX, from.bottom);
+                tinta::PointF end = tinta::pointF(toCenterX, to.bottom);
                 float laneY = std::max(from.bottom, to.bottom) + lane;
                 connector.points = {
                     start,
-                    D2D1::Point2F(start.x, laneY),
-                    D2D1::Point2F(end.x, laneY),
+                    tinta::pointF(start.x, laneY),
+                    tinta::pointF(end.x, laneY),
                     end,
                 };
             }
         }
 
-        connector.bounds = D2D1::RectF(
+        connector.bounds = tinta::rectF(
             std::numeric_limits<float>::max(),
             std::numeric_limits<float>::max(),
             std::numeric_limits<float>::lowest(),
@@ -1413,13 +1413,13 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             float centerX = (middleStart.x + middleEnd.x) * 0.5f;
             float centerY = (middleStart.y + middleEnd.y) * 0.5f;
             auto chipAt = [&](float cx, float cy) {
-                return D2D1::RectF(
+                return tinta::rectF(
                     cx - edgeLabel.width * 0.5f,
                     cy - edgeLabel.height * 0.5f,
                     cx + edgeLabel.width * 0.5f,
                     cy + edgeLabel.height * 0.5f);
             };
-            D2D1_RECT_F labelRect = chipAt(centerX, centerY);
+            tinta::RectF labelRect = chipAt(centerX, centerY);
 
             // Parallel exterior lanes sit only a few pixels apart, so their
             // midpoint chips stack on top of each other — slide an
@@ -1428,7 +1428,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
                                std::abs(middleEnd.y - middleStart.y);
             float stepX = segVertical ? 0.0f : edgeLabel.width + 8.0f * scale;
             float stepY = segVertical ? edgeLabel.height + 8.0f * scale : 0.0f;
-            auto overlapsPlaced = [&](const D2D1_RECT_F& rect) {
+            auto overlapsPlaced = [&](const tinta::RectF& rect) {
                 for (const auto& placed : placedLabelRects) {
                     if (rect.left < placed.right && rect.right > placed.left &&
                         rect.top < placed.bottom && rect.bottom > placed.top) {
@@ -1447,7 +1447,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             // Draw the label as a visible chip on the edge — an invisible
             // background-colored pill erases the line under it, which makes
             // edges look disconnected and labels look like floating text
-            D2D1_COLOR_F chipStroke = connectorColor;
+            tinta::Color chipStroke = connectorColor;
             chipStroke.a *= 0.6f;
             app.layoutShapes.push_back({
                 App::LayoutShapeType::RoundedRectangle,
@@ -1461,7 +1461,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             diagramTop = std::min(diagramTop, labelRect.top);
             diagramRight = std::max(diagramRight, labelRect.right);
             diagramBottom = std::max(diagramBottom, labelRect.bottom);
-            D2D1_RECT_F textRect = D2D1::RectF(
+            tinta::RectF textRect = tinta::rectF(
                 labelRect.left + labelPaddingX,
                 labelRect.top + labelPaddingY,
                 labelRect.right - labelPaddingX,
@@ -1494,7 +1494,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             insetX = (rect.right - rect.left) * 0.18f;
         }
 
-        D2D1_RECT_F textRect = D2D1::RectF(
+        tinta::RectF textRect = tinta::rectF(
             rect.left + insetX,
             rect.top + insetY,
             rect.right - insetX,
@@ -1527,7 +1527,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
         app.docText += item.text;
         addTextRun(
             app, std::move(textLayout),
-            D2D1::Point2F(item.rect.left, item.rect.top),
+            tinta::pointF(item.rect.left, item.rect.top),
             item.rect, item.color, docStart, item.text.size(), true);
         app.docText += L"\n";
     }
@@ -1559,7 +1559,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
     }
     if (renderedBounds) {
         *renderedBounds =
-            D2D1::RectF(diagramLeft, diagramTop, diagramRight, diagramBottom);
+            tinta::rectF(diagramLeft, diagramTop, diagramRight, diagramBottom);
     }
     y = diagramBottom + 24.0f * scale;
     return true;
@@ -1611,7 +1611,7 @@ static void hslToRgb(float h, float s, float l, float& r, float& g, float& b) {
 
 // Categorical palette derived from the theme accent: golden-angle hue steps
 // keep neighboring series distinct in any theme
-static D2D1_COLOR_F diagramSeriesColor(const App& app, int index) {
+static tinta::Color diagramSeriesColor(const App& app, int index) {
     float h, s, l;
     rgbToHsl(app.theme.accent.r, app.theme.accent.g, app.theme.accent.b,
              h, s, l);
@@ -1620,14 +1620,14 @@ static D2D1_COLOR_F diagramSeriesColor(const App& app, int index) {
     l = app.theme.isDark ? 0.60f : 0.52f;
     float r, g, b;
     hslToRgb(h, s, l, r, g, b);
-    return D2D1::ColorF(r, g, b, 1.0f);
+    return tinta::colorF(r, g, b, 1.0f);
 }
 
-D2D1_COLOR_F resolveDiagramRoleImpl(const App& app,
+tinta::Color resolveDiagramRoleImpl(const App& app,
                                 const mermaidext::Prim& prim,
                                 mermaidext::Role role) {
     int seriesIndex = prim.seriesIndex;
-    D2D1_COLOR_F color = app.theme.text;
+    tinta::Color color = app.theme.text;
     switch (role) {
         case mermaidext::Role::Text:
             color = app.theme.text;
@@ -1660,7 +1660,7 @@ D2D1_COLOR_F resolveDiagramRoleImpl(const App& app,
             color.a = 0.30f;
             break;
         case mermaidext::Role::Custom:
-            color = D2D1::ColorF(prim.customR, prim.customG, prim.customB,
+            color = tinta::colorF(prim.customR, prim.customG, prim.customB,
                                  prim.customA);
             break;
         case mermaidext::Role::None:
@@ -1750,11 +1750,11 @@ static ID2D1PathGeometry* buildPolygonGeometry(
         return nullptr;
     }
     sink->BeginFigure(
-        D2D1::Point2F(points[0].x - originX, points[0].y - originY),
+        tinta::pointF(points[0].x - originX, points[0].y - originY),
         D2D1_FIGURE_BEGIN_FILLED);
     for (size_t i = 1; i < points.size(); i++) {
         sink->AddLine(
-            D2D1::Point2F(points[i].x - originX, points[i].y - originY));
+            tinta::pointF(points[i].x - originX, points[i].y - originY));
     }
     sink->EndFigure(D2D1_FIGURE_END_CLOSED);
     sink->Close();
@@ -1775,15 +1775,15 @@ static ID2D1PathGeometry* buildSliceGeometry(App& app, float radius,
         return nullptr;
     }
     float cx = radius, cy = radius;
-    D2D1_POINT_2F start =
-        D2D1::Point2F(cx + radius * std::cos(a0), cy + radius * std::sin(a0));
-    D2D1_POINT_2F end =
-        D2D1::Point2F(cx + radius * std::cos(a1), cy + radius * std::sin(a1));
+    tinta::PointF start =
+        tinta::pointF(cx + radius * std::cos(a0), cy + radius * std::sin(a0));
+    tinta::PointF end =
+        tinta::pointF(cx + radius * std::cos(a1), cy + radius * std::sin(a1));
     float sweep = a1 - a0;
     if (sweep >= 6.28318f - 0.0001f) {
         // Full circle: two half arcs
         sink->BeginFigure(start, D2D1_FIGURE_BEGIN_FILLED);
-        D2D1_POINT_2F opposite = D2D1::Point2F(
+        tinta::PointF opposite = tinta::pointF(
             cx + radius * std::cos(a0 + 3.14159f),
             cy + radius * std::sin(a0 + 3.14159f));
         D2D1_ARC_SEGMENT half1 = {
@@ -1796,7 +1796,7 @@ static ID2D1PathGeometry* buildSliceGeometry(App& app, float radius,
         sink->AddArc(half2);
         sink->EndFigure(D2D1_FIGURE_END_CLOSED);
     } else {
-        sink->BeginFigure(D2D1::Point2F(cx, cy), D2D1_FIGURE_BEGIN_FILLED);
+        sink->BeginFigure(tinta::pointF(cx, cy), D2D1_FIGURE_BEGIN_FILLED);
         sink->AddLine(start);
         D2D1_ARC_SEGMENT arc = {
             end, {radius, radius}, 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE,
@@ -1813,7 +1813,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                                     const std::string& source,
                                     size_t sourceOffset, float& y,
                                     float indent, float maxWidth,
-                                    D2D1_RECT_F* renderedBounds,
+                                    tinta::RectF* renderedBounds,
                                     float scaleMul = 1.0f) {
     float scale = app.contentScale * app.zoomFactor * scaleMul;
     DiagramFormats formats(app);
@@ -1860,8 +1860,8 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
     for (const auto& prim : built.prims) {
         float x1 = baseX + prim.x1, y1 = baseY + prim.y1;
         float x2 = baseX + prim.x2, y2 = baseY + prim.y2;
-        D2D1_COLOR_F fill = resolveDiagramRoleImpl(app, prim, prim.fill);
-        D2D1_COLOR_F stroke = resolveDiagramRoleImpl(app, prim, prim.stroke);
+        tinta::Color fill = resolveDiagramRoleImpl(app, prim, prim.fill);
+        tinta::Color stroke = resolveDiagramRoleImpl(app, prim, prim.stroke);
         switch (prim.type) {
             case mermaidext::PrimType::Rect:
             case mermaidext::PrimType::RoundRect:
@@ -1873,7 +1873,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                     : prim.type == mermaidext::PrimType::RoundRect
                         ? App::LayoutShapeType::RoundedRectangle
                         : App::LayoutShapeType::Ellipse;
-                shape.rect = D2D1::RectF(x1, y1, x2, y2);
+                shape.rect = tinta::rectF(x1, y1, x2, y2);
                 shape.fill = fill;
                 shape.stroke = stroke;
                 shape.strokeWidth = prim.strokeWidth;
@@ -1913,7 +1913,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                         float maxY = std::max({tri[0].y, tri[1].y, tri[2].y});
                         App::LayoutShape triangle;
                         triangle.type = App::LayoutShapeType::Path;
-                        triangle.rect = D2D1::RectF(minX, minY, maxX, maxY);
+                        triangle.rect = tinta::rectF(minX, minY, maxX, maxY);
                         triangle.fill = stroke;
                         triangle.stroke.a = 0.0f;
                         triangle.geometry =
@@ -1921,9 +1921,9 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                         app.layoutShapes.push_back(triangle);
                     }
                 }
-                connector.points = {D2D1::Point2F(x1, y1),
-                                    D2D1::Point2F(endX, endY)};
-                connector.bounds = D2D1::RectF(
+                connector.points = {tinta::pointF(x1, y1),
+                                    tinta::pointF(endX, endY)};
+                connector.bounds = tinta::rectF(
                     std::min(x1, x2) - 10.0f * scale,
                     std::min(y1, y2) - 10.0f * scale,
                     std::max(x1, x2) + 10.0f * scale,
@@ -1950,7 +1950,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                 }
                 App::LayoutShape shape;
                 shape.type = App::LayoutShapeType::Path;
-                shape.rect = D2D1::RectF(minX, minY, maxX, maxY);
+                shape.rect = tinta::rectF(minX, minY, maxX, maxY);
                 shape.fill = fill;
                 shape.stroke = stroke;
                 shape.strokeWidth = prim.strokeWidth;
@@ -1961,7 +1961,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
             case mermaidext::PrimType::Slice: {
                 App::LayoutShape shape;
                 shape.type = App::LayoutShapeType::Path;
-                shape.rect = D2D1::RectF(
+                shape.rect = tinta::rectF(
                     x1 - prim.radius, y1 - prim.radius,
                     x1 + prim.radius, y1 + prim.radius);
                 shape.fill = fill;
@@ -1988,7 +1988,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
     for (const mermaidext::Prim* prim : textPrims) {
         std::wstring wide = toWide(prim->text);
         if (wide.empty()) continue;
-        D2D1_RECT_F rect = D2D1::RectF(baseX + prim->x1, baseY + prim->y1,
+        tinta::RectF rect = tinta::rectF(baseX + prim->x1, baseY + prim->y1,
                                        baseX + prim->x2, baseY + prim->y2);
         // Slight width slack: boxes are sized from measured text, and
         // re-wrapping at the exact measured width can push the last word
@@ -2007,7 +2007,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
         size_t docStart = app.docText.size();
         app.docText += wide;
         addTextRun(app, std::move(info),
-                   D2D1::Point2F(rect.left, rect.top), rect,
+                   tinta::pointF(rect.left, rect.top), rect,
                    resolveDiagramRoleImpl(app, *prim, prim->fill),
                    docStart, wide.size(), true);
         app.docText += L"\n";
@@ -2020,7 +2020,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                                 diagramRight + 40.0f * scale);
     if (renderedBounds) {
         *renderedBounds =
-            D2D1::RectF(baseX, baseY, diagramRight, diagramBottom);
+            tinta::rectF(baseX, baseY, diagramRight, diagramBottom);
     }
     y = diagramBottom + 24.0f * scale;
     return true;
@@ -2039,7 +2039,7 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
         languageName.begin(), languageName.end(), languageName.begin(),
         [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (languageName == "mermaid") {
-        D2D1_RECT_F renderedBounds{};
+        tinta::RectF renderedBounds{};
         mermaidext::Kind kind = mermaidext::detectKind(code);
         unsigned fitKey = 0x80000000u | app.layoutDiagramSeq++;
         bool fitActive = fitBlockEnabled(app, fitKey);
@@ -2109,7 +2109,7 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
     // so the whole-file wrapper block skips its own card
     bool frameless = app.peekFrameless;
     if (!frameless) {
-        app.layoutRects.push_back({D2D1::RectF(indent, y, indent + maxWidth, y + blockHeight),
+        app.layoutRects.push_back({tinta::rectF(indent, y, indent + maxWidth, y + blockHeight),
                                    app.theme.codeBackground});
     }
 
@@ -2117,7 +2117,7 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
 
     // Track code block for copy button
     app.codeBlocks.push_back({
-        D2D1::RectF(indent, y, indent + maxWidth, y + blockHeight),
+        tinta::rectF(indent, y, indent + maxWidth, y + blockHeight),
         wcode
     });
     float textY = y + padding;
@@ -2148,13 +2148,13 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
             while (ti < tokens.size()) {
                 if (tokens[ti].text.empty()) { ti++; continue; }
 
-                D2D1_COLOR_F runColor = getTokenColor(app.theme, tokens[ti].tokenType);
+                tinta::Color runColor = getTokenColor(app.theme, tokens[ti].tokenType);
                 std::wstring_view runText = tokens[ti].text;
                 size_t tj = ti + 1;
                 while (tj < tokens.size()) {
                     const auto& next = tokens[tj];
                     if (next.text.empty()) { tj++; continue; }
-                    D2D1_COLOR_F c = getTokenColor(app.theme, next.tokenType);
+                    tinta::Color c = getTokenColor(app.theme, next.tokenType);
                     bool sameColor = c.r == runColor.r && c.g == runColor.g &&
                                      c.b == runColor.b && c.a == runColor.a;
                     // Tokens are views into wline; only merge physically
@@ -2168,8 +2168,8 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
                 LayoutInfo info = createLayout(app, runText, app.codeFormat, lineHeight, app.codeTypography);
                 float runWidth = info.width;
 
-                D2D1_POINT_2F pos = D2D1::Point2F(tokenX, textY);
-                D2D1_RECT_F bounds = D2D1::RectF(tokenX, textY, tokenX + runWidth, textY + lineHeight);
+                tinta::PointF pos = tinta::pointF(tokenX, textY);
+                tinta::RectF bounds = tinta::rectF(tokenX, textY, tokenX + runWidth, textY + lineHeight);
                 addTextRun(app, std::move(info), pos, bounds, runColor,
                            lineDocStart, 0, false);
 
@@ -2180,8 +2180,8 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
         } else {
             LayoutInfo info = createLayout(app, wline, app.codeFormat, lineHeight, app.codeTypography);
             lineWidth = info.width;
-            D2D1_POINT_2F pos = D2D1::Point2F(indent + padding, textY);
-            D2D1_RECT_F bounds = D2D1::RectF(indent + padding, textY,
+            tinta::PointF pos = tinta::pointF(indent + padding, textY);
+            tinta::RectF bounds = tinta::rectF(indent + padding, textY,
                                              indent + padding + lineWidth, textY + lineHeight);
             size_t runsBefore = app.layoutTextRuns.size();
             addTextRun(app, std::move(info), pos, bounds, app.theme.code,
@@ -2192,7 +2192,7 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
         }
 
         if (!wline.empty()) {
-            D2D1_RECT_F lineBounds = D2D1::RectF(indent + padding, textY,
+            tinta::RectF lineBounds = tinta::rectF(indent + padding, textY,
                 indent + padding + lineWidth, textY + lineHeight);
             // Syntax-highlighted lines have no single covering layout;
             // monospace interpolation stays accurate there
@@ -2241,7 +2241,7 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
         {L"\u26D4\uFE0E  Caution",   0xCF222E, 0xF85149},  // no-entry
     };
 
-    D2D1_COLOR_F barColor = app.theme.blockquoteBorder;
+    tinta::Color barColor = app.theme.blockquoteBorder;
     if (elem->alertKind >= 1 && elem->alertKind <= 5) {
         const auto& style = ALERT_STYLES[elem->alertKind - 1];
         barColor = hexColor(app.theme.isDark ? style.dark : style.light);
@@ -2252,8 +2252,8 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
             DWRITE_TEXT_RANGE range = {0, (UINT32)title.length()};
             info.layout->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);
         }
-        D2D1_POINT_2F pos = D2D1::Point2F(indent + quoteIndent, y);
-        D2D1_RECT_F bounds = D2D1::RectF(indent + quoteIndent, y,
+        tinta::PointF pos = tinta::pointF(indent + quoteIndent, y);
+        tinta::RectF bounds = tinta::rectF(indent + quoteIndent, y,
                                          indent + maxWidth, y + 24 * scale);
         addTextRun(app, std::move(info), pos, bounds, barColor, 0, 0, false);
         y += 30 * scale;
@@ -2284,7 +2284,7 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
     for (size_t i = contentStart.bitmaps; i < app.layoutBitmaps.size(); ++i)
         contentBottom = std::max(contentBottom, app.layoutBitmaps[i].destRect.bottom);
 
-    app.layoutRects.push_back({D2D1::RectF(indent, startY, indent + 4, std::min(y, contentBottom)), barColor});
+    app.layoutRects.push_back({tinta::rectF(indent, startY, indent + 4, std::min(y, contentBottom)), barColor});
 }
 
 static void layoutList(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth) {
@@ -2300,21 +2300,21 @@ static void layoutList(App& app, const ElementPtr& elem, float& y, float indent,
             float box = 15.0f * scale;
             float boxX = indent + 1.0f * scale;
             float boxY = y + 4.0f * scale;
-            D2D1_RECT_F boxRect = D2D1::RectF(boxX, boxY, boxX + box, boxY + box);
+            tinta::RectF boxRect = tinta::rectF(boxX, boxY, boxX + box, boxY + box);
             if (child->taskChecked) {
                 app.layoutRects.push_back({boxRect, app.theme.accent});
-                D2D1_COLOR_F mark = app.theme.isDark
-                    ? D2D1::ColorF(0.08f, 0.08f, 0.10f) : D2D1::ColorF(1, 1, 1);
+                tinta::Color mark = app.theme.isDark
+                    ? tinta::colorF(0.08f, 0.08f, 0.10f) : tinta::colorF(1, 1, 1);
                 app.layoutLines.push_back({
-                    D2D1::Point2F(boxX + box * 0.24f, boxY + box * 0.52f),
-                    D2D1::Point2F(boxX + box * 0.44f, boxY + box * 0.74f),
+                    tinta::pointF(boxX + box * 0.24f, boxY + box * 0.52f),
+                    tinta::pointF(boxX + box * 0.44f, boxY + box * 0.74f),
                     mark, 2.0f * scale});
                 app.layoutLines.push_back({
-                    D2D1::Point2F(boxX + box * 0.44f, boxY + box * 0.74f),
-                    D2D1::Point2F(boxX + box * 0.78f, boxY + box * 0.28f),
+                    tinta::pointF(boxX + box * 0.44f, boxY + box * 0.74f),
+                    tinta::pointF(boxX + box * 0.78f, boxY + box * 0.28f),
                     mark, 2.0f * scale});
             } else {
-                D2D1_COLOR_F edge = app.theme.blockquoteBorder;
+                tinta::Color edge = app.theme.blockquoteBorder;
                 float w = 1.2f * scale;
                 app.layoutLines.push_back({{boxX, boxY}, {boxX + box, boxY}, edge, w});
                 app.layoutLines.push_back({{boxX, boxY + box}, {boxX + box, boxY + box}, edge, w});
@@ -2323,7 +2323,7 @@ static void layoutList(App& app, const ElementPtr& elem, float& y, float indent,
             }
             if (child->taskMarkOffset != SIZE_MAX) {
                 app.taskRects.push_back({
-                    D2D1::RectF(boxX - 4 * scale, boxY - 4 * scale,
+                    tinta::rectF(boxX - 4 * scale, boxY - 4 * scale,
                                 boxX + box + 4 * scale, boxY + box + 4 * scale),
                     child->taskMarkOffset, child->taskChecked});
             }
@@ -2332,8 +2332,8 @@ static void layoutList(App& app, const ElementPtr& elem, float& y, float indent,
                 std::to_wstring(itemNum++) + L"." : L"\x2022";
 
             LayoutInfo info = createLayout(app, marker, app.textFormat, 24.0f, app.bodyTypography);
-            D2D1_POINT_2F pos = D2D1::Point2F(indent, y);
-            D2D1_RECT_F bounds = D2D1::RectF(indent, y, indent + listIndent, y + 24);
+            tinta::PointF pos = tinta::pointF(indent, y);
+            tinta::RectF bounds = tinta::rectF(indent, y, indent + listIndent, y + 24);
             addTextRun(app, std::move(info), pos, bounds, app.theme.text, 0, 0, false);
         }
 
@@ -2503,7 +2503,7 @@ static bool loadSvgBitmap(App& app, const std::wstring& path,
         IStream* stream = makeStream();
         ID2D1SvgDocument* doc = nullptr;
         if (stream &&
-            SUCCEEDED(dc->CreateSvgDocument(stream, D2D1::SizeF(512, 512),
+            SUCCEEDED(dc->CreateSvgDocument(stream, tinta::sizeF(512, 512),
                                             &doc)) &&
             doc) {
             ID2D1SvgElement* root = nullptr;
@@ -2551,11 +2551,11 @@ static bool loadSvgBitmap(App& app, const std::wstring& path,
         IStream* stream = makeStream();
         ID2D1SvgDocument* doc = nullptr;
         if (stream &&
-            SUCCEEDED(dc->CreateSvgDocument(stream, D2D1::SizeF(svgW, svgH),
+            SUCCEEDED(dc->CreateSvgDocument(stream, tinta::sizeF(svgW, svgH),
                                             &doc)) &&
             doc) {
             dc->BeginDraw();
-            dc->Clear(D2D1::ColorF(0, 0, 0, 0));
+            dc->Clear(tinta::colorF(0, 0, 0, 0));
             dc->SetTransform(D2D1::Matrix3x2F::Scale(2.0f, 2.0f));
             dc->DrawSvgDocument(doc);
             drawn = SUCCEEDED(dc->EndDraw());
@@ -2679,7 +2679,7 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
     decoder->Release();
 
     if (SUCCEEDED(hr) && bitmap) {
-        D2D1_SIZE_F size = bitmap->GetSize();
+        tinta::SizeF size = tinta::fromD2D(bitmap->GetSize());
         entry.bitmap = bitmap;
         entry.width = (int)size.width;
         entry.height = (int)size.height;
@@ -2712,10 +2712,10 @@ static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent
         size_t docStart = app.docText.size();
         LayoutInfo info = createLayout(app, altText, app.italicFormat, lineHeight, app.bodyTypography);
 
-        D2D1_COLOR_F color = app.theme.text;
+        tinta::Color color = app.theme.text;
         color.a = 0.6f;
-        D2D1_POINT_2F pos = D2D1::Point2F(indent, y);
-        D2D1_RECT_F bounds = D2D1::RectF(indent, y, indent + info.width, y + lineHeight);
+        tinta::PointF pos = tinta::pointF(indent, y);
+        tinta::RectF bounds = tinta::rectF(indent, y, indent + info.width, y + lineHeight);
         addTextRun(app, std::move(info), pos, bounds, color, docStart, altText.length(), false);
         app.docText += altText;
         y += lineHeight;
@@ -2739,7 +2739,7 @@ static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent
     }
 
     app.layoutBitmaps.push_back({entry.bitmap,
-        D2D1::RectF(indent, y, indent + displayW, y + displayH)});
+        tinta::rectF(indent, y, indent + displayW, y + displayH)});
 
     y += displayH + 12 * scale;
 }
@@ -2921,7 +2921,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
         float maxRowH = lineHeight + cellPadding * 2;
         bool isHeader = (r == 0);
         IDWriteTextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
-        D2D1_COLOR_F textColor = isHeader ? app.theme.heading : app.theme.text;
+        tinta::Color textColor = isHeader ? app.theme.heading : app.theme.text;
         const auto& row = rows[r];
 
         for (size_t c = 0; c < row->children.size() && c < (size_t)colCount; c++) {
@@ -2968,7 +2968,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
 
     // Pass 2: Render cells via layoutInlineContent (produces real text runs, links, etc.)
     float tableStartY = y;
-    D2D1_COLOR_F borderColor = app.theme.blockquoteBorder;
+    tinta::Color borderColor = app.theme.blockquoteBorder;
     float borderStroke = 1.0f * scale;
 
     for (size_t r = 0; r < rows.size(); r++) {
@@ -2978,27 +2978,27 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
 
         // Header row background
         if (isHeader) {
-            D2D1_COLOR_F headerBg = app.theme.codeBackground;
+            tinta::Color headerBg = app.theme.codeBackground;
             headerBg.a = 0.5f;
-            app.layoutRects.push_back({D2D1::RectF(indent, y, indent + totalWidth, y + rowHeights[r]), headerBg});
+            app.layoutRects.push_back({tinta::rectF(indent, y, indent + totalWidth, y + rowHeights[r]), headerBg});
         } else if (r % 2 == 0) {
             // Subtle alternating row background
-            D2D1_COLOR_F altBg = app.theme.codeBackground;
+            tinta::Color altBg = app.theme.codeBackground;
             altBg.a = 0.15f;
-            app.layoutRects.push_back({D2D1::RectF(indent, y, indent + totalWidth, y + rowHeights[r]), altBg});
+            app.layoutRects.push_back({tinta::rectF(indent, y, indent + totalWidth, y + rowHeights[r]), altBg});
         }
 
         for (size_t c = 0; c < row->children.size() && c < (size_t)colCount; c++) {
             const auto& cell = row->children[c];
             IDWriteTextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
-            D2D1_COLOR_F textColor = isHeader ? app.theme.heading : app.theme.text;
+            tinta::Color textColor = isHeader ? app.theme.heading : app.theme.text;
 
             // In-place editing (#148): the preview records every cell's
             // rect keyed by the table's source anchor plus row/col
             if (app.editMode && tableSrc != SIZE_MAX) {
                 app.tableCellRects.push_back(
                     {tableSrc, (int)r, (int)c,
-                     D2D1::RectF(cellX, y, cellX + colWidths[c],
+                     tinta::rectF(cellX, y, cellX + colWidths[c],
                                  y + rowHeights[r])});
             }
 
@@ -3046,8 +3046,8 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
         float lineY = tableStartY;
         for (size_t i = 0; i < r; i++) lineY += rowHeights[i];
         float stroke = (r == 1) ? borderStroke * 2 : borderStroke; // thicker after header
-        app.layoutLines.push_back({D2D1::Point2F(indent, lineY),
-                                   D2D1::Point2F(indent + totalWidth, lineY),
+        app.layoutLines.push_back({tinta::pointF(indent, lineY),
+                                   tinta::pointF(indent + totalWidth, lineY),
                                    borderColor, stroke});
     }
 
@@ -3057,8 +3057,8 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
         for (size_t r = 0; r < rows.size(); r++) tableEndY += rowHeights[r];
         float vx = indent;
         for (int c = 0; c <= colCount; c++) {
-            app.layoutLines.push_back({D2D1::Point2F(vx, tableStartY),
-                                       D2D1::Point2F(vx, tableEndY),
+            app.layoutLines.push_back({tinta::pointF(vx, tableStartY),
+                                       tinta::pointF(vx, tableEndY),
                                        borderColor, borderStroke});
             if (c < colCount) vx += colWidths[c];
         }
@@ -3066,7 +3066,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
         // Copy-as-TSV hover button hit region
         App::TableInfo info;
         info.bounds =
-            D2D1::RectF(indent, tableStartY, indent + totalWidth, tableEndY);
+            tinta::rectF(indent, tableStartY, indent + totalWidth, tableEndY);
         info.tsv = std::move(tsv);
         info.fitKey = fitKey;
         info.fitCandidate = fitCandidate || fitActive;
@@ -3082,8 +3082,8 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
 static void layoutHorizontalRule(App& app, float& y, float indent, float maxWidth) {
     float scale = app.contentScale * app.zoomFactor;
     y += 16 * scale;
-    app.layoutLines.push_back({D2D1::Point2F(indent, y),
-                               D2D1::Point2F(indent + maxWidth, y),
+    app.layoutLines.push_back({tinta::pointF(indent, y),
+                               tinta::pointF(indent + maxWidth, y),
                                app.theme.blockquoteBorder, scale});
     y += 16 * scale;
 }
@@ -3098,7 +3098,7 @@ static void layoutProperties(App& app, const ElementPtr& elem, float& y, float i
     float gap = 6.0f * scale;
     float x = indent;
 
-    auto chip = [&](const std::wstring& text, D2D1_COLOR_F textColor, bool pill) {
+    auto chip = [&](const std::wstring& text, tinta::Color textColor, bool pill) {
         LayoutInfo info = createLayout(app, text, chipFormat, chipH, app.bodyTypography);
         float w = info.width;
         if (x + w + padX * 2 > indent + maxWidth && x > indent) {
@@ -3106,18 +3106,18 @@ static void layoutProperties(App& app, const ElementPtr& elem, float& y, float i
             y += chipH + gap;
         }
         if (pill) {
-            D2D1_COLOR_F bgc = app.theme.codeBackground;
-            app.layoutRects.push_back({D2D1::RectF(x, y, x + w + padX * 2, y + chipH), bgc});
+            tinta::Color bgc = app.theme.codeBackground;
+            app.layoutRects.push_back({tinta::rectF(x, y, x + w + padX * 2, y + chipH), bgc});
         }
         float textY = y + (chipH - info.height) / 2;
-        D2D1_POINT_2F pos = D2D1::Point2F(x + (pill ? padX : 0), textY);
-        D2D1_RECT_F bounds = D2D1::RectF(pos.x, y, pos.x + w, y + chipH);
+        tinta::PointF pos = tinta::pointF(x + (pill ? padX : 0), textY);
+        tinta::RectF bounds = tinta::rectF(pos.x, y, pos.x + w, y + chipH);
         addTextRun(app, std::move(info), pos, bounds, textColor, 0, 0, false);
         x += w + (pill ? padX * 2 : 0) + gap;
     };
 
     if (!elem->text.empty()) {
-        D2D1_COLOR_F titleColor = app.theme.text;
+        tinta::Color titleColor = app.theme.text;
         titleColor.a = 0.65f;
         chip(toWide(elem->text), titleColor, false);
     }
@@ -3409,7 +3409,7 @@ void ensureLayoutComplete(App& app) {
 
 // Public face of the role resolver for the exporters (the implementation
 // lives in this file's anonymous namespace beside the palette helpers)
-D2D1_COLOR_F resolveDiagramRole(const App& app, const mermaidext::Prim& prim,
+tinta::Color resolveDiagramRole(const App& app, const mermaidext::Prim& prim,
                                 mermaidext::Role role) {
     return resolveDiagramRoleImpl(app, prim, role);
 }

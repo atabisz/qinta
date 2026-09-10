@@ -125,7 +125,7 @@ int nextContextMenuItem(const App& app, int current, int direction);
 bool updateContextMenuHover(App& app, float x, float y, bool mouseMoved);
 void closeContextMenu(App& app);
 // The same icon cell is clickable in the caption and the editor tool rail.
-D2D1_RECT_F appMenuButtonRect(const App& app);
+tinta::RectF appMenuButtonRect(const App& app);
 bool appMenuButtonAt(const App& app, float x, float y);
 bool appMenuAvailable(const App& app);
 void renderAppMenuButtonBackground(App& app);
@@ -139,7 +139,7 @@ void openLightbox(App& app, ID2D1Bitmap* bitmap);
 void closeLightbox(App& app);
 void renderLightbox(App& app);
 // Where the image currently draws, in screen coordinates
-D2D1_RECT_F lightboxImageRect(const App& app);
+tinta::RectF lightboxImageRect(const App& app);
 
 // Folder-wide search results beside the search bar; the toggle button sits
 // at the bar's right edge (geometry shared with input hit-testing)

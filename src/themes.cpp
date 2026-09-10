@@ -258,7 +258,7 @@ std::wstring themesIniPath() {
     return dir + L"\\themes.ini";
 }
 
-bool parseHexColor(const std::string& value, D2D1_COLOR_F& out) {
+bool parseHexColor(const std::string& value, tinta::Color& out) {
     std::string s = value;
     if (!s.empty() && s[0] == '#') s = s.substr(1);
     if (s.size() != 6) return false;
@@ -274,7 +274,7 @@ bool parseHexColor(const std::string& value, D2D1_COLOR_F& out) {
     return true;
 }
 
-std::string colorToHex(const D2D1_COLOR_F& c) {
+std::string colorToHex(const tinta::Color& c) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%02X%02X%02X",
              (int)(c.r * 255.0f + 0.5f), (int)(c.g * 255.0f + 0.5f),
@@ -317,7 +317,7 @@ void applyThemeKey(CustomTheme& ct, const std::string& key, const std::string& v
     else if (key == "link") parseHexColor(value, t.link);
     else if (key == "code") parseHexColor(value, t.code);
     else if (key == "inlinecode") {
-        D2D1_COLOR_F color;
+        tinta::Color color;
         if (parseHexColor(value, color)) t.inlineCode = color;
     }
     else if (key == "codebackground") parseHexColor(value, t.codeBackground);

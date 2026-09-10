@@ -33,18 +33,18 @@ void mathExpandLine(const MathBoxPtr& box, float textBaseline, float lineHeight,
 
 // Draw with the box's top-left corner at (x, y) in the current target
 void mathBoxDraw(App& app, const MathBoxPtr& box, float x, float y,
-                 const D2D1_COLOR_F& color);
+                 const tinta::Color& color);
 
 // Same, into an arbitrary target (offscreen export rasterization)
 void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
                    const MathBoxPtr& box, float x, float y,
-                   const D2D1_COLOR_F& color);
+                   const tinta::Color& color);
 
 // Push the box's runs/rules/lines into the retained paint lists at (x, y).
 // Run layouts are AddRef'd: the retained list releases its references on
 // clearLayoutCache, the cached MathBox keeps its own.
 void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
-                   const D2D1_COLOR_F& color);
+                   const tinta::Color& color);
 
 // Drop all cached boxes (zoom / theme font changed)
 void mathClearCache();

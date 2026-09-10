@@ -127,7 +127,7 @@ bool selectionLineRange(const App& app, size_t offset, size_t& start, size_t& en
 }
 
 void selectionHighlightRects(const App& app, size_t start, size_t end,
-                             std::vector<D2D1_RECT_F>& out) {
+                             std::vector<tinta::RectF>& out) {
     if (start >= end) return;
 
     // A line-wide bar is visibly wrong for tables: it paints the padding and
@@ -155,7 +155,7 @@ void selectionHighlightRects(const App& app, size_t start, size_t end,
             (UINT32)(lo - run.docStart), (UINT32)(hi - lo),
             run.pos.x, run.pos.y, &metrics, 1, &metricCount);
         if (SUCCEEDED(hr) && metricCount == 1 && metrics.width > 0.0f) {
-            out.push_back(D2D1::RectF(
+            out.push_back(tinta::rectF(
                 metrics.left, run.bounds.top,
                 metrics.left + metrics.width, run.bounds.bottom));
             continue;
@@ -173,7 +173,7 @@ void selectionHighlightRects(const App& app, size_t start, size_t end,
             float left = run.pos.x + std::min(x0, x1);
             float right = run.pos.x + std::max(x0, x1);
             if (right > left) {
-                out.push_back(D2D1::RectF(left, run.bounds.top,
+                out.push_back(tinta::rectF(left, run.bounds.top,
                                           right, run.bounds.bottom));
             }
         }
@@ -198,13 +198,13 @@ void selectionHighlightRects(const App& app, size_t start, size_t end,
         float x1 = tr.rect.left +
                    (float)(hi - tr.docStart) / (float)tr.docLength * width;
         if (x1 > x0) {
-            out.push_back(D2D1::RectF(x0, tr.rect.top, x1, tr.rect.bottom));
+            out.push_back(tinta::rectF(x0, tr.rect.top, x1, tr.rect.bottom));
         }
     }
 }
 
 bool selectionRangeRect(const App& app, const App::TextRect& tr,
-                        size_t start, size_t end, D2D1_RECT_F& out) {
+                        size_t start, size_t end, tinta::RectF& out) {
     size_t lo = std::max(start, tr.docStart);
     size_t hi = std::min(end, tr.docStart + tr.docLength);
     if (lo >= hi) return false;
@@ -214,7 +214,7 @@ bool selectionRangeRect(const App& app, const App::TextRect& tr,
         if (SUCCEEDED(run->layout->HitTestTextRange(
                 (UINT32)(lo - run->docStart), (UINT32)(hi - lo),
                 run->pos.x, run->pos.y, &m, 1, &count)) && count == 1) {
-            out = D2D1::RectF(m.left, tr.rect.top, m.left + m.width, tr.rect.bottom);
+            out = tinta::rectF(m.left, tr.rect.top, m.left + m.width, tr.rect.bottom);
             return true;
         }
     }
@@ -223,7 +223,7 @@ bool selectionRangeRect(const App& app, const App::TextRect& tr,
     float cw = tr.docLength ? w / (float)tr.docLength : 0.0f;
     float x0 = tr.rect.left + (float)(lo - tr.docStart) * cw;
     float x1 = x0 + (float)(hi - lo) * cw;
-    out = D2D1::RectF(x0, tr.rect.top, x1, tr.rect.bottom);
+    out = tinta::rectF(x0, tr.rect.top, x1, tr.rect.bottom);
     return true;
 }
 

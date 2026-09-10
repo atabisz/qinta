@@ -512,15 +512,15 @@ void renderTableEditOverlay(App& app) {
     if (!app.renderTarget || !app.brush || !app.textFormat) return;
 
     float viewX = documentViewportX(app);
-    auto toScreen = [&](const D2D1_RECT_F& r) {
-        return D2D1::RectF(r.left + viewX - app.scrollX, r.top - app.scrollY,
+    auto toScreen = [&](const tinta::RectF& r) {
+        return tinta::rectF(r.left + viewX - app.scrollX, r.top - app.scrollY,
                            r.right + viewX - app.scrollX,
                            r.bottom - app.scrollY);
     };
 
     // Hover affordances: + row under the table, + column at its right.
     // Rects live in document coordinates for the input hit-test.
-    app.tableAddRowRect = app.tableAddColRect = D2D1_RECT_F{};
+    app.tableAddRowRect = app.tableAddColRect = tinta::RectF{};
     float scale = app.contentScale * app.zoomFactor;
     float band = 14.0f * scale;
     float docMouseX = (float)app.mouseX - viewX + app.scrollX;
@@ -537,30 +537,30 @@ void renderTableEditOverlay(App& app) {
         }
         app.tableAddSrc = tbl.sourceOffset;
         app.tableAddRowRect =
-            D2D1::RectF(tbl.bounds.left, tbl.bounds.bottom,
+            tinta::rectF(tbl.bounds.left, tbl.bounds.bottom,
                         tbl.bounds.right, tbl.bounds.bottom + band);
         app.tableAddColRect =
-            D2D1::RectF(tbl.bounds.right, tbl.bounds.top,
+            tinta::rectF(tbl.bounds.right, tbl.bounds.top,
                         tbl.bounds.right + band, tbl.bounds.bottom);
 
-        auto drawPlusBand = [&](const D2D1_RECT_F& docRect, bool hovered) {
-            D2D1_RECT_F r = toScreen(docRect);
-            D2D1_COLOR_F bg = app.theme.accent;
+        auto drawPlusBand = [&](const tinta::RectF& docRect, bool hovered) {
+            tinta::RectF r = toScreen(docRect);
+            tinta::Color bg = app.theme.accent;
             bg.a = hovered ? 0.18f : 0.07f;
             app.brush->SetColor(bg);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(r, 3.0f * scale, 3.0f * scale), app.brush);
-            D2D1_COLOR_F ink = app.theme.accent;
+                tinta::roundedRect(r, 3.0f * scale, 3.0f * scale), app.brush);
+            tinta::Color ink = app.theme.accent;
             ink.a = hovered ? 0.95f : 0.55f;
             app.brush->SetColor(ink);
             float cx = (r.left + r.right) * 0.5f;
             float cy = (r.top + r.bottom) * 0.5f;
             float s = 4.0f * scale;
-            app.renderTarget->DrawLine(D2D1::Point2F(cx - s, cy),
-                                       D2D1::Point2F(cx + s, cy), app.brush,
+            app.renderTarget->DrawLine(tinta::pointF(cx - s, cy),
+                                       tinta::pointF(cx + s, cy), app.brush,
                                        1.4f);
-            app.renderTarget->DrawLine(D2D1::Point2F(cx, cy - s),
-                                       D2D1::Point2F(cx, cy + s), app.brush,
+            app.renderTarget->DrawLine(tinta::pointF(cx, cy - s),
+                                       tinta::pointF(cx, cy + s), app.brush,
                                        1.4f);
         };
         bool rowHover = docMouseX >= app.tableAddRowRect.left &&
@@ -581,23 +581,23 @@ void renderTableEditOverlay(App& app) {
     const App::TableCellRect* cell = activeCellRect(app);
     if (!cell) return;  // relayout mid-frame; the next paint finds it
 
-    D2D1_RECT_F r = toScreen(cell->rect);
+    tinta::RectF r = toScreen(cell->rect);
     float pad = 8.0f * scale;
-    D2D1_COLOR_F fill = app.theme.background;
+    tinta::Color fill = app.theme.background;
     fill.a = 1.0f;
     app.brush->SetColor(fill);
     app.renderTarget->FillRectangle(r, app.brush);
-    D2D1_COLOR_F ring = app.theme.accent;
+    tinta::Color ring = app.theme.accent;
     ring.a = 0.9f;
     app.brush->SetColor(ring);
     app.renderTarget->DrawRectangle(r, app.brush, 1.5f);
 
-    D2D1_COLOR_F ink = app.theme.text;
+    tinta::Color ink = app.theme.text;
     app.brush->SetColor(ink);
     app.renderTarget->DrawText(
         app.tableEditText.c_str(), (UINT32)app.tableEditText.size(),
         app.textFormat,
-        D2D1::RectF(r.left + pad, r.top + pad, r.right - pad, r.bottom),
+        tinta::rectF(r.left + pad, r.top + pad, r.right - pad, r.bottom),
         app.brush);
 
     if (app.cursorBlinkOn) {
@@ -608,8 +608,8 @@ void renderTableEditOverlay(App& app) {
                        : measureText(app, beforeCaret, app.textFormat);
         float cx = r.left + pad + cw + 1.0f;
         app.renderTarget->DrawLine(
-            D2D1::Point2F(cx, r.top + pad),
-            D2D1::Point2F(cx, r.top + pad + app.textFormat->GetFontSize() *
+            tinta::pointF(cx, r.top + pad),
+            tinta::pointF(cx, r.top + pad + app.textFormat->GetFontSize() *
                                                 1.4f),
             app.brush, 1.2f);
     }

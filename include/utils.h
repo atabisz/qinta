@@ -8,7 +8,7 @@
 // Simple inline element rendering
 struct InlineSpan {
     std::wstring text;
-    D2D1_COLOR_F color;
+    tinta::Color color;
     IDWriteTextFormat* format;
     std::string linkUrl;
     bool underline;

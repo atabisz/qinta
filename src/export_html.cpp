@@ -49,7 +49,7 @@ std::string num(float v) {
     return buf;
 }
 
-std::string colorCss(D2D1_COLOR_F c) {
+std::string colorCss(tinta::Color c) {
     char buf[48];
     if (c.a >= 0.999f) {
         snprintf(buf, sizeof(buf), "#%02x%02x%02x", (int)(c.r * 255 + 0.5f),
@@ -223,7 +223,7 @@ void emitDiagramText(DiagramCtx& ctx, const mermaidext::Prim& p,
     else if (p.alignH > 0) { x = p.x2; anchor = "end"; }
     else { x = (p.x1 + p.x2) * 0.5f; anchor = "middle"; }
 
-    D2D1_COLOR_F color = resolveDiagramRole(
+    tinta::Color color = resolveDiagramRole(
         ctx.app, p,
         p.fill != mermaidext::Role::None ? p.fill : mermaidext::Role::Text);
     const std::string& family =
@@ -249,7 +249,7 @@ void emitArrowHead(const App& app, const mermaidext::Prim& p, std::string& s) {
     float size = 8.0f, half = 3.6f;
     float bx = p.x2 - ux * size, by = p.y2 - uy * size;
     float px = -uy, py = ux;
-    D2D1_COLOR_F color = resolveDiagramRole(
+    tinta::Color color = resolveDiagramRole(
         app, p,
         p.stroke != mermaidext::Role::None ? p.stroke
                                            : mermaidext::Role::Text);
@@ -280,16 +280,16 @@ mermaidext::TextStyle flowTextStyle() {
     return style;
 }
 
-D2D1_COLOR_F flowColor(const mermaid::Color& color) {
-    return D2D1::ColorF(((color.rgb >> 16) & 0xFF) / 255.0f,
+tinta::Color flowColor(const mermaid::Color& color) {
+    return tinta::colorF(((color.rgb >> 16) & 0xFF) / 255.0f,
                         ((color.rgb >> 8) & 0xFF) / 255.0f,
                         (color.rgb & 0xFF) / 255.0f, color.alpha);
 }
 
 struct FlowStyle {
-    D2D1_COLOR_F fill{};
-    D2D1_COLOR_F stroke{};
-    D2D1_COLOR_F text{};
+    tinta::Color fill{};
+    tinta::Color stroke{};
+    tinta::Color text{};
     float strokeWidth = 1.5f;
     bool customFill = false;
     bool customStroke = false;
@@ -330,7 +330,7 @@ FlowStyle flowResolveStyle(const App& app, const mermaid::Diagram& diagram,
     return resolved;
 }
 
-void primCustom(mermaidext::Prim& prim, const D2D1_COLOR_F& color) {
+void primCustom(mermaidext::Prim& prim, const tinta::Color& color) {
     prim.customR = color.r;
     prim.customG = color.g;
     prim.customB = color.b;
@@ -508,19 +508,19 @@ mermaidext::Built buildFlowchartPrims(App& app, const std::string& source,
         }
     }
 
-    D2D1_COLOR_F connectorColor = app.theme.text;
+    tinta::Color connectorColor = app.theme.text;
     connectorColor.a = app.theme.isDark ? 0.7f : 0.6f;
-    D2D1_COLOR_F chipStroke = connectorColor;
+    tinta::Color chipStroke = connectorColor;
     chipStroke.a *= 0.6f;
-    D2D1_COLOR_F groupFill = app.theme.codeBackground;
+    tinta::Color groupFill = app.theme.codeBackground;
     groupFill.a *= 0.55f;
-    D2D1_COLOR_F groupBorder = app.theme.text;
+    tinta::Color groupBorder = app.theme.text;
     groupBorder.a = 0.28f;
-    D2D1_COLOR_F groupTitle = app.theme.text;
+    tinta::Color groupTitle = app.theme.text;
     groupTitle.a = 0.78f;
 
     struct FlowConn {
-        std::vector<D2D1_POINT_2F> points;
+        std::vector<tinta::PointF> points;
         float stroke = 1.4f;
         bool dashed = false;
         bool directed = true;
@@ -578,38 +578,38 @@ mermaidext::Built buildFlowchartPrims(App& app, const std::string& source,
                              : toCenterY < fromCenterY);
             if (selfLoop) {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(from.right, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(fromCenterX, from.bottom);
+                tinta::PointF start = tinta::pointF(from.right, fromCenterY);
+                tinta::PointF end = tinta::pointF(fromCenterX, from.bottom);
                 float laneX = from.right + lane;
                 float laneY = from.bottom + lane;
                 conn.points = {
                     start,
-                    D2D1::Point2F(laneX, start.y),
-                    D2D1::Point2F(laneX, laneY),
-                    D2D1::Point2F(end.x, laneY),
+                    tinta::pointF(laneX, start.y),
+                    tinta::pointF(laneX, laneY),
+                    tinta::pointF(end.x, laneY),
                     end,
                 };
             } else if (forward) {
-                D2D1_POINT_2F start = D2D1::Point2F(
+                tinta::PointF start = tinta::pointF(
                     fromCenterX, topToBottom ? from.bottom : from.top);
-                D2D1_POINT_2F end = D2D1::Point2F(
+                tinta::PointF end = tinta::pointF(
                     toCenterX, topToBottom ? to.top : to.bottom);
                 float middleY = (start.y + end.y) * 0.5f;
                 conn.points = {
                     start,
-                    D2D1::Point2F(start.x, middleY),
-                    D2D1::Point2F(end.x, middleY),
+                    tinta::pointF(start.x, middleY),
+                    tinta::pointF(end.x, middleY),
                     end,
                 };
             } else {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(from.right, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(to.right, toCenterY);
+                tinta::PointF start = tinta::pointF(from.right, fromCenterY);
+                tinta::PointF end = tinta::pointF(to.right, toCenterY);
                 float laneX = std::max(from.right, to.right) + lane;
                 conn.points = {
                     start,
-                    D2D1::Point2F(laneX, start.y),
-                    D2D1::Point2F(laneX, end.y),
+                    tinta::pointF(laneX, start.y),
+                    tinta::pointF(laneX, end.y),
                     end,
                 };
             }
@@ -621,38 +621,38 @@ mermaidext::Built buildFlowchartPrims(App& app, const std::string& source,
                              : toCenterX < fromCenterX);
             if (selfLoop) {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(fromCenterX, from.bottom);
-                D2D1_POINT_2F end = D2D1::Point2F(from.right, fromCenterY);
+                tinta::PointF start = tinta::pointF(fromCenterX, from.bottom);
+                tinta::PointF end = tinta::pointF(from.right, fromCenterY);
                 float laneX = from.right + lane;
                 float laneY = from.bottom + lane;
                 conn.points = {
                     start,
-                    D2D1::Point2F(start.x, laneY),
-                    D2D1::Point2F(laneX, laneY),
-                    D2D1::Point2F(laneX, end.y),
+                    tinta::pointF(start.x, laneY),
+                    tinta::pointF(laneX, laneY),
+                    tinta::pointF(laneX, end.y),
                     end,
                 };
             } else if (forward) {
-                D2D1_POINT_2F start = D2D1::Point2F(
+                tinta::PointF start = tinta::pointF(
                     leftToRight ? from.right : from.left, fromCenterY);
-                D2D1_POINT_2F end = D2D1::Point2F(
+                tinta::PointF end = tinta::pointF(
                     leftToRight ? to.left : to.right, toCenterY);
                 float middleX = (start.x + end.x) * 0.5f;
                 conn.points = {
                     start,
-                    D2D1::Point2F(middleX, start.y),
-                    D2D1::Point2F(middleX, end.y),
+                    tinta::pointF(middleX, start.y),
+                    tinta::pointF(middleX, end.y),
                     end,
                 };
             } else {
                 float lane = (36.0f + exteriorLane++ * 14.0f) * scale;
-                D2D1_POINT_2F start = D2D1::Point2F(fromCenterX, from.bottom);
-                D2D1_POINT_2F end = D2D1::Point2F(toCenterX, to.bottom);
+                tinta::PointF start = tinta::pointF(fromCenterX, from.bottom);
+                tinta::PointF end = tinta::pointF(toCenterX, to.bottom);
                 float laneY = std::max(from.bottom, to.bottom) + lane;
                 conn.points = {
                     start,
-                    D2D1::Point2F(start.x, laneY),
-                    D2D1::Point2F(end.x, laneY),
+                    tinta::pointF(start.x, laneY),
+                    tinta::pointF(end.x, laneY),
                     end,
                 };
             }
@@ -1313,9 +1313,9 @@ void walk(ExportCtx& ctx, const ElementPtr& elem) {
 std::string themeCss(const App& app, const std::string& bodyFont,
                      const std::string& monoFont) {
     const D2DTheme& t = app.theme;
-    D2D1_COLOR_F border = t.text;
+    tinta::Color border = t.text;
     border.a = 0.18f;
-    D2D1_COLOR_F mutedText = t.text;
+    tinta::Color mutedText = t.text;
     mutedText.a = 0.65f;
     std::string css;
     css += "body{background:" + colorCss(t.background) + ";color:" +
@@ -1379,8 +1379,8 @@ std::string themeCss(const App& app, const std::string& bodyFont,
     css += ".math-inline svg{vertical-align:middle;}";
     // ==highlight== uses the viewer's marker-pen yellow, not the accent
     css += "mark{background:" +
-           colorCss(t.isDark ? D2D1::ColorF(0.98f, 0.80f, 0.25f, 0.28f)
-                             : D2D1::ColorF(1.00f, 0.88f, 0.20f, 0.45f)) +
+           colorCss(t.isDark ? tinta::colorF(0.98f, 0.80f, 0.25f, 0.28f)
+                             : tinta::colorF(1.00f, 0.88f, 0.20f, 0.45f)) +
            ";color:inherit;padding:0 2px;}";
     return css;
 }

@@ -28,6 +28,6 @@ extern const std::unordered_set<std::wstring> CSHARP_TYPES;
 int detectLanguage(const std::wstring& lang);
 const std::unordered_set<std::wstring>* getKeywordsForLanguage(int lang);
 std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bool& inBlockComment);
-D2D1_COLOR_F getTokenColor(const D2DTheme& theme, SyntaxTokenType ttype);
+tinta::Color getTokenColor(const D2DTheme& theme, SyntaxTokenType ttype);
 
 #endif // TINTA_SYNTAX_H

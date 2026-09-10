@@ -19,6 +19,7 @@
 #include <utility>
 #include <optional>
 
+#include "geometry.h"
 #include "markdown.h"
 #include "keymap.h"
 #include "settings_data.h"
@@ -87,33 +88,33 @@ struct D2DTheme {
     const wchar_t* headingFontFamily; // Headings; null/empty inherits fontFamily
     const wchar_t* codeFontFamily;    // Monospace font
     bool isDark;
-    D2D1_COLOR_F background;
-    D2D1_COLOR_F text;
-    D2D1_COLOR_F heading;
-    D2D1_COLOR_F link;
-    D2D1_COLOR_F code;
-    D2D1_COLOR_F codeBackground;
-    D2D1_COLOR_F blockquoteBorder;
-    D2D1_COLOR_F accent;             // For UI elements
+    tinta::Color background;
+    tinta::Color text;
+    tinta::Color heading;
+    tinta::Color link;
+    tinta::Color code;
+    tinta::Color codeBackground;
+    tinta::Color blockquoteBorder;
+    tinta::Color accent;             // For UI elements
     // Syntax highlighting colors
-    D2D1_COLOR_F syntaxKeyword;
-    D2D1_COLOR_F syntaxString;
-    D2D1_COLOR_F syntaxComment;
-    D2D1_COLOR_F syntaxNumber;
-    D2D1_COLOR_F syntaxFunction;
-    D2D1_COLOR_F syntaxType;
-    D2D1_COLOR_F syntaxControlFlow;
+    tinta::Color syntaxKeyword;
+    tinta::Color syntaxString;
+    tinta::Color syntaxComment;
+    tinta::Color syntaxNumber;
+    tinta::Color syntaxFunction;
+    tinta::Color syntaxType;
+    tinta::Color syntaxControlFlow;
     // Optional themes.ini override. Missing means inherit code (#197).
-    std::optional<D2D1_COLOR_F> inlineCode = std::nullopt;
+    std::optional<tinta::Color> inlineCode = std::nullopt;
 };
 
-inline D2D1_COLOR_F themeInlineCodeColor(const D2DTheme& theme) {
+inline tinta::Color themeInlineCodeColor(const D2DTheme& theme) {
     return theme.inlineCode.value_or(theme.code);
 }
 
 // Helper to create color from hex
-inline D2D1_COLOR_F hexColor(uint32_t hex, float alpha = 1.0f) {
-    return D2D1::ColorF(
+inline tinta::Color hexColor(uint32_t hex, float alpha = 1.0f) {
+    return tinta::colorF(
         ((hex >> 16) & 0xFF) / 255.0f,
         ((hex >> 8) & 0xFF) / 255.0f,
         (hex & 0xFF) / 255.0f,
@@ -272,7 +273,7 @@ struct App {
     // Layout bitmaps (document coordinates)
     struct LayoutBitmap {
         ID2D1Bitmap* bitmap = nullptr;
-        D2D1_RECT_F destRect{};
+        tinta::RectF destRect{};
     };
     std::vector<LayoutBitmap> layoutBitmaps;
 
@@ -371,8 +372,8 @@ struct App {
     bool showThemeChooser = false;
     int hoveredThemeIndex = -1;
     float themeChooserAnimation = 0.0f;  // 0 to 1 for fade in
-    std::vector<std::pair<D2D1_RECT_F, int>> themeChooserHits;
-    D2D1_RECT_F themeChooserPanel{};
+    std::vector<std::pair<tinta::RectF, int>> themeChooserHits;
+    tinta::RectF themeChooserPanel{};
     int themeChooserPreviewBase = -1;
 
     // --- Tabbed interface (Win11 Notepad-style tabs in the title bar) ---
@@ -402,14 +403,14 @@ struct App {
     bool tabNewTabIntent = false;      // Ctrl+T: next browser pick -> new tab
 
     // Caption button hit rects (client coords), refreshed by renderTabStrip
-    D2D1_RECT_F tabStripRects[3] = {};  // min, max, close
+    tinta::RectF tabStripRects[3] = {};  // min, max, close
     struct TabHit {
-        D2D1_RECT_F rect{};
+        tinta::RectF rect{};
         int index = -1;    // tab index; -2 = plus, -3 = chevron
-        D2D1_RECT_F closeRect{};
+        tinta::RectF closeRect{};
         bool hasClose = false;
         // The lone title accepts right-clicks while remaining draggable.
-        D2D1_RECT_F contextRect{};
+        tinta::RectF contextRect{};
     };
     std::vector<TabHit> tabHits;       // refreshed by renderTabStrip
     // Pin button in the title bar: keeps this window above every other
@@ -424,13 +425,13 @@ struct App {
     std::string updateVersion;      // "X.Y.Z" offered by the chip
     std::string updateLastCheck;    // mirrors Settings on save
     std::string updateDismissedVersion;
-    D2D1_RECT_F updateChipRect{};   // screen coords, zero while hidden
-    D2D1_RECT_F updateCloseRect{};
+    tinta::RectF updateChipRect{};   // screen coords, zero while hidden
+    tinta::RectF updateCloseRect{};
     // Draft recovery: crash leftovers found at startup, offered via a chip
     std::vector<std::wstring> recoveredDrafts;
-    D2D1_RECT_F draftChipRect{};    // screen coords, zero while hidden
-    D2D1_RECT_F draftCloseRect{};
-    std::vector<std::pair<D2D1_RECT_F, int>> tabSwitcherHits;
+    tinta::RectF draftChipRect{};    // screen coords, zero while hidden
+    tinta::RectF draftCloseRect{};
+    std::vector<std::pair<tinta::RectF, int>> tabSwitcherHits;
     // Closing a dirty tab routes through the unsaved-changes dialog; the
     // close completes from confirmExitAction once the user decides
     int pendingTabClose = -1;
@@ -469,7 +470,7 @@ struct App {
     bool forceTabStrip = false;
     // Quick-note empty state: "Open a file" button in the preview pane of
     // an untitled, still-empty buffer (rect refreshed by its renderer)
-    D2D1_RECT_F quickNoteButtonRect = {};
+    tinta::RectF quickNoteButtonRect = {};
     bool quickNoteButtonHover = false;
     // Editor pane scrollbar dragging (#121)
     bool editorScrollbarDragging = false;
@@ -494,7 +495,7 @@ struct App {
     struct RecentDoc { std::string path; unsigned long long when = 0; };
     std::vector<RecentDoc> startPageRecents;
     int startPageHover = 0;  // hit id under the mouse, 0 = none
-    std::vector<std::pair<D2D1_RECT_F, int>> startPageHits;  // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> startPageHits;  // rebuilt each paint
     ID2D1Bitmap* startPageIconBitmap = nullptr;  // hero icon (device bitmap)
 
     // Folder browser overlay
@@ -548,12 +549,12 @@ struct App {
     bool showSettings = false;
     float settingsAnimation = 0.0f;
     int settingsSection = 0;  // 0 General, 1 Appearance, 2 Editor
-    std::vector<std::pair<D2D1_RECT_F, int>> settingsHits;
+    std::vector<std::pair<tinta::RectF, int>> settingsHits;
     int readingWidthPct = 100;  // mirrors Settings (#82); 100 = full width
     int zenWidthPct = 60;
     bool headingRules = true;   // mirrors Settings (#154)
     int settingsDragSlider = 0;         // SET_SLIDER_* while dragging, else 0
-    D2D1_RECT_F settingsSliderTrack[2]{};  // 0 window, 1 fullscreen (set in render)
+    tinta::RectF settingsSliderTrack[2]{};  // 0 window, 1 fullscreen (set in render)
 
     // Theme editor ("+ New" in settings): a working copy of a theme edited
     // through hex fields and a system-font list, previewed live in an ink
@@ -567,28 +568,28 @@ struct App {
     int themeEditorBase = 0;            // registry index the colors started from
     float themeEditorFontScroll = 0.0f;
     std::vector<std::wstring> systemFontFamilies;  // enumerated on first open
-    std::vector<std::pair<D2D1_RECT_F, int>> themeEditorHits;
-    D2D1_RECT_F themeEditorFontListRect{};  // for wheel routing (set in render)
+    std::vector<std::pair<tinta::RectF, int>> themeEditorHits;
+    tinta::RectF themeEditorFontListRect{};  // for wheel routing (set in render)
 
     // UI language: languageSetting is the chosen registry index (-1 =
     // follow system), currentLanguageIndex is what tr() reads every call
     int languageSetting = -1;
     int currentLanguageIndex = 0;
     bool settingsLangOpen = false;      // language dropdown popup expanded
-    D2D1_RECT_F settingsLangBox{};      // dropdown value box (set in render)
+    tinta::RectF settingsLangBox{};      // dropdown value box (set in render)
 
     // Shortcut profile state (mirrors Settings.keyProfile; the dropdown in
     // Settings switches it live)
     std::string keyProfile = "windows";
     bool settingsKeysOpen = false;      // profile dropdown popup expanded
-    D2D1_RECT_F settingsKeysBox{};      // dropdown value box (set in render)
+    tinta::RectF settingsKeysBox{};      // dropdown value box (set in render)
     // Session copy of the [Keys] overrides (the custom profile); the
     // shortcut editor edits these, WM_DESTROY writes them back
     std::vector<std::pair<std::string, std::string>> keyOverrides;
     // Shortcut editor overlay: click an action row, press its new key
     bool showShortcutEditor = false;
     int shortcutEditorRow = -1;         // row armed for key capture, -1 none
-    std::vector<std::pair<D2D1_RECT_F, int>> shortcutHits;  // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> shortcutHits;  // rebuilt each paint
 
     // Resolved single-key bindings, indexed like KEY_ACTIONS (#77).
     // Filled by applyKeymap; each binding retains its input message kind.
@@ -639,8 +640,8 @@ struct App {
     // chrome, since the peek panel already frames the content
     bool peekFrameless = false;
     ID2D1Bitmap* linkPeekBitmap = nullptr;  // owned while active
-    D2D1_RECT_F linkPeekAnchorDoc{};        // hovered link rect (doc coords)
-    D2D1_RECT_F linkPeekPanel{};            // placed panel (screen coords)
+    tinta::RectF linkPeekAnchorDoc{};        // hovered link rect (doc coords)
+    tinta::RectF linkPeekPanel{};            // placed panel (screen coords)
     int annotEditorIndex = -1;    // -1 = creating a new annotation
     std::wstring annotEditorText;
     size_t annotEditorCaret = 0;
@@ -650,12 +651,12 @@ struct App {
     int annotPendingLineTo = 0;
     // Rebuilt each frame by renderAnnotations (screen coords, hit-testing)
     struct AnnotationMark {
-        D2D1_RECT_F square{};
+        tinta::RectF square{};
         int index = -1;
         bool onText = false;  // level with visible text vs parked at an edge
     };
     std::vector<AnnotationMark> annotationMarks;
-    D2D1_RECT_F annotCopyBtnRect{};  // zero-sized while the rail is hidden
+    tinta::RectF annotCopyBtnRect{};  // zero-sized while the rail is hidden
 
     // Print preview overlay. While it is open the document is held in print
     // layout — width, theme, zoom and scroll are hijacked by enterPrintLayout —
@@ -682,10 +683,10 @@ struct App {
     unsigned printPreviewPxW = 0, printPreviewPxH = 0;
     int printPreviewPaper = -1;               // index into PRINT_PAPERS (-1: detect)
     bool printPreviewLandscape = false;
-    D2D1_RECT_F printPreviewPrintBtn{};       // hit rects (set during render)
-    D2D1_RECT_F printPreviewCancelBtn{};
-    D2D1_RECT_F printPreviewPaperBtn[4]{};
-    D2D1_RECT_F printPreviewOrientBtn[2]{};   // 0 portrait, 1 landscape
+    tinta::RectF printPreviewPrintBtn{};       // hit rects (set during render)
+    tinta::RectF printPreviewCancelBtn{};
+    tinta::RectF printPreviewPaperBtn[4]{};
+    tinta::RectF printPreviewOrientBtn[2]{};   // 0 portrait, 1 landscape
 
     // Blocks wider than the printable area (mermaid diagrams, wide tables)
     // are shrunk uniformly to fit the margins when printing; each band is a
@@ -739,7 +740,7 @@ struct App {
 
     // Links - tracked during render for click detection
     struct LinkRect {
-        D2D1_RECT_F bounds;
+        tinta::RectF bounds;
         std::string url;
     };
     std::vector<LinkRect> linkRects;
@@ -747,7 +748,7 @@ struct App {
 
     // Code block info - tracked for copy button
     struct CodeBlockInfo {
-        D2D1_RECT_F bounds;       // Full background rect in document coordinates
+        tinta::RectF bounds;       // Full background rect in document coordinates
         std::wstring codeText;    // The code content (diagram source for diagrams)
         bool isDiagram = false;   // adds the copy-as-image button
         unsigned fitKey = 0;      // per-layout ordinal for the fit toggle
@@ -759,7 +760,7 @@ struct App {
 
     // Tables - tracked for the copy-as-TSV button
     struct TableInfo {
-        D2D1_RECT_F bounds{};  // document coordinates
+        tinta::RectF bounds{};  // document coordinates
         std::wstring tsv;      // cells joined by tabs, rows by newlines
         unsigned fitKey = 0;   // per-layout ordinal for the fit toggle
         bool fitCandidate = false;  // wider than the column at natural size
@@ -775,7 +776,7 @@ struct App {
     struct TableCellRect {
         size_t tableSrc = 0;  // Table element sourceOffset (first cell text)
         int row = 0, col = 0; // row 0 = header
-        D2D1_RECT_F rect{};
+        tinta::RectF rect{};
     };
     std::vector<TableCellRect> tableCellRects;  // filled in edit mode only
     bool tableEditActive = false;
@@ -785,8 +786,8 @@ struct App {
     size_t tableEditCaret = 0;
     // Hover affordances: + row under the table, + column at its right edge
     size_t tableAddSrc = 0;              // table the buttons belong to
-    D2D1_RECT_F tableAddRowRect{};       // document coordinates
-    D2D1_RECT_F tableAddColRect{};
+    tinta::RectF tableAddRowRect{};       // document coordinates
+    tinta::RectF tableAddColRect{};
 
     // Fit-to-width overrides for oversized tables/diagrams, keyed by their
     // per-layout ordinal (cleared when the document changes)
@@ -796,7 +797,7 @@ struct App {
 
     // Text bounds - tracked for cursor changes and selection (document coordinates)
     struct TextRect {
-        D2D1_RECT_F rect;
+        tinta::RectF rect;
         size_t docStart = 0;   // Start position in docText
         size_t docLength = 0;  // Length in docText
         // Index into layoutTextRuns of the run whose layout covers this
@@ -821,7 +822,7 @@ struct App {
         size_t textRectIndex;       // Index into textRects
         size_t startPos;            // Character offset in text
         size_t length;              // Match length
-        D2D1_RECT_F highlightRect;  // Computed highlight bounds
+        tinta::RectF highlightRect;  // Computed highlight bounds
     };
     std::vector<SearchMatch> searchMatches;
     bool overText = false;
@@ -847,7 +848,7 @@ struct App {
     };
     std::vector<FolderFileResult> folderResults;
     struct FolderResultHit {
-        D2D1_RECT_F rect{};
+        tinta::RectF rect{};
         int fileIndex = -1;
     };
     std::vector<FolderResultHit> folderResultHits;  // rebuilt each paint
@@ -887,21 +888,21 @@ struct App {
     // Layout cache (document coordinates)
     struct LayoutTextRun {
         IDWriteTextLayout* layout = nullptr;
-        D2D1_POINT_2F pos{};
-        D2D1_RECT_F bounds{};
-        D2D1_COLOR_F color{};
+        tinta::PointF pos{};
+        tinta::RectF bounds{};
+        tinta::Color color{};
         size_t docStart = 0;
         size_t docLength = 0;
         bool selectable = false;
     };
     struct LayoutRect {
-        D2D1_RECT_F rect{};
-        D2D1_COLOR_F color{};
+        tinta::RectF rect{};
+        tinta::Color color{};
     };
     struct LayoutLine {
-        D2D1_POINT_2F p1{};
-        D2D1_POINT_2F p2{};
-        D2D1_COLOR_F color{};
+        tinta::PointF p1{};
+        tinta::PointF p2{};
+        tinta::Color color{};
         float stroke = 1.0f;
     };
     enum class LayoutShapeType {
@@ -918,9 +919,9 @@ struct App {
     };
     struct LayoutShape {
         LayoutShapeType type = LayoutShapeType::Rectangle;
-        D2D1_RECT_F rect{};
-        D2D1_COLOR_F fill{};
-        D2D1_COLOR_F stroke{};
+        tinta::RectF rect{};
+        tinta::Color fill{};
+        tinta::Color stroke{};
         float strokeWidth = 1.0f;
         float radius = 0.0f;
         // Cached polygon outline in LOCAL space (origin = rect top-left),
@@ -929,9 +930,9 @@ struct App {
         ID2D1PathGeometry* geometry = nullptr;
     };
     struct LayoutConnector {
-        std::vector<D2D1_POINT_2F> points;
-        D2D1_RECT_F bounds{};
-        D2D1_COLOR_F color{};
+        std::vector<tinta::PointF> points;
+        tinta::RectF bounds{};
+        tinta::Color color{};
         float stroke = 1.0f;
         float arrowSize = 8.0f;
         bool directed = true;
@@ -939,7 +940,7 @@ struct App {
     };
     // Clickable task checkboxes (document coordinates)
     struct TaskRect {
-        D2D1_RECT_F rect{};
+        tinta::RectF rect{};
         size_t markOffset = SIZE_MAX;  // source offset of the [x]/[ ] mark char
         bool checked = false;
     };
@@ -996,9 +997,9 @@ struct App {
         bool pinned = false;
         float tuckT = -1.0f;      // >=0: parking animation progress
         bool anchored = false;    // mini pill at docAnchor (Copied)
-        D2D1_RECT_F docAnchor{};  // document coords when anchored
+        tinta::RectF docAnchor{};  // document coords when anchored
         // refreshed by the renderer each frame
-        D2D1_RECT_F rect{}, pinRect{}, closeRect{};
+        tinta::RectF rect{}, pinRect{}, closeRect{};
     };
     std::vector<SignalChip> signalChips;   // active, oldest first
     std::vector<SignalChip> signalTray;    // parked, newest first (cap 20)
@@ -1007,19 +1008,19 @@ struct App {
     bool signalTrayOpen = false;
     int signalHoverChip = 0;               // id under cursor (drain hold)
     double signalLastTick = 0.0;           // seconds, drain integration
-    D2D1_RECT_F signalBellRect{};
-    D2D1_RECT_F signalTrayRect{}, signalTrayClearRect{};
+    tinta::RectF signalBellRect{};
+    tinta::RectF signalTrayRect{}, signalTrayClearRect{};
     // The unsaved-exit / create-file prompt chip occupies the corner slot;
     // the chip stack starts above it (set by the prompt renderers)
-    D2D1_RECT_F promptChipRect{};
+    tinta::RectF promptChipRect{};
     // Close cross and pin on the floating Contents card (t13/#156)
-    D2D1_RECT_F tocCloseRect{};
-    D2D1_RECT_F tocPinRect{};
-    D2D1_RECT_F folderPinRect{};  // pin button on the browser card
+    tinta::RectF tocCloseRect{};
+    tinta::RectF tocPinRect{};
+    tinta::RectF folderPinRect{};  // pin button on the browser card
     // Breadcrumb segments on the browser card: rect -> number of path
     // components the click keeps (refreshed by renderFolderBrowser)
-    std::vector<std::pair<D2D1_RECT_F, int>> folderCrumbHits;
-    std::vector<std::pair<D2D1_RECT_F, int>> signalTrayHits;  // action row: chip id
+    std::vector<std::pair<tinta::RectF, int>> folderCrumbHits;
+    std::vector<std::pair<tinta::RectF, int>> signalTrayHits;  // action row: chip id
 
     // Cursor blink state, toggled by TIMER_CURSOR_BLINK (editor + search cursor)
     bool cursorBlinkOn = true;
@@ -1050,13 +1051,13 @@ struct App {
     // Dialog open time: keys arriving within the grace window are ignored
     // so ESC-smashing lands on a visible, stable dialog
     std::chrono::steady_clock::time_point confirmExitOpenedAt;
-    std::vector<std::pair<D2D1_RECT_F, int>> confirmExitHits;  // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> confirmExitHits;  // rebuilt each paint
 
     // Create-missing-reference dialog: a clicked ghost ref offers to
     // create its target and start typing
     bool createRefPending = false;
     std::string createRefPath;  // resolved absolute target
-    std::vector<std::pair<D2D1_RECT_F, int>> createRefHits;  // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> createRefHits;  // rebuilt each paint
     // WM_CHARs arriving in this window are dropped so the keystroke that
     // resolved the dialog cannot type into the editor it just opened
     // (one keydown can yield more than one WM_CHAR)
@@ -1076,7 +1077,7 @@ struct App {
     bool editorAssists = true;
     float editRailAnim = 0.0f;       // rail slide-in 0..1
     int editRailHover = 0;           // hit id under the mouse, 0 = none
-    std::vector<std::pair<D2D1_RECT_F, int>> editRailHits;  // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> editRailHits;  // rebuilt each paint
 
     // Raw editor insert menu (design t9): right-click drops markdown at
     // the caret; Table and Diagram open flyout submenus. The rail's
@@ -1090,8 +1091,8 @@ struct App {
     int editCtxSubHover = 0;
     int editCtxGridC = 0;     // hovered table size
     int editCtxGridR = 0;
-    std::vector<std::pair<D2D1_RECT_F, int>> editCtxHits;     // rebuilt each paint
-    std::vector<std::pair<D2D1_RECT_F, int>> editCtxSubHits;
+    std::vector<std::pair<tinta::RectF, int>> editCtxHits;     // rebuilt each paint
+    std::vector<std::pair<tinta::RectF, int>> editCtxSubHits;
 
     // Editor document
     std::wstring editorText;
@@ -1137,7 +1138,7 @@ struct App {
     bool replaceFieldActive = false;    // keyboard goes to the replace row
     // Hit rects refreshed by renderSearchOverlay: 1 query field,
     // 2 replace field, 3 Replace button, 4 Replace-all button
-    std::vector<std::pair<D2D1_RECT_F, int>> searchReplaceHits;
+    std::vector<std::pair<tinta::RectF, int>> searchReplaceHits;
 
     // Undo/redo
     struct EditAction {
@@ -1367,13 +1368,13 @@ inline bool editorPreviewVisible(const App& app) {
 // desk and rises past the tab strip to the window's top edge — the
 // caption buttons float over it as an island. Shadow is the only
 // separator.
-inline D2D1_RECT_F editSheetRect(const App& app) {
-    return D2D1::RectF(documentViewportX(app), dpi(app, 10.0f),
+inline tinta::RectF editSheetRect(const App& app) {
+    return tinta::rectF(documentViewportX(app), dpi(app, 10.0f),
                        (float)app.width - dpi(app, 16.0f),
                        (float)app.height - dpi(app, 14.0f));
 }
 
-inline D2D1_COLOR_F editSurfaceMix(D2D1_COLOR_F c, float to, float t) {
+inline tinta::Color editSurfaceMix(tinta::Color c, float to, float t) {
     c.r += (to - c.r) * t;
     c.g += (to - c.g) * t;
     c.b += (to - c.b) * t;
@@ -1383,13 +1384,13 @@ inline D2D1_COLOR_F editSurfaceMix(D2D1_COLOR_F c, float to, float t) {
 
 // The desk both panes sit on: lifted a shade off the window in the dark,
 // dimmed a touch in the light so the sheet reads as paper on top
-inline D2D1_COLOR_F editDeskColor(const App& app) {
+inline tinta::Color editDeskColor(const App& app) {
     return app.theme.isDark
                ? editSurfaceMix(app.theme.background, 1.0f, 0.03f)
                : editSurfaceMix(app.theme.background, 0.0f, 0.045f);
 }
 
-inline D2D1_COLOR_F editSheetColor(const App& app) {
+inline tinta::Color editSheetColor(const App& app) {
     return app.theme.isDark
                ? editSurfaceMix(app.theme.background, 1.0f, 0.065f)
                : editSurfaceMix(app.theme.background, 1.0f, 0.35f);

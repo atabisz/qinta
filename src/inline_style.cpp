@@ -125,8 +125,8 @@ void flattenInline(App& app, const std::vector<ElementPtr>& elements,
                 // ==text== renders on a marker-pen background
                 st.hasBg = true;
                 st.bgColor = app.theme.isDark
-                    ? D2D1::ColorF(0.98f, 0.80f, 0.25f, 0.28f)
-                    : D2D1::ColorF(1.00f, 0.88f, 0.20f, 0.45f);
+                    ? tinta::colorF(0.98f, 0.80f, 0.25f, 0.28f)
+                    : tinta::colorF(1.00f, 0.88f, 0.20f, 0.45f);
                 break;
 
             case ElementType::Superscript:

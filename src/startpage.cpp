@@ -202,8 +202,8 @@ const char* startPageSampleDoc() { return kSampleDocument; }
 
 // --- Small drawing helpers ----------------------------------------------
 
-static D2D1_COLOR_F mixToward(D2D1_COLOR_F base, D2D1_COLOR_F to, float t) {
-    D2D1_COLOR_F c;
+static tinta::Color mixToward(tinta::Color base, tinta::Color to, float t) {
+    tinta::Color c;
     c.r = base.r + (to.r - base.r) * t;
     c.g = base.g + (to.g - base.g) * t;
     c.b = base.b + (to.b - base.b) * t;
@@ -211,7 +211,7 @@ static D2D1_COLOR_F mixToward(D2D1_COLOR_F base, D2D1_COLOR_F to, float t) {
     return c;
 }
 
-static D2D1_COLOR_F withA(D2D1_COLOR_F c, float a) {
+static tinta::Color withA(tinta::Color c, float a) {
     c.a = a;
     return c;
 }
@@ -257,10 +257,10 @@ static IDWriteTextLayout* spLayout(App& app, const std::wstring& text,
 }
 
 static void spDraw(App& app, IDWriteTextLayout* layout, float x, float y,
-                   D2D1_COLOR_F color) {
+                   tinta::Color color) {
     if (!layout) return;
     app.brush->SetColor(color);
-    app.renderTarget->DrawTextLayout(D2D1::Point2F(x, y), layout, app.brush);
+    app.renderTarget->DrawTextLayout(tinta::pointF(x, y), layout, app.brush);
 }
 
 static DWRITE_TEXT_METRICS spMetrics(IDWriteTextLayout* layout) {
@@ -272,9 +272,9 @@ static DWRITE_TEXT_METRICS spMetrics(IDWriteTextLayout* layout) {
 // Keycap chip ("Ctrl+O", "N", "1"). Draws right-aligned when rightEdge
 // is set, returns its width.
 static float spChip(App& app, const std::wstring& label, float x,
-                    float centerY, D2D1_COLOR_F bg, D2D1_COLOR_F fg,
+                    float centerY, tinta::Color bg, tinta::Color fg,
                     bool rightAligned = false,
-                    D2D1_RECT_F* outRect = nullptr) {
+                    tinta::RectF* outRect = nullptr) {
     IDWriteTextLayout* l = spLayout(app, label, 11.0f,
                                     DWRITE_FONT_WEIGHT_NORMAL, 4096.0f);
     DWRITE_TEXT_METRICS m = spMetrics(l);
@@ -283,11 +283,11 @@ static float spChip(App& app, const std::wstring& label, float x,
     float w = m.width + padX * 2.0f;
     float h = m.height + padY * 2.0f;
     float left = rightAligned ? x - w : x;
-    D2D1_RECT_F r = D2D1::RectF(left, centerY - h * 0.5f, left + w,
+    tinta::RectF r = tinta::rectF(left, centerY - h * 0.5f, left + w,
                                 centerY + h * 0.5f);
     app.brush->SetColor(bg);
     app.renderTarget->FillRoundedRectangle(
-        D2D1::RoundedRect(r, dpi(app, 4.0f), dpi(app, 4.0f)), app.brush);
+        tinta::roundedRect(r, dpi(app, 4.0f), dpi(app, 4.0f)), app.brush);
     spDraw(app, l, left + padX, r.top + padY, fg);
     if (l) l->Release();
     if (outRect) *outRect = r;
@@ -435,27 +435,27 @@ void renderStartPage(App& app) {
     startPageEnsureIcon(app);
 
     const D2DTheme& th = app.theme;
-    D2D1_COLOR_F white = D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f);
-    D2D1_COLOR_F text = th.text;
-    D2D1_COLOR_F heading = th.heading;
-    D2D1_COLOR_F accent = th.accent;
+    tinta::Color white = tinta::colorF(1.0f, 1.0f, 1.0f, 1.0f);
+    tinta::Color text = th.text;
+    tinta::Color heading = th.heading;
+    tinta::Color accent = th.accent;
 
     // Theme-derived surfaces: dark themes lift toward the (light) text,
     // light themes toward paper white, mirroring the settings cards
-    D2D1_COLOR_F surface = th.isDark ? mixToward(th.background, text, 0.06f)
+    tinta::Color surface = th.isDark ? mixToward(th.background, text, 0.06f)
                                      : mixToward(th.background, white, 0.60f);
-    D2D1_COLOR_F surfaceBorder = withA(text, th.isDark ? 0.12f : 0.14f);
-    D2D1_COLOR_F card = th.isDark ? mixToward(th.background, text, 0.05f)
+    tinta::Color surfaceBorder = withA(text, th.isDark ? 0.12f : 0.14f);
+    tinta::Color card = th.isDark ? mixToward(th.background, text, 0.05f)
                                   : mixToward(th.background, white, 0.55f);
-    D2D1_COLOR_F cardBorder = withA(text, 0.10f);
-    D2D1_COLOR_F chipBg = mixToward(th.background, text, 0.07f);
-    D2D1_COLOR_F chipFg = withA(text, 0.60f);
-    D2D1_COLOR_F hoverBg = mixToward(th.background, text, 0.06f);
+    tinta::Color cardBorder = withA(text, 0.10f);
+    tinta::Color chipBg = mixToward(th.background, text, 0.07f);
+    tinta::Color chipFg = withA(text, 0.60f);
+    tinta::Color hoverBg = mixToward(th.background, text, 0.06f);
     float accentLum =
         0.299f * accent.r + 0.587f * accent.g + 0.114f * accent.b;
-    D2D1_COLOR_F onAccent = accentLum > 0.45f
-                                ? D2D1::ColorF(0.05f, 0.08f, 0.15f, 1.0f)
-                                : D2D1::ColorF(1.0f, 0.97f, 0.95f, 1.0f);
+    tinta::Color onAccent = accentLum > 0.45f
+                                ? tinta::colorF(0.05f, 0.08f, 0.15f, 1.0f)
+                                : tinta::colorF(1.0f, 0.97f, 0.95f, 1.0f);
 
     float viewX = documentViewportX(app);
     float viewW = documentViewportWidth(app);
@@ -472,7 +472,7 @@ void renderStartPage(App& app) {
 
     auto addHit = [&](float l, float t, float r, float b, int id) {
         app.startPageHits.push_back(
-            {D2D1::RectF(l + viewX, t, r + viewX, b), id});
+            {tinta::rectF(l + viewX, t, r + viewX, b), id});
     };
 
     // --- Hero: icon, wordmark, version, tagline
@@ -486,7 +486,7 @@ void renderStartPage(App& app) {
         float iy = y0 + (heroH - iconSize) * 0.5f;
         app.renderTarget->DrawBitmap(
             app.startPageIconBitmap,
-            D2D1::RectF(x0, iy, x0 + iconSize, iy + iconSize));
+            tinta::rectF(x0, iy, x0 + iconSize, iy + iconSize));
     }
     float wmX = x0 + iconSize + dpi(app, 14.0f);
     spDraw(app, wm, wmX, y0 + (heroH - wmM.height) * 0.5f, heading);
@@ -542,24 +542,24 @@ void renderStartPage(App& app) {
         float chipW = km.width + dpi(app, 14.0f);
         float w = dpi(app, 14.0f) + lm.width + dpi(app, 9.0f) + chipW +
                   dpi(app, 14.0f);
-        D2D1_RECT_F r = D2D1::RectF(bx, btnY, bx + w, btnY + btnH);
-        D2D1_ROUNDED_RECT rr =
-            D2D1::RoundedRect(r, dpi(app, 8.0f), dpi(app, 8.0f));
+        tinta::RectF r = tinta::rectF(bx, btnY, bx + w, btnY + btnH);
+        tinta::RoundedRect rr =
+            tinta::roundedRect(r, dpi(app, 8.0f), dpi(app, 8.0f));
         bool hov = app.startPageHover == b.id;
         if (b.primary) {
             // Soft one-pixel drop like the mock's box-shadow
-            D2D1_ROUNDED_RECT shadow = D2D1::RoundedRect(
-                D2D1::RectF(r.left, r.top + dpi(app, 1.5f), r.right,
+            tinta::RoundedRect shadow = tinta::roundedRect(
+                tinta::rectF(r.left, r.top + dpi(app, 1.5f), r.right,
                             r.bottom + dpi(app, 1.5f)),
                 dpi(app, 8.0f), dpi(app, 8.0f));
-            app.brush->SetColor(D2D1::ColorF(0, 0, 0, 0.20f));
+            app.brush->SetColor(tinta::colorF(0, 0, 0, 0.20f));
             app.renderTarget->FillRoundedRectangle(shadow, app.brush);
-            D2D1_COLOR_F fill = accent;
+            tinta::Color fill = accent;
             if (hov) fill = mixToward(accent, white, 0.08f);
             app.brush->SetColor(fill);
             app.renderTarget->FillRoundedRectangle(rr, app.brush);
         } else {
-            D2D1_COLOR_F fill = surface;
+            tinta::Color fill = surface;
             if (hov) fill = mixToward(surface, text, 0.04f);
             app.brush->SetColor(fill);
             app.renderTarget->FillRoundedRectangle(rr, app.brush);
@@ -570,8 +570,8 @@ void renderStartPage(App& app) {
         spDraw(app, label, tx, btnY + (btnH - lm.height) * 0.5f,
                b.primary ? onAccent : text);
         if (label) label->Release();
-        D2D1_COLOR_F kBg = b.primary ? withA(onAccent, 0.14f) : chipBg;
-        D2D1_COLOR_F kFg = b.primary ? withA(onAccent, 0.75f) : chipFg;
+        tinta::Color kBg = b.primary ? withA(onAccent, 0.14f) : chipBg;
+        tinta::Color kFg = b.primary ? withA(onAccent, 0.75f) : chipFg;
         spChip(app, b.key, tx + lm.width + dpi(app, 9.0f),
                btnY + btnH * 0.5f, kBg, kFg);
         addHit(r.left, r.top, r.right, r.bottom, b.id);
@@ -614,18 +614,18 @@ void renderStartPage(App& app) {
     for (int i = 0; i < shown; i++) {
         const App::RecentDoc& rd = app.startPageRecents[i];
         float top = rowY + i * rowH;
-        D2D1_RECT_F row =
-            D2D1::RectF(x0 - inset, top, x0 + leftW + inset, top + rowH);
+        tinta::RectF row =
+            tinta::rectF(x0 - inset, top, x0 + leftW + inset, top + rowH);
         bool hov = app.startPageHover == 10 + i;
         if (hov) {
             app.brush->SetColor(hoverBg);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(row, dpi(app, 7.0f), dpi(app, 7.0f)),
+                tinta::roundedRect(row, dpi(app, 7.0f), dpi(app, 7.0f)),
                 app.brush);
             app.brush->SetColor(accent);
             app.renderTarget->FillRoundedRectangle(
-                D2D1::RoundedRect(
-                    D2D1::RectF(row.left, top + dpi(app, 12.0f),
+                tinta::roundedRect(
+                    tinta::rectF(row.left, top + dpi(app, 12.0f),
                                 row.left + dpi(app, 3.0f),
                                 top + dpi(app, 28.0f)),
                     dpi(app, 2.0f), dpi(app, 2.0f)),
@@ -636,7 +636,7 @@ void renderStartPage(App& app) {
         float gy = top + (rowH - dpi(app, 15.0f)) * 0.5f;
         app.brush->SetColor(withA(text, 0.5f));
         app.renderTarget->DrawRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(gx, gy, gx + dpi(app, 12.0f),
+            tinta::roundedRect(tinta::rectF(gx, gy, gx + dpi(app, 12.0f),
                                           gy + dpi(app, 15.0f)),
                               dpi(app, 2.0f), dpi(app, 2.0f)),
             app.brush, 1.0f);
@@ -651,7 +651,7 @@ void renderStartPage(App& app) {
                                        : pathUtf8.substr(0, slash));
 
         // Right side first: the digit chip, then the timestamp
-        D2D1_RECT_F chipRect{};
+        tinta::RectF chipRect{};
         wchar_t digit[2] = {(wchar_t)(L'1' + i), 0};
         float chipW = spChip(app, digit, x0 + leftW, top + rowH * 0.5f,
                              chipBg, chipFg, true, &chipRect);
@@ -723,9 +723,9 @@ void renderStartPage(App& app) {
             DWRITE_TEXT_METRICS dm = spMetrics(desc);
             float cardH = padY + tm.height + dpi(app, 5.0f) + dm.height +
                           padY;
-            D2D1_RECT_F r = D2D1::RectF(x1, ly, x1 + rightW, ly + cardH);
-            D2D1_ROUNDED_RECT rr =
-                D2D1::RoundedRect(r, dpi(app, 9.0f), dpi(app, 9.0f));
+            tinta::RectF r = tinta::rectF(x1, ly, x1 + rightW, ly + cardH);
+            tinta::RoundedRect rr =
+                tinta::roundedRect(r, dpi(app, 9.0f), dpi(app, 9.0f));
             bool hov = app.startPageHover == 20 + i;
             app.brush->SetColor(hov ? mixToward(card, text, 0.03f) : card);
             app.renderTarget->FillRoundedRectangle(rr, app.brush);
@@ -779,12 +779,12 @@ void renderStartPage(App& app) {
     app.brush->SetColor(withA(text, 0.28f));
     for (float sx = 0.0f; sx < dashW; sx += dpi(app, 6.5f)) {
         float e1 = std::min(sx + dpi(app, 3.5f), dashW);
-        app.renderTarget->DrawLine(D2D1::Point2F(dx + sx, lineY),
-                                   D2D1::Point2F(dx + e1, lineY), app.brush,
+        app.renderTarget->DrawLine(tinta::pointF(dx + sx, lineY),
+                                   tinta::pointF(dx + e1, lineY), app.brush,
                                    1.0f);
         float rx = dx + dashW + gap + dm.width + gap;
-        app.renderTarget->DrawLine(D2D1::Point2F(rx + sx, lineY),
-                                   D2D1::Point2F(rx + e1, lineY), app.brush,
+        app.renderTarget->DrawLine(tinta::pointF(rx + sx, lineY),
+                                   tinta::pointF(rx + e1, lineY), app.brush,
                                    1.0f);
     }
     spDraw(app, drop, dx + dashW + gap, dropY, withA(text, 0.42f));

@@ -36,7 +36,7 @@ constexpr float kPageMarginDips = 72.0f;  // 0.75 in
 // Paper-derived palette with a true white page
 D2DTheme printTheme() {
     D2DTheme t = THEMES[0];  // Paper (light)
-    t.background = D2D1::ColorF(1.0f, 1.0f, 1.0f);
+    t.background = tinta::colorF(1.0f, 1.0f, 1.0f);
     t.codeBackground = hexColor(0xF4F4F4);
     return t;
 }
@@ -229,7 +229,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
             if (top >= band.top - 0.5f && bottom <= band.bottom + 0.5f) {
                 dc->SetTransform(
                     D2D1::Matrix3x2F::Scale(band.scale, band.scale,
-                        D2D1::Point2F(dx, band.top + dy)) * baseTransform);
+                        tinta::pointF(dx, band.top + dy)) * baseTransform);
                 return true;
             }
         }
@@ -244,7 +244,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         bool banded = applyBand(rect.rect.top, rect.rect.bottom);
         brush->SetColor(rect.color);
         dc->FillRectangle(
-            D2D1::RectF(rect.rect.left + dx, rect.rect.top + dy,
+            tinta::rectF(rect.rect.left + dx, rect.rect.top + dy,
                         rect.rect.right + dx, rect.rect.bottom + dy),
             brush);
         resetBand(banded);
@@ -256,8 +256,8 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(top, bottom)) continue;
         bool banded = applyBand(top, bottom);
         brush->SetColor(line.color);
-        dc->DrawLine(D2D1::Point2F(line.p1.x + dx, line.p1.y + dy),
-                     D2D1::Point2F(line.p2.x + dx, line.p2.y + dy),
+        dc->DrawLine(tinta::pointF(line.p1.x + dx, line.p1.y + dy),
+                     tinta::pointF(line.p2.x + dx, line.p2.y + dy),
                      brush, line.stroke);
         resetBand(banded);
     }
@@ -271,8 +271,8 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         for (size_t i = 1; i < connector.points.size(); i++) {
             const auto& from = connector.points[i - 1];
             const auto& to = connector.points[i];
-            dc->DrawLine(D2D1::Point2F(from.x + dx, from.y + dy),
-                         D2D1::Point2F(to.x + dx, to.y + dy),
+            dc->DrawLine(tinta::pointF(from.x + dx, from.y + dy),
+                         tinta::pointF(to.x + dx, to.y + dy),
                          brush, connector.stroke,
                          connector.dashed ? app.dashedStrokeStyle : nullptr);
         }
@@ -284,16 +284,16 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
             if (len > 0.001f) {
                 vx /= len; vy /= len;
                 float wing = connector.arrowSize * 0.5f;
-                D2D1_POINT_2F left = D2D1::Point2F(
+                tinta::PointF left = tinta::pointF(
                     tip.x - vx * connector.arrowSize + vy * wing,
                     tip.y - vy * connector.arrowSize - vx * wing);
-                D2D1_POINT_2F right = D2D1::Point2F(
+                tinta::PointF right = tinta::pointF(
                     tip.x - vx * connector.arrowSize - vy * wing,
                     tip.y - vy * connector.arrowSize + vx * wing);
-                D2D1_POINT_2F screenTip = D2D1::Point2F(tip.x + dx, tip.y + dy);
-                dc->DrawLine(screenTip, D2D1::Point2F(left.x + dx, left.y + dy),
+                tinta::PointF screenTip = tinta::pointF(tip.x + dx, tip.y + dy);
+                dc->DrawLine(screenTip, tinta::pointF(left.x + dx, left.y + dy),
                              brush, connector.stroke);
-                dc->DrawLine(screenTip, D2D1::Point2F(right.x + dx, right.y + dy),
+                dc->DrawLine(screenTip, tinta::pointF(right.x + dx, right.y + dy),
                              brush, connector.stroke);
             }
         }
@@ -301,14 +301,14 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
     }
 
     // Mermaid node shapes
-    auto fillStrokePolygon = [&](const D2D1_POINT_2F* pts, size_t count,
+    auto fillStrokePolygon = [&](const tinta::PointF* pts, size_t count,
                                  const App::LayoutShape& shape) {
         ID2D1PathGeometry* geometry = nullptr;
         if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry)) || !geometry) return;
         ID2D1GeometrySink* sink = nullptr;
         if (SUCCEEDED(geometry->Open(&sink)) && sink) {
             sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
-            sink->AddLines(pts + 1, (UINT32)(count - 1));
+            sink->AddLines(tinta::asD2DPointArray(pts + 1), (UINT32)(count - 1));
             sink->EndFigure(D2D1_FIGURE_END_CLOSED);
             sink->Close();
             sink->Release();
@@ -327,7 +327,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
     for (const auto& shape : app.layoutShapes) {
         if (!inRange(shape.rect.top, shape.rect.bottom)) continue;
         bool banded = applyBand(shape.rect.top, shape.rect.bottom);
-        D2D1_RECT_F r = D2D1::RectF(shape.rect.left + dx, shape.rect.top + dy,
+        tinta::RectF r = tinta::rectF(shape.rect.left + dx, shape.rect.top + dy,
                                     shape.rect.right + dx, shape.rect.bottom + dy);
         if (shape.type == App::LayoutShapeType::Path) {
             if (shape.geometry) {
@@ -347,18 +347,18 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
             }
         } else if (shape.type == App::LayoutShapeType::Diamond) {
             float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
-            D2D1_POINT_2F pts[] = {{cx, r.top}, {r.right, cy}, {cx, r.bottom}, {r.left, cy}};
+            tinta::PointF pts[] = {{cx, r.top}, {r.right, cy}, {cx, r.bottom}, {r.left, cy}};
             fillStrokePolygon(pts, 4, shape);
         } else if (shape.type == App::LayoutShapeType::Hexagon) {
             float inset = (r.right - r.left) * 0.18f;
             float cy = (r.top + r.bottom) * 0.5f;
-            D2D1_POINT_2F pts[] = {{r.left + inset, r.top}, {r.right - inset, r.top},
+            tinta::PointF pts[] = {{r.left + inset, r.top}, {r.right - inset, r.top},
                                    {r.right, cy}, {r.right - inset, r.bottom},
                                    {r.left + inset, r.bottom}, {r.left, cy}};
             fillStrokePolygon(pts, 6, shape);
         } else if (shape.type == App::LayoutShapeType::Ellipse) {
-            D2D1_ELLIPSE e = D2D1::Ellipse(
-                D2D1::Point2F((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f),
+            tinta::Ellipse e = tinta::ellipse(
+                tinta::pointF((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f),
                 (r.right - r.left) * 0.5f, (r.bottom - r.top) * 0.5f);
             if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); dc->FillEllipse(e, brush); }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
@@ -369,7 +369,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
                    shape.type == App::LayoutShapeType::Stadium) {
             float radius = shape.type == App::LayoutShapeType::Stadium
                 ? (r.bottom - r.top) * 0.5f : shape.radius;
-            D2D1_ROUNDED_RECT rr = D2D1::RoundedRect(r, radius, radius);
+            tinta::RoundedRect rr = tinta::roundedRect(r, radius, radius);
             if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); dc->FillRoundedRectangle(rr, brush); }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 brush->SetColor(shape.stroke);
@@ -391,7 +391,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(bmp.destRect.top, bmp.destRect.bottom)) continue;
         bool banded = applyBand(bmp.destRect.top, bmp.destRect.bottom);
         dc->DrawBitmap(bmp.bitmap,
-            D2D1::RectF(bmp.destRect.left + dx, bmp.destRect.top + dy,
+            tinta::rectF(bmp.destRect.left + dx, bmp.destRect.top + dy,
                         bmp.destRect.right + dx, bmp.destRect.bottom + dy),
             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
         resetBand(banded);
@@ -403,7 +403,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(run.bounds.top, run.bounds.bottom)) continue;
         bool banded = applyBand(run.bounds.top, run.bounds.bottom);
         brush->SetColor(run.color);
-        dc->DrawTextLayout(D2D1::Point2F(run.pos.x + dx, run.pos.y + dy),
+        dc->DrawTextLayout(tinta::pointF(run.pos.x + dx, run.pos.y + dy),
                            run.layout, brush);
         resetBand(banded);
     }
@@ -466,9 +466,9 @@ bool rasterizePreviewPage(App& app, int page) {
         dc->SetTarget(target);
         dc->BeginDraw();
         dc->SetTransform(D2D1::Matrix3x2F::Scale(app.printPreviewFit, app.printPreviewFit));
-        dc->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f));
+        dc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
         ID2D1SolidColorBrush* brush = nullptr;
-        dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush);
+        dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
         if (brush) {
             drawDocumentRange(app, dc, brush,
                               app.printPreviewBounds[page],
@@ -532,9 +532,9 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
         }
         pageDc->SetTarget(commandList);
         pageDc->BeginDraw();
-        pageDc->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f));
+        pageDc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
         ID2D1SolidColorBrush* brush = nullptr;
-        pageDc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush);
+        pageDc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
         if (brush) {
             drawDocumentRange(app, pageDc, brush, yStart, yEnd,
                               kPageMarginDips, kPageMarginDips);
@@ -639,7 +639,7 @@ bool printDocument(App& app) {
     if (printControl) {
         int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int) {
             return SUCCEEDED(printControl->AddPage(
-                list, D2D1::SizeF(geo.pageW, geo.pageH), nullptr));
+                list, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
         });
         ok = pages > 0 && SUCCEEDED(printControl->Close());
         printControl->Release();
@@ -793,7 +793,7 @@ int printDebugPages(App& app, const std::wstring& outDir) {
     int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int index) {
         rasterDc->SetTarget(pageBitmap);
         rasterDc->BeginDraw();
-        rasterDc->Clear(D2D1::ColorF(1.0f, 1.0f, 1.0f));
+        rasterDc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
         rasterDc->DrawImage(list);
         if (FAILED(rasterDc->EndDraw())) return false;
 
@@ -900,7 +900,7 @@ bool exportPdfFile(App& app, const std::wstring& path) {
     if (printControl) {
         int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int) {
             return SUCCEEDED(printControl->AddPage(
-                list, D2D1::SizeF(geo.pageW, geo.pageH), nullptr));
+                list, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
         });
         ok = pages > 0 && SUCCEEDED(printControl->Close());
         printControl->Release();
@@ -971,7 +971,7 @@ ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
             dc->BeginDraw();
             dc->Clear(app.theme.background);
             ID2D1SolidColorBrush* brush = nullptr;
-            dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0), &brush);
+            dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
             if (brush) {
                 drawDocumentRange(app, dc, brush, topPad, topPad + heightDips,
                                   0.0f, 0.0f);

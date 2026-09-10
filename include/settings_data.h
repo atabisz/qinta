@@ -15,8 +15,8 @@
 //
 // Deliberately NOT moved: CustomTheme, which sits next to Settings in app.h and
 // looks equally plain. It embeds a D2DTheme, and D2DTheme is a wall of
-// D2D1_COLOR_F -- so it is Windows-only by its members, not by its own spelling.
-// Freeing it means replacing D2D1_COLOR_F tree-wide (442 sites), which is a
+// tinta::Color -- so it is Windows-only by its members, not by its own spelling.
+// Freeing it means replacing tinta::Color tree-wide (442 sites), which is a
 // separate decision.
 
 #include <string>

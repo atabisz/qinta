@@ -37,7 +37,7 @@ enum SignalClose {
 void signalPush(App& app, int severity, int icon, std::wstring text,
                 std::wstring emph = L"", std::wstring context = L"",
                 int action = SIGA_NONE, int closeAction = SIGC_NONE,
-                bool drains = true, const D2D1_RECT_F* docAnchor = nullptr);
+                bool drains = true, const tinta::RectF* docAnchor = nullptr);
 // Convenience for plain translated one-liners
 void signalPushKey(App& app, int severity, int icon, const char* trKey,
                    std::wstring emph = L"", std::wstring context = L"");
@@ -46,7 +46,7 @@ void signalPushKey(App& app, int severity, int icon, const char* trKey,
 bool signalsNeedTicks(const App& app);
 // The severity hue on the current theme's luminance row (prompt chips in
 // overlays.cpp share the palette)
-D2D1_COLOR_F signalSeverityHue(const App& app, int severity);
+tinta::Color signalSeverityHue(const App& app, int severity);
 // Stack + bell + tray; call late in render so chips ride above overlays
 void renderSignalChips(App& app);
 // Mouse press over a chip, the bell, or the open tray. Returns true when

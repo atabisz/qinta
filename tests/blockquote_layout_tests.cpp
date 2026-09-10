@@ -13,11 +13,11 @@ void check(bool value, const char* message) {
     if (!value) { std::cerr << "FAIL: " << message << '\n'; ++failures; }
 }
 bool closeEnough(float a, float b) { return std::abs(a-b) < 0.05f; }
-bool sameColor(D2D1_COLOR_F a, D2D1_COLOR_F b) {
+bool sameColor(tinta::Color a, tinta::Color b) {
     return closeEnough(a.r, b.r) && closeEnough(a.g, b.g) && closeEnough(a.b, b.b) && closeEnough(a.a, b.a);
 }
-std::vector<D2D1_RECT_F> bars(const App& app) {
-    std::vector<D2D1_RECT_F> result;
+std::vector<tinta::RectF> bars(const App& app) {
+    std::vector<tinta::RectF> result;
     for (const auto& item : app.layoutRects)
         if (closeEnough(item.rect.right-item.rect.left, 4) &&
             sameColor(item.color, app.theme.blockquoteBorder)) result.push_back(item.rect);

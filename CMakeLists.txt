@@ -106,6 +106,7 @@ set(SOURCES
 set(HEADERS
     include/markdown.h
     include/types.h
+    include/geometry.h
     include/app.h
     include/settings.h
     include/settings_data.h
@@ -195,6 +196,17 @@ if(BUILD_TESTING)
     add_executable(keymap_tests tests/keymap_tests.cpp src/keymap.cpp)
     target_include_directories(keymap_tests PRIVATE include)
     add_test(NAME keymap COMMAND keymap_tests)
+
+    # include/geometry.h holds the plain-value colour and rectangle types that
+    # replaced D2D1_COLOR_F and friends. Every one of the ~1,929 sites it serves
+    # is in a file that is still Windows-only, so without this target the
+    # non-Windows build compiles NONE of the header -- its portable half, which
+    # is its entire purpose, would have no instrument. Header-only, so there is
+    # no src/ file to add to tests/portable-sources.txt; the probe asserts on the
+    # test object instead.
+    add_executable(geometry_tests tests/geometry_tests.cpp)
+    target_include_directories(geometry_tests PRIVATE include)
+    add_test(NAME geometry COMMAND geometry_tests)
 
     # The platform path seam, plus config_dir.cpp itself. config_dir.cpp is in
     # this target deliberately: it is the first file moved off app.h, and the

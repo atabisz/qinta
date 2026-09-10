@@ -20,11 +20,11 @@ std::string read(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
     return {(std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()};
 }
-bool sameColor(D2D1_COLOR_F a, D2D1_COLOR_F b) {
+bool sameColor(tinta::Color a, tinta::Color b) {
     return std::abs(a.r-b.r) < 0.001f && std::abs(a.g-b.g) < 0.001f &&
            std::abs(a.b-b.b) < 0.001f && std::abs(a.a-b.a) < 0.001f;
 }
-void checkRun(const App& app, const wchar_t* marker, D2D1_COLOR_F color) {
+void checkRun(const App& app, const wchar_t* marker, tinta::Color color) {
     bool found = false;
     for (const auto& run : app.layoutTextRuns) {
         if (run.docLength && app.docText.substr(run.docStart, run.docLength) == marker) {

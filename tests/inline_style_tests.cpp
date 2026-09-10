@@ -95,7 +95,7 @@ int main() {
     auto appPtr = std::make_unique<App>();
     App& app = *appPtr;
     FormatGuard formats(app);
-    app.theme.link = D2D1::ColorF(0.2f, 0.5f, 0.9f);
+    app.theme.link = tinta::colorF(0.2f, 0.5f, 0.9f);
     qmd::MarkdownParser parser;
 
     // A code span inside emphasis used to be dropped entirely: the renderer

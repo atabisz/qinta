@@ -182,6 +182,19 @@ else
     check 1 "tests/settings_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# include/geometry.h is header-only, so it appears in no object list and the
+# manifest above cannot see it. Every site that uses it is still in a
+# Windows-only file, which means that without this target the non-Windows build
+# would compile none of the header at all -- and a header nobody compiles is a
+# header nobody is checking. Assert the test object directly: if the target is
+# ever dropped or moved inside if(WIN32), the ctest count would simply go down
+# and the run below would still pass.
+if grep -qE "geometry_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/geometry_tests.cpp was compiled by $CXX_BIN, so include/geometry.h was read off Windows"
+else
+    check 1 "tests/geometry_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

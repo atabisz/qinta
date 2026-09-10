@@ -25,7 +25,7 @@
 void applyWindowChrome(App& app) {
     if (!app.hwnd) return;
 
-    auto toColorref = [](const D2D1_COLOR_F& c) {
+    auto toColorref = [](const tinta::Color& c) {
         return RGB((BYTE)(c.r * 255.0f + 0.5f),
                    (BYTE)(c.g * 255.0f + 0.5f),
                    (BYTE)(c.b * 255.0f + 0.5f));
@@ -546,7 +546,7 @@ bool createRenderTarget(App& app) {
     );
     if (FAILED(hr)) return false;
 
-    hr = app.renderTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1), &app.brush);
+    hr = app.renderTarget->CreateSolidColorBrush(tinta::colorF(1, 1, 1), &app.brush);
     if (FAILED(hr)) return false;
 
     // Cache device context for color emoji rendering

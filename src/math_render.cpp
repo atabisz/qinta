@@ -469,7 +469,7 @@ Metrics layoutNodeImpl(LayoutCtx ctx, const MNodePtr& node, float size,
                                 float v = std::abs(t - 0.5f) * 2;
                                 u = 0.5f + 0.5f * (2 * v - 1) * (2 * v - 1) * (2 * v - 1);
                             } else u = 1 - std::sin(t * 3.14159265f);
-                            return D2D1::Point2F(dx + width * (right ? 1 - u : u), top + t * height);
+                            return tinta::pointF(dx + width * (right ? 1 - u : u), top + t * height);
                         };
                         auto prev = point(0);
                         for (int step = 1; step <= 32; ++step) {
@@ -717,44 +717,44 @@ void mathExpandLine(const MathBoxPtr& box, float textBaseline, float lineHeight,
 
 void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
                    const MathBoxPtr& box, float x, float y,
-                   const D2D1_COLOR_F& color) {
+                   const tinta::Color& color) {
     if (!box || !target || !brush) return;
     brush->SetColor(color);
     for (const auto& run : box->runs) {
         target->DrawTextLayout(
-            D2D1::Point2F(x + run.x, y + run.y), run.layout, brush,
+            tinta::pointF(x + run.x, y + run.y), run.layout, brush,
             D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
     }
     for (const auto& rule : box->rules) {
         target->FillRectangle(
-            D2D1::RectF(x + rule.x, y + rule.y, x + rule.x + rule.w,
+            tinta::rectF(x + rule.x, y + rule.y, x + rule.x + rule.w,
                         y + rule.y + rule.h),
             brush);
     }
     for (const auto& line : box->lines) {
         target->DrawLine(
-            D2D1::Point2F(x + line.x1, y + line.y1),
-            D2D1::Point2F(x + line.x2, y + line.y2), brush,
+            tinta::pointF(x + line.x1, y + line.y1),
+            tinta::pointF(x + line.x2, y + line.y2), brush,
             line.thickness);
     }
 }
 
 void mathBoxDraw(App& app, const MathBoxPtr& box, float x, float y,
-                 const D2D1_COLOR_F& color) {
+                 const tinta::Color& color) {
     mathBoxDrawTo(app.renderTarget, app.brush, box, x, y, color);
 }
 
 void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
-                   const D2D1_COLOR_F& color) {
+                   const tinta::Color& color) {
     if (!box) return;
     for (const auto& run : box->runs) {
         if (!run.layout) continue;
         run.layout->AddRef();
         App::LayoutTextRun r;
         r.layout = run.layout;
-        r.pos = D2D1::Point2F(x + run.x, y + run.y);
+        r.pos = tinta::pointF(x + run.x, y + run.y);
         // Whole-box bounds keep viewport culling conservative and correct
-        r.bounds = D2D1::RectF(x, y, x + box->width, y + box->height);
+        r.bounds = tinta::rectF(x, y, x + box->width, y + box->height);
         r.color = color;
         r.docStart = 0;
         r.docLength = 0;
@@ -763,13 +763,13 @@ void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
     }
     for (const auto& rule : box->rules) {
         app.layoutRects.push_back(
-            {D2D1::RectF(x + rule.x, y + rule.y, x + rule.x + rule.w,
+            {tinta::rectF(x + rule.x, y + rule.y, x + rule.x + rule.w,
                          y + rule.y + rule.h),
              color});
     }
     for (const auto& line : box->lines) {
-        app.layoutLines.push_back({D2D1::Point2F(x + line.x1, y + line.y1),
-                                   D2D1::Point2F(x + line.x2, y + line.y2),
+        app.layoutLines.push_back({tinta::pointF(x + line.x1, y + line.y1),
+                                   tinta::pointF(x + line.x2, y + line.y2),
                                    color, line.thickness});
     }
 }

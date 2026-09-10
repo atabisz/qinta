@@ -151,7 +151,7 @@ void performSearch(App& app) {
         match.textRectIndex = kNoTextRect;
         match.startPos = pos;
         match.length = app.searchQuery.length();
-        match.highlightRect = D2D1::RectF(0, 0, 0, 0);
+        match.highlightRect = tinta::rectF(0, 0, 0, 0);
         app.searchMatches.push_back(match);
         pos += app.searchQuery.length();
     }
@@ -162,7 +162,7 @@ void performSearch(App& app) {
 void mapSearchMatchesToLayout(App& app) {
     for (auto& match : app.searchMatches) {
         match.textRectIndex = kNoTextRect;
-        match.highlightRect = D2D1::RectF(0, 0, 0, 0);
+        match.highlightRect = tinta::rectF(0, 0, 0, 0);
     }
     if (app.searchMatches.empty()) return;
     if (app.textRects.empty()) return;
@@ -200,8 +200,8 @@ void mapSearchMatchesToLayout(App& app) {
                     tr.rect.left + static_cast<float>(overlapStart - rectStart) * charWidth;
                 float endX =
                     startX + static_cast<float>(overlapEnd - overlapStart) * charWidth;
-                D2D1_RECT_F fragment =
-                    D2D1::RectF(startX, tr.rect.top, endX, tr.rect.bottom);
+                tinta::RectF fragment =
+                    tinta::rectF(startX, tr.rect.top, endX, tr.rect.bottom);
 
                 if (m.textRectIndex == kNoTextRect) {
                     m.textRectIndex = textRectIndex;

@@ -148,7 +148,7 @@ std::string xmlEscape(const std::string& text) {
     return out;
 }
 
-std::string hex6(D2D1_COLOR_F c) {
+std::string hex6(tinta::Color c) {
     char buf[8];
     snprintf(buf, sizeof(buf), "%02X%02X%02X", (int)(c.r * 255 + 0.5f),
              (int)(c.g * 255 + 0.5f), (int)(c.b * 255 + 0.5f));
@@ -156,8 +156,8 @@ std::string hex6(D2D1_COLOR_F c) {
 }
 
 // Alpha-composited over the theme background, as Word has no alpha colors
-std::string hexOver(D2D1_COLOR_F c, D2D1_COLOR_F background) {
-    D2D1_COLOR_F mixed;
+std::string hexOver(tinta::Color c, tinta::Color background) {
+    tinta::Color mixed;
     mixed.r = c.r * c.a + background.r * (1 - c.a);
     mixed.g = c.g * c.a + background.g * (1 - c.a);
     mixed.b = c.b * c.a + background.b * (1 - c.a);
@@ -268,7 +268,7 @@ struct RasterTarget {
                                                                &target))) {
             return false;
         }
-        if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0),
+        if (FAILED(target->CreateSolidColorBrush(tinta::colorF(0, 0, 0),
                                                  &brush))) {
             return false;
         }
@@ -296,17 +296,17 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
     app.d2dFactory->CreateStrokeStyle(dashProps, nullptr, 0, &dashed);
 
     auto fillPolygon = [&](const std::vector<mermaidext::Point>& pts,
-                           const D2D1_COLOR_F& fill,
-                           const D2D1_COLOR_F& stroke, float strokeWidth) {
+                           const tinta::Color& fill,
+                           const tinta::Color& stroke, float strokeWidth) {
         if (pts.size() < 3) return;
         ID2D1PathGeometry* geometry = nullptr;
         if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry))) return;
         ID2D1GeometrySink* sink = nullptr;
         if (SUCCEEDED(geometry->Open(&sink)) && sink) {
-            sink->BeginFigure(D2D1::Point2F(pts[0].x, pts[0].y),
+            sink->BeginFigure(tinta::pointF(pts[0].x, pts[0].y),
                               D2D1_FIGURE_BEGIN_FILLED);
             for (size_t i = 1; i < pts.size(); i++) {
-                sink->AddLine(D2D1::Point2F(pts[i].x, pts[i].y));
+                sink->AddLine(tinta::pointF(pts[i].x, pts[i].y));
             }
             sink->EndFigure(D2D1_FIGURE_END_CLOSED);
             sink->Close();
@@ -324,13 +324,13 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
     };
 
     for (const auto& prim : built.prims) {
-        D2D1_COLOR_F fill = resolveDiagramRole(app, prim, prim.fill);
-        D2D1_COLOR_F stroke = resolveDiagramRole(app, prim, prim.stroke);
+        tinta::Color fill = resolveDiagramRole(app, prim, prim.fill);
+        tinta::Color stroke = resolveDiagramRole(app, prim, prim.stroke);
         float strokeWidth = prim.strokeWidth > 0 ? prim.strokeWidth : 1.2f;
         switch (prim.type) {
             case mermaidext::PrimType::Rect: {
-                D2D1_RECT_F rect =
-                    D2D1::RectF(prim.x1, prim.y1, prim.x2, prim.y2);
+                tinta::RectF rect =
+                    tinta::rectF(prim.x1, prim.y1, prim.x2, prim.y2);
                 if (fill.a > 0) {
                     brush->SetColor(fill);
                     target->FillRectangle(rect, brush);
@@ -342,8 +342,8 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                 break;
             }
             case mermaidext::PrimType::RoundRect: {
-                D2D1_ROUNDED_RECT rect = D2D1::RoundedRect(
-                    D2D1::RectF(prim.x1, prim.y1, prim.x2, prim.y2),
+                tinta::RoundedRect rect = tinta::roundedRect(
+                    tinta::rectF(prim.x1, prim.y1, prim.x2, prim.y2),
                     prim.radius, prim.radius);
                 if (fill.a > 0) {
                     brush->SetColor(fill);
@@ -356,8 +356,8 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                 break;
             }
             case mermaidext::PrimType::Ellipse: {
-                D2D1_ELLIPSE ellipse = D2D1::Ellipse(
-                    D2D1::Point2F((prim.x1 + prim.x2) * 0.5f,
+                tinta::Ellipse ellipse = tinta::ellipse(
+                    tinta::pointF((prim.x1 + prim.x2) * 0.5f,
                                   (prim.y1 + prim.y2) * 0.5f),
                     (prim.x2 - prim.x1) * 0.5f, (prim.y2 - prim.y1) * 0.5f);
                 if (fill.a > 0) {
@@ -392,11 +392,11 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                               y2 - dy * head - dx * wing},
                              {x2 - dx * head - dy * wing,
                               y2 - dy * head + dx * wing}},
-                            stroke, D2D1::ColorF(0, 0, 0, 0), 0.0f);
+                            stroke, tinta::colorF(0, 0, 0, 0), 0.0f);
                     }
                 }
-                target->DrawLine(D2D1::Point2F(x1, y1),
-                                 D2D1::Point2F(endX, endY), brush,
+                target->DrawLine(tinta::pointF(x1, y1),
+                                 tinta::pointF(endX, endY), brush,
                                  strokeWidth,
                                  prim.dashed ? dashed : nullptr);
                 if (prim.openArrow) {
@@ -407,15 +407,15 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                         dy /= length;
                         float size = 8.0f * scale;
                         float wing = 4.0f * scale;
-                        D2D1_POINT_2F tip = D2D1::Point2F(x2, y2);
+                        tinta::PointF tip = tinta::pointF(x2, y2);
                         target->DrawLine(
                             tip,
-                            D2D1::Point2F(x2 - dx * size + dy * wing,
+                            tinta::pointF(x2 - dx * size + dy * wing,
                                           y2 - dy * size - dx * wing),
                             brush, strokeWidth);
                         target->DrawLine(
                             tip,
-                            D2D1::Point2F(x2 - dx * size - dy * wing,
+                            tinta::pointF(x2 - dx * size - dy * wing,
                                           y2 - dy * size + dx * wing),
                             brush, strokeWidth);
                     }
@@ -426,7 +426,7 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                 fillPolygon(prim.pts, fill,
                             prim.stroke != mermaidext::Role::None
                                 ? stroke
-                                : D2D1::ColorF(0, 0, 0, 0),
+                                : tinta::colorF(0, 0, 0, 0),
                             strokeWidth);
                 break;
             case mermaidext::PrimType::Slice: {
@@ -437,17 +437,17 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                 ID2D1GeometrySink* sink = nullptr;
                 if (SUCCEEDED(geometry->Open(&sink)) && sink) {
                     float r = prim.radius;
-                    D2D1_POINT_2F center = D2D1::Point2F(prim.x1, prim.y1);
-                    D2D1_POINT_2F start = D2D1::Point2F(
+                    tinta::PointF center = tinta::pointF(prim.x1, prim.y1);
+                    tinta::PointF start = tinta::pointF(
                         prim.x1 + r * std::cos(prim.a0),
                         prim.y1 + r * std::sin(prim.a0));
-                    D2D1_POINT_2F end = D2D1::Point2F(
+                    tinta::PointF end = tinta::pointF(
                         prim.x1 + r * std::cos(prim.a1),
                         prim.y1 + r * std::sin(prim.a1));
                     sink->BeginFigure(center, D2D1_FIGURE_BEGIN_FILLED);
                     sink->AddLine(start);
                     sink->AddArc(D2D1::ArcSegment(
-                        end, D2D1::SizeF(r, r), 0.0f,
+                        end, tinta::sizeF(r, r), 0.0f,
                         D2D1_SWEEP_DIRECTION_CLOCKWISE,
                         (prim.a1 - prim.a0) > 3.14159265f
                             ? D2D1_ARC_SIZE_LARGE
@@ -508,13 +508,13 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                         layout2->Release();
                     }
                 }
-                D2D1_COLOR_F color = resolveDiagramRole(
+                tinta::Color color = resolveDiagramRole(
                     app, prim,
                     prim.fill != mermaidext::Role::None
                         ? prim.fill
                         : mermaidext::Role::Text);
                 brush->SetColor(color);
-                target->DrawTextLayout(D2D1::Point2F(prim.x1, prim.y1),
+                target->DrawTextLayout(tinta::pointF(prim.x1, prim.y1),
                                        layout, brush);
                 layout->Release();
                 break;
@@ -1324,12 +1324,12 @@ bool exportDocxFile(App& app, const std::wstring& path) {
     // Dark themes bake accent hues but keep readable text on white paper
     ctx.textHex = dark ? "1F1F1F" : hex6(theme.text);
     ctx.headingHex = dark ? "111111" : hex6(theme.heading);
-    D2D1_COLOR_F muted = theme.text;
+    tinta::Color muted = theme.text;
     muted.a = 0.65f;
     ctx.mutedHex = dark ? "555555" : hexOver(muted, theme.background);
     ctx.codeBgHex = dark ? "F2F0EE" : hex6(theme.codeBackground);
     if (theme.inlineCode) ctx.inlineCodeHex = hex6(*theme.inlineCode);
-    D2D1_COLOR_F border = theme.text;
+    tinta::Color border = theme.text;
     border.a = 0.25f;
     ctx.borderHex = dark ? "C8C8C8" : hexOver(border, theme.background);
     ctx.accentHex = hex6(theme.accent);

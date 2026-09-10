@@ -406,6 +406,39 @@ if(BUILD_TESTING)
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-data-test-$<CONFIG>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
+    # Qt 6 text layout -- the contract the DirectWrite text code has to be ported
+    # onto, measured before any of that port is written. OPT-IN: find_package is
+    # QUIET and the target only appears where Qt 6 is installed, so a machine
+    # without it (every Windows host here, as of 2026-09-11) configures exactly as
+    # before rather than failing.
+    #
+    # QT_QPA_PLATFORM=offscreen is set on the test and is NOT interchangeable with
+    # "minimal". Measured: minimal reports ZERO font families and resolves any
+    # request to an empty family, yet QTextLayout still returns numbers and exits 0
+    # -- fabricated metrics, whole-number ascents and a descent of exactly 0.000.
+    # Running with no QT_QPA_PLATFORM at all ABORTS (exit 134) in WSL, because the
+    # default xcb plugin cannot reach a display. The test itself refuses to run
+    # unless a font database exists, so this variable going missing fails loudly
+    # rather than silently measuring nothing.
+    find_package(Qt6 QUIET COMPONENTS Core Gui)
+    if(Qt6_FOUND)
+        add_executable(qt_text_tests tests/qt_text_tests.cpp)
+        target_link_libraries(qt_text_tests PRIVATE Qt6::Core Qt6::Gui)
+        add_test(NAME qt_text COMMAND qt_text_tests)
+        set_tests_properties(qt_text PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        message(STATUS "Qt6 ${Qt6_VERSION} found -- qt_text target enabled")
+    else()
+        message(STATUS "Qt6 not found -- qt_text target skipped (this is expected on Windows)")
+    endif()
+    # KNOWN WEAKNESS, recorded rather than hidden: because this target is opt-in,
+    # its ABSENCE is silent. Uninstall Qt and the probe still reports PASS, just
+    # with one fewer test -- the same under-reporting shape that made an earlier
+    # version of scripts/probe-portable-linux.sh green while it watched 5 of 22
+    # files. The trade is deliberate (Windows has no Qt and must still configure),
+    # but if a Qt backend ever becomes load-bearing rather than exploratory, this
+    # needs to become a hard requirement on non-Windows platforms instead.
+
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
     if(WIN32)
     add_executable(inline_style_tests

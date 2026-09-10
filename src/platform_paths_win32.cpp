@@ -106,4 +106,27 @@ std::wstring userConfigDirectory(const std::wstring& appName) {
     return path;
 }
 
+bool documentPathsEqual(const std::string& a, const std::string& b) {
+    // NTFS and the shell treat paths case-insensitively, so this folds case --
+    // which is what the _stricmp calls it replaces did.
+    //
+    // The fold is ASCII-only, and that is deliberate rather than a shortcut.
+    // _stricmp folds according to LC_CTYPE, and tinta never calls setlocale, so
+    // it runs in the "C" locale where _stricmp folds ASCII and nothing else.
+    // These paths are UTF-8, so every non-ASCII byte is >= 0x80 and both the old
+    // and the new code compare it verbatim: identical results on every input the
+    // tree can produce. A future setlocale() call elsewhere would change what
+    // _stricmp does and would NOT change this, which is the better direction --
+    // path identity should not depend on the user's locale.
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++) {
+        unsigned char ca = static_cast<unsigned char>(a[i]);
+        unsigned char cb = static_cast<unsigned char>(b[i]);
+        if (ca >= 'A' && ca <= 'Z') ca = static_cast<unsigned char>(ca - 'A' + 'a');
+        if (cb >= 'A' && cb <= 'Z') cb = static_cast<unsigned char>(cb - 'A' + 'a');
+        if (ca != cb) return false;
+    }
+    return true;
+}
+
 } // namespace platform

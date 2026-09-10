@@ -276,4 +276,21 @@ void openInDefaultApplication(const std::wstring& path) {
     waitpid(intermediate, &status, 0);
 }
 
+bool documentPathsEqual(const std::string& a, const std::string& b) {
+    // Exact, because Linux filesystems are case-sensitive: "Notes.md" and
+    // "notes.md" are two different documents and must keep two different reading
+    // positions. Folding case here would make opening one of them scroll to the
+    // other's offset.
+    //
+    // macOS is the awkward case: HFS+ and APFS are case-INSENSITIVE by default,
+    // so this is arguably wrong there and would give one document two entries if
+    // its path were spelled two ways. Left exact anyway, because the alternative
+    // is worse: case sensitivity on macOS is a per-volume format choice, not a
+    // platform constant, so no compile-time answer is right for every volume.
+    // The honest fix is a runtime probe of the volume holding the file, which is
+    // more machinery than a most-recent-list of 50 scroll offsets justifies. The
+    // failure mode is a duplicate entry, not a wrong scroll position.
+    return a == b;
+}
+
 } // namespace platform

@@ -1,5 +1,12 @@
 #include "settings.h"
 
+// windows.h explicitly. This test is Windows-only on purpose -- it checks how
+// configFilePathForShell copes with MSIX filesystem virtualization -- and it used
+// to get CreateFileW, HANDLE and GetTickCount64 for free, because settings.h
+// included app.h which includes windows.h. settings.h no longer does, so the
+// dependency is now stated where it is actually used.
+#include <windows.h>
+
 #include <filesystem>
 #include <fstream>
 #include <iostream>

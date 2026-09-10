@@ -97,7 +97,7 @@ fi
 # was silently skipped also succeeds. Each file below must appear as its own
 # compile line, which is the only thing that shows this compiler read it.
 note 'Per-object evidence'
-for object in i18n config_dir platform_paths_posix keymap; do
+for object in i18n config_dir platform_paths_posix keymap settings; do
     if grep -qE "(^|[/ ])${object}\.cpp\.o" "$BUILD_DIR.build.log"; then
         check 0 "src/${object}.cpp was compiled by $CXX_BIN"
         grep -oE "[^ ]*${object}\.cpp\.o" "$BUILD_DIR.build.log" | head -1 | sed 's/^/       /'
@@ -106,12 +106,34 @@ for object in i18n config_dir platform_paths_posix keymap; do
     fi
 done
 
-# Nothing Windows-only may have been dragged in. main_d2d.cpp and the app target
-# are inside if(WIN32) and must not appear at all.
-if grep -qE "main_d2d\.cpp\.o" "$BUILD_DIR.build.log"; then
-    check 1 "the Windows-only app target stayed out of this build"
+# Nothing Windows-only may have been dragged in. Each of these is inside if(WIN32)
+# or listed only in a Windows-only target, so none may appear at all.
+#
+# settings_app.cpp and settings_win32.cpp are the halves that were split OFF
+# settings.cpp so that it could compile here. Asserting their absence is what
+# makes the settings.cpp pass above mean something: if a future edit put App or a
+# registry call back into the portable file, or wired these into a portable
+# target, this is where it shows.
+#
+# The `settings` loop entry above matches settings.cpp.o only -- the object names
+# differ -- but check that too, because a grep that accidentally matched
+# settings_app.cpp.o would report a pass for the wrong file.
+for forbidden in main_d2d settings_app settings_win32; do
+    if grep -qE "(^|[/ ])${forbidden}\.cpp\.o" "$BUILD_DIR.build.log"; then
+        check 1 "src/${forbidden}.cpp stayed out of this build (it was compiled)"
+        grep -oE "[^ ]*${forbidden}\.cpp\.o" "$BUILD_DIR.build.log" | head -1 | sed 's/^/       /'
+    else
+        check 0 "src/${forbidden}.cpp stayed out of this build, as a Windows-only file"
+    fi
+done
+
+# The settings round-trip has to be one of the tests that actually ran, not just
+# one that configured. It is the only assertion here that exercises the ini reader
+# and writer rather than merely compiling them.
+if grep -qE "settings_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/settings_tests.cpp was compiled by $CXX_BIN"
 else
-    check 0 "the Windows-only app target stayed out of this build"
+    check 1 "tests/settings_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
 note 'Tests'
@@ -126,8 +148,19 @@ else
     check 1 "CONTROL: at least one test is selected, so a pass below is not an empty run"
 fi
 
-"$CMAKE_BIN" -E chdir "$BUILD_DIR" ctest --output-on-failure 2>&1 | tail -25
-check "${PIPESTATUS[0]}" "every configured test passes off Windows"
+"$CMAKE_BIN" -E chdir "$BUILD_DIR" ctest --output-on-failure > "$BUILD_DIR.ctest.log" 2>&1
+check "$?" "every configured test passes off Windows"
+tail -25 "$BUILD_DIR.ctest.log"
+
+# Name the tests that must have RUN, not merely configured. "N tests passed" is
+# a count, and a count cannot tell you which N.
+for test_name in settings_roundtrip i18n platform_paths keymap; do
+    if grep -qE "Test +#[0-9]+: ${test_name} .*Passed" "$BUILD_DIR.ctest.log"; then
+        check 0 "the ${test_name} test ran and passed off Windows"
+    else
+        check 1 "the ${test_name} test ran and passed off Windows (not found in the ctest log)"
+    fi
+done
 
 note 'Result'
 if [ "$failures" = "0" ]; then

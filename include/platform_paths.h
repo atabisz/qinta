@@ -78,6 +78,19 @@ std::vector<std::wstring> preferredUiLanguages();
 // every platform anyway.
 void openInDefaultApplication(const std::wstring& path);
 
+// Do these two paths name the same file, by the platform's own case rule?
+//
+// This is a seam and not a helper because the answer differs by platform and
+// both answers are correct: on Windows "Notes.md" and "notes.md" are one file,
+// on Linux they are two. Folding case on Linux would silently merge two distinct
+// documents' reading positions; comparing exactly on Windows would give the same
+// document two entries depending on how it was opened.
+//
+// It replaces _stricmp, which is an MSVC extension with no POSIX spelling. The
+// Windows implementation is byte-identical to _stricmp for the input this tree
+// has -- see the note there about why that holds and what would break it.
+bool documentPathsEqual(const std::string& a, const std::string& b);
+
 } // namespace platform
 
 #endif // TINTA_PLATFORM_PATHS_H

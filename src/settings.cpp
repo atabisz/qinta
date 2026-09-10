@@ -1,20 +1,40 @@
+// The settings.ini reader and writer. No windows.h, and that is now enforced by
+// a non-Windows compiler building this file rather than by intent:
+//
+//   - the four functions that copied fields between App and Settings moved to
+//     settings_app.cpp, since App is the Direct2D/Win32 window state;
+//   - the file-association feature -- registry writes, MessageBoxW, the
+//     ms-settings: deep link -- moved to settings_win32.cpp. That is a Windows
+//     capability with no honest equivalent elsewhere, so it is a Windows-only
+//     translation unit and deliberately NOT behind the platform seam.
+//
+// What is left is ini parsing and formatting, which needed none of it.
 #include "settings.h"
-#include "document.h"
-#include "i18n.h"
+#include "keymap.h"
+#include "platform_paths.h"
 
-#include <windows.h>
-#include <shlobj.h>
-#include <shellapi.h>
-#include <appmodel.h>
+#include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <string>
 
-static int settingsLanguageIndex(const Settings& settings) {
-    if (settings.language != "auto") {
-        int index = languageIndexById(settings.language);
-        if (index >= 0) return index;
-    }
-    return detectSystemLanguage();
+// keymap.h is included explicitly above. It used to arrive through settings.h ->
+// app.h, and saveSettings needs KEY_ACTIONS to write the [Keys] section.
+
+unsigned long long fileTimeTicksNow() {
+    using namespace std::chrono;
+    // 1601-01-01 to 1970-01-01 in 100ns ticks. Exact by definition rather than
+    // by a leap-second table: FILETIME counts a uniform 100ns tick and does not
+    // represent leap seconds at all.
+    constexpr unsigned long long kUnixEpochInFileTimeTicks = 116444736000000000ULL;
+    using FileTimeTicks = duration<long long, std::ratio<1, 10000000>>;
+    const long long sinceUnixEpoch =
+        duration_cast<FileTimeTicks>(system_clock::now().time_since_epoch()).count();
+    return kUnixEpochInFileTimeTicks + static_cast<unsigned long long>(sinceUnixEpoch);
+    // system_clock's epoch is only formally fixed to the Unix epoch in C++20.
+    // Every implementation this tree can build with -- MSVC, libstdc++, libc++ --
+    // already uses it, and settings_tests checks the result against
+    // GetSystemTimeAsFileTime on Windows rather than trusting that.
 }
 
 // tintaConfigDir (portable mode #147) lives in config_dir.cpp so test
@@ -23,14 +43,27 @@ static int settingsLanguageIndex(const Settings& settings) {
 std::wstring getSettingsPath() {
     std::wstring dir = tintaConfigDir();
     if (dir.empty()) return L"";
-    return dir + L"\\settings.ini";
+    // Separator from the seam, not a literal L'\\'. A backslash is a legal
+    // filename character on Linux, so the old spelling would not have failed
+    // loudly there -- it would have created one file actually named
+    // "...\settings.ini" inside the config directory.
+    return dir + platform::pathSeparator() + L"settings.ini";
 }
 
 void saveSettings(const Settings& settings) {
     std::wstring path = getSettingsPath();
     if (path.empty()) return;
 
-    std::ofstream file(path);
+    // fs::path, not the wstring directly: constructing a stream from a wide
+    // string is an MSVC extension that libstdc++ rejects. On Windows this is
+    // free -- fs::path already stores a wstring natively.
+    //
+    // The path is named rather than written inline. `std::ofstream file(
+    // std::filesystem::path(path))` is the most vexing parse: it declares a
+    // *function* taking a path, and the error then surfaces at the first << with
+    // a message that does not point here.
+    const std::filesystem::path iniPath(path);
+    std::ofstream file(iniPath);
     if (!file) return;
 
     file << "[Settings]\n";
@@ -110,17 +143,18 @@ void saveSettings(const Settings& settings) {
     }
 }
 
-void applyKeymap(App& app, const Settings& settings) {
-    resolveKeymap(app.keymap, settings.keyProfile, settings.keyOverrides);
-    app.keyProfile = settings.keyProfile;
-}
+// applyKeymap moved to settings_app.cpp with the other three functions that
+// touch App.
 
 void rememberReadingPosition(Settings& settings, const std::string& path,
                              float scrollY, float zoom) {
     if (path.empty()) return;
     auto& list = settings.readingPositions;
     for (size_t i = 0; i < list.size(); i++) {
-        if (_stricmp(list[i].path.c_str(), path.c_str()) == 0) {
+        // platform::documentPathsEqual, not _stricmp: _stricmp is an MSVC
+        // extension, and whether two path spellings are one file is a platform
+        // question the seam answers. See platform_paths.h.
+        if (platform::documentPathsEqual(list[i].path, path)) {
             if (zoom <= 0.0f) zoom = list[i].zoom;  // keep a known zoom
             list.erase(list.begin() + i);
             break;
@@ -138,36 +172,9 @@ void persistReadingPosition(const std::string& path, float scrollY,
     saveSettings(settings);
 }
 
-// The editor assists toggle persists immediately so fresh windows pick
-// it up without waiting for this one's exit save
-void persistEditorMode(const App& app) {
-    Settings settings = loadSettings();
-    settings.editorAssists = app.editorAssists;
-    saveSettings(settings);
-}
-
-// "Open files in tabs" persists the moment it is toggled: the join-or-
-// spawn decision is made by the NEXT launched process reading
-// settings.ini, so an exit-time save would leave every Explorer open on
-// the old mode until all windows closed (#147 follow-up). The ini is the
-// single source of truth for this flag - the exit save leaves it alone.
-void persistOpenInTabs(const App& app) {
-    Settings settings = loadSettings();
-    settings.openInTabs = app.openInTabs;
-    saveSettings(settings);
-}
-
-// A theme change persists immediately: windows spawned afterwards
-// (quick notes, drag-outs) read settings.ini at startup and would
-// otherwise come up in the look from the previous session
-void persistThemeChoice(const App& app) {
-    Settings settings = loadSettings();
-    settings.themeIndex = app.currentThemeIndex;
-    settings.followSystemTheme = app.followSystemTheme;
-    settings.lightThemeIndex = app.lightThemeIndex;
-    settings.darkThemeIndex = app.darkThemeIndex;
-    saveSettings(settings);
-}
+// persistEditorMode, persistOpenInTabs and persistThemeChoice moved to
+// settings_app.cpp. They are one line of field copying each, and that one line
+// is what tied this whole file to app.h and so to windows.h and Direct2D.
 
 // Start page recents: every successful document open moves (or inserts)
 // its path at the head of the [Recent] list
@@ -176,17 +183,12 @@ void persistRecentFile(const std::string& path) {
     Settings settings = loadSettings();
     auto& list = settings.recentFiles;
     for (size_t i = 0; i < list.size(); i++) {
-        if (_stricmp(list[i].path.c_str(), path.c_str()) == 0) {
+        if (platform::documentPathsEqual(list[i].path, path)) {
             list.erase(list.begin() + i);
             break;
         }
     }
-    FILETIME ft;
-    GetSystemTimeAsFileTime(&ft);
-    ULARGE_INTEGER now;
-    now.LowPart = ft.dwLowDateTime;
-    now.HighPart = ft.dwHighDateTime;
-    list.insert(list.begin(), {now.QuadPart, path});
+    list.insert(list.begin(), {fileTimeTicksNow(), path});
     if (list.size() > 10) list.resize(10);
     saveSettings(settings);
 }
@@ -199,14 +201,14 @@ void clearRecentFiles() {
 
 float findReadingPosition(const Settings& settings, const std::string& path) {
     for (const auto& pos : settings.readingPositions) {
-        if (_stricmp(pos.path.c_str(), path.c_str()) == 0) return pos.scrollY;
+        if (platform::documentPathsEqual(pos.path, path)) return pos.scrollY;
     }
     return -1.0f;
 }
 
 float findReadingZoom(const Settings& settings, const std::string& path) {
     for (const auto& pos : settings.readingPositions) {
-        if (_stricmp(pos.path.c_str(), path.c_str()) == 0) return pos.zoom;
+        if (platform::documentPathsEqual(pos.path, path)) return pos.zoom;
     }
     return 0.0f;
 }
@@ -216,7 +218,10 @@ Settings loadSettings() {
     std::wstring path = getSettingsPath();
     if (path.empty()) return settings;
 
-    std::ifstream file(path);
+    // Named fs::path for the same two reasons as in saveSettings above: a wide
+    // string here is MSVC-only, and the inline spelling is the most vexing parse.
+    const std::filesystem::path iniPath(path);
+    std::ifstream file(iniPath);
     if (!file) return settings;
 
     bool sawKeyProfile = false;
@@ -375,182 +380,6 @@ Settings loadSettings() {
     return settings;
 }
 
-// Packaged (MSIX/Store) installs declare file associations in AppxManifest.xml;
-// runtime registry writes would only land in the package's virtual registry.
-static bool isRunningPackaged() {
-    UINT32 length = 0;
-    return GetCurrentPackageFullName(&length, nullptr) != APPMODEL_ERROR_NO_PACKAGE;
-}
-
-static bool hasRegisteredFileAssociation(std::wstring_view extension) {
-    HKEY hKey;
-    LONG result = RegOpenKeyExW(
-        HKEY_CURRENT_USER,
-        L"Software\\Tinta\\Capabilities\\FileAssociations",
-        0, KEY_READ, &hKey);
-    if (result != ERROR_SUCCESS) return false;
-
-    wchar_t value[64] = {};
-    DWORD type = 0;
-    DWORD size = sizeof(value);
-    result = RegQueryValueExW(
-        hKey, extension.data(), nullptr, &type,
-        reinterpret_cast<BYTE*>(value), &size);
-    RegCloseKey(hKey);
-    return result == ERROR_SUCCESS &&
-        type == REG_SZ &&
-        wcscmp(value, L"Tinta.MarkdownFile") == 0;
-}
-
-bool registerFileAssociation() {
-    // Get the path to the current executable
-    wchar_t exePath[MAX_PATH];
-    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
-
-    HKEY hKey;
-    LONG result;
-    const wchar_t* progId = L"Tinta.MarkdownFile";
-
-    // Create ProgID entry in Classes
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    const wchar_t* desc = L"Tinta Document";
-    RegSetValueExW(hKey, nullptr, 0, REG_SZ, (BYTE*)desc, (DWORD)((wcslen(desc) + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-
-    // Create DefaultIcon entry
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile\\DefaultIcon", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    std::wstring iconPath = exePath;
-    iconPath += L",0";
-    RegSetValueExW(hKey, nullptr, 0, REG_SZ, (BYTE*)iconPath.c_str(), (DWORD)((iconPath.length() + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-
-    // Create shell\open\command entry
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile\\shell\\open\\command", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    std::wstring command = L"\"";
-    command += exePath;
-    command += L"\" \"%1\"";
-    RegSetValueExW(hKey, nullptr, 0, REG_SZ, (BYTE*)command.c_str(), (DWORD)((command.length() + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-
-    // Register app capabilities (required for Windows 10/11)
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tinta\\Capabilities", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    const wchar_t* appName = L"Tinta";
-    const wchar_t* appDesc = L"A fast, lightweight Markdown and Mermaid reader";
-    RegSetValueExW(hKey, L"ApplicationName", 0, REG_SZ, (BYTE*)appName, (DWORD)((wcslen(appName) + 1) * sizeof(wchar_t)));
-    RegSetValueExW(hKey, L"ApplicationDescription", 0, REG_SZ, (BYTE*)appDesc, (DWORD)((wcslen(appDesc) + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-
-    // Register file associations in capabilities
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tinta\\Capabilities\\FileAssociations", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    for (std::wstring_view extension : DOCUMENT_FILE_EXTENSIONS) {
-        result = RegSetValueExW(
-            hKey, extension.data(), 0, REG_SZ, (BYTE*)progId,
-            (DWORD)((wcslen(progId) + 1) * sizeof(wchar_t)));
-        if (result != ERROR_SUCCESS) {
-            RegCloseKey(hKey);
-            return false;
-        }
-    }
-    RegCloseKey(hKey);
-
-    // Add to RegisteredApplications
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, nullptr,
-                              REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-    if (result != ERROR_SUCCESS) return false;
-    const wchar_t* capPath = L"Software\\Tinta\\Capabilities";
-    RegSetValueExW(hKey, L"Tinta", 0, REG_SZ, (BYTE*)capPath, (DWORD)((wcslen(capPath) + 1) * sizeof(wchar_t)));
-    RegCloseKey(hKey);
-
-    for (std::wstring_view extension : DOCUMENT_FILE_EXTENSIONS) {
-        std::wstring keyPath = L"Software\\Classes\\";
-        keyPath.append(extension);
-        keyPath += L"\\OpenWithProgids";
-        result = RegCreateKeyExW(
-            HKEY_CURRENT_USER, keyPath.c_str(), 0, nullptr,
-            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
-        if (result != ERROR_SUCCESS) return false;
-        result = RegSetValueExW(hKey, progId, 0, REG_NONE, nullptr, 0);
-        RegCloseKey(hKey);
-        if (result != ERROR_SUCCESS) return false;
-    }
-
-    // Notify shell of the change
-    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
-
-    return true;
-}
-
-void openDefaultAppsSettings() {
-    ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
-}
-
-void askAndRegisterFileAssociation(Settings& settings) {
-    int lang = settingsLanguageIndex(settings);
-    if (isRunningPackaged()) {
-        // Store installs: the package manifest already registers the file
-        // types, so only the "make default" choice is missing. Ask once per
-        // install (settings.ini lives in the package's private AppData, so
-        // it resets on uninstall) and deep-link straight to Tinta's page in
-        // Settings > Default apps. Windows 10 ignores the query part and
-        // opens the general Default Apps page instead.
-        if (settings.hasAskedFileAssociation) return;
-        int result = MessageBoxW(
-            nullptr,
-            tr(lang, "fileassoc.packaged.ask_body"),
-            tr(lang, "fileassoc.packaged.title"),
-            MB_YESNO | MB_ICONQUESTION);
-        if (result == IDYES) {
-            ShellExecuteW(nullptr, L"open",
-                L"ms-settings:defaultapps?registeredAppUser=Tinta%20Markdown%20Viewer",
-                nullptr, nullptr, SW_SHOWNORMAL);
-        }
-        settings.hasAskedFileAssociation = true;
-        saveSettings(settings);
-        return;
-    }
-    if (settings.hasAskedFileAssociation) {
-        if (hasRegisteredFileAssociation(L".md") &&
-            !hasRegisteredFileAssociation(L".mmd") &&
-            !registerFileAssociation()) {
-            MessageBoxW(
-                nullptr,
-                tr(lang, "fileassoc.add_mmd_failed_body"),
-                tr(lang, "fileassoc.title"),
-                MB_OK | MB_ICONWARNING);
-        }
-        return;
-    }
-
-    int result = MessageBoxW(
-        nullptr,
-        tr(lang, "fileassoc.ask_body"),
-        tr(lang, "fileassoc.title"),
-        MB_YESNO | MB_ICONQUESTION
-    );
-
-    if (result == IDYES) {
-        if (registerFileAssociation()) {
-            MessageBoxW(nullptr,
-                       tr(lang, "fileassoc.done_body"),
-                       tr(lang, "fileassoc.done_title"),
-                       MB_OK | MB_ICONINFORMATION);
-            openDefaultAppsSettings();
-        } else {
-            MessageBoxW(nullptr, tr(lang, "fileassoc.register_failed_body"),
-                       tr(lang, "error.title"), MB_OK | MB_ICONWARNING);
-        }
-    }
-
-    settings.hasAskedFileAssociation = true;
-    saveSettings(settings);
-}
+// The file-association feature -- registerFileAssociation,
+// openDefaultAppsSettings, askAndRegisterFileAssociation and their two static
+// helpers -- continues in settings_win32.cpp.

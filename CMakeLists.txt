@@ -48,6 +48,14 @@ set(SOURCES
     src/markdown.cpp
     src/themes.cpp
     src/settings.cpp
+    # settings.cpp is the portable ini reader/writer. Its two Windows halves were
+    # split off: settings_app.cpp (the four functions that touch App) and
+    # settings_win32.cpp (the file-association feature). Both are listed here
+    # unconditionally because SOURCES is only ever consumed inside if(WIN32) --
+    # the app target and the input-test variants. A non-Windows build reaches
+    # settings.cpp through the test targets below, never through this list.
+    src/settings_app.cpp
+    src/settings_win32.cpp
     src/keymap.cpp
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
@@ -100,6 +108,9 @@ set(HEADERS
     include/types.h
     include/app.h
     include/settings.h
+    include/settings_data.h
+    include/platform_paths.h
+    include/config_dir.h
     include/keymap.h
     include/d2d_init.h
     include/syntax.h
@@ -311,6 +322,37 @@ if(BUILD_TESTING)
         target_compile_definitions(i18n_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME i18n COMMAND i18n_tests)
+
+    # settings.cpp -- the settings.ini reader and writer -- built and run off
+    # Windows. It reached windows.h only through settings.h -> app.h; the App
+    # coupling now lives in settings_app.cpp and the file-association feature in
+    # settings_win32.cpp, and neither is linked here. Note what that means: if
+    # anything drags either back into this file, THIS target is what fails, and
+    # only when built off Windows.
+    #
+    # Run through run_portable_test.cmake rather than directly, because the
+    # assertions call saveSettings. That script copies the binary to a scratch
+    # directory with a settings.ini beside it, which switches tintaConfigDir()
+    # into portable mode -- so the test writes its own config and never the user's.
+    # The test refuses to run if that isolation is not in place.
+    add_executable(settings_tests
+        tests/settings_tests.cpp
+        src/settings.cpp
+        src/keymap.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(settings_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_link_libraries(settings_tests PRIVATE shell32)
+        target_compile_definitions(settings_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME settings_roundtrip COMMAND ${CMAKE_COMMAND}
+        -DTEST_BINARY=$<TARGET_FILE:settings_tests>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/settings-test-$<CONFIG>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
     if(WIN32)

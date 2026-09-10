@@ -1,4 +1,11 @@
-#include "app.h"
+// The built-in palette table and the user-theme registry.
+//
+// This file includes theme_data.h and NOT app.h, and that is load-bearing: it is
+// listed in tests/portable-sources.txt, so scripts/probe-portable-linux.sh
+// compiles it with g++ on every run and fails if anything drags windows.h back
+// in. It touches no App member -- checked, the only `app.` in the file used to be
+// the include on this line -- so nothing here needs the application state.
+#include "theme_data.h"
 
 // 10 Distinctive Themes - 5 Light, 5 Dark
 const D2DTheme THEMES[] = {
@@ -238,13 +245,22 @@ const int THEME_COUNT = sizeof(THEMES) / sizeof(THEMES[0]);
 //   text=D8DEE9
 //   ...
 
-#include "settings.h"
+// config_dir.h, not settings.h. settings.h includes app.h, so including it here
+// would undo the whole point of this file's first line -- and nothing in this
+// file ever used a Settings field. tintaConfigDir() is the only thing it wanted,
+// and that has lived in config_dir.h since the first split.
+//
+// <shlobj.h> went with it: no SH*/CSIDL/IShell name appears anywhere in this
+// file. The directory lookup it was presumably once here for now happens behind
+// platform::userConfigDirectory, inside the win32 half of the path seam.
+#include "config_dir.h"
 #include "platform_paths.h"
 
-#include <shlobj.h>
+#include <cstdio>
+#include <cwctype>
+#include <filesystem>
 #include <fstream>
 #include <memory>
-#include <sstream>
 #include <vector>
 
 namespace {
@@ -255,7 +271,12 @@ std::wstring themesIniPath() {
     // Follows the config home: portable beside the exe, else %APPDATA%
     std::wstring dir = tintaConfigDir();
     if (dir.empty()) return L"";
-    return dir + L"\\themes.ini";
+    // platform::pathSeparator() and not a literal L"\\". Same shape as
+    // settings.cpp:50 and i18n.cpp:1389, and it is not cosmetic: a backslash is a
+    // legal FILENAME character on POSIX, so the literal did not fail here -- it
+    // silently created a file called "theme-data-test-Release\themes.ini" one
+    // directory up from the intended one, and then read it back again.
+    return dir + platform::pathSeparator() + L"themes.ini";
 }
 
 bool parseHexColor(const std::string& value, tinta::Color& out) {
@@ -292,6 +313,37 @@ std::wstring utf8ToWideTheme(const std::string& s) {
 
 std::string wideToUtf8Theme(const std::wstring& w) {
     return platform::toUtf8(w);
+}
+
+// Case-insensitive theme-name comparison, replacing _wcsicmp -- an MSVC
+// extension with no POSIX spelling.
+//
+// Deliberately NOT a platform:: seam, unlike documentPathsEqual. That one is a
+// seam because the right answer genuinely differs by platform: "Notes.md" and
+// "notes.md" name one file on Windows and two on Linux, and both answers are
+// correct. A theme name is not a filesystem name -- it is an application-level
+// identifier read out of a [theme] section -- so "Nordish" and "nordish" must
+// mean the same theme everywhere, and a seam offering two answers would be wrong
+// by construction.
+//
+// One honest difference from _wcsicmp survives, and it is not newly introduced:
+// both fold per code unit against the current C locale, so both are exact for
+// ASCII and locale-dependent past it. wchar_t is also 16-bit on Windows and
+// 32-bit elsewhere, so a non-BMP name arrives as a surrogate pair here (each
+// half folding to itself) and as one code point there (foldable). Every built-in
+// name is ASCII; the exposure is a user theme whose name differs from another
+// only by the case of a non-ASCII letter. That is a far smaller risk than
+// comparing case-sensitively, which would let saveCustomTheme append a duplicate
+// "nordish" section beside "Nordish" rather than replacing it.
+bool themeNamesEqual(const std::wstring& a, const std::wstring& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); i++) {
+        if (std::towlower(static_cast<std::wint_t>(a[i])) !=
+            std::towlower(static_cast<std::wint_t>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // Repoint the D2DTheme string members at the owned wstrings. Must be called
@@ -335,7 +387,14 @@ void applyThemeKey(CustomTheme& ct, const std::string& key, const std::string& v
 void writeThemesIni() {
     std::wstring path = themesIniPath();
     if (path.empty()) return;
-    std::ofstream file(path);
+    // The wide path must be named as a std::filesystem::path, not handed to the
+    // stream as a bare std::wstring. MSVC accepts the wstring overload as an
+    // extension; libstdc++ has no such constructor and the build simply fails.
+    // Named on its own line rather than written inline, because
+    // `std::ofstream file(std::filesystem::path(path))` is the most vexing parse
+    // -- it declares a function. Same shape as settings.cpp and i18n.cpp.
+    const std::filesystem::path iniPath(path);
+    std::ofstream file(iniPath);
     if (!file) return;
     file << "; User themes. Colors are RRGGBB hex. Restart not required for\n";
     file << "; themes saved from the editor; hand edits load at next launch.\n";
@@ -389,7 +448,8 @@ void loadCustomThemes() {
     g_customThemes.clear();
     std::wstring path = themesIniPath();
     if (path.empty()) return;
-    std::ifstream file(path);
+    const std::filesystem::path iniPath(path);  // see writeThemesIni
+    std::ifstream file(iniPath);
     if (!file) return;
 
     std::unique_ptr<CustomTheme> current;
@@ -429,7 +489,7 @@ int saveCustomTheme(const D2DTheme& t, const std::wstring& name,
     CustomTheme* slot = nullptr;
     int index = -1;
     for (size_t i = 0; i < g_customThemes.size(); i++) {
-        if (_wcsicmp(g_customThemes[i]->name.c_str(), name.c_str()) == 0) {
+        if (themeNamesEqual(g_customThemes[i]->name, name)) {
             slot = g_customThemes[i].get();
             index = THEME_COUNT + (int)i;
             break;

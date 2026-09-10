@@ -36,6 +36,7 @@ platform_paths_posix.cpp
 i18n.cpp
 keymap.cpp
 settings.cpp
+themes.cpp
 
 # --- The document model and markdown parser ----------------------------------
 document.cpp

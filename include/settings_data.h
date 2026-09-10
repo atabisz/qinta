@@ -13,11 +13,20 @@
 // header. The ini reader/writer in settings.cpp depends on that, and so does
 // every future non-Windows build.
 //
-// Deliberately NOT moved: CustomTheme, which sits next to Settings in app.h and
-// looks equally plain. It embeds a D2DTheme, and D2DTheme is a wall of
-// tinta::Color -- so it is Windows-only by its members, not by its own spelling.
-// Freeing it means replacing tinta::Color tree-wide (442 sites), which is a
-// separate decision.
+// CustomTheme used to be listed here as deliberately NOT moved: it sits next to
+// Settings in app.h and looks equally plain, but it embeds a D2DTheme, and
+// D2DTheme was a wall of D2D1_COLOR_F -- Windows-only by its members, not by its
+// own spelling. Freeing it meant replacing that type tree-wide, which was then a
+// separate decision. It was taken: commit 0e54418 replaced it with tinta::Color
+// at 1,929 sites, and CustomTheme now lives in theme_data.h beside D2DTheme.
+//
+// Worth knowing how that note went wrong before it was corrected. The sweep was
+// a mechanical rename, and it rewrote the type name inside this COMMENT as
+// happily as in the code -- leaving a sentence that read "D2DTheme is a wall of
+// tinta::Color -- so it is Windows-only by its members", which argues that the
+// portable type is what makes it unportable. A rename cannot tell prose from
+// code, so a comment naming a type is something the next such sweep will edit
+// without understanding. Prefer naming the type as it was AT THE TIME, as above.
 
 #include <string>
 #include <utility>

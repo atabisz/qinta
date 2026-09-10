@@ -110,6 +110,7 @@ set(HEADERS
     include/app.h
     include/settings.h
     include/settings_data.h
+    include/theme_data.h
     include/platform_paths.h
     include/config_dir.h
     include/keymap.h
@@ -373,6 +374,36 @@ if(BUILD_TESTING)
     add_test(NAME settings_roundtrip COMMAND ${CMAKE_COMMAND}
         -DTEST_BINARY=$<TARGET_FILE:settings_tests>
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/settings-test-$<CONFIG>
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
+
+    # themes.cpp -- the built-in palette table and the themes.ini reader/writer --
+    # built and run off Windows. It reached windows.h only through app.h, and it
+    # touches no App member whatsoever; the block it wanted is now theme_data.h.
+    # Note what this target is for: MSVC compiles themes.cpp either way, so a
+    # green Windows build says nothing about whether the wide-path streams and the
+    # _wcsicmp replacement inside it are portable. Only a build here can.
+    #
+    # Runs through run_portable_test.cmake because the assertions call
+    # saveCustomTheme, which rewrites themes.ini in the config home. The scratch
+    # copy plus a settings.ini beside it switches tintaConfigDir() into portable
+    # mode, so the test writes its own file and never the user's. It refuses to
+    # run if that isolation is not in place.
+    add_executable(theme_data_tests
+        tests/theme_data_tests.cpp
+        src/themes.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(theme_data_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_link_libraries(theme_data_tests PRIVATE shell32)
+        target_compile_definitions(theme_data_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME theme_data COMMAND ${CMAKE_COMMAND}
+        -DTEST_BINARY=$<TARGET_FILE:theme_data_tests>
+        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-data-test-$<CONFIG>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.

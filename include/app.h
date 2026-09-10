@@ -23,6 +23,7 @@
 #include "markdown.h"
 #include "keymap.h"
 #include "settings_data.h"
+#include "theme_data.h"
 
 using namespace qmd;
 
@@ -81,47 +82,6 @@ struct StartupMetrics {
 // Syntax highlighting token types
 enum class SyntaxTokenType { Plain, Keyword, String, Comment, Number, Function, TypeName, Operator, ControlFlow };
 
-// Theme colors
-struct D2DTheme {
-    const wchar_t* name;
-    const wchar_t* fontFamily;        // Main font
-    const wchar_t* headingFontFamily; // Headings; null/empty inherits fontFamily
-    const wchar_t* codeFontFamily;    // Monospace font
-    bool isDark;
-    tinta::Color background;
-    tinta::Color text;
-    tinta::Color heading;
-    tinta::Color link;
-    tinta::Color code;
-    tinta::Color codeBackground;
-    tinta::Color blockquoteBorder;
-    tinta::Color accent;             // For UI elements
-    // Syntax highlighting colors
-    tinta::Color syntaxKeyword;
-    tinta::Color syntaxString;
-    tinta::Color syntaxComment;
-    tinta::Color syntaxNumber;
-    tinta::Color syntaxFunction;
-    tinta::Color syntaxType;
-    tinta::Color syntaxControlFlow;
-    // Optional themes.ini override. Missing means inherit code (#197).
-    std::optional<tinta::Color> inlineCode = std::nullopt;
-};
-
-inline tinta::Color themeInlineCodeColor(const D2DTheme& theme) {
-    return theme.inlineCode.value_or(theme.code);
-}
-
-// Helper to create color from hex
-inline tinta::Color hexColor(uint32_t hex, float alpha = 1.0f) {
-    return tinta::colorF(
-        ((hex >> 16) & 0xFF) / 255.0f,
-        ((hex >> 8) & 0xFF) / 255.0f,
-        (hex & 0xFF) / 255.0f,
-        alpha
-    );
-}
-
 // Forward declare App for dpi() helper
 struct App;
 
@@ -129,36 +89,13 @@ struct App;
 // Scales by contentScale only (not zoomFactor) so UI chrome tracks monitor DPI.
 inline float dpi(const App& app, float value);
 
-// Themes array (defined in themes.cpp)
-extern const D2DTheme THEMES[];
-extern const int THEME_COUNT;
-
-// Dynamic theme registry (#82): the built-ins plus user themes loaded from
-// %APPDATA%\Tinta\themes.ini. Custom themes own their strings and live at
-// stable addresses for the app lifetime, so D2DTheme's const wchar_t*
-// members stay valid. Indices: [0, THEME_COUNT) built-in, then customs.
-struct CustomTheme {
-    std::wstring name, fontFamily, headingFontFamily, codeFontFamily;
-    D2DTheme theme;
-};
-int themeCount();
-const D2DTheme& themeAt(int index);  // out-of-range clamps to theme 0
-
-// The face headings render with: headingfont= when the theme sets one,
-// else the theme's main font - so font= means the whole document (#155)
-inline const wchar_t* themeHeadingFont(const D2DTheme& t) {
-    return (t.headingFontFamily && t.headingFontFamily[0])
-               ? t.headingFontFamily
-               : t.fontFamily;
-}
-void loadCustomThemes();
-// Adds or replaces (by name) a user theme and rewrites themes.ini.
-// Returns the theme's registry index, or -1 on failure.
-int saveCustomTheme(const D2DTheme& t, const std::wstring& name,
-                    const std::wstring& fontFamily,
-                    const std::wstring& codeFontFamily,
-                    const std::wstring& headingFontFamily = L"");
-
+// Themes moved to theme_data.h, which is included above -- D2DTheme,
+// CustomTheme, THEMES, themeAt, hexColor and the rest. That block was the last
+// thing keeping src/themes.cpp (451 lines of palette data and an ini
+// reader/writer) pinned to windows.h, and it could only move once its colour
+// members stopped being D2D1_COLOR_F. themes.cpp no longer includes this header
+// at all, and the non-Windows build compiles it on every probe run.
+//
 // Settings moved to settings_data.h, which is included above. It is pure
 // configuration -- ints, bools, strings -- and needed no part of this header;
 // keeping it here made every settings reader depend on windows.h and Direct2D.

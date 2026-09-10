@@ -427,17 +427,39 @@ if(BUILD_TESTING)
         add_test(NAME qt_text COMMAND qt_text_tests)
         set_tests_properties(qt_text PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
-        message(STATUS "Qt6 ${Qt6_VERSION} found -- qt_text target enabled")
+
+        # The drawing seam and its first non-Direct2D backend. This target is also
+        # the only thing that compiles include/render_api.h off Windows: a header
+        # appears in no object list, so tests/portable-sources.txt is structurally
+        # blind to it and the portable build would read none of it.
+        add_executable(render_api_tests
+            tests/render_api_tests.cpp
+            src/render_qt.cpp)
+        target_include_directories(render_api_tests PRIVATE include)
+        target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
+        add_test(NAME render_api COMMAND render_api_tests)
+        # This one paints into a QImage and draws no text, so it does not depend on
+        # a font database the way qt_text does. offscreen is set anyway: the arm
+        # that matters is that no arm reaches for a real display, and pinning it
+        # keeps the two Qt targets from disagreeing about their environment.
+        set_tests_properties(render_api PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+        message(STATUS "Qt6 ${Qt6_VERSION} found -- qt_text and render_api targets enabled")
     else()
-        message(STATUS "Qt6 not found -- qt_text target skipped (this is expected on Windows)")
+        message(STATUS "Qt6 not found -- qt_text and render_api targets skipped (this is expected on Windows)")
     endif()
-    # KNOWN WEAKNESS, recorded rather than hidden: because this target is opt-in,
-    # its ABSENCE is silent. Uninstall Qt and the probe still reports PASS, just
-    # with one fewer test -- the same under-reporting shape that made an earlier
-    # version of scripts/probe-portable-linux.sh green while it watched 5 of 22
-    # files. The trade is deliberate (Windows has no Qt and must still configure),
-    # but if a Qt backend ever becomes load-bearing rather than exploratory, this
-    # needs to become a hard requirement on non-Windows platforms instead.
+    # That opt-in used to carry a KNOWN WEAKNESS: its ABSENCE was silent, so
+    # uninstalling Qt left the probe reporting PASS with one fewer test -- the same
+    # under-reporting shape that made an earlier version of
+    # scripts/probe-portable-linux.sh green while it watched 5 of 22 files.
+    #
+    # CLOSED, without giving up the opt-in: src/render_qt.cpp is now listed in
+    # tests/portable-sources.txt, which the probe diffs against the build's real
+    # object set in BOTH directions. Off Windows, a missing Qt therefore fails as
+    # listed-but-not-compiled instead of passing quietly. The opt-in still does its
+    # only job -- letting Windows, which has no Qt, configure -- and Qt is now a
+    # hard requirement for the non-Windows build, which is what choosing it means.
 
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
     if(WIN32)

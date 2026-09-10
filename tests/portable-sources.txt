@@ -32,6 +32,21 @@
 config_dir.cpp
 platform_paths_posix.cpp
 
+# --- The Qt rendering backend -------------------------------------------------
+#
+# This line does more than record a file. The Qt targets in CMakeLists.txt are
+# opt-in (`find_package(Qt6 QUIET)`), because Windows has no Qt and must still
+# configure -- and the previous commit noted the cost of that honestly: an opt-in
+# target's ABSENCE is silent, so uninstalling Qt would leave the probe green with
+# one fewer test.
+#
+# Listing render_qt.cpp closes that hole without giving up the opt-in, because the
+# manifest is compared in both directions: if Qt goes missing off Windows, this
+# file is listed-but-not-compiled and the probe fails MISSING rather than passing
+# quietly. Qt is a hard requirement for the non-Windows build from here on, which
+# is the correct reading of it being the chosen framework.
+render_qt.cpp
+
 # --- Portable application logic ----------------------------------------------
 i18n.cpp
 keymap.cpp

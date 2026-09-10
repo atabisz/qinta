@@ -195,6 +195,18 @@ else
     check 1 "tests/geometry_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# include/render_api.h is header-only for the same reason and needs the same
+# treatment. src/render_qt.cpp IS in the manifest above, so the backend is
+# watched; this asserts the TEST that reads the framebuffer back. Dropping it
+# would leave a Qt backend that compiles and is never once checked against a
+# pixel -- and "it compiles" is exactly the evidence that was not enough when
+# i18n.cpp had a clean include closure and still failed to build.
+if grep -qE "render_api_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/render_api_tests.cpp was compiled by $CXX_BIN, so include/render_api.h was read off Windows"
+else
+    check 1 "tests/render_api_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

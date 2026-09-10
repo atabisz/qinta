@@ -1,49 +1,46 @@
-#include "settings.h"
+#include "config_dir.h"
+#include "platform_paths.h"
 
-#include <windows.h>
-#include <shlobj.h>
 #include <string>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 // Portable mode (#147): a settings.ini beside the executable makes that
 // folder the configuration home - settings, themes.ini, languages.ini,
 // and drafts all live there, so the whole setup travels with the exe.
-// Without it, everything stays in %APPDATA%\Tinta as before (Store
-// installs land here automatically: their folder is read-only, so an
-// exe-adjacent settings.ini cannot exist). Resolved once per run.
+// Without it, everything stays in the per-user config directory as before
+// (Store installs land there automatically: their folder is read-only, so
+// an exe-adjacent settings.ini cannot exist). Resolved once per run.
 // Lives in its own translation unit so the test targets that compile
 // themes.cpp or i18n.cpp can link it without dragging in settings.cpp.
+//
+// The two OS lookups this needs are behind platform_paths.h, so the policy
+// below -- prefer the exe folder, else the user config home -- is now the same
+// code on every platform rather than being expressed in Win32 calls.
 std::wstring tintaConfigDir() {
     static std::wstring cached;
     static bool resolved = false;
     if (resolved) return cached;
     resolved = true;
 
-    wchar_t exePath[MAX_PATH];
-    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
-        std::wstring dir = exePath;
-        size_t slash = dir.find_last_of(L"\\/");
-        if (slash != std::wstring::npos) {
-            dir = dir.substr(0, slash);
-            DWORD attrs =
-                GetFileAttributesW((dir + L"\\settings.ini").c_str());
-            if (attrs != INVALID_FILE_ATTRIBUTES &&
-                !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
-                cached = dir;
-                return cached;
-            }
+    std::wstring exeDir = platform::executableDirectory();
+    if (!exeDir.empty()) {
+        std::wstring optIn = exeDir + platform::pathSeparator() + L"settings.ini";
+        // regularFileExists, not a plain existence test: a *directory* named
+        // settings.ini must not switch the app into portable mode.
+        if (platform::regularFileExists(optIn)) {
+            cached = exeDir;
+            return cached;
         }
     }
 
-    wchar_t appDataPath[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0,
-                                   appDataPath))) {
-        std::wstring path = appDataPath;
-        path += L"\\Tinta";
-        CreateDirectoryW(path.c_str(), nullptr);  // Create if not exists
-        cached = path;
-    }
+    cached = platform::userConfigDirectory(L"Tinta");
     return cached;
 }
+
+#ifdef _WIN32
 
 std::wstring configFilePathForShell(const std::wstring& path) {
     if (path.empty()) return path;
@@ -73,3 +70,15 @@ std::wstring configFilePathForShell(const std::wstring& path) {
     }
     return resolved;
 }
+
+#else
+
+// No Store/MSIX filesystem virtualization outside Windows, so there is nothing
+// to resolve: the path the caller holds already names the real file. An #ifdef
+// in a leaf function rather than a third seam method, because this is genuinely
+// one platform's mechanism and not a capability every platform provides.
+std::wstring configFilePathForShell(const std::wstring& path) {
+    return path;
+}
+
+#endif

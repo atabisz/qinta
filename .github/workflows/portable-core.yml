@@ -3,7 +3,7 @@ name: Portable core
 # Builds and runs only the platform-independent test targets on Linux and macOS.
 # The app itself stays Windows-only; this job exists so that code which is meant
 # to be platform-independent cannot quietly acquire a Windows dependency —
-# CMakeLists.txt leaves exactly four targets outside its if(WIN32) guards, and
+# CMakeLists.txt leaves exactly five targets outside its if(WIN32) guards, and
 # this is what proves they still build without Direct2D, DirectWrite or Win32.
 
 on:
@@ -52,20 +52,20 @@ jobs:
       # target is added it must be listed here deliberately, and if one of these
       # stops being portable the failure names the target.
       - name: Build portable targets
-        run: cmake --build build --target keymap_tests math_parser_tests mermaid_tests document_tests
+        run: cmake --build build --target keymap_tests math_parser_tests mermaid_tests document_tests platform_paths_tests
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure -R '^(keymap|math_parser|mermaid_parser|document_types)$'
+        run: ctest --test-dir build --output-on-failure -R '^(keymap|math_parser|mermaid_parser|document_types|platform_paths)$'
 
-      # A pass above is only meaningful if those four tests actually ran. ctest
+      # A pass above is only meaningful if those five tests actually ran. ctest
       # exits 0 on an empty selection, so assert the count rather than trust it.
-      - name: Assert all four tests ran
+      - name: Assert all five tests ran
         shell: bash
         run: |
-          count=$(ctest --test-dir build -N -R '^(keymap|math_parser|mermaid_parser|document_types)$' \
+          count=$(ctest --test-dir build -N -R '^(keymap|math_parser|mermaid_parser|document_types|platform_paths)$' \
                   | sed -n 's/^Total Tests: \([0-9]*\)$/\1/p')
           echo "selected tests: $count"
-          if [ "$count" != "4" ]; then
-            echo "::error::expected 4 portable tests, ctest selected $count"
+          if [ "$count" != "5" ]; then
+            echo "::error::expected 5 portable tests, ctest selected $count"
             exit 1
           fi

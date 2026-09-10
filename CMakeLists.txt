@@ -32,6 +32,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
+# The platform path seam has one implementation per family. Selected here rather
+# than with #ifdefs inside one file so that a Windows-only API can never be
+# reached from a POSIX build even by accident, and so adding a platform means
+# adding a file rather than editing a shared one.
+if(WIN32)
+    set(PLATFORM_PATHS_SOURCE src/platform_paths_win32.cpp)
+else()
+    set(PLATFORM_PATHS_SOURCE src/platform_paths_posix.cpp)
+endif()
+
 # Source files
 set(SOURCES
     src/main_d2d.cpp
@@ -40,6 +50,7 @@ set(SOURCES
     src/settings.cpp
     src/keymap.cpp
     src/config_dir.cpp
+    ${PLATFORM_PATHS_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -157,6 +168,23 @@ if(BUILD_TESTING)
     target_include_directories(keymap_tests PRIVATE include)
     add_test(NAME keymap COMMAND keymap_tests)
 
+    # The platform path seam, plus config_dir.cpp itself. config_dir.cpp is in
+    # this target deliberately: it is the first file moved off app.h, and the
+    # only proof that it no longer needs windows.h is a non-Windows compiler
+    # accepting it. Asserting that in a comment would prove nothing.
+    add_executable(platform_paths_tests
+        tests/platform_paths_tests.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(platform_paths_tests PRIVATE include)
+    if(WIN32)
+        # SHGetFolderPathW lives in shell32; the POSIX build needs no extra libs.
+        target_link_libraries(platform_paths_tests PRIVATE shell32)
+        target_compile_definitions(platform_paths_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME platform_paths COMMAND platform_paths_tests)
+
     if(WIN32)
     # Exercise the real input handlers and editor with a message-only test
     # window, including layout-dependent character sequences (#195).
@@ -200,7 +228,7 @@ if(BUILD_TESTING)
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
     add_executable(context_menu_tests tests/context_menu_tests.cpp src/context_menu.cpp
-        src/markdown.cpp src/themes.cpp src/config_dir.cpp)
+        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
     target_include_directories(context_menu_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
     target_link_libraries(context_menu_tests PRIVATE md4c shell32)
     target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
@@ -213,7 +241,7 @@ if(BUILD_TESTING)
 
     if(WIN32)
     add_executable(math_layout_tests tests/math_layout_tests.cpp
-        src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp)
+        src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
     target_include_directories(math_layout_tests PRIVATE include src ${md4c_SOURCE_DIR}/src)
     target_link_libraries(math_layout_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32 ole32)
     target_compile_definitions(math_layout_tests PRIVATE UNICODE _UNICODE
@@ -262,6 +290,7 @@ if(BUILD_TESTING)
         src/markdown.cpp
         src/themes.cpp
         src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(inline_style_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -275,6 +304,7 @@ if(BUILD_TESTING)
         tests/i18n_tests.cpp
         src/i18n.cpp
         src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(i18n_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -286,6 +316,7 @@ if(BUILD_TESTING)
     add_executable(config_path_tests
         tests/config_path_tests.cpp
         src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(config_path_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include

@@ -2,6 +2,7 @@
 #define TINTA_SETTINGS_H
 
 #include "app.h"
+#include "config_dir.h"
 
 std::wstring getSettingsPath();
 void saveSettings(const Settings& settings);
@@ -27,13 +28,10 @@ void persistThemeChoice(const App& app);
 void persistEditorMode(const App& app);
 void persistOpenInTabs(const App& app);
 
-// The configuration home: the exe's folder in portable mode (a
-// settings.ini beside tinta.exe opts in, #147), else %APPDATA%\Tinta
-std::wstring tintaConfigDir();
-
-// Resolve the actual file before handing it to an external editor, which
-// does not share a Store/MSIX process's virtualized AppData view.
-std::wstring configFilePathForShell(const std::wstring& path);
+// tintaConfigDir() and configFilePathForShell() moved to config_dir.h, which is
+// included above so callers of this header are unaffected. They left because
+// they need no part of app.h, and a file that only resolves a path should not be
+// tied to windows.h and Direct2D.
 
 // Resolve the selected profile and custom [Keys] bindings.
 void applyKeymap(App& app, const Settings& settings);

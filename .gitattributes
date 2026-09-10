@@ -1,0 +1,15 @@
+# Line endings.
+#
+# Every text file in this tree is LF, in git and in the working copy. That was
+# true by accident until now, which let a tooling slip rewrite 13 files as CRLF
+# and turn a 179-line change into an 11,788-line one. This file makes it a rule.
+#
+# eol=lf rather than plain text=auto: the working copy gets LF on Windows too.
+# That is already the state on disk, so this introduces no churn, and MSVC, rc.exe
+# and PowerShell all read LF without complaint.
+* text=auto eol=lf
+
+# Images must never be touched. text=auto guesses correctly on these today, but a
+# guess is not a guarantee and a single normalised byte corrupts them.
+*.png binary
+*.ico binary

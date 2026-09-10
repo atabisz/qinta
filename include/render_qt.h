@@ -46,21 +46,24 @@ public:
 
     void Clear(const tinta::Color& color) override;
 
+    // Default arguments are stated ONLY in render_api.h. Repeating them here would
+    // create a second source of truth that a call through a QtRenderTarget* would
+    // silently prefer -- and if the two ever disagreed, the same call would mean
+    // different things depending on the static type of the pointer it went through.
     void FillRectangle(const tinta::RectF& rect, tinta::Brush* brush) override;
     void DrawRectangle(const tinta::RectF& rect, tinta::Brush* brush,
-                       float strokeWidth = 1.0f) override;
+                       float strokeWidth) override;
 
     void FillRoundedRectangle(const tinta::RoundedRect& rect, tinta::Brush* brush) override;
     void DrawRoundedRectangle(const tinta::RoundedRect& rect, tinta::Brush* brush,
-                              float strokeWidth = 1.0f) override;
+                              float strokeWidth) override;
 
     void FillEllipse(const tinta::Ellipse& ellipse, tinta::Brush* brush) override;
     void DrawEllipse(const tinta::Ellipse& ellipse, tinta::Brush* brush,
-                     float strokeWidth = 1.0f) override;
+                     float strokeWidth) override;
 
     void DrawLine(tinta::PointF start, tinta::PointF end, tinta::Brush* brush,
-                  float strokeWidth = 1.0f,
-                  tinta::StrokeStyle* strokeStyle = nullptr) override;
+                  float strokeWidth, tinta::StrokeStyle* strokeStyle) override;
 
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;

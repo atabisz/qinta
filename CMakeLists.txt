@@ -432,8 +432,14 @@ if(BUILD_TESTING)
         # the only thing that compiles include/render_api.h off Windows: a header
         # appears in no object list, so tests/portable-sources.txt is structurally
         # blind to it and the portable build would read none of it.
+        #
+        # tests/render_api_shared.cpp holds the assertions and is compiled into BOTH
+        # this target and render_d2d_tests below, so the two backends are held to the
+        # same assertions in the same order. Editing it changes both readings at once,
+        # which is the intent: a backend cannot be made green on its own.
         add_executable(render_api_tests
             tests/render_api_tests.cpp
+            tests/render_api_shared.cpp
             src/render_qt.cpp)
         target_include_directories(render_api_tests PRIVATE include)
         target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
@@ -490,6 +496,29 @@ if(BUILD_TESTING)
     target_link_libraries(config_path_tests PRIVATE shell32)
     target_compile_definitions(config_path_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME config_paths COMMAND config_path_tests)
+
+    # The Direct2D side of the drawing seam, running the SAME assertions as
+    # render_api_tests via tests/render_api_shared.cpp. This is what turns
+    # include/render_api.h from an interface with one implementation -- which is
+    # indirection, not abstraction -- into a measured two-backend contract: the seam
+    # was shaped by the Qt backend, and this checks it back against the API it was
+    # modelled on. It renders to a WIC bitmap (software target, no display, no
+    # message loop), the same recipe tests/math_layout_tests.cpp already uses.
+    #
+    # NOT in tests/portable-sources.txt, deliberately: src/render_d2d.cpp is
+    # Windows-only by design, so it must never appear in a non-Windows build's object
+    # set. The manifest lists what the PORTABLE build compiles.
+    add_executable(render_d2d_tests
+        tests/render_d2d_tests.cpp
+        tests/render_api_shared.cpp
+        src/render_d2d.cpp
+    )
+    target_include_directories(render_d2d_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(render_d2d_tests PRIVATE d2d1 windowscodecs ole32)
+    target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
+    add_test(NAME render_d2d COMMAND render_d2d_tests)
     endif()  # WIN32
 endif()
 

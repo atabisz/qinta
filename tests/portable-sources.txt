@@ -27,6 +27,16 @@
 # Windows-only files must NEVER appear here. scripts/probe-portable-linux.sh
 # separately asserts that main_d2d.cpp, settings_app.cpp and settings_win32.cpp
 # were not compiled at all.
+#
+# Files under tests/ must never appear here either, even when a non-Windows build
+# compiles them. Every name below is read as src/<name> when the probe counts the
+# portable share, so a tests/ entry would name a file that does not exist and
+# silently spoil the figure. tests/render_api_shared.cpp made that mistake
+# available: it is compiled off Windows and does not end in _tests.cpp, so the
+# probe reported it UNEXPECTED and adding a line here looked like the fix. The
+# actual fix was in the probe's filter, which now keys on the source directory
+# instead of guessing from the filename. Those test objects are asserted by name
+# further down that script.
 
 # --- The platform seam and its consumers -------------------------------------
 config_dir.cpp

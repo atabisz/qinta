@@ -113,8 +113,23 @@ else
     expected="$(grep -vE '^[[:space:]]*(#|$)' "$manifest" | tr -d '\r' | sort -u)"
     # Source objects only. A test's own translation unit is evidence about the
     # test, not about how much of the application is portable.
-    compiled="$(grep -oE '[A-Za-z0-9_]+\.cpp\.o' "$BUILD_DIR.build.log" \
-        | sed 's/\.o$//' | grep -vE '_tests\.cpp$' | sort -u)"
+    #
+    # The filter is the SOURCE DIRECTORY, not a filename convention. It used to
+    # exclude names ending in _tests.cpp, which is a guess about naming rather than
+    # a fact about location, and tests/render_api_shared.cpp broke it: a test file
+    # that holds shared assertions rather than a main(), so it does not carry the
+    # suffix. It was reported UNEXPECTED, and the obvious repair -- adding a line to
+    # the manifest -- would have been wrong twice over. The manifest documents src/
+    # files, and the portable-share count below prefixes every entry with src/, so
+    # the entry would have named a file that does not exist and quietly corrupted
+    # the figure this whole section was rewritten to get right.
+    #
+    # CMake writes object paths mirroring the source tree, so /src/ vs /tests/ is
+    # readable straight off the log. If that convention ever changed this set would
+    # come out EMPTY, and an empty set makes every manifest entry MISSING -- so the
+    # failure mode is 24 loud lines, not a quiet pass.
+    compiled="$(grep -oE '/src/[A-Za-z0-9_]+\.cpp\.o' "$BUILD_DIR.build.log" \
+        | sed 's#^/src/##; s/\.o$//' | sort -u)"
     n_expected="$(printf '%s\n' "$expected" | grep -c . || true)"
     n_compiled="$(printf '%s\n' "$compiled" | grep -c . || true)"
     echo "manifest lists : $n_expected"
@@ -205,6 +220,18 @@ if grep -qE "render_api_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
     check 0 "tests/render_api_tests.cpp was compiled by $CXX_BIN, so include/render_api.h was read off Windows"
 else
     check 1 "tests/render_api_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
+# render_api_tests.cpp is now only the Qt HARNESS -- every assertion lives in
+# tests/render_api_shared.cpp, which the Direct2D test compiles too. So the object
+# line above no longer proves any assertion ran off Windows: if the shared file
+# were dropped from this target, render_api_tests would fail to link, but if it
+# were ever made Windows-only the Linux run would go quiet rather than red. Assert
+# it separately, because the file whose absence is silent is the one worth naming.
+if grep -qE "render_api_shared\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/render_api_shared.cpp was compiled by $CXX_BIN, so the shared assertion body runs off Windows"
+else
+    check 1 "tests/render_api_shared.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
 note 'Tests'

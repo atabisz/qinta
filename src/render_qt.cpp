@@ -120,6 +120,55 @@ void QtRenderTarget::DrawLine(tinta::PointF start, tinta::PointF end,
     painter_.drawLine(toQt(start), toQt(end));
 }
 
+void QtRenderTarget::DrawText(const wchar_t* string, uint32_t stringLength,
+                              tinta::TextFormat* format, const tinta::RectF& layoutRect,
+                              tinta::Brush* brush, tinta::DrawTextOptions options) {
+    auto* qtFormat = dynamic_cast<QtTextFormat*>(format);
+    if (!qtFormat) return;
+
+    const QRectF box = toQt(layoutRect);
+    const QtTextRun run(toQt(string, stringLength), qtFormat->font(), qtFormat->style(),
+                        static_cast<float>(box.width()), static_cast<float>(box.height()));
+
+    drawRun(run, box.topLeft(), brush, options);
+}
+
+void QtRenderTarget::DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
+                                    tinta::Brush* brush, tinta::DrawTextOptions options) {
+    auto* qtLayout = dynamic_cast<QtTextLayout*>(layout);
+    if (!qtLayout) return;
+
+    // The layout's own box is the clip rect when Clip is asked for, which is what
+    // Direct2D does with this flag -- so the same helper serves both calls.
+    drawRun(qtLayout->run(), toQt(origin), brush, options);
+}
+
+void QtRenderTarget::drawRun(const QtTextRun& run, const QPointF& origin,
+                             tinta::Brush* brush, tinta::DrawTextOptions options) {
+    const int flags = static_cast<int>(options);
+
+    // Direct2D's Clip flag confines the glyphs to the layout rect. QPainter has no
+    // per-call equivalent, so it becomes a scoped clip. Only two call sites in the
+    // tree pass any option at all and neither passes Clip, so this path is
+    // currently exercised only by the shared assertions -- which is the reason to
+    // implement it now rather than to leave it silently ignored.
+    const bool clip = (flags & static_cast<int>(tinta::DrawTextOptions::Clip)) != 0;
+    if (clip) {
+        const tinta::TextMetrics& metrics = run.metrics();
+        painter_.save();
+        painter_.setClipRect(QRectF(origin, QSizeF(metrics.layoutWidth, metrics.layoutHeight)),
+                             Qt::IntersectClip);
+    }
+
+    // QTextLayout::draw paints with the PEN, not the brush -- the opposite of every
+    // other call in this file, where setFill puts the colour in the brush and sets
+    // NoPen. Getting this wrong draws nothing at all rather than drawing wrongly.
+    painter_.setPen(brush ? toQt(brush->GetColor()) : QColor(Qt::transparent));
+    run.draw(painter_, origin);
+
+    if (clip) painter_.restore();
+}
+
 void QtRenderTarget::PushAxisAlignedClip(const tinta::RectF& rect,
                                          tinta::AntialiasMode mode) {
     // save() is what makes these nest: D2D allows a push inside a push, and every

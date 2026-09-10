@@ -5,7 +5,14 @@
 #error "render_d2d.h is the Windows backend; off Windows use render_qt.h."
 #endif
 
+// Before render_api.h, not for tidiness: that header hard-errors without the
+// DrawText macro in scope, because a TU that declares RenderTarget::DrawText while
+// its neighbours declare RenderTarget::DrawTextW has an ODR violation the linker
+// need not diagnose. render_api.h explains it at length.
+#include <windows.h>
+
 #include "render_api.h"
+#include "text_d2d.h"
 
 #include <d2d1.h>
 
@@ -86,6 +93,14 @@ public:
 
     void DrawLine(tinta::PointF start, tinta::PointF end, tinta::Brush* brush,
                   float strokeWidth, tinta::StrokeStyle* strokeStyle) override;
+
+    // Reads as DrawTextW here, because <windows.h> above has already rewritten the
+    // token -- in this header, in render_api.h, and at all 107 call sites alike.
+    void DrawText(const wchar_t* string, uint32_t stringLength, tinta::TextFormat* format,
+                  const tinta::RectF& layoutRect, tinta::Brush* brush,
+                  tinta::DrawTextOptions options) override;
+    void DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
+                        tinta::Brush* brush, tinta::DrawTextOptions options) override;
 
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;

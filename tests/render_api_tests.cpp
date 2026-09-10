@@ -10,8 +10,11 @@
 #include "render_api_shared.h"
 #include "render_qt.h"
 
+#include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
+
+#include <cstdio>
 
 namespace {
 
@@ -44,17 +47,37 @@ public:
         return Rgba{qRed(p), qGreen(p), qBlue(p), qAlpha(p)};
     }
 
+    tinta::TextFactory& textFactory() override { return textFactory_; }
+
+    // DejaVu Sans for the same reason tests/qt_text_tests.cpp picked it: it ships
+    // with Qt's own fontconfig setup, so it resolves under the offscreen platform
+    // without depending on what the host happens to have installed.
+    const wchar_t* fontFamily() const override { return L"DejaVu Sans"; }
+
     const char* name() const override { return "qt"; }
 
 private:
     QImage image_;
     std::unique_ptr<QtRenderTarget> target_;
+    QtTextFactory textFactory_;
 };
 
 }  // namespace
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
+
+    // The same refusal qt_text_tests.cpp makes, and for the same measured reason:
+    // under QT_QPA_PLATFORM=minimal the font database is EMPTY, every family request
+    // resolves to nothing, and QTextLayout still returns plausible numbers and exits
+    // 0. A text assertion run against that would be green while measuring nothing, so
+    // a missing font database has to be a refusal (exit 2) and not a result.
+    if (QFontDatabase::families().isEmpty()) {
+        std::printf("no font families available -- refusing to report a result (this is NOT a "
+                    "pass). Check QT_QPA_PLATFORM is 'offscreen' and not 'minimal'.\n");
+        return 2;
+    }
+
     QtHarness harness;
     return runRenderApiAssertions(harness) == 0 ? 0 : 1;
 }

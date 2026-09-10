@@ -1,6 +1,25 @@
 #ifndef TINTA_RENDER_API_SHARED_H
 #define TINTA_RENDER_API_SHARED_H
 
+// WINDOWS.H FIRST, AND NOT FOR TIDINESS.
+//
+// render_api.h hard-errors on Windows unless the DrawText macro is already in
+// scope, because <windows.h> defines DrawText as DrawTextW: a translation unit that
+// has seen windows.h declares RenderTarget::DrawTextW, one that has not declares
+// RenderTarget::DrawText, and those are different virtual functions in different
+// vtable slots for the same class. The linker is not obliged to notice.
+//
+// Every one of the 106 app.renderTarget->DrawText call sites is in a file that
+// already pulls in windows.h through app.h, so the macro is in scope at all of them
+// and they expand the same way the declaration does. THIS header is the exception
+// that has to say so out loud, because tests/render_api_shared.cpp is compiled into
+// both a Windows and a non-Windows target from the same source -- on Windows the
+// call and the declaration are both DrawTextW, off Windows both are DrawText, and
+// the one thing that must never happen is a mixture.
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "render_api.h"
 
 #include <memory>
@@ -59,6 +78,18 @@ public:
     virtual std::unique_ptr<tinta::Brush> makeBrush(const tinta::Color& color) = 0;
 
     virtual Rgba pixel(int x, int y) = 0;
+
+    // The text seam's factory. Supplied by the harness because creating one is a
+    // per-backend act -- Direct2D needs a DWriteCreateFactory call and a COM
+    // apartment, Qt needs a QGuiApplication -- and neither belongs in an assertion.
+    virtual tinta::TextFactory& textFactory() = 0;
+
+    // A font family the harness knows resolves on ITS platform. Segoe UI exists on
+    // every Windows install and on no Linux one; DejaVu Sans is the reverse. Hard-
+    // coding either in the shared assertions would make one backend measure an empty
+    // family, and qt_text_tests.cpp already recorded what that looks like: metrics
+    // still come back, well-formed and fabricated, with exit code 0.
+    virtual const wchar_t* fontFamily() const = 0;
 
     // Backend name for the summary line, so a green run says WHICH backend was green.
     virtual const char* name() const = 0;

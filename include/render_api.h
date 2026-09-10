@@ -2,6 +2,32 @@
 #define TINTA_RENDER_API_H
 
 #include "geometry.h"
+#include "text_api.h"
+
+// THE DrawText MACRO, WHICH IS NOT A NUISANCE BUT AN ODR HAZARD
+//
+// <winuser.h>:8268 does `#define DrawText DrawTextW` under UNICODE, and every
+// tinta target compiles with UNICODE defined. That macro rewrites the token
+// everywhere it appears afterwards -- the DECLARATION below as well as all 107
+// call sites -- so a translation unit that has seen <windows.h> declares
+// `RenderTarget::DrawTextW` and calls `DrawTextW`, which is self-consistent and
+// works. Direct2D relies on exactly this: ID2D1RenderTarget::DrawText is spelled
+// plainly in d2d1.h, and src/editor.cpp:2767 already calls it as `DrawTextW`
+// having reached it through the macro.
+//
+// The hazard is a MIXTURE. A Windows TU that includes this header WITHOUT
+// <windows.h> declares `DrawText` instead, so the two TUs disagree about the name
+// and the vtable slot of the same virtual function on the same class. That is an
+// ODR violation the linker is not obliged to diagnose, and the failure it would
+// produce -- a call landing in the wrong virtual slot -- would look like a
+// rendering bug rather than a build error.
+//
+// So this is a hard requirement rather than a convention, and it fails at the
+// point that would cause the mismatch rather than somewhere downstream. Off
+// Windows there is no macro and nothing to reconcile.
+#if defined(_WIN32) && !defined(DrawText)
+#error "On Windows, include <windows.h> before render_api.h: the DrawText macro must be visible here and at every call site, or RenderTarget::DrawText and ::DrawTextW become different virtual functions in different translation units."
+#endif
 
 // The drawing seam: what a rendering backend has to provide, with no backend in it.
 //
@@ -38,11 +64,18 @@
 //
 // WHAT IS DELIBERATELY NOT HERE
 //
-//   * Text. DrawText and DrawTextLayout need a TextFormat carrying font,
-//     alignment, wrap mode and trimming (SetTextAlignment 35, GetFontSize 24,
-//     SetParagraphAlignment 24, SetWordWrapping 19, SetTrimming 7). The Qt side
-//     of that contract is already measured in tests/qt_text_tests.cpp, but it is
-//     its own slice and does not belong in a header about geometry.
+//   * The text TYPES. DrawText and DrawTextLayout are here, but TextFormat,
+//     TextLayout, TextMetrics and the font enums live in text_api.h, which this
+//     header includes. That split is not tidiness: text_api.h is usable on its
+//     own by the 73 sites that create and measure a layout without drawing it,
+//     and the reasoning behind its cut -- which turned out to contradict the plan
+//     of record -- is long enough to deserve its own file to be argued in.
+//   * Text ANTIALIASING. SetTextAntialiasMode and SetTextRenderingParams are one
+//     site each, both in src/d2d_init.cpp, and both are ClearType gamma tuning on
+//     a device this seam does not own. d2d_init.cpp is the Direct2D backend's own
+//     construction and will never be portable, so those two sites keep talking to
+//     the Direct2D object directly rather than being smuggled through a portable
+//     interface that only one backend could mean anything by.
 //   * Object creation and device lifetime. BeginDraw/EndDraw, CreateSolidColorBrush,
 //     resize and device-loss handling are backend-specific in kind, not just in
 //     implementation: D2D's EndDraw returns an HRESULT that callers inspect, and
@@ -87,7 +120,7 @@ public:
     virtual Color GetColor() const = 0;
 };
 
-// Every drawing call tinta makes that is not text.
+// Every drawing call tinta makes.
 //
 // The defaulted strokeWidth and strokeStyle mirror Direct2D's own defaults, so
 // the 3-argument DrawLine calls that make up the bulk of the 111 sites and the
@@ -114,6 +147,22 @@ public:
     virtual void DrawLine(PointF start, PointF end, Brush* brush,
                           float strokeWidth = 1.0f,
                           StrokeStyle* strokeStyle = nullptr) = 0;
+
+    // The two largest text items in the tree: 106 DrawText sites and 26
+    // DrawTextLayout, every one of them on app.renderTarget. They are the reason
+    // this seam could not reach App at all before now -- a C++ member has one
+    // static type, so App::renderTarget cannot become a tinta::RenderTarget*
+    // until the calls made THROUGH it are all expressible here.
+    //
+    // The defaulted options argument matters: 104 of the 106 DrawText sites pass
+    // nothing, and the two that do (main_d2d.cpp, math_render.cpp) pass
+    // EnableColorFont. Both forms bind without an edit.
+    virtual void DrawText(const wchar_t* string, uint32_t stringLength,
+                          TextFormat* format, const RectF& layoutRect, Brush* brush,
+                          DrawTextOptions options = DrawTextOptions::None) = 0;
+
+    virtual void DrawTextLayout(PointF origin, TextLayout* layout, Brush* brush,
+                                DrawTextOptions options = DrawTextOptions::None) = 0;
 
     // Clips nest, and every push in the tree is matched by a pop in the same
     // function, so a backend may implement these with a save/restore stack.

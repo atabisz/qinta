@@ -55,6 +55,12 @@ public:
         if (FAILED(d2d_->CreateWicBitmapRenderTarget(bitmap_.Get(), props, &target_)))
             return false;
         wrapper_ = std::make_unique<D2DRenderTarget>(target_.Get());
+        // DWRITE_FACTORY_TYPE_SHARED is what src/d2d_init.cpp uses, so the font cache
+        // this test measures against is the same one the app would get.
+        if (FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                       reinterpret_cast<IUnknown**>(dwrite_.GetAddressOf()))))
+            return false;
+        textFactory_ = std::make_unique<D2DTextFactory>(dwrite_.Get());
         return true;
     }
 
@@ -112,6 +118,13 @@ public:
         return Rgba{unpremultiply(r, a), unpremultiply(g, a), unpremultiply(b, a), a};
     }
 
+    tinta::TextFactory& textFactory() override { return *textFactory_; }
+
+    // Segoe UI is the family src/d2d_init.cpp asks DirectWrite for, and it is present
+    // on every supported Windows version. The Qt harness answers DejaVu Sans; the
+    // shared assertions must not know which, which is why they ask.
+    const wchar_t* fontFamily() const override { return L"Segoe UI"; }
+
     const char* name() const override { return "direct2d"; }
 
     int harnessFailures() const { return brushFailures_ + drawFailures_; }
@@ -150,7 +163,9 @@ private:
     ComPtr<ID2D1Factory> d2d_;
     ComPtr<IWICBitmap> bitmap_;
     ComPtr<ID2D1RenderTarget> target_;
+    ComPtr<IDWriteFactory> dwrite_;
     std::unique_ptr<D2DRenderTarget> wrapper_;
+    std::unique_ptr<D2DTextFactory> textFactory_;
     std::vector<ComPtr<ID2D1SolidColorBrush>> brushes_;
     std::vector<BYTE> pixels_;
     bool pixelsValid_ = false;

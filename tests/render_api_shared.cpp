@@ -30,9 +30,26 @@
 //     well-formed numbers while measuring nothing, so a silent no-op backend must not
 //     be able to read as a pass.
 //
-// No text is drawn here, so this needs no font database and deliberately does not
-// check for one -- a guard that guards nothing is worse than no guard, because it
-// implies coverage it does not have. Text is qt_text_tests.cpp.
+// TEXT IS ASSERTED HERE TOO, AND RELATIONALLY.
+//
+// An earlier version of this comment said no text was drawn here and that the file
+// therefore needed no font database. That stopped being true when the text seam
+// landed: 132 of the app.renderTarget call sites are DrawText or DrawTextLayout, and
+// leaving the largest item in the surface to a Qt-only test would have left it with
+// exactly the property render_d2d_tests.cpp exists to reject -- one implementation,
+// checked against itself.
+//
+// The text assertions are RELATIONAL, never absolute pixel counts. Segoe UI and
+// DejaVu Sans are different typefaces, so "this string is 137 pixels wide" is a
+// statement about a font and not about the seam. "Centred ink starts further right
+// than leading-aligned ink", "a narrower box produces more lines", "width never
+// exceeds widthIncludingTrailingWhitespace" hold for any font that exists -- and
+// each one is breakable by a mutation in ONE backend, which is the test that a
+// cross-backend assertion is worth writing.
+//
+// Both harnesses refuse rather than report when they have no font database, because
+// tests/qt_text_tests.cpp measured what the alternative looks like: under
+// QT_QPA_PLATFORM=minimal, zero font families, fabricated metrics, exit code 0.
 
 #include "render_api_shared.h"
 
@@ -63,6 +80,59 @@ void whiteSurface(RenderHarness& h) {
     h.newSurface();
     h.begin().Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
     h.end();
+}
+
+// Ink bounds. -1 means nothing was painted, which is a distinct answer from 0 and is
+// what makes "text appeared at all" checkable separately from "it appeared here".
+int leftmostPainted(RenderHarness& h) {
+    for (int x = 0; x < kWidth; x++)
+        for (int y = 0; y < kHeight; y++)
+            if (h.pixel(x, y) != kWhite) return x;
+    return -1;
+}
+
+int rightmostPainted(RenderHarness& h) {
+    for (int x = kWidth - 1; x >= 0; x--)
+        for (int y = 0; y < kHeight; y++)
+            if (h.pixel(x, y) != kWhite) return x;
+    return -1;
+}
+
+int topmostPainted(RenderHarness& h) {
+    for (int y = 0; y < kHeight; y++)
+        for (int x = 0; x < kWidth; x++)
+            if (h.pixel(x, y) != kWhite) return y;
+    return -1;
+}
+
+// The colour of an ACTUALLY PAINTED pixel, or kWhite if nothing was painted.
+//
+// This exists because the obvious thing was wrong and the second backend caught it:
+// reading h.pixel(leftmostPainted(h), topmostPainted(h)) reads the CORNER OF THE INK
+// BOUNDING BOX, which is only painted by coincidence. It happened to be red under
+// Qt and was white under Direct2D, so the colour assertion failed on the backend
+// that was behaving correctly. A cross-backend suite finds bugs in its own
+// assertions as readily as in either implementation.
+Rgba firstPainted(RenderHarness& h) {
+    for (int y = 0; y < kHeight; y++)
+        for (int x = 0; x < kWidth; x++) {
+            const Rgba p = h.pixel(x, y);
+            if (p != kWhite) return p;
+        }
+    return kWhite;
+}
+
+// Wide enough to overflow a 200px surface at 16 DIP in any typeface, so the wrapping
+// and trimming assertions have something to work on. ASCII on purpose: the wchar_t
+// element-width question is real and is text_api.h's subject, but it is not what
+// these assertions are measuring, and a non-BMP character here would confound the two.
+const wchar_t* const kLongText = L"The quick brown fox jumps over the lazy dog";
+const uint32_t kLongLength = 43;
+
+std::unique_ptr<tinta::TextFormat> makeFormat(RenderHarness& h, float size = 16.0f) {
+    return h.textFactory().CreateTextFormat(h.fontFamily(), tinta::FontWeight::Normal,
+                                            tinta::FontStyle::Normal,
+                                            tinta::FontStretch::Normal, size, L"en-us");
 }
 
 }  // namespace
@@ -293,6 +363,301 @@ int runRenderApiAssertions(RenderHarness& h) {
         // everything drawn later in the frame.
         check(h.pixel(170, 60) == kBlue,
               "CONTROL: after the pop, painting reaches the far side again");
+    }
+
+    // === TEXT ================================================================
+    //
+    // 132 of the app.renderTarget call sites are text, so this is the largest single
+    // item in the seam. Everything below is a relation, not a measurement of a
+    // typeface.
+
+    // --- CONTROL: is there a font at all, and is the size the seam's own unit? -
+    {
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        check(format != nullptr, "CONTROL: the backend can create a text format");
+        if (format) {
+            // The claim behind storing the size rather than reading it back off the
+            // native font object. DirectWrite is in DIPs and QFont is in points, so a
+            // round trip through pointSizeF * 96 / 72 returns 15.999999 for a 16 that
+            // 24 call sites compare and divide.
+            check(format->GetFontSize() == 16.0f,
+                  "GetFontSize returns the DIP value it was given, exactly");
+
+            std::unique_ptr<tinta::TextLayout> layout =
+                h.textFactory().CreateTextLayout(L"Hello", 5, format.get(), 1000.0f, 100.0f);
+            check(layout != nullptr, "CONTROL: the backend can create a text layout");
+            if (layout) {
+                tinta::TextMetrics m{};
+                layout->GetMetrics(&m);
+                // A font database that is present but empty resolves every family to
+                // nothing and still returns numbers. A zero width is what that looks
+                // like, so this is the guard that makes every metric below mean
+                // something.
+                check(m.width > 0.0f,
+                      "CONTROL: laid-out text has a non-zero width -- an empty font "
+                      "database fails here");
+                check(m.height > 0.0f, "CONTROL: and a non-zero height");
+                check(m.lineCount == 1u, "five characters in a 1000px box are one line");
+                check(m.layoutWidth == 1000.0f && m.layoutHeight == 100.0f,
+                      "the metrics echo back the box the layout was created with");
+                check(layout->GetFontSize() == 16.0f,
+                      "a layout carries the font size its format was created with");
+            }
+        }
+    }
+
+    // --- Wrapping: the relation, not a line count for a particular font --------
+    {
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        tinta::TextMetrics wide{};
+        tinta::TextMetrics narrow{};
+        if (format) {
+            std::unique_ptr<tinta::TextLayout> a = h.textFactory().CreateTextLayout(
+                kLongText, kLongLength, format.get(), 1000.0f, 100.0f);
+            std::unique_ptr<tinta::TextLayout> b = h.textFactory().CreateTextLayout(
+                kLongText, kLongLength, format.get(), 90.0f, 100.0f);
+            if (a) a->GetMetrics(&wide);
+            if (b) b->GetMetrics(&narrow);
+        }
+        check(wide.lineCount == 1u, "a long string in a 1000px box fits on one line");
+        check(narrow.lineCount > wide.lineCount,
+              "the SAME string in a 90px box takes more lines -- so wrapping happens");
+        check(narrow.height > wide.height,
+              "and the wrapped box is taller, so height tracks line count");
+        // THE DISCRIMINATOR for wrapping. A backend that ignored maxWidth entirely
+        // would satisfy nothing above except by accident, but a backend that clamped
+        // the reported width to the box while still laying out one long line would
+        // pass the line-count checks. This is what catches that.
+        check(narrow.width <= 90.0f,
+              "the wrapped text's ink fits inside the 90px box it was given");
+        check(wide.width > 90.0f,
+              "CONTROL: the unwrapped ink is wider than 90px, so the check above is not "
+              "vacuous");
+    }
+
+    // --- NoWrap overrides the box, at any width -------------------------------
+    {
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        tinta::TextMetrics m{};
+        if (format) {
+            format->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                kLongText, kLongLength, format.get(), 40.0f, 100.0f);
+            if (layout) layout->GetMetrics(&m);
+        }
+        check(m.lineCount == 1u,
+              "NoWrap gives one line however narrow the box -- 40px here");
+        check(m.width > 40.0f,
+              "and its ink overflows the box, which is what NoWrap means");
+    }
+
+    // --- Trailing whitespace: two widths that must not be one ------------------
+    {
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        tinta::TextMetrics m{};
+        if (format) {
+            format->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                L"ab      ", 8, format.get(), 1000.0f, 100.0f);
+            if (layout) layout->GetMetrics(&m);
+        }
+        check(m.width <= m.widthIncludingTrailingWhitespace,
+              "width never exceeds widthIncludingTrailingWhitespace");
+        check(m.widthIncludingTrailingWhitespace > m.width,
+              "and for a string ending in six spaces the two DIFFER -- a backend "
+              "reporting one number for both is not measuring trailing whitespace");
+    }
+
+    // --- TextAlignment moves the ink, in the metrics AND in the pixels ---------
+    //
+    // Two readings of the same property, because either alone can be satisfied
+    // wrongly: a backend could report an offset it never applied, or apply one it
+    // never reports. DirectWrite defines alignment as an ink offset within the box,
+    // and QtTextRun computes that offset explicitly instead of delegating to
+    // QTextOption for exactly this reason.
+    {
+        const tinta::RectF box = tinta::rectF(0, 20, 180, 60);
+        float lefts[3] = {0.0f, 0.0f, 0.0f};
+        int inkStarts[3] = {-1, -1, -1};
+        const tinta::TextAlignment order[3] = {tinta::TextAlignment::Leading,
+                                               tinta::TextAlignment::Center,
+                                               tinta::TextAlignment::Trailing};
+        for (int i = 0; i < 3; i++) {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (!format) continue;
+            format->SetTextAlignment(order[i]);
+            std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                L"Hi", 2, format.get(), box.right - box.left, box.bottom - box.top);
+            if (!layout) continue;
+            tinta::TextMetrics m{};
+            layout->GetMetrics(&m);
+            lefts[i] = m.left;
+
+            whiteSurface(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+            h.begin().DrawTextLayout(tinta::pointF(box.left, box.top), layout.get(),
+                                     brush.get());
+            h.end();
+            inkStarts[i] = leftmostPainted(h);
+        }
+        check(lefts[1] > lefts[0], "Center reports its ink further right than Leading");
+        check(lefts[2] > lefts[1], "and Trailing further right again");
+        check(inkStarts[0] >= 0,
+              "CONTROL: leading-aligned text actually painted, so the columns below are "
+              "real");
+        check(inkStarts[1] > inkStarts[0],
+              "the PIXELS agree: centred text starts in a later column than leading");
+        check(inkStarts[2] > inkStarts[1], "and trailing later still");
+    }
+
+    // --- ParagraphAlignment: the vertical axis QTextOption does not cover ------
+    {
+        float tops[2] = {0.0f, 0.0f};
+        int inkTops[2] = {-1, -1};
+        const tinta::ParagraphAlignment order[2] = {tinta::ParagraphAlignment::Near,
+                                                    tinta::ParagraphAlignment::Far};
+        for (int i = 0; i < 2; i++) {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (!format) continue;
+            format->SetParagraphAlignment(order[i]);
+            std::unique_ptr<tinta::TextLayout> layout =
+                h.textFactory().CreateTextLayout(L"Hi", 2, format.get(), 180.0f, 90.0f);
+            if (!layout) continue;
+            tinta::TextMetrics m{};
+            layout->GetMetrics(&m);
+            tops[i] = m.top;
+
+            whiteSurface(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+            h.begin().DrawTextLayout(tinta::pointF(5, 5), layout.get(), brush.get());
+            h.end();
+            inkTops[i] = topmostPainted(h);
+        }
+        check(tops[1] > tops[0], "ParagraphAlignment::Far reports its ink below Near");
+        check(inkTops[0] >= 0, "CONTROL: the Near case painted");
+        check(inkTops[1] > inkTops[0], "and the pixels agree -- Far paints lower down");
+    }
+
+    // --- DrawText, the string overload: 106 of the 132 text call sites ---------
+    //
+    // The layoutRect's WIDTH and HEIGHT become the layout box, which is what
+    // Direct2D's layoutRect means -- so this must land in the same place as a layout
+    // created with those dimensions and drawn at the rect's top-left. Checking the two
+    // against each other is stronger than checking either against a coordinate,
+    // because it is the property the 106 call sites actually rely on.
+    {
+        const tinta::RectF box = tinta::rectF(30, 20, 190, 90);
+
+        whiteSurface(h);
+        {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+            if (format)
+                h.begin().DrawText(L"Hi", 2, format.get(), box, brush.get());
+            else
+                h.begin();
+            h.end();
+        }
+        const int stringLeft = leftmostPainted(h);
+        const int stringTop = topmostPainted(h);
+        const Rgba stringInk = firstPainted(h);
+
+        whiteSurface(h);
+        {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+            std::unique_ptr<tinta::TextLayout> layout =
+                format ? h.textFactory().CreateTextLayout(L"Hi", 2, format.get(),
+                                                          box.right - box.left,
+                                                          box.bottom - box.top)
+                       : nullptr;
+            if (layout)
+                h.begin().DrawTextLayout(tinta::pointF(box.left, box.top), layout.get(),
+                                         brush.get());
+            else
+                h.begin();
+            h.end();
+        }
+        const int layoutLeft = leftmostPainted(h);
+        const int layoutTop = topmostPainted(h);
+
+        check(stringLeft >= 0, "CONTROL: DrawText painted something");
+        check(stringLeft == layoutLeft,
+              "DrawText and DrawTextLayout put the ink in the same column, so "
+              "layoutRect's width/height ARE the layout box");
+        check(stringTop == layoutTop, "and in the same row");
+        check(stringLeft >= 30,
+              "the ink starts at or after the rect's left edge -- it is not drawn at "
+              "the origin");
+        // Text is the one call in the Qt backend that paints with the PEN rather than
+        // the brush. Getting that wrong draws nothing at all, which the CONTROL above
+        // catches; getting the colour wrong is what this catches.
+        check(stringInk.r > stringInk.g && stringInk.r > stringInk.b,
+              "the glyphs are painted in the brush's colour, not the pen's default black");
+    }
+
+    // --- DrawTextOptions::Clip -------------------------------------------------
+    //
+    // No call site in the tree passes Clip today, which is precisely the reason to
+    // assert it now: an unimplemented flag that is never exercised is indistinguishable
+    // from an implemented one until the first caller needs it.
+    {
+        int rights[2] = {-1, -1};
+        const tinta::DrawTextOptions order[2] = {tinta::DrawTextOptions::None,
+                                                 tinta::DrawTextOptions::Clip};
+        for (int i = 0; i < 2; i++) {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (!format) continue;
+            format->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                kLongText, kLongLength, format.get(), 60.0f, 40.0f);
+            if (!layout) continue;
+
+            whiteSurface(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+            h.begin().DrawTextLayout(tinta::pointF(10, 20), layout.get(), brush.get(),
+                                     order[i]);
+            h.end();
+            rights[i] = rightmostPainted(h);
+        }
+        check(rights[0] > 70,
+              "CONTROL: unclipped NoWrap text overflows its 60px box, so there is "
+              "something for the clip to remove");
+        check(rights[1] >= 0, "CONTROL: the clipped case still painted something");
+        check(rights[1] < rights[0], "Clip removes the overflow");
+        check(rights[1] <= 71,
+              "and what survives stays inside the layout box -- x 10 plus 60, plus a "
+              "pixel of antialiasing");
+    }
+
+    // --- Trimming: the ellipsis sign, and the 4 call sites that pass none ------
+    {
+        std::unique_ptr<tinta::InlineObject> sign;
+        tinta::TextMetrics trimmed{};
+        tinta::TextMetrics untrimmed{};
+        {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (format) {
+                format->SetWordWrapping(tinta::WordWrapping::NoWrap);
+                std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                    kLongText, kLongLength, format.get(), 80.0f, 40.0f);
+                if (layout) layout->GetMetrics(&untrimmed);
+
+                sign = h.textFactory().CreateEllipsisTrimmingSign(format.get());
+                check(sign != nullptr, "the backend can create an ellipsis trimming sign");
+                const tinta::Trimming trimming{tinta::TrimmingGranularity::Character, 0, 0};
+                format->SetTrimming(trimming, sign.get());
+                std::unique_ptr<tinta::TextLayout> clipped = h.textFactory().CreateTextLayout(
+                    kLongText, kLongLength, format.get(), 80.0f, 40.0f);
+                if (clipped) clipped->GetMetrics(&trimmed);
+            }
+        }
+        check(untrimmed.width > 80.0f,
+              "CONTROL: without trimming the ink overflows the 80px box");
+        check(trimmed.width < untrimmed.width,
+              "trimming shortens the laid-out text");
+        check(trimmed.width <= 81.0f,
+              "and brings it inside the box it was given");
     }
 
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",

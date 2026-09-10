@@ -57,6 +57,12 @@ platform_paths_posix.cpp
 # is the correct reading of it being the chosen framework.
 render_qt.cpp
 
+# The Qt side of the TEXT seam, listed for the same reason and with the same
+# consequence. Its Direct2D counterpart, src/text_d2d.cpp, must never appear here:
+# it includes <dwrite.h> and is Windows-only by design, exactly like
+# src/render_d2d.cpp.
+text_qt.cpp
+
 # --- Portable application logic ----------------------------------------------
 i18n.cpp
 keymap.cpp

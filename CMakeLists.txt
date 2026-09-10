@@ -440,7 +440,8 @@ if(BUILD_TESTING)
         add_executable(render_api_tests
             tests/render_api_tests.cpp
             tests/render_api_shared.cpp
-            src/render_qt.cpp)
+            src/render_qt.cpp
+            src/text_qt.cpp)
         target_include_directories(render_api_tests PRIVATE include)
         target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME render_api COMMAND render_api_tests)
@@ -512,11 +513,16 @@ if(BUILD_TESTING)
         tests/render_d2d_tests.cpp
         tests/render_api_shared.cpp
         src/render_d2d.cpp
+        src/text_d2d.cpp
     )
     target_include_directories(render_d2d_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
-    target_link_libraries(render_d2d_tests PRIVATE d2d1 windowscodecs ole32)
+    # dwrite for DWriteCreateFactory, which the harness calls to build the factory
+    # src/text_d2d.cpp then borrows. Everything else text_d2d.cpp does is a COM
+    # method call through that pointer and needs no import library at all -- which
+    # is why this line is the whole cost of adding the text backend here.
+    target_link_libraries(render_d2d_tests PRIVATE d2d1 dwrite windowscodecs ole32)
     target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME render_d2d COMMAND render_d2d_tests)
     endif()  # WIN32

@@ -2,6 +2,7 @@
 #define TINTA_RENDER_QT_H
 
 #include "render_api.h"
+#include "text_qt.h"
 
 #include <QColor>
 #include <QPainter>
@@ -65,6 +66,16 @@ public:
     void DrawLine(tinta::PointF start, tinta::PointF end, tinta::Brush* brush,
                   float strokeWidth, tinta::StrokeStyle* strokeStyle) override;
 
+    // Text goes through QtTextRun, the same engine QtTextLayout::GetMetrics uses,
+    // so a box that was measured and a box that was drawn cannot disagree. The
+    // rect's width and height become the layout box, which is what Direct2D's
+    // layoutRect means.
+    void DrawText(const wchar_t* string, uint32_t stringLength, tinta::TextFormat* format,
+                  const tinta::RectF& layoutRect, tinta::Brush* brush,
+                  tinta::DrawTextOptions options) override;
+    void DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
+                        tinta::Brush* brush, tinta::DrawTextOptions options) override;
+
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;
 
@@ -72,6 +83,14 @@ private:
     void setFill(tinta::Brush* brush);
     void setStroke(tinta::Brush* brush, float strokeWidth,
                    tinta::StrokeStyle* strokeStyle);
+
+    // BOTH text calls end here. DrawText builds a run from its layoutRect and
+    // DrawTextLayout borrows the one its layout already measured, but from this
+    // point on the two are identical -- and they must stay identical, because the
+    // pen-versus-brush rule and the Clip translation are each a one-line mistake
+    // away from drawing nothing at all.
+    void drawRun(const QtTextRun& run, const QPointF& origin, tinta::Brush* brush,
+                 tinta::DrawTextOptions options);
 
     QPainter painter_;
 };

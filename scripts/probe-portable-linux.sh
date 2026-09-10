@@ -94,17 +94,63 @@ if [ "$build_status" != "0" ]; then
 fi
 
 # Per-object evidence. "The build succeeded" is not the claim -- a target that
-# was silently skipped also succeeds. Each file below must appear as its own
+# was silently skipped also succeeds. Each source file must appear as its own
 # compile line, which is the only thing that shows this compiler read it.
-note 'Per-object evidence'
-for object in i18n config_dir platform_paths_posix keymap settings; do
-    if grep -qE "(^|[/ ])${object}\.cpp\.o" "$BUILD_DIR.build.log"; then
-        check 0 "src/${object}.cpp was compiled by $CXX_BIN"
-        grep -oE "[^ ]*${object}\.cpp\.o" "$BUILD_DIR.build.log" | head -1 | sed 's/^/       /'
+#
+# This used to be a hand-written list of five names, and that was the wrong shape
+# of instrument. It could only ever confirm what someone had thought to look for,
+# so when the portable surface grew to 22 files the probe kept reporting on five
+# -- and on 2026-09-10 that under-report was read as "the other 17 have never been
+# compiled off Windows", which was false and sent a whole recommendation the wrong
+# way. The list is now a committed manifest and the comparison runs BOTH ways, so
+# growth is as loud as shrinkage. See tests/portable-sources.txt.
+note 'Portable source set (both directions against tests/portable-sources.txt)'
+manifest="$SOURCE_DIR/tests/portable-sources.txt"
+if [ ! -f "$manifest" ]; then
+    check 1 "tests/portable-sources.txt exists -- it is the expected half of this comparison"
+else
+    check 0 "tests/portable-sources.txt found"
+    expected="$(grep -vE '^[[:space:]]*(#|$)' "$manifest" | tr -d '\r' | sort -u)"
+    # Source objects only. A test's own translation unit is evidence about the
+    # test, not about how much of the application is portable.
+    compiled="$(grep -oE '[A-Za-z0-9_]+\.cpp\.o' "$BUILD_DIR.build.log" \
+        | sed 's/\.o$//' | grep -vE '_tests\.cpp$' | sort -u)"
+    n_expected="$(printf '%s\n' "$expected" | grep -c . || true)"
+    n_compiled="$(printf '%s\n' "$compiled" | grep -c . || true)"
+    echo "manifest lists : $n_expected"
+    echo "build compiled : $n_compiled"
+
+    missing="$(comm -23 <(printf '%s\n' "$expected") <(printf '%s\n' "$compiled") | grep -v '^$' || true)"
+    unexpected="$(comm -13 <(printf '%s\n' "$expected") <(printf '%s\n' "$compiled") | grep -v '^$' || true)"
+
+    if [ -z "$missing" ]; then
+        check 0 "every file in the manifest was compiled by $CXX_BIN"
     else
-        check 1 "src/${object}.cpp was compiled by $CXX_BIN (no object line found)"
+        check 1 "every file in the manifest was compiled by $CXX_BIN (missing below)"
+        printf '%s\n' "$missing" | sed 's/^/       MISSING: /'
     fi
-done
+    if [ -z "$unexpected" ]; then
+        check 0 "nothing was compiled that the manifest does not list"
+    else
+        check 1 "nothing was compiled that the manifest does not list (add these deliberately)"
+        printf '%s\n' "$unexpected" | sed 's/^/       UNEXPECTED: /'
+    fi
+
+    # Print the share rather than leaving it to be guessed. The mistake this
+    # section was rewritten for was a wrong FIGURE, not a wrong pass/fail, so the
+    # figure is now produced by the probe every run and never from memory.
+    portable_lines="$(printf '%s\n' "$expected" | sed "s#^#${SOURCE_DIR}/src/#" \
+        | tr '\n' '\0' | xargs -0 wc -l 2>/dev/null | tail -1 | awk '{print $1}')"
+    total_lines="$(find "$SOURCE_DIR/src" "$SOURCE_DIR/include" \
+        \( -name '*.cpp' -o -name '*.h' \) -print0 | xargs -0 wc -l | tail -1 | awk '{print $1}')"
+    if [ -n "${portable_lines:-}" ] && [ -n "${total_lines:-}" ] && [ "$total_lines" -gt 0 ]; then
+        awk -v p="$portable_lines" -v t="$total_lines" \
+            'BEGIN { printf "portable share : %d of %d lines in src+include (%.1f%%)\n", p, t, 100*p/t }'
+        check 0 "the portable share was computed from the manifest, not quoted from memory"
+    else
+        check 1 "the portable share was computed (line counting failed)"
+    fi
+fi
 
 # Nothing Windows-only may have been dragged in. Each of these is inside if(WIN32)
 # or listed only in a Windows-only target, so none may appear at all.
@@ -140,9 +186,12 @@ note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a
 # clean pass.
-test_list="$("$CMAKE_BIN" -E chdir "$BUILD_DIR" ctest -N 2>/dev/null | grep -cE '^ +Test +#[0-9]+:')"
-echo "tests configured: ${test_list:-0}"
-if [ "${test_list:-0}" -ge 1 ] 2>/dev/null; then
+test_names="$("$CMAKE_BIN" -E chdir "$BUILD_DIR" ctest -N 2>/dev/null \
+    | sed -nE 's/^ +Test +#[0-9]+: +([^[:space:]]+).*/\1/p' | sort -u)"
+n_tests="$(printf '%s\n' "$test_names" | grep -c . || true)"
+echo "tests configured: ${n_tests:-0}"
+printf '%s\n' "$test_names" | sed 's/^/       /'
+if [ "${n_tests:-0}" -ge 1 ] 2>/dev/null; then
     check 0 "CONTROL: at least one test is selected, so a pass below is not an empty run"
 else
     check 1 "CONTROL: at least one test is selected, so a pass below is not an empty run"
@@ -154,13 +203,21 @@ tail -25 "$BUILD_DIR.ctest.log"
 
 # Name the tests that must have RUN, not merely configured. "N tests passed" is
 # a count, and a count cannot tell you which N.
-for test_name in settings_roundtrip i18n platform_paths keymap; do
+#
+# The names are DERIVED from ctest -N rather than hand-written, for the same
+# reason the source manifest is compared both ways. The hand-written version
+# listed four -- settings_roundtrip, i18n, platform_paths, keymap -- and three
+# more (math_parser, mermaid_parser, document_types) had been running off Windows
+# for some time without this section ever mentioning them. A green probe was
+# therefore silent about the largest portable test in the tree.
+while IFS= read -r test_name; do
+    [ -n "$test_name" ] || continue
     if grep -qE "Test +#[0-9]+: ${test_name} .*Passed" "$BUILD_DIR.ctest.log"; then
         check 0 "the ${test_name} test ran and passed off Windows"
     else
-        check 1 "the ${test_name} test ran and passed off Windows (not found in the ctest log)"
+        check 1 "the ${test_name} test ran and passed off Windows (not found as Passed in the ctest log)"
     fi
-done
+done <<< "$test_names"
 
 note 'Result'
 if [ "$failures" = "0" ]; then

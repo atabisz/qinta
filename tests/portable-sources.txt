@@ -1,0 +1,61 @@
+# Every src/ file that a non-Windows build compiles, one per line.
+#
+# WHY THIS FILE EXISTS
+#
+# scripts/probe-portable-linux.sh used to assert a hand-picked handful of objects
+# by name. That is an under-reporting instrument, and it cost a real mistake on
+# 2026-09-10: it named five objects, so the portable core looked like ~2,800 lines
+# when the Linux build was in fact already compiling 16,252. The conclusion drawn
+# from the smaller figure -- that ~13,900 lines had never been read by GCC and
+# needed wiring up -- was wrong, and the work it implied was already done.
+#
+# So the probe no longer trusts a list of things to look for. It reads the set of
+# source objects the build actually produced and compares it against this file in
+# BOTH directions:
+#
+#   - a file here that was NOT compiled  -> something dropped out of a portable
+#     target, or a target stopped building. Silent regression, now loud.
+#   - a file compiled that is NOT here   -> the portable surface grew without
+#     anyone saying so. Add it deliberately, with a look at whether it belongs.
+#
+# That symmetry is the point. A one-directional check can only catch shrinkage,
+# and it was growth this file's absence hid.
+#
+# Adding a line is a claim that a non-Windows compiler accepts the file. Do not
+# add one to make the probe green -- run the probe and let it tell you.
+#
+# Windows-only files must NEVER appear here. scripts/probe-portable-linux.sh
+# separately asserts that main_d2d.cpp, settings_app.cpp and settings_win32.cpp
+# were not compiled at all.
+
+# --- The platform seam and its consumers -------------------------------------
+config_dir.cpp
+platform_paths_posix.cpp
+
+# --- Portable application logic ----------------------------------------------
+i18n.cpp
+keymap.cpp
+settings.cpp
+
+# --- The document model and markdown parser ----------------------------------
+document.cpp
+markdown.cpp
+
+# --- The maths parser (layout is separate and still Windows-only) ------------
+math_macros.cpp
+math_parser.cpp
+
+# --- The mermaid diagram engine, all 13 files --------------------------------
+mermaid.cpp
+mermaid_block.cpp
+mermaid_c4.cpp
+mermaid_charts.cpp
+mermaid_charts2.cpp
+mermaid_ext.cpp
+mermaid_gantt.cpp
+mermaid_git.cpp
+mermaid_grid.cpp
+mermaid_narrative.cpp
+mermaid_pie.cpp
+mermaid_seq.cpp
+mermaid_uml.cpp

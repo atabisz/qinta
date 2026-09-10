@@ -133,10 +133,13 @@ set(HEADERS
 
 # The app itself is Windows-only (Direct2D/DirectWrite/Win32). Guarding it lets
 # the platform-independent test targets below configure and run on Linux/macOS.
-# That is the mechanism for keeping the portable core honest; nothing currently
-# exercises it, because the CI job that ran those targets off Windows was removed
-# on 2026-09-10. The guard is still correct and still worth keeping accurate --
-# it is just not enforced today.
+# That is the mechanism for keeping the portable core honest, and it IS enforced:
+# scripts/probe-portable-linux.sh builds this file with g++ and asserts, in both
+# directions, that exactly the files in tests/portable-sources.txt were compiled.
+# (An earlier version of this comment said nothing enforced it, which stayed here
+# after the probe was written and was itself read as evidence that the portable
+# targets were idle. A comment claiming an absence needs re-checking as much as
+# one claiming a presence.)
 if(WIN32)
 
 # Windows resource file (icon)
@@ -178,11 +181,17 @@ endif()  # WIN32 — app target
 if(BUILD_TESTING)
     # --- Platform-independent targets: these build and run on every platform.
     # They link no Windows libraries, so a regression that drags Windows into the
-    # portable core breaks them WHEN THEY ARE BUILT OFF WINDOWS -- which nothing
-    # does right now (see the note on the WIN32 guard above). On Windows these
-    # targets compile happily either way, so a green run here is not evidence of
-    # portability. Measure that with `cl /showIncludes` on the changed file, or by
-    # building this block with a non-Windows compiler.
+    # portable core breaks them WHEN THEY ARE BUILT OFF WINDOWS. On Windows these
+    # targets compile happily either way, so a green run HERE is not evidence of
+    # portability -- MSVC accepts them whether or not they still need Windows.
+    #
+    # Run scripts/probe-portable-linux.sh for the real reading, or
+    # `cl /showIncludes` on a single changed file for header topology alone.
+    #
+    # Every src/ file reachable from the targets in this section must be listed in
+    # tests/portable-sources.txt, which the probe compares against what the build
+    # actually compiled -- so adding a source here without listing it there fails,
+    # and so does quietly dropping one.
     add_executable(keymap_tests tests/keymap_tests.cpp src/keymap.cpp)
     target_include_directories(keymap_tests PRIVATE include)
     add_test(NAME keymap COMMAND keymap_tests)

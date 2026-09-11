@@ -629,16 +629,14 @@ render_document:
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
                 1.0f));
-            IDWriteTextLayout* btnLayout = nullptr;
             const wchar_t* copyLabel = tr(app, "codeblock.copy");
-            app.dwriteFactory->CreateTextLayout(copyLabel, (UINT32)wcslen(copyLabel), nativeTextFormat(app.codeFormat),
-                btnW, btnH, &btnLayout);
+            std::unique_ptr<tinta::TextLayout> btnLayout = app.textFactory->CreateTextLayout(
+                copyLabel, (uint32_t)wcslen(copyLabel), app.codeFormat, btnW, btnH);
             if (btnLayout) {
-                btnLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                btnLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.nativeRenderTarget->DrawTextLayout(
-                    tinta::pointF(btnX, btnY), btnLayout, app.nativeBrush);
-                btnLayout->Release();
+                btnLayout->SetTextAlignment(tinta::TextAlignment::Center);
+                btnLayout->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
+                app.renderTarget->DrawTextLayout(
+                    tinta::pointF(btnX, btnY), btnLayout.get(), app.brush);
             }
 
             // Diagrams add a copy-as-image button beside the source copy
@@ -667,19 +665,16 @@ render_document:
                         1.0f));
                     const wchar_t* fitLabel =
                         cb.fitActive ? L"1:1" : L"Fit";
-                    IDWriteTextLayout* fitLayout = nullptr;
-                    app.dwriteFactory->CreateTextLayout(
-                        fitLabel, (UINT32)wcslen(fitLabel), nativeTextFormat(app.codeFormat),
-                        fitW, btnH, &fitLayout);
+                    std::unique_ptr<tinta::TextLayout> fitLayout =
+                        app.textFactory->CreateTextLayout(
+                            fitLabel, (uint32_t)wcslen(fitLabel), app.codeFormat,
+                            fitW, btnH);
                     if (fitLayout) {
-                        fitLayout->SetTextAlignment(
-                            DWRITE_TEXT_ALIGNMENT_CENTER);
+                        fitLayout->SetTextAlignment(tinta::TextAlignment::Center);
                         fitLayout->SetParagraphAlignment(
-                            DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                        app.nativeRenderTarget->DrawTextLayout(
-                            tinta::pointF(fitX, btnY), fitLayout,
-                            app.nativeBrush);
-                        fitLayout->Release();
+                            tinta::ParagraphAlignment::Center);
+                        app.renderTarget->DrawTextLayout(
+                            tinta::pointF(fitX, btnY), fitLayout.get(), app.brush);
                     }
                 }
                 app.brush->SetColor(tinta::colorF(
@@ -696,18 +691,16 @@ render_document:
                     app.theme.isDark ? 0.9f : 0.15f,
                     app.theme.isDark ? 0.9f : 0.15f,
                     1.0f));
-                IDWriteTextLayout* pngLayout = nullptr;
                 const wchar_t* pngLabel = tr(app, "diagram.png");
-                app.dwriteFactory->CreateTextLayout(
-                    pngLabel, (UINT32)wcslen(pngLabel), nativeTextFormat(app.codeFormat), pngW,
-                    btnH, &pngLayout);
+                std::unique_ptr<tinta::TextLayout> pngLayout =
+                    app.textFactory->CreateTextLayout(
+                        pngLabel, (uint32_t)wcslen(pngLabel), app.codeFormat, pngW, btnH);
                 if (pngLayout) {
-                    pngLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    pngLayout->SetTextAlignment(tinta::TextAlignment::Center);
                     pngLayout->SetParagraphAlignment(
-                        DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                    app.nativeRenderTarget->DrawTextLayout(
-                        tinta::pointF(pngX, btnY), pngLayout, app.nativeBrush);
-                    pngLayout->Release();
+                        tinta::ParagraphAlignment::Center);
+                    app.renderTarget->DrawTextLayout(
+                        tinta::pointF(pngX, btnY), pngLayout.get(), app.brush);
                 }
             }
             app.drawCalls++;
@@ -743,18 +736,16 @@ render_document:
                 app.theme.isDark ? 0.9f : 0.15f,
                 app.theme.isDark ? 0.9f : 0.15f,
                 1.0f));
-            IDWriteTextLayout* btnLayout = nullptr;
             const wchar_t* copyLabel = tr(app, "table.copy");
-            app.dwriteFactory->CreateTextLayout(
-                copyLabel, (UINT32)wcslen(copyLabel), nativeTextFormat(app.codeFormat), btnW,
-                btnH, &btnLayout);
+            std::unique_ptr<tinta::TextLayout> btnLayout =
+                app.textFactory->CreateTextLayout(
+                    copyLabel, (uint32_t)wcslen(copyLabel), app.codeFormat, btnW, btnH);
             if (btnLayout) {
-                btnLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                btnLayout->SetTextAlignment(tinta::TextAlignment::Center);
                 btnLayout->SetParagraphAlignment(
-                    DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.nativeRenderTarget->DrawTextLayout(
-                    tinta::pointF(btnX, btnY), btnLayout, app.nativeBrush);
-                btnLayout->Release();
+                    tinta::ParagraphAlignment::Center);
+                app.renderTarget->DrawTextLayout(
+                    tinta::pointF(btnX, btnY), btnLayout.get(), app.brush);
             }
 
             // Oversized tables add the fit-to-width toggle
@@ -777,18 +768,16 @@ render_document:
                     app.theme.isDark ? 0.9f : 0.15f,
                     1.0f));
                 const wchar_t* fitLabel = tb.fitActive ? L"1:1" : L"Fit";
-                IDWriteTextLayout* fitLayout = nullptr;
-                app.dwriteFactory->CreateTextLayout(
-                    fitLabel, (UINT32)wcslen(fitLabel), nativeTextFormat(app.codeFormat),
-                    fitW, btnH, &fitLayout);
+                std::unique_ptr<tinta::TextLayout> fitLayout =
+                    app.textFactory->CreateTextLayout(
+                        fitLabel, (uint32_t)wcslen(fitLabel), app.codeFormat,
+                        fitW, btnH);
                 if (fitLayout) {
-                    fitLayout->SetTextAlignment(
-                        DWRITE_TEXT_ALIGNMENT_CENTER);
+                    fitLayout->SetTextAlignment(tinta::TextAlignment::Center);
                     fitLayout->SetParagraphAlignment(
-                        DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                    app.nativeRenderTarget->DrawTextLayout(
-                        tinta::pointF(fitX, btnY), fitLayout, app.nativeBrush);
-                    fitLayout->Release();
+                        tinta::ParagraphAlignment::Center);
+                    app.renderTarget->DrawTextLayout(
+                        tinta::pointF(fitX, btnY), fitLayout.get(), app.brush);
                 }
             }
             app.drawCalls++;

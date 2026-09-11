@@ -65,6 +65,11 @@ bool initD2D(App& app) {
         __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&app.dwriteFactory));
     if (app.dwriteFactory) {
         app.dwriteFactory->CreateTextAnalyzer(&app.textAnalyzer);
+        // Seated HERE and not from App::seatSeamWrappers(), which has zero callers --
+        // the live paths are the individual seaters, called from this file. Adding a
+        // line to the aggregate would have compiled clean, left app.textFactory null
+        // forever, and handed every migrated site a null factory.
+        app.seatTextFactory();
     }
     if (FAILED(hr)) return false;
 

@@ -583,15 +583,13 @@ void renderTabStrip(App& app) {
                 tinta::rectF(textLeft, (stripH - dpi(app, 17.0f)) * 0.5f,
                             maxRight, stripH),
                 app.brush);
-            IDWriteTextLayout* layout = nullptr;
-            app.dwriteFactory->CreateTextLayout(
-                title.c_str(), (UINT32)title.size(), nativeTextFormat(app.folderBrowserFormat),
-                std::max(1.0f, maxRight - textLeft), stripH, &layout);
+            std::unique_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+                title.c_str(), (uint32_t)title.size(), app.folderBrowserFormat,
+                std::max(1.0f, maxRight - textLeft), stripH);
             if (layout) {
-                DWRITE_TEXT_METRICS tm{};
+                tinta::TextMetrics tm{};
                 layout->GetMetrics(&tm);
                 textRight += tm.width;
-                layout->Release();
             }
         }
         // A document's lone tab still closes: a small x after the title
@@ -1328,20 +1326,18 @@ void renderTabMenu(App& app) {
             app.brush);
 
         if (TAB_MENU[i].shortcut[0]) {
-            IDWriteTextLayout* hint = nullptr;
-            app.dwriteFactory->CreateTextLayout(
-                TAB_MENU[i].shortcut, (UINT32)wcslen(TAB_MENU[i].shortcut),
-                nativeTextFormat(format), 1000.0f, itemH, &hint);
+            std::unique_ptr<tinta::TextLayout> hint = app.textFactory->CreateTextLayout(
+                TAB_MENU[i].shortcut, (uint32_t)wcslen(TAB_MENU[i].shortcut),
+                format, 1000.0f, itemH);
             if (hint) {
-                DWRITE_TEXT_METRICS metrics{};
+                tinta::TextMetrics metrics{};
                 hint->GetMetrics(&metrics);
                 tinta::Color hintColor = app.theme.text;
                 hintColor.a = 0.4f * anim;
                 app.brush->SetColor(hintColor);
-                app.nativeRenderTarget->DrawTextLayout(
-                    tinta::pointF(x + w - inset - metrics.width, textY), hint,
-                    app.nativeBrush);
-                hint->Release();
+                app.renderTarget->DrawTextLayout(
+                    tinta::pointF(x + w - inset - metrics.width, textY), hint.get(),
+                    app.brush);
             }
         }
 

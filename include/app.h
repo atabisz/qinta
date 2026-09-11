@@ -284,6 +284,21 @@ struct App {
     IDWriteFactory* dwriteFactory = nullptr;
     IDWriteFontFallback* fontFallback = nullptr;  // For emoji font fallback
     IDWriteTextAnalyzer* textAnalyzer = nullptr;  // UAX#14 line-break analysis
+
+    // The factory's wrapper is SEATED, unlike the four bitmaps' read-time accessors,
+    // and the discriminator is a replacement count of ZERO: dwriteFactory is created
+    // once by out-parameter in d2d_init.cpp and released once in shutdown(), with no
+    // assignment anywhere else in the tree. The bitmaps had 8 mutation sites, which is
+    // what made reseat-on-read the only shape there that could not be forgotten.
+    //
+    // Ownership is identical on both sides -- D2DTextFactory borrows the DWrite
+    // factory exactly as D2DBitmap borrows a bitmap -- so it is the LIFETIME that
+    // decides the access shape here, not the ownership. That is the sharper form of
+    // what the bitmap slice taught: reseat-on-read is the answer to a native that gets
+    // REPLACED, not to a borrowed wrapper as such. Rebuilding this one on every read
+    // would rewrap at each of the 36 layout-creation sites and buy nothing.
+    D2DTextFactory textFactoryStorage{nullptr};
+    tinta::TextFactory* textFactory = nullptr;
     // Same pair rule as the Direct2D members above: native holds and owns,
     // wrapper keeps the name the 106 DrawText sites already pass. Only 40 sites
     // in the tree call an IDWrite method on one of these, and 25 creation calls
@@ -1325,7 +1340,16 @@ struct App {
         }
         if (bodyTypography) { bodyTypography->Release(); bodyTypography = nullptr; }
         if (codeTypography) { codeTypography->Release(); codeTypography = nullptr; }
-        if (dwriteFactory) { dwriteFactory->Release(); dwriteFactory = nullptr; }
+        if (dwriteFactory) {
+            dwriteFactory->Release();
+            dwriteFactory = nullptr;
+            // The wrapper borrows, so it has nothing to release -- but leaving the
+            // seated pointer non-null would hand a post-shutdown caller a factory
+            // wrapping a released COM object, which is the stale-wrapper failure the
+            // bitmap accessors exist to prevent, arriving by the other door.
+            textFactoryStorage = D2DTextFactory{nullptr};
+            textFactory = nullptr;
+        }
         if (d2dFactory) { d2dFactory->Release(); d2dFactory = nullptr; }
     }
 
@@ -1352,6 +1376,14 @@ struct App {
     void seatRenderTarget() {
         renderTargetStorage = D2DRenderTarget{nativeRenderTarget};
         renderTarget = nativeRenderTarget ? &renderTargetStorage : nullptr;
+    }
+
+    // Plain assignment, like seatRenderTarget and unlike seatFormat: D2DTextFactory
+    // borrows, so it has no destructor to Release the pointer a new wrapper is about
+    // to hold, and the compare-first guard seatFormat needs would be dead weight here.
+    void seatTextFactory() {
+        textFactoryStorage = D2DTextFactory{dwriteFactory};
+        textFactory = dwriteFactory ? &textFactoryStorage : nullptr;
     }
 
     void seatBrush() {
@@ -1407,6 +1439,7 @@ struct App {
         seatBrush();
         seatDashedStrokeStyle();
         seatTextFormats();
+        seatTextFactory();
     }
 
     // The four scalar bitmaps are reached through ACCESSORS, not through a seated

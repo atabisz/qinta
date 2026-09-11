@@ -12,8 +12,24 @@ std::wstring toWide(const std::string& str) {
     return platform::fromUtf8(str);
 }
 
+// The seam overload is now the IMPLEMENTATION rather than an adapter that unwrapped
+// its argument and called the native one. It builds and measures its layout entirely
+// through tinta::, so nothing in this function names a DirectWrite type.
+//
+// The native overload below is kept, not left behind: 4 call sites still hold an
+// app.native*Format and have nothing to hand this one. The two are therefore required
+// to agree, and that is asserted rather than assumed -- see tests/text_factory_tests.cpp.
 float measureText(App& app, const std::wstring& text, tinta::TextFormat* format) {
-    return measureText(app, text, nativeTextFormat(format));
+    if (!app.textFactory || !format) return 0;
+    std::unique_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+        text.c_str(), (uint32_t)text.length(), format, 10000.0f, 100.0f);
+    if (!layout) return 0;
+
+    // RAII, because tinta::TextLayout OWNS its native (text_d2d.h) -- the manual
+    // Release the native path below still needs is gone here, not merely moved.
+    tinta::TextMetrics metrics{};
+    layout->GetMetrics(&metrics);
+    return metrics.widthIncludingTrailingWhitespace;
 }
 
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {

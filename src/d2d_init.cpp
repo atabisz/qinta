@@ -493,22 +493,19 @@ void createTypography(App& app) {
     }
 }
 
-bool createRenderTarget(App& app) {
-    if (app.renderTarget) {
-        app.renderTarget->Release();
-        app.renderTarget = nullptr;
-    }
-    if (app.brush) {
-        app.brush->Release();
-        app.brush = nullptr;
-    }
-
-    // D2D bitmaps are tied to the render target, so cached images must go.
-    // Entries are ERASED, not just nulled: getOrLoadImage returns any
-    // existing entry as-is, so a kept-but-empty entry would render as the
-    // alt-text placeholder forever instead of reloading. In-flight
-    // downloads keep their entry — the arriving result creates its bitmap
-    // on whatever target exists then.
+// Every device bitmap dies with the render target that made it, so a target
+// swap has to drop them all. This is APP policy, not device policy: which
+// caches exist, and how a dropped entry gets refilled, has nothing to do with
+// which backend is in use. It lives apart from the creation code below for
+// that reason -- when creation moves behind a per-backend factory, this stays
+// exactly where it is.
+//
+// Entries are ERASED, not just nulled: getOrLoadImage returns any existing
+// entry as-is, so a kept-but-empty entry would render as the alt-text
+// placeholder forever instead of reloading. In-flight downloads keep their
+// entry — the arriving result creates its bitmap on whatever target exists
+// then.
+static void invalidateDeviceBitmaps(App& app) {
     app.imageCacheBytes = 0;
     for (auto it = app.imageCache.begin(); it != app.imageCache.end();) {
         if (it->second.bitmap) { it->second.bitmap->Release(); it->second.bitmap = nullptr; }
@@ -525,6 +522,51 @@ bool createRenderTarget(App& app) {
         app.startPageIconBitmap->Release();
         app.startPageIconBitmap = nullptr;
     }
+}
+
+// ClearType plus custom DWrite rendering params, applied to whatever target
+// was just created. Separate because this is per-device TEXT STATE and not
+// construction -- a distinction worth keeping visible, since grouping these
+// two calls with the creation calls is exactly the mislabel that made the
+// remaining work look like six construction sites when it is four.
+static void configureTextRendering(App& app) {
+    // Enable high-quality text
+    app.renderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+
+    // Create custom rendering params for improved text quality
+    IDWriteRenderingParams* defaultParams = nullptr;
+    IDWriteRenderingParams* customParams = nullptr;
+
+    app.dwriteFactory->CreateRenderingParams(&defaultParams);
+    if (defaultParams) {
+        app.dwriteFactory->CreateCustomRenderingParams(
+            defaultParams->GetGamma(),
+            defaultParams->GetEnhancedContrast(),
+            1.0f,  // ClearType level
+            defaultParams->GetPixelGeometry(),
+            DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
+            &customParams
+        );
+        defaultParams->Release();
+
+        if (customParams) {
+            app.renderTarget->SetTextRenderingParams(customParams);
+            customParams->Release();
+        }
+    }
+}
+
+bool createRenderTarget(App& app) {
+    if (app.renderTarget) {
+        app.renderTarget->Release();
+        app.renderTarget = nullptr;
+    }
+    if (app.brush) {
+        app.brush->Release();
+        app.brush = nullptr;
+    }
+
+    invalidateDeviceBitmaps(app);
 
     RECT rc;
     GetClientRect(app.hwnd, &rc);
@@ -554,30 +596,7 @@ bool createRenderTarget(App& app) {
     app.renderTarget->QueryInterface(__uuidof(ID2D1DeviceContext),
         reinterpret_cast<void**>(&app.deviceContext));
 
-    // Enable high-quality text
-    app.renderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
-
-    // Create custom rendering params for improved text quality
-    IDWriteRenderingParams* defaultParams = nullptr;
-    IDWriteRenderingParams* customParams = nullptr;
-
-    app.dwriteFactory->CreateRenderingParams(&defaultParams);
-    if (defaultParams) {
-        app.dwriteFactory->CreateCustomRenderingParams(
-            defaultParams->GetGamma(),
-            defaultParams->GetEnhancedContrast(),
-            1.0f,  // ClearType level
-            defaultParams->GetPixelGeometry(),
-            DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC,
-            &customParams
-        );
-        defaultParams->Release();
-
-        if (customParams) {
-            app.renderTarget->SetTextRenderingParams(customParams);
-            customParams->Release();
-        }
-    }
+    configureTextRendering(app);
 
     return true;
 }

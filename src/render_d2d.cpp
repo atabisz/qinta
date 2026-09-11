@@ -9,16 +9,31 @@
 // THE PAIRING render_api.h PROMISED. It says the AntialiasMode values match
 // D2D1_ANTIALIAS_MODE "so the Windows backend can cast rather than switch", and
 // that the assertion has to live here because render_api.h must not include
-// <d2d1.h>. This is that assertion. The 9 PushAxisAlignedClip sites pass
-// D2D1_ANTIALIAS_MODE_ALIASED today, so if these ever drifted apart the clips
-// would silently start antialiasing instead of snapping to pixels -- a visual
-// change with no compile error anywhere.
+// <d2d1.h>. This is that assertion. BOTH values are live at the 9
+// PushAxisAlignedClip sites -- 5 aliased, 4 per-primitive -- so a drift in either
+// direction is a visual change with no compile error anywhere: aliased clips would
+// start antialiasing instead of snapping to pixels, or per-primitive clips would
+// start snapping.
 static_assert(static_cast<int>(tinta::AntialiasMode::PerPrimitive) ==
                   static_cast<int>(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE),
               "tinta::AntialiasMode::PerPrimitive must match D2D1_ANTIALIAS_MODE_PER_PRIMITIVE");
 static_assert(static_cast<int>(tinta::AntialiasMode::Aliased) ==
                   static_cast<int>(D2D1_ANTIALIAS_MODE_ALIASED),
               "tinta::AntialiasMode::Aliased must match D2D1_ANTIALIAS_MODE_ALIASED");
+
+// The same pairing for the bitmap interpolation mode, which the DrawBitmap
+// forwarder below casts rather than switches on. Nothing in the tree passes
+// NearestNeighbor today -- all 3 sites that name a mode name Linear -- so this
+// assertion is the ONLY thing standing between a renumbered D2D enum and every
+// scaled bitmap in the app silently changing filter.
+static_assert(static_cast<int>(tinta::BitmapInterpolationMode::NearestNeighbor) ==
+                  static_cast<int>(D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR),
+              "tinta::BitmapInterpolationMode::NearestNeighbor must match "
+              "D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR");
+static_assert(static_cast<int>(tinta::BitmapInterpolationMode::Linear) ==
+                  static_cast<int>(D2D1_BITMAP_INTERPOLATION_MODE_LINEAR),
+              "tinta::BitmapInterpolationMode::Linear must match "
+              "D2D1_BITMAP_INTERPOLATION_MODE_LINEAR");
 
 // The same pairing for the text options, which live here rather than in
 // text_d2d.cpp because D2D1_DRAW_TEXT_OPTIONS is declared in <d2d1.h> and not in
@@ -63,7 +78,18 @@ ID2D1StrokeStyle* nativeStrokeStyle(tinta::StrokeStyle* style) {
     return static_cast<D2DStrokeStyle*>(style)->native();
 }
 
+ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
+    if (!bitmap) return nullptr;
+    assert(dynamic_cast<D2DBitmap*>(bitmap) != nullptr &&
+           "a non-Direct2D Bitmap reached D2DRenderTarget");
+    return static_cast<D2DBitmap*>(bitmap)->native();
+}
+
 }  // namespace
+
+tinta::SizeF D2DBitmap::GetSize() const {
+    return tinta::fromD2D(bitmap_->GetSize());
+}
 
 void D2DBrush::SetColor(const tinta::Color& color) {
     // geometry.h's implicit operator D2D1_COLOR_F() is what makes this a
@@ -136,6 +162,26 @@ void D2DRenderTarget::DrawTextLayout(tinta::PointF origin, tinta::TextLayout* la
     if (!nativeLayout) return;
     target_->DrawTextLayout(origin, nativeLayout, nativeBrush(brush),
                             static_cast<D2D1_DRAW_TEXT_OPTIONS>(options));
+}
+
+void D2DRenderTarget::DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect,
+                                 float opacity,
+                                 tinta::BitmapInterpolationMode interpolationMode,
+                                 const tinta::RectF* srcRect) {
+    ID2D1Bitmap* native = nativeBitmap(bitmap);
+    if (!native) return;
+
+    // D2D takes destRect by POINTER and treats null as "the whole target", which is
+    // not a state the seam offers -- every one of the 7 sites passes a rectangle. So
+    // the address of the reference goes in, and the implicit
+    // tinta::RectF -> D2D1_RECT_F conversion cannot be used here for the same reason
+    // it cannot be used for srcRect: it produces a temporary, and taking the address
+    // of one would hand D2D a pointer into a dead object. Hence the named locals.
+    const D2D1_RECT_F dest = destRect;
+    const D2D1_RECT_F source = srcRect ? static_cast<D2D1_RECT_F>(*srcRect) : D2D1_RECT_F{};
+    target_->DrawBitmap(native, &dest, opacity,
+                        static_cast<D2D1_BITMAP_INTERPOLATION_MODE>(interpolationMode),
+                        srcRect ? &source : nullptr);
 }
 
 void D2DRenderTarget::PushAxisAlignedClip(const tinta::RectF& rect,

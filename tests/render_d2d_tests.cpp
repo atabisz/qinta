@@ -102,6 +102,45 @@ public:
         return std::make_unique<D2DBrush>(raw);
     }
 
+    std::unique_ptr<tinta::Bitmap> makeBitmap(int width, int height,
+                                             const std::vector<Rgba>& pixels) override {
+        if (width <= 0 || height <= 0 ||
+            pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height))
+            return nullptr;
+
+        // 32bppPBGRA to match the target, so: channel order reversed AND
+        // PREMULTIPLIED. Rgba is straight alpha (the Qt harness hands its values
+        // through untouched), so the multiply happens here -- the exact inverse of
+        // what pixel() undoes on readback. Doing it in one place per backend is what
+        // lets the shared assertions mean one thing by "half-transparent red".
+        std::vector<BYTE> bgra(static_cast<size_t>(width) * height * 4);
+        for (size_t i = 0; i < pixels.size(); i++) {
+            const Rgba& p = pixels[i];
+            bgra[i * 4 + 0] = static_cast<BYTE>(p.b * p.a / 255);
+            bgra[i * 4 + 1] = static_cast<BYTE>(p.g * p.a / 255);
+            bgra[i * 4 + 2] = static_cast<BYTE>(p.r * p.a / 255);
+            bgra[i * 4 + 3] = static_cast<BYTE>(p.a);
+        }
+
+        const D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        ComPtr<ID2D1Bitmap> bitmap;
+        if (FAILED(target_->CreateBitmap(D2D1::SizeU(static_cast<UINT32>(width),
+                                                    static_cast<UINT32>(height)),
+                                         bgra.data(), static_cast<UINT32>(width) * 4, props,
+                                         &bitmap))) {
+            std::printf("FAIL: CreateBitmap failed -- the harness cannot make a bitmap\n");
+            bitmapFailures_++;
+            return nullptr;
+        }
+        // Held for the run for the same reason the brushes are: a device resource
+        // cannot own itself, and releasing per surface would leave a dangling
+        // D2DBitmap the first time an assertion held one across two surfaces.
+        ID2D1Bitmap* raw = bitmap.Get();
+        bitmaps_.push_back(std::move(bitmap));
+        return std::make_unique<D2DBitmap>(raw);
+    }
+
     Rgba pixel(int x, int y) override {
         if (!pixelsValid_) readBack();
         const size_t i = (static_cast<size_t>(y) * kWidth + static_cast<size_t>(x)) * 4;
@@ -127,7 +166,7 @@ public:
 
     const char* name() const override { return "direct2d"; }
 
-    int harnessFailures() const { return brushFailures_ + drawFailures_; }
+    int harnessFailures() const { return brushFailures_ + drawFailures_ + bitmapFailures_; }
 
 private:
     static int unpremultiply(int channel, int alpha) {
@@ -167,10 +206,12 @@ private:
     std::unique_ptr<D2DRenderTarget> wrapper_;
     std::unique_ptr<D2DTextFactory> textFactory_;
     std::vector<ComPtr<ID2D1SolidColorBrush>> brushes_;
+    std::vector<ComPtr<ID2D1Bitmap>> bitmaps_;
     std::vector<BYTE> pixels_;
     bool pixelsValid_ = false;
     int brushFailures_ = 0;
     int drawFailures_ = 0;
+    int bitmapFailures_ = 0;
 };
 
 }  // namespace

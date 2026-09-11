@@ -82,15 +82,24 @@
 //     a portable spelling of that is a design question rather than a rename. A
 //     concrete backend owns its own construction; this interface is about the
 //     drawing calls only.
-//   * Bitmaps (DrawBitmap 7, CreateBitmapFromWicBitmap 4, CreateBitmap 2 on
-//     app.renderTarget). A second seam in its own right, and WIC-coupled: the
-//     portable counterpart of "decode this image" is a dependency decision, not a
-//     rename, so it is not being smuggled in behind a drawing call.
+//   * Bitmap CREATION. CreateBitmapFromWicBitmap 4 and CreateBitmap 2, all six on
+//     the same ground as the brush above: they hand back an OWNED object, and six
+//     App members hold the result as an AddRef'd ID2D1Bitmap*, so a portable
+//     spelling is an ownership redesign rather than a rename. The four WIC calls
+//     carry a second, independent reason -- and it is smaller than it was long
+//     described as being. Two of them (src/startpage.cpp, src/tabs.cpp) convert a
+//     Win32 HICON, so they are Windows-terminal no matter which backend draws;
+//     the other two decode an image file, which is a dependency decision. The two
+//     CreateBitmap calls, by contrast, take a plain CPU BGRA buffer with a stride
+//     and touch no WIC type at all: "bitmaps are WIC-coupled" was true of 4 sites
+//     and false of the other 9, which is why DrawBitmap is now here and its
+//     creation is not.
 //   * Geometry paths (FillGeometry 2, DrawGeometry 2). They need a path object,
 //     which is a handle type like StrokeStyle rather than a value type.
 //
 // SetTransform/GetTransform WERE on this list. They are now in the interface, and
-// tinta::Matrix3x2F in geometry.h is the 3x2 matrix type they needed.
+// tinta::Matrix3x2F in geometry.h is the 3x2 matrix type they needed. DrawBitmap
+// was on it too, and tinta::Bitmap below is the handle type it needed.
 //
 // Naming stays qualified as tinta::, for the reason geometry.h gives: bare Color
 // is already ambiguous across most of src/.
@@ -98,13 +107,36 @@
 namespace tinta {
 
 // Values match D2D1_ANTIALIAS_MODE so the Windows backend can cast rather than
-// switch, and so the 9 call sites that pass D2D1_ANTIALIAS_MODE_ALIASED today
+// switch, and so the call sites that name a D2D1_ANTIALIAS_MODE_* constant today
 // keep meaning exactly what they meant. render_d2d will static_assert the pairing
 // the way geometry.h asserts its layouts -- an assertion cannot live here,
 // because this header must not include <d2d1.h>.
+//
+// BOTH VALUES ARE LIVE, and an earlier version of this comment said otherwise. It
+// claimed all 9 PushAxisAlignedClip sites pass D2D1_ANTIALIAS_MODE_ALIASED. Five
+// do (src/editor.cpp x2, src/editrail.cpp, src/main_d2d.cpp, src/overlays.cpp);
+// the other four pass D2D1_ANTIALIAS_MODE_PER_PRIMITIVE (src/overlays.cpp x3,
+// src/tabs.cpp). The method count was right and the uniformity was invented. It
+// matters because render_qt.cpp branches on this value, and a reader who believed
+// the old comment would have been entitled to delete the branch -- silently
+// hardening four antialiased clips.
 enum class AntialiasMode {
     PerPrimitive = 0,
     Aliased = 1,
+};
+
+// Values match D2D1_BITMAP_INTERPOLATION_MODE, asserted in render_d2d.cpp for the
+// same reason and in the same place as AntialiasMode's pairing.
+//
+// The default below is Linear because that is Direct2D's own default for the
+// 2- and 3-argument DrawBitmap overloads, and because the three sites that name a
+// mode all name Linear -- so every one of the 7 sites means Linear today. Nearest
+// is here anyway rather than being dropped as unused: it is the only value that
+// makes the interpolation argument OBSERVABLE, so the shared assertions need it to
+// prove a backend reads the argument at all instead of hardcoding smooth scaling.
+enum class BitmapInterpolationMode {
+    NearestNeighbor = 0,
+    Linear = 1,
 };
 
 // An opaque handle. Dash patterns are built once at startup and only ever passed
@@ -114,6 +146,26 @@ enum class AntialiasMode {
 class StrokeStyle {
 public:
     virtual ~StrokeStyle() = default;
+};
+
+// A drawable image. Opaque like StrokeStyle, but with ONE accessor, and the
+// method list is a measurement rather than a guess: over every bitmap-typed
+// receiver in src+include the tree calls Release 15 times, GetSize 3, AddRef once
+// and CopyPixels once. Release and AddRef are COM reference counting, which a
+// portable backend DELETES rather than reimplements; CopyPixels is the DOCX export
+// path, which reads pixels out rather than drawing them. That leaves GetSize.
+//
+// Creating one is NOT here, deliberately -- see the exclusion list above. A
+// backend creates its own bitmaps the way it creates its own brushes, and the
+// tests get theirs from RenderHarness::makeBitmap for exactly that reason.
+class Bitmap {
+public:
+    virtual ~Bitmap() = default;
+
+    // In DIPs, matching ID2D1Bitmap::GetSize rather than GetPixelSize: the two
+    // differ on a bitmap whose dpi is not 96, and src/render.cpp sets 192 on the
+    // rasterized-SVG path. Returning pixels there would halve every SVG.
+    virtual SizeF GetSize() const = 0;
 };
 
 // The 474 SetColor sites are the single largest item in the whole COM surface,
@@ -170,6 +222,24 @@ public:
 
     virtual void DrawTextLayout(PointF origin, TextLayout* layout, Brush* brush,
                                 DrawTextOptions options = DrawTextOptions::None) = 0;
+
+    // 7 sites, called THREE ways, and the defaults are what make all three bind
+    // without an edit: 2 arguments (src/editrail.cpp, src/startpage.cpp,
+    // src/tabs.cpp -- an icon at its natural size), 4 (src/overlays.cpp:2525, the
+    // print preview), and 5 with a trailing null srcRect (src/overlays.cpp:1366 and
+    // :1425, the link peek and the lightbox). The defaults are Direct2D's own, so a
+    // 2-argument call means opacity 1 and linear interpolation on both backends.
+    //
+    // srcRect is a POINTER, not a defaulted value, because null means "all of it"
+    // and that is a distinct state from any rectangle -- there is no rectangle that
+    // means "whatever size this bitmap turns out to be". Both sites that pass the
+    // argument today pass null, so the sub-rect path is exercised only by the shared
+    // assertions; it is implemented rather than stubbed because a backend that
+    // ignored srcRect would draw a plausible picture of the wrong region.
+    virtual void DrawBitmap(Bitmap* bitmap, const RectF& destRect, float opacity = 1.0f,
+                            BitmapInterpolationMode interpolationMode =
+                                BitmapInterpolationMode::Linear,
+                            const RectF* srcRect = nullptr) = 0;
 
     // Clips nest, and every push in the tree is matched by a pop in the same
     // function, so a backend may implement these with a save/restore stack.

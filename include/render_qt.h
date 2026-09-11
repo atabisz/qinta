@@ -5,6 +5,7 @@
 #include "text_qt.h"
 
 #include <QColor>
+#include <QImage>
 #include <QPainter>
 
 class QPaintDevice;
@@ -84,6 +85,10 @@ public:
     void DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
                         tinta::Brush* brush, tinta::DrawTextOptions options) override;
 
+    void DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect, float opacity,
+                    tinta::BitmapInterpolationMode interpolationMode,
+                    const tinta::RectF* srcRect) override;
+
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;
 
@@ -104,6 +109,27 @@ private:
                  tinta::DrawTextOptions options);
 
     QPainter painter_;
+};
+
+// OWNS its image, which is the opposite of D2DBitmap and the same choice QtBrush
+// makes: a QImage is not a device resource, so there is no device for it to belong
+// to and nothing for it to outlive. QImage is copy-on-write, so holding one by value
+// costs a refcount rather than a pixel copy.
+//
+// Format is deliberately NOT converted on construction. The caller decides, because
+// a Format_ARGB32 (straight alpha) and a Format_ARGB32_Premultiplied image are both
+// legitimate here and silently converting would make the seam's opacity argument
+// mean something different depending on which one was handed in.
+class QtBitmap final : public tinta::Bitmap {
+public:
+    explicit QtBitmap(QImage image) : image_(std::move(image)) {}
+
+    tinta::SizeF GetSize() const override;
+
+    const QImage& image() const { return image_; }
+
+private:
+    QImage image_;
 };
 
 // A solid colour and nothing else. Direct2D needs a device-owned object here

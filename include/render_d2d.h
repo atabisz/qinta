@@ -60,6 +60,22 @@ private:
     ID2D1StrokeStyle* style_;  // borrowed
 };
 
+// Borrowed, like every other wrapper in this file: the 6 App members that hold a
+// bitmap already AddRef and Release their own, and d2d_init.cpp already tears them
+// down. A wrapper that took a reference would make the ownership of those members
+// depend on whether a drawing call had happened to be made through the seam.
+class D2DBitmap final : public tinta::Bitmap {
+public:
+    explicit D2DBitmap(ID2D1Bitmap* bitmap) : bitmap_(bitmap) {}
+
+    tinta::SizeF GetSize() const override;
+
+    ID2D1Bitmap* native() const { return bitmap_; }
+
+private:
+    ID2D1Bitmap* bitmap_;  // borrowed
+};
+
 class D2DBrush final : public tinta::Brush {
 public:
     explicit D2DBrush(ID2D1SolidColorBrush* brush) : brush_(brush) {}
@@ -101,6 +117,10 @@ public:
                   tinta::DrawTextOptions options) override;
     void DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
                         tinta::Brush* brush, tinta::DrawTextOptions options) override;
+
+    void DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect, float opacity,
+                    tinta::BitmapInterpolationMode interpolationMode,
+                    const tinta::RectF* srcRect) override;
 
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;

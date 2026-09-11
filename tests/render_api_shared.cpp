@@ -800,6 +800,206 @@ int runRenderApiAssertions(RenderHarness& h) {
               "tinta::operator* composes in row-vector order: dx is scaled to 20");
     }
 
+    // --- Bitmaps: placement, orientation, sub-rect, opacity, interpolation -----
+    //
+    // THE BITMAP IS TWO-COLOURED ON PURPOSE, for the same reason the transform block
+    // above uses an asymmetric matrix. A single-colour bitmap makes almost every
+    // interesting mistake invisible: a horizontal flip, a transposed source
+    // rectangle, a srcRect ignored entirely, and a destRect misread as x/y/width/
+    // height all paint the same solid block and all pass. Left half red, right half
+    // blue turns each of those into a wrong COLOUR at a named pixel.
+    //
+    // Nothing here asserts an absolute pixel count or a blend value. The dest rects
+    // are integer-aligned and the blit is confined to them on both backends, so the
+    // ink BOUNDS are exact and safe to assert; the interpolated interior is only ever
+    // compared against itself under a different mode.
+    {
+        const int bw = 10;
+        const int bh = 10;
+        std::vector<Rgba> source(static_cast<size_t>(bw) * bh);
+        for (int y = 0; y < bh; y++)
+            for (int x = 0; x < bw; x++)
+                source[static_cast<size_t>(y) * bw + x] = (x < bw / 2) ? kRed : kBlue;
+
+        std::unique_ptr<tinta::Bitmap> bitmap = h.makeBitmap(bw, bh, source);
+        // A harness that cannot build a bitmap has failed to supply an INSTRUMENT,
+        // which is a different thing from the seam being broken -- so this is checked
+        // rather than dereferenced, and every assertion below is skipped rather than
+        // silently reading an unpainted surface as agreement.
+        check(bitmap != nullptr,
+              "CONTROL: the harness built a bitmap -- every bitmap assertion below is "
+              "void without it");
+
+        if (bitmap) {
+            const tinta::SizeF size = bitmap->GetSize();
+            check(size.width == static_cast<float>(bw) && size.height == static_cast<float>(bh),
+                  "Bitmap::GetSize reports the dimensions the bitmap was created with");
+
+            // 1:1, through the TWO-ARGUMENT call -- the arity 3 of the 7 sites use, so
+            // this also checks that the defaults bind to opacity 1 and linear.
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 30, 20));
+                h.end();
+            }
+            check(leftmostPainted(h) == 20,
+                  "DrawBitmap puts the bitmap's left edge at destRect.left");
+            check(topmostPainted(h) == 10,
+                  "and its top edge at destRect.top, so destRect is not read as x/y/w/h");
+            check(h.pixel(21, 15) == kRed,
+                  "the bitmap's left half lands on the left of the destination -- not mirrored");
+            check(h.pixel(28, 15) == kBlue,
+                  "and its right half on the right, which a flip or a transpose would swap");
+
+            // 4x upscale. The bounds stay exact because neither backend paints outside
+            // destRect; the colours are sampled well clear of the interpolation band
+            // around the middle.
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 60, 50));
+                h.end();
+            }
+            check(leftmostPainted(h) == 20 && rightmostPainted(h) == 59,
+                  "a destRect four times the bitmap's size scales it to fill exactly that rect");
+            check(h.pixel(25, 30) == kRed && h.pixel(55, 30) == kBlue,
+                  "scaling preserves orientation: red still left, blue still right");
+
+            // srcRect, and its COUNTER-CASE. Taking only the left half must fill the
+            // whole destination with red, and taking only the right half must fill the
+            // same destination with blue. Either assertion alone would pass against a
+            // backend that ignored srcRect entirely, because half of a bitmap drawn
+            // whole is still red on the left; it is the PAIR that proves the argument
+            // is read, and that its coordinates are in the SOURCE's space rather than
+            // the destination's.
+            whiteSurface(h);
+            {
+                const tinta::RectF leftHalf = tinta::rectF(0, 0, 5, 10);
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 60, 50), 1.0f,
+                              tinta::BitmapInterpolationMode::Linear, &leftHalf);
+                h.end();
+            }
+            const bool leftHalfPainted = leftmostPainted(h) == 20;
+            const bool leftHalfAllRed = h.pixel(25, 30) == kRed && h.pixel(55, 30) == kRed;
+
+            whiteSurface(h);
+            {
+                const tinta::RectF rightHalf = tinta::rectF(5, 0, 10, 10);
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 60, 50), 1.0f,
+                              tinta::BitmapInterpolationMode::Linear, &rightHalf);
+                h.end();
+            }
+            check(leftHalfPainted && leftmostPainted(h) == 20,
+                  "CONTROL: both sub-rect draws filled the destination rect");
+            check(leftHalfAllRed,
+                  "srcRect selects a sub-region: the source's left half fills the whole "
+                  "destination with red");
+            check(h.pixel(25, 30) == kBlue && h.pixel(55, 30) == kBlue,
+                  "COUNTER-CASE: the source's right half fills the same destination with "
+                  "blue, which a backend ignoring srcRect could not do");
+
+            // Opacity. Asserted as a RELATION against the same draw at full opacity
+            // rather than as a blend value, because the exact blend is a property of
+            // each backend's compositor and not of the seam.
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 30, 20), 1.0f,
+                              tinta::BitmapInterpolationMode::Linear);
+                h.end();
+            }
+            const Rgba opaque = h.pixel(21, 15);
+            check(opaque == kRed, "CONTROL: at opacity 1 the bitmap's own colour reaches the "
+                                  "surface unblended");
+
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 30, 20), 0.5f,
+                              tinta::BitmapInterpolationMode::Linear);
+                h.end();
+            }
+            const Rgba half = h.pixel(21, 15);
+            check(half != opaque, "the opacity argument changes the result -- a backend "
+                                  "dropping it would paint these identically");
+            check(half.g > opaque.g && half.g < kWhite.g,
+                  "and it blends toward the white background rather than replacing it, so "
+                  "the value lies strictly between the bitmap's colour and the surface's");
+
+            // Opacity 0. A REFUSAL path, and the only assertion here whose expected
+            // answer is an empty surface -- so it is paired with the full-opacity draw
+            // above, which must have painted, or "nothing was drawn" would be
+            // indistinguishable from a DrawBitmap that never draws anything at all.
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 30, 20), 0.0f,
+                              tinta::BitmapInterpolationMode::Linear);
+                h.end();
+            }
+            check(countNonWhite(h) == 0,
+                  "at opacity 0 the bitmap is not drawn at all, which is only meaningful "
+                  "because the opacity-1 control above painted");
+
+            // INTERPOLATION MODE, which is the argument most likely to be accepted and
+            // then thrown away: Direct2D's default is linear and Qt's is nearest, so a
+            // backend that simply never touched its own setting would still produce a
+            // plausible picture, and every assertion above would pass. It is made
+            // observable by counting pixels along a row that are NEITHER of the
+            // bitmap's two colours -- a 4x upscale under nearest-neighbour has none,
+            // and under linear the red/blue boundary must blend.
+            int blendedUnderNearest = 0;
+            int blendedUnderLinear = 0;
+            int paintedUnderNearest = 0;
+            int paintedUnderLinear = 0;
+            for (int pass = 0; pass < 2; pass++) {
+                const tinta::BitmapInterpolationMode mode =
+                    pass == 0 ? tinta::BitmapInterpolationMode::NearestNeighbor
+                              : tinta::BitmapInterpolationMode::Linear;
+                whiteSurface(h);
+                {
+                    tinta::RenderTarget& rt = h.begin();
+                    rt.DrawBitmap(bitmap.get(), tinta::rectF(20, 10, 60, 50), 1.0f, mode);
+                    h.end();
+                }
+                // The scan is the destination's INTERIOR, x in [22,58), not the whole
+                // 40-pixel row. The outer two columns are where the dest rect's own
+                // edge is antialiased against the white surface, and a blended pixel
+                // there is a property of edge coverage under BOTH modes -- counting it
+                // would redden the nearest-neighbour assertion for a reason that has
+                // nothing to do with how the bitmap was sampled. The red/blue boundary
+                // sits at dest x=40 (source x=5 at 4x), so the band this is looking for
+                // is nowhere near the excluded columns.
+                int blended = 0;
+                int painted = 0;
+                for (int x = 22; x < 58; x++) {
+                    const Rgba p = h.pixel(x, 30);
+                    if (p == kWhite) continue;
+                    painted++;
+                    if (p != kRed && p != kBlue) blended++;
+                }
+                if (pass == 0) {
+                    blendedUnderNearest = blended;
+                    paintedUnderNearest = painted;
+                } else {
+                    blendedUnderLinear = blended;
+                    paintedUnderLinear = painted;
+                }
+            }
+            check(paintedUnderNearest == 36 && paintedUnderLinear == 36,
+                  "CONTROL: both interpolation modes filled the whole scanned destination "
+                  "row, so the comparison below is between two real draws");
+            check(blendedUnderNearest == 0,
+                  "nearest-neighbour sampling produces only the bitmap's own two colours");
+            check(blendedUnderLinear > 0,
+                  "linear sampling blends across the red/blue boundary, so the "
+                  "interpolation argument is read rather than left at the backend's default");
+        }
+    }
+
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",
                 failures == 0 ? "all " : "", checks, failures, h.name());
     return failures;

@@ -42,6 +42,23 @@ public:
         return std::make_unique<QtBrush>(color);
     }
 
+    std::unique_ptr<tinta::Bitmap> makeBitmap(int width, int height,
+                                             const std::vector<Rgba>& pixels) override {
+        if (width <= 0 || height <= 0 ||
+            pixels.size() != static_cast<size_t>(width) * static_cast<size_t>(height))
+            return nullptr;
+        // Format_ARGB32 is STRAIGHT alpha, which is what Rgba means, so qRgba takes
+        // the values through unchanged. The D2D harness has to premultiply here; that
+        // asymmetry is the whole reason this factory is the harness's job.
+        QImage image(width, height, QImage::Format_ARGB32);
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++) {
+                const Rgba& p = pixels[static_cast<size_t>(y) * width + x];
+                image.setPixel(x, y, qRgba(p.r, p.g, p.b, p.a));
+            }
+        return std::make_unique<QtBitmap>(std::move(image));
+    }
+
     Rgba pixel(int x, int y) override {
         const QRgb p = image_.pixel(x, y);
         return Rgba{qRed(p), qGreen(p), qBlue(p), qAlpha(p)};

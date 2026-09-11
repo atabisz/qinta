@@ -23,6 +23,7 @@
 #include "render_api.h"
 
 #include <memory>
+#include <vector>
 
 // ONE ASSERTION SET, EVERY BACKEND.
 //
@@ -76,6 +77,18 @@ public:
     virtual void end() = 0;
 
     virtual std::unique_ptr<tinta::Brush> makeBrush(const tinta::Color& color) = 0;
+
+    // A drawable bitmap, row-major, `width * height` entries, in the same STRAIGHT
+    // (not premultiplied) Rgba the pixel reader returns. Supplied by the harness for
+    // the same reason makeBrush is: render_api.h keeps creation out of the seam, so a
+    // backend makes its own bitmaps -- Direct2D needs a device-owned ID2D1Bitmap and
+    // a premultiply, Qt needs only a QImage, and no assertion should know which.
+    //
+    // Returning null is a legitimate answer for a harness that cannot allocate one;
+    // the assertions check for it and say so rather than dereferencing, because "the
+    // instrument could not be built" and "the seam is broken" must not report alike.
+    virtual std::unique_ptr<tinta::Bitmap> makeBitmap(int width, int height,
+                                                      const std::vector<Rgba>& pixels) = 0;
 
     virtual Rgba pixel(int x, int y) = 0;
 

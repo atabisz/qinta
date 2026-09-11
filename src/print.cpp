@@ -274,7 +274,7 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
             dc->DrawLine(tinta::pointF(from.x + dx, from.y + dy),
                          tinta::pointF(to.x + dx, to.y + dy),
                          brush, connector.stroke,
-                         connector.dashed ? app.dashedStrokeStyle : nullptr);
+                         connector.dashed ? app.nativeDashedStrokeStyle : nullptr);
         }
         if (connector.directed) {
             const auto& tip = connector.points.back();

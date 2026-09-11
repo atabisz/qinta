@@ -24,6 +24,15 @@
 #include "keymap.h"
 #include "settings_data.h"
 #include "theme_data.h"
+// Brings tinta::RenderTarget/Brush/Bitmap/StrokeStyle and their borrowed
+// Direct2D wrappers, which App now holds alongside the natives. This is the
+// commit that first makes a production translation unit include the seam at
+// all -- before it, render_api.h reached only the two backend headers and the
+// test harness, so 96.6% "coverage" described methods that existed rather
+// than calls that used them.
+#include <memory>
+
+#include "render_d2d.h"
 
 using namespace qmd;
 
@@ -115,8 +124,25 @@ struct App {
     bool running = true;
 
     // Direct2D
+    //
+    // THE NAMING RULE FOR EVERY PAIR BELOW, because it is what keeps this a
+    // ~110-edit change instead of a ~1,600-edit one: the WRAPPER keeps the
+    // original member name and the native COM pointer takes a `native` prefix.
+    // So the ~1,500 sites that merely PASS a member to a drawing call bind to
+    // the seam with no edit at all, and only the sites that call a COM method
+    // on it, or take its address to create it, had to move to the native name.
+    //
+    // The wrappers BORROW (render_d2d.h says so at length): they neither AddRef
+    // nor Release, the natives below are still the owners, and every existing
+    // Release() site still runs against the native. A wrapper is refreshed --
+    // reseated onto whatever native currently exists -- by the seat* helpers in
+    // d2d_init.cpp, never by a drawing call.
     ID2D1Factory* d2dFactory = nullptr;
-    ID2D1HwndRenderTarget* renderTarget = nullptr;
+    ID2D1HwndRenderTarget* nativeRenderTarget = nullptr;
+    D2DRenderTarget renderTargetStorage{nullptr};
+    // What the 566 drawing sites call. Null until seatRenderTarget() runs, and
+    // null again the moment the native goes -- callers already null-check it.
+    tinta::RenderTarget* renderTarget = nullptr;
     // The first render target is software: it creates in ~20 ms while a
     // hardware one pays ~200 ms of D3D device + GPU driver initialization.
     // The warm-up thread flips this and the target is recreated on
@@ -125,7 +151,9 @@ struct App {
 
     // Cached dashed stroke for mermaid edges (factory object: created once,
     // survives render-target recreation)
-    ID2D1StrokeStyle* dashedStrokeStyle = nullptr;
+    ID2D1StrokeStyle* nativeDashedStrokeStyle = nullptr;
+    D2DStrokeStyle dashedStrokeStyleStorage{nullptr};
+    tinta::StrokeStyle* dashedStrokeStyle = nullptr;
 
     // Editor paint-path line layouts, keyed by line start offset. Cleared on
     // any text/format/width/wrap change; between changes the 500 ms cursor
@@ -145,7 +173,16 @@ struct App {
         editorLineLayoutCache.clear();
         editorLayoutUseClock = 0;
     }
-    ID2D1SolidColorBrush* brush = nullptr;
+    ID2D1SolidColorBrush* nativeBrush = nullptr;
+    D2DBrush brushStorage{nullptr};
+    // The scratch brush every draw call passes: 991 sites name it, of which only
+    // 483 call a method (474 SetColor, 6 Release, 3 GetColor). SetColor and
+    // GetColor are on tinta::Brush already and their arguments are tinta::Color
+    // after the value-type sweep, so those 474 needed no edit either.
+    tinta::Brush* brush = nullptr;
+    // Stays native deliberately. Its 9 sites are 6 GetDevice, 2 Release and one
+    // DrawTextLayout -- colour-emoji work with no seam equivalent, and it is
+    // obtained by QueryInterface off the native target, not through the seam.
     ID2D1DeviceContext* deviceContext = nullptr;  // For color emoji rendering
 
     // WIC (Windows Imaging Component) for image loading
@@ -232,27 +269,70 @@ struct App {
     IDWriteFactory* dwriteFactory = nullptr;
     IDWriteFontFallback* fontFallback = nullptr;  // For emoji font fallback
     IDWriteTextAnalyzer* textAnalyzer = nullptr;  // UAX#14 line-break analysis
-    IDWriteTextFormat* textFormat = nullptr;
-    IDWriteTextFormat* headingFormat = nullptr;
-    IDWriteTextFormat* codeFormat = nullptr;
-    IDWriteTextFormat* boldFormat = nullptr;
-    IDWriteTextFormat* italicFormat = nullptr;
+    // Same pair rule as the Direct2D members above: native holds and owns,
+    // wrapper keeps the name the 106 DrawText sites already pass. Only 40 sites
+    // in the tree call an IDWrite method on one of these, and 25 creation calls
+    // in d2d_init.cpp take an address -- those moved to the native names; every
+    // other use bound to the wrapper untouched.
+    IDWriteTextFormat* nativeTextFormat = nullptr;
+    IDWriteTextFormat* nativeHeadingFormat = nullptr;
+    IDWriteTextFormat* nativeCodeFormat = nullptr;
+    IDWriteTextFormat* nativeBoldFormat = nullptr;
+    IDWriteTextFormat* nativeItalicFormat = nullptr;
     // Nested inline spans: **bold *italic***, **`code`**, *`code`*
-    IDWriteTextFormat* boldItalicFormat = nullptr;
-    IDWriteTextFormat* codeBoldFormat = nullptr;
-    IDWriteTextFormat* codeItalicFormat = nullptr;
-    IDWriteTextFormat* codeBoldItalicFormat = nullptr;
-    IDWriteTextFormat* headingFormats[6] = {};
+    IDWriteTextFormat* nativeBoldItalicFormat = nullptr;
+    IDWriteTextFormat* nativeCodeBoldFormat = nullptr;
+    IDWriteTextFormat* nativeCodeItalicFormat = nullptr;
+    IDWriteTextFormat* nativeCodeBoldItalicFormat = nullptr;
+    IDWriteTextFormat* nativeHeadingFormats[6] = {};
 
     // Overlay text formats (cached)
-    IDWriteTextFormat* searchTextFormat = nullptr;
-    IDWriteTextFormat* themeTitleFormat = nullptr;
-    IDWriteTextFormat* themeHeaderFormat = nullptr;
+    IDWriteTextFormat* nativeSearchTextFormat = nullptr;
+    IDWriteTextFormat* nativeThemeTitleFormat = nullptr;
+    IDWriteTextFormat* nativeThemeHeaderFormat = nullptr;
 
+    std::unique_ptr<D2DTextFormat> textFormatStorage;
+    std::unique_ptr<D2DTextFormat> headingFormatStorage;
+    std::unique_ptr<D2DTextFormat> codeFormatStorage;
+    std::unique_ptr<D2DTextFormat> boldFormatStorage;
+    std::unique_ptr<D2DTextFormat> italicFormatStorage;
+    std::unique_ptr<D2DTextFormat> boldItalicFormatStorage;
+    std::unique_ptr<D2DTextFormat> codeBoldFormatStorage;
+    std::unique_ptr<D2DTextFormat> codeItalicFormatStorage;
+    std::unique_ptr<D2DTextFormat> codeBoldItalicFormatStorage;
+    std::unique_ptr<D2DTextFormat> headingFormatsStorage[6];
+    std::unique_ptr<D2DTextFormat> searchTextFormatStorage;
+    std::unique_ptr<D2DTextFormat> themeTitleFormatStorage;
+    std::unique_ptr<D2DTextFormat> themeHeaderFormatStorage;
+
+    tinta::TextFormat* textFormat = nullptr;
+    tinta::TextFormat* headingFormat = nullptr;
+    tinta::TextFormat* codeFormat = nullptr;
+    tinta::TextFormat* boldFormat = nullptr;
+    tinta::TextFormat* italicFormat = nullptr;
+    tinta::TextFormat* boldItalicFormat = nullptr;
+    tinta::TextFormat* codeBoldFormat = nullptr;
+    tinta::TextFormat* codeItalicFormat = nullptr;
+    tinta::TextFormat* codeBoldItalicFormat = nullptr;
+    tinta::TextFormat* headingFormats[6] = {};
+    tinta::TextFormat* searchTextFormat = nullptr;
+    tinta::TextFormat* themeTitleFormat = nullptr;
+    tinta::TextFormat* themeHeaderFormat = nullptr;
+
+    // Same three-part shape as the flat formats above. unique_ptr storage makes
+    // this struct move-only, which is all std::vector::resize() needs, and the
+    // wrapper pointers are seated AFTER the one resize() so they cannot be left
+    // pointing into a reallocated buffer.
     struct ThemePreviewFormats {
-        IDWriteTextFormat* name = nullptr;
-        IDWriteTextFormat* preview = nullptr;
-        IDWriteTextFormat* code = nullptr;
+        IDWriteTextFormat* nativeName = nullptr;
+        IDWriteTextFormat* nativePreview = nullptr;
+        IDWriteTextFormat* nativeCode = nullptr;
+        std::unique_ptr<D2DTextFormat> nameStorage;
+        std::unique_ptr<D2DTextFormat> previewStorage;
+        std::unique_ptr<D2DTextFormat> codeStorage;
+        tinta::TextFormat* name = nullptr;
+        tinta::TextFormat* preview = nullptr;
+        tinta::TextFormat* code = nullptr;
     };
     std::vector<ThemePreviewFormats> themePreviewFormats;
 
@@ -261,17 +341,27 @@ struct App {
     IDWriteTypography* codeTypography = nullptr;
 
     // Folder browser text format
-    IDWriteTextFormat* folderBrowserFormat = nullptr;
+    IDWriteTextFormat* nativeFolderBrowserFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> folderBrowserFormatStorage;
+    tinta::TextFormat* folderBrowserFormat = nullptr;
 
     // TOC text formats
-    IDWriteTextFormat* tocFormat = nullptr;
-    IDWriteTextFormat* tocFormatBold = nullptr;
+    IDWriteTextFormat* nativeTocFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> tocFormatStorage;
+    tinta::TextFormat* tocFormat = nullptr;
+    IDWriteTextFormat* nativeTocFormatBold = nullptr;
+    std::unique_ptr<D2DTextFormat> tocFormatBoldStorage;
+    tinta::TextFormat* tocFormatBold = nullptr;
 
     // Signal chips: subtitles, badges, and the tiny PINNED/HELD labels
-    IDWriteTextFormat* signalSmallFormat = nullptr;
+    IDWriteTextFormat* nativeSignalSmallFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> signalSmallFormatStorage;
+    tinta::TextFormat* signalSmallFormat = nullptr;
 
     // Stats overlay: UI chrome, so it must not follow the document zoom
-    IDWriteTextFormat* statsFormat = nullptr;
+    IDWriteTextFormat* nativeStatsFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> statsFormatStorage;
+    tinta::TextFormat* statsFormat = nullptr;
 
     // Markdown
     MarkdownParser parser;
@@ -1089,11 +1179,17 @@ struct App {
     std::vector<EditAction> redoStack;
 
     // Editor text format (monospace)
-    IDWriteTextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
-    IDWriteTextFormat* editorTextFormat = nullptr;
+    IDWriteTextFormat* nativeSupSubFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> supSubFormatStorage;
+    tinta::TextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
+    IDWriteTextFormat* nativeEditorTextFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> editorTextFormatStorage;
+    tinta::TextFormat* editorTextFormat = nullptr;
     float editorCharWidth = 0.0f; // Measured monospace char width
     // Slim in-editor line-number gutter (design t11)
-    IDWriteTextFormat* editorGutterFormat = nullptr;
+    IDWriteTextFormat* nativeEditorGutterFormat = nullptr;
+    std::unique_ptr<D2DTextFormat> editorGutterFormatStorage;
+    tinta::TextFormat* editorGutterFormat = nullptr;
 
     // Metrics
     StartupMetrics metrics;
@@ -1137,21 +1233,21 @@ struct App {
     }
 
     void releaseOverlayFormats() {
-        if (signalSmallFormat) { signalSmallFormat->Release(); signalSmallFormat = nullptr; }
-        if (searchTextFormat) { searchTextFormat->Release(); searchTextFormat = nullptr; }
-        if (themeTitleFormat) { themeTitleFormat->Release(); themeTitleFormat = nullptr; }
-        if (themeHeaderFormat) { themeHeaderFormat->Release(); themeHeaderFormat = nullptr; }
-        if (folderBrowserFormat) { folderBrowserFormat->Release(); folderBrowserFormat = nullptr; }
-        if (tocFormat) { tocFormat->Release(); tocFormat = nullptr; }
-        if (tocFormatBold) { tocFormatBold->Release(); tocFormatBold = nullptr; }
-        if (statsFormat) { statsFormat->Release(); statsFormat = nullptr; }
-        if (supSubFormat) { supSubFormat->Release(); supSubFormat = nullptr; }
-        if (editorTextFormat) { editorTextFormat->Release(); editorTextFormat = nullptr; }
-        if (editorGutterFormat) { editorGutterFormat->Release(); editorGutterFormat = nullptr; }
+        signalSmallFormatStorage.reset(); nativeSignalSmallFormat = nullptr; signalSmallFormat = nullptr;
+        searchTextFormatStorage.reset(); nativeSearchTextFormat = nullptr; searchTextFormat = nullptr;
+        themeTitleFormatStorage.reset(); nativeThemeTitleFormat = nullptr; themeTitleFormat = nullptr;
+        themeHeaderFormatStorage.reset(); nativeThemeHeaderFormat = nullptr; themeHeaderFormat = nullptr;
+        folderBrowserFormatStorage.reset(); nativeFolderBrowserFormat = nullptr; folderBrowserFormat = nullptr;
+        tocFormatStorage.reset(); nativeTocFormat = nullptr; tocFormat = nullptr;
+        tocFormatBoldStorage.reset(); nativeTocFormatBold = nullptr; tocFormatBold = nullptr;
+        statsFormatStorage.reset(); nativeStatsFormat = nullptr; statsFormat = nullptr;
+        supSubFormatStorage.reset(); nativeSupSubFormat = nullptr; supSubFormat = nullptr;
+        editorTextFormatStorage.reset(); nativeEditorTextFormat = nullptr; editorTextFormat = nullptr;
+        editorGutterFormatStorage.reset(); nativeEditorGutterFormat = nullptr; editorGutterFormat = nullptr;
         for (auto& fmt : themePreviewFormats) {
-            if (fmt.name) { fmt.name->Release(); fmt.name = nullptr; }
-            if (fmt.preview) { fmt.preview->Release(); fmt.preview = nullptr; }
-            if (fmt.code) { fmt.code->Release(); fmt.code = nullptr; }
+            fmt.nameStorage.reset(); fmt.nativeName = nullptr; fmt.name = nullptr;
+            fmt.previewStorage.reset(); fmt.nativePreview = nullptr; fmt.preview = nullptr;
+            fmt.codeStorage.reset(); fmt.nativeCode = nullptr; fmt.code = nullptr;
         }
         themePreviewFormats.clear();
     }
@@ -1186,28 +1282,116 @@ struct App {
         releaseOverlayFormats();
         releaseImageCache();
         if (wicFactory) { wicFactory->Release(); wicFactory = nullptr; }
-        if (brush) { brush->Release(); brush = nullptr; }
-        if (dashedStrokeStyle) { dashedStrokeStyle->Release(); dashedStrokeStyle = nullptr; }
+        if (nativeBrush) { nativeBrush->Release(); nativeBrush = nullptr; }
+        brushStorage = D2DBrush{nullptr};
+        brush = nullptr;
+        if (nativeDashedStrokeStyle) { nativeDashedStrokeStyle->Release(); nativeDashedStrokeStyle = nullptr; }
+        dashedStrokeStyleStorage = D2DStrokeStyle{nullptr};
+        dashedStrokeStyle = nullptr;
         if (deviceContext) { deviceContext->Release(); deviceContext = nullptr; }
-        if (renderTarget) { renderTarget->Release(); renderTarget = nullptr; }
+        if (nativeRenderTarget) { nativeRenderTarget->Release(); nativeRenderTarget = nullptr; }
+        renderTargetStorage = D2DRenderTarget{nullptr};
+        renderTarget = nullptr;
         if (fontFallback) { fontFallback->Release(); fontFallback = nullptr; }
         if (textAnalyzer) { textAnalyzer->Release(); textAnalyzer = nullptr; }
-        if (textFormat) { textFormat->Release(); textFormat = nullptr; }
-        if (headingFormat) { headingFormat->Release(); headingFormat = nullptr; }
-        if (codeFormat) { codeFormat->Release(); codeFormat = nullptr; }
-        if (boldFormat) { boldFormat->Release(); boldFormat = nullptr; }
-        if (italicFormat) { italicFormat->Release(); italicFormat = nullptr; }
-        if (boldItalicFormat) { boldItalicFormat->Release(); boldItalicFormat = nullptr; }
-        if (codeBoldFormat) { codeBoldFormat->Release(); codeBoldFormat = nullptr; }
-        if (codeItalicFormat) { codeItalicFormat->Release(); codeItalicFormat = nullptr; }
-        if (codeBoldItalicFormat) { codeBoldItalicFormat->Release(); codeBoldItalicFormat = nullptr; }
-        for (auto& fmt : headingFormats) {
-            if (fmt) { fmt->Release(); fmt = nullptr; }
+        textFormatStorage.reset(); nativeTextFormat = nullptr; textFormat = nullptr;
+        headingFormatStorage.reset(); nativeHeadingFormat = nullptr; headingFormat = nullptr;
+        codeFormatStorage.reset(); nativeCodeFormat = nullptr; codeFormat = nullptr;
+        boldFormatStorage.reset(); nativeBoldFormat = nullptr; boldFormat = nullptr;
+        italicFormatStorage.reset(); nativeItalicFormat = nullptr; italicFormat = nullptr;
+        boldItalicFormatStorage.reset(); nativeBoldItalicFormat = nullptr; boldItalicFormat = nullptr;
+        codeBoldFormatStorage.reset(); nativeCodeBoldFormat = nullptr; codeBoldFormat = nullptr;
+        codeItalicFormatStorage.reset(); nativeCodeItalicFormat = nullptr; codeItalicFormat = nullptr;
+        codeBoldItalicFormatStorage.reset(); nativeCodeBoldItalicFormat = nullptr; codeBoldItalicFormat = nullptr;
+        for (int i = 0; i < 6; ++i) {
+            headingFormatsStorage[i].reset();
+            nativeHeadingFormats[i] = nullptr;
+            headingFormats[i] = nullptr;
         }
         if (bodyTypography) { bodyTypography->Release(); bodyTypography = nullptr; }
         if (codeTypography) { codeTypography->Release(); codeTypography = nullptr; }
         if (dwriteFactory) { dwriteFactory->Release(); dwriteFactory = nullptr; }
         if (d2dFactory) { d2dFactory->Release(); d2dFactory = nullptr; }
+    }
+
+    // --- seam wrapper seating ------------------------------------------------
+    // The tinta::* pointers above are what the drawing sites call; these reseat
+    // them onto whatever natives currently exist, so every creation path ends
+    // with one call rather than 25 inline rewraps.
+    //
+    // Seating is deliberately idempotent, and that is not a nicety. The two
+    // wrapper families differ in ownership: render_d2d.h's wrappers BORROW (no
+    // destructor, so reseating one is a plain assignment), while text_d2d.h's
+    // D2DTextFormat OWNS -- its destructor Releases. A blind reset-then-rewrap
+    // of an unchanged native would therefore Release the very pointer the new
+    // wrapper is about to hold, which is why seatFormat compares first.
+    static void seatFormat(std::unique_ptr<D2DTextFormat>& storage,
+                           IDWriteTextFormat* native, tinta::TextFormat*& out) {
+        if (!native) { storage.reset(); out = nullptr; return; }
+        if (!storage || storage->native() != native) {
+            storage = std::make_unique<D2DTextFormat>(native);
+        }
+        out = storage.get();
+    }
+
+    void seatRenderTarget() {
+        renderTargetStorage = D2DRenderTarget{nativeRenderTarget};
+        renderTarget = nativeRenderTarget ? &renderTargetStorage : nullptr;
+    }
+
+    void seatBrush() {
+        brushStorage = D2DBrush{nativeBrush};
+        brush = nativeBrush ? &brushStorage : nullptr;
+    }
+
+    void seatDashedStrokeStyle() {
+        dashedStrokeStyleStorage = D2DStrokeStyle{nativeDashedStrokeStyle};
+        dashedStrokeStyle = nativeDashedStrokeStyle ? &dashedStrokeStyleStorage
+                                                    : nullptr;
+    }
+
+    void seatTextFormats() {
+        seatFormat(textFormatStorage, nativeTextFormat, textFormat);
+        seatFormat(headingFormatStorage, nativeHeadingFormat, headingFormat);
+        seatFormat(codeFormatStorage, nativeCodeFormat, codeFormat);
+        seatFormat(boldFormatStorage, nativeBoldFormat, boldFormat);
+        seatFormat(italicFormatStorage, nativeItalicFormat, italicFormat);
+        seatFormat(boldItalicFormatStorage, nativeBoldItalicFormat, boldItalicFormat);
+        seatFormat(codeBoldFormatStorage, nativeCodeBoldFormat, codeBoldFormat);
+        seatFormat(codeItalicFormatStorage, nativeCodeItalicFormat, codeItalicFormat);
+        seatFormat(codeBoldItalicFormatStorage, nativeCodeBoldItalicFormat,
+                   codeBoldItalicFormat);
+        seatFormat(searchTextFormatStorage, nativeSearchTextFormat, searchTextFormat);
+        seatFormat(themeTitleFormatStorage, nativeThemeTitleFormat, themeTitleFormat);
+        seatFormat(themeHeaderFormatStorage, nativeThemeHeaderFormat, themeHeaderFormat);
+        seatFormat(folderBrowserFormatStorage, nativeFolderBrowserFormat,
+                   folderBrowserFormat);
+        seatFormat(tocFormatStorage, nativeTocFormat, tocFormat);
+        seatFormat(tocFormatBoldStorage, nativeTocFormatBold, tocFormatBold);
+        seatFormat(signalSmallFormatStorage, nativeSignalSmallFormat, signalSmallFormat);
+        seatFormat(statsFormatStorage, nativeStatsFormat, statsFormat);
+        seatFormat(supSubFormatStorage, nativeSupSubFormat, supSubFormat);
+        seatFormat(editorTextFormatStorage, nativeEditorTextFormat, editorTextFormat);
+        seatFormat(editorGutterFormatStorage, nativeEditorGutterFormat,
+                   editorGutterFormat);
+        for (int i = 0; i < 6; ++i) {
+            seatFormat(headingFormatsStorage[i], nativeHeadingFormats[i],
+                       headingFormats[i]);
+        }
+        // Seated after the one resize() in ensureThemePreviewFormats, never
+        // before it, so these never point into a reallocated vector buffer.
+        for (auto& fmt : themePreviewFormats) {
+            seatFormat(fmt.nameStorage, fmt.nativeName, fmt.name);
+            seatFormat(fmt.previewStorage, fmt.nativePreview, fmt.preview);
+            seatFormat(fmt.codeStorage, fmt.nativeCode, fmt.code);
+        }
+    }
+
+    void seatSeamWrappers() {
+        seatRenderTarget();
+        seatBrush();
+        seatDashedStrokeStyle();
+        seatTextFormats();
     }
 };
 

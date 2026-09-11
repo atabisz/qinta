@@ -53,8 +53,8 @@ static void railDraw(App& app, IDWriteTextLayout* layout, float x, float y,
                      tinta::Color color) {
     if (!layout) return;
     app.brush->SetColor(color);
-    app.renderTarget->DrawTextLayout(tinta::pointF(x, y), layout,
-                                     app.brush);
+    app.nativeRenderTarget->DrawTextLayout(tinta::pointF(x, y), layout,
+                                     app.nativeBrush);
 }
 
 // Centers a glyph layout in a rect, then releases it
@@ -170,10 +170,10 @@ void renderEditRail(App& app) {
                                 : tinta::colorF(1.0f, 0.97f, 0.95f, 1.0f);
 
     app.renderTarget->PushAxisAlignedClip(
-        tinta::rectF(0, 0, railW, H), D2D1_ANTIALIAS_MODE_ALIASED);
-    D2D1_MATRIX_3X2_F prev;
+        tinta::rectF(0, 0, railW, H), tinta::AntialiasMode::Aliased);
+    tinta::Matrix3x2F prev;
     app.renderTarget->GetTransform(&prev);
-    app.renderTarget->SetTransform(D2D1::Matrix3x2F::Translation(-slide, 0) *
+    app.renderTarget->SetTransform(tinta::matrixTranslation(-slide, 0) *
                                    prev);
 
     app.brush->SetColor(railBg);
@@ -201,7 +201,7 @@ void renderEditRail(App& app) {
     startPageEnsureIcon(app);
     if (app.startPageIconBitmap) {
         float iconSize = dpi(app, 20.0f);
-        app.renderTarget->DrawBitmap(
+        app.nativeRenderTarget->DrawBitmap(
             app.startPageIconBitmap,
             tinta::rectF((railW - iconSize) * 0.5f, y,
                         (railW + iconSize) * 0.5f, y + iconSize));

@@ -9,13 +9,16 @@
 struct InlineSpan {
     std::wstring text;
     tinta::Color color;
-    IDWriteTextFormat* format;
+    tinta::TextFormat* format;
     std::string linkUrl;
     bool underline;
 };
 
 std::wstring toWide(const std::string& str);
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format);
+// Seam-handle overload. The plumbing below carries tinta::TextFormat* now, and
+// unwrapping once here beats unwrapping at every measure site.
+float measureText(App& app, const std::wstring& text, tinta::TextFormat* format);
 std::wstring toLower(const std::wstring& str);
 std::wstring_view textViewForRect(const App& app, const App::TextRect& tr);
 

@@ -2714,9 +2714,9 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 if (idx >= 0) {
                     // Preview format cache must grow for the chooser
                     for (auto& pf : app.themePreviewFormats) {
-                        if (pf.name) { pf.name->Release(); pf.name = nullptr; }
-                        if (pf.preview) { pf.preview->Release(); pf.preview = nullptr; }
-                        if (pf.code) { pf.code->Release(); pf.code = nullptr; }
+                        pf.nameStorage.reset(); pf.nativeName = nullptr; pf.name = nullptr;
+                        pf.previewStorage.reset(); pf.nativePreview = nullptr; pf.preview = nullptr;
+                        pf.codeStorage.reset(); pf.nativeCode = nullptr; pf.code = nullptr;
                     }
                     app.themePreviewFormats.clear();
                     applyTheme(app, idx);

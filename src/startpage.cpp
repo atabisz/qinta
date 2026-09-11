@@ -260,7 +260,7 @@ static void spDraw(App& app, IDWriteTextLayout* layout, float x, float y,
                    tinta::Color color) {
     if (!layout) return;
     app.brush->SetColor(color);
-    app.renderTarget->DrawTextLayout(tinta::pointF(x, y), layout, app.brush);
+    app.nativeRenderTarget->DrawTextLayout(tinta::pointF(x, y), layout, app.nativeBrush);
 }
 
 static DWRITE_TEXT_METRICS spMetrics(IDWriteTextLayout* layout) {
@@ -419,7 +419,7 @@ void startPageEnsureIcon(App& app) {
                     wicBitmap, GUID_WICPixelFormat32bppPBGRA,
                     WICBitmapDitherTypeNone, nullptr, 0.0,
                     WICBitmapPaletteTypeCustom))) {
-                app.renderTarget->CreateBitmapFromWicBitmap(
+                app.nativeRenderTarget->CreateBitmapFromWicBitmap(
                     converter, nullptr, &app.startPageIconBitmap);
             }
             converter->Release();
@@ -484,7 +484,7 @@ void renderStartPage(App& app) {
     float heroH = std::max(wmM.height, iconSize);
     if (app.startPageIconBitmap) {
         float iy = y0 + (heroH - iconSize) * 0.5f;
-        app.renderTarget->DrawBitmap(
+        app.nativeRenderTarget->DrawBitmap(
             app.startPageIconBitmap,
             tinta::rectF(x0, iy, x0 + iconSize, iy + iconSize));
     }

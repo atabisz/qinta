@@ -14,7 +14,7 @@
 // the way down.
 
 struct InlineStyle {
-    IDWriteTextFormat* format = nullptr;
+    tinta::TextFormat* format = nullptr;
     tinta::Color color{};
     std::string linkUrl;
     bool isLink = false;
@@ -33,10 +33,10 @@ struct StyledRun {
 };
 
 // Body font face for a weight/style combination, falling back to base
-IDWriteTextFormat* emphasisFormat(App& app, IDWriteTextFormat* base, bool bold, bool italic);
+tinta::TextFormat* emphasisFormat(App& app, tinta::TextFormat* base, bool bold, bool italic);
 
 // Monospace face for an inline `code` span inside emphasis
-IDWriteTextFormat* inlineCodeFormat(App& app, bool bold, bool italic);
+tinta::TextFormat* inlineCodeFormat(App& app, bool bold, bool italic);
 
 // Appends one StyledRun per drawable leaf (Text, Code, Image, Ruby, breaks),
 // each carrying the merged style of every span it sits inside

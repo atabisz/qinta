@@ -741,7 +741,7 @@ void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
 
 void mathBoxDraw(App& app, const MathBoxPtr& box, float x, float y,
                  const tinta::Color& color) {
-    mathBoxDrawTo(app.renderTarget, app.brush, box, x, y, color);
+    mathBoxDrawTo(app.nativeRenderTarget, app.nativeBrush, box, x, y, color);
 }
 
 void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,

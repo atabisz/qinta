@@ -77,16 +77,16 @@ bool resolveFileRef(App& app, const std::string& raw, std::string& absOut) {
 
 }  // namespace
 
-IDWriteTextFormat* emphasisFormat(App& app, IDWriteTextFormat* base, bool bold, bool italic) {
-    IDWriteTextFormat* fmt = nullptr;
+tinta::TextFormat* emphasisFormat(App& app, tinta::TextFormat* base, bool bold, bool italic) {
+    tinta::TextFormat* fmt = nullptr;
     if (bold && italic) fmt = app.boldItalicFormat ? app.boldItalicFormat : app.boldFormat;
     else if (bold) fmt = app.boldFormat;
     else if (italic) fmt = app.italicFormat;
     return fmt ? fmt : base;
 }
 
-IDWriteTextFormat* inlineCodeFormat(App& app, bool bold, bool italic) {
-    IDWriteTextFormat* fmt = nullptr;
+tinta::TextFormat* inlineCodeFormat(App& app, bool bold, bool italic) {
+    tinta::TextFormat* fmt = nullptr;
     if (bold && italic) fmt = app.codeBoldItalicFormat;
     else if (bold) fmt = app.codeBoldFormat;
     else if (italic) fmt = app.codeItalicFormat;

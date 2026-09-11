@@ -319,7 +319,7 @@ EditorGeom editorGeom(const App& app) {
         IDWriteTextLayout* layout = nullptr;
         const std::wstring& text = app.annotEditorText;
         app.dwriteFactory->CreateTextLayout(
-            text.c_str(), (UINT32)text.size(), app.folderBrowserFormat,
+            text.c_str(), (UINT32)text.size(), nativeTextFormat(app.folderBrowserFormat),
             w - pad * 2, 10000.0f, &layout);
         if (layout) layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         if (layout) {
@@ -673,7 +673,7 @@ void renderAnnotations(App& app) {
 
         IDWriteTextLayout* noteLayout = nullptr;
         app.dwriteFactory->CreateTextLayout(
-            note.c_str(), (UINT32)note.size(), app.folderBrowserFormat,
+            note.c_str(), (UINT32)note.size(), nativeTextFormat(app.folderBrowserFormat),
             w - pad * 2 - dpi(app, 4.0f), 10000.0f, &noteLayout);
         if (noteLayout) noteLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         float noteH = dpi(app, 18.0f);
@@ -744,10 +744,10 @@ void renderAnnotations(App& app) {
             app.brush);
         if (noteLayout) {
             app.brush->SetColor(app.theme.text);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(px + pad + dpi(app, 4.0f),
                               py + pad + quoteH + dpi(app, 4.0f)),
-                noteLayout, app.brush);
+                noteLayout, app.nativeBrush);
             noteLayout->Release();
         }
     }
@@ -1067,7 +1067,7 @@ void renderAnnotationEditor(App& app) {
     const std::wstring& text = app.annotEditorText;
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(
-        text.c_str(), (UINT32)text.size(), app.folderBrowserFormat,
+        text.c_str(), (UINT32)text.size(), nativeTextFormat(app.folderBrowserFormat),
         tw, 10000.0f, &layout);
     if (layout) layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
     if (text.empty()) {
@@ -1084,8 +1084,8 @@ void renderAnnotationEditor(App& app) {
     float caretX = tx, caretY = ty, caretH = dpi(app, 16.0f);
     if (layout) {
         app.brush->SetColor(app.theme.text);
-        app.renderTarget->DrawTextLayout(tinta::pointF(tx, ty), layout,
-                                         app.brush);
+        app.nativeRenderTarget->DrawTextLayout(tinta::pointF(tx, ty), layout,
+                                         app.nativeBrush);
         DWRITE_HIT_TEST_METRICS m{};
         FLOAT cx = 0, cy = 0;
         if (SUCCEEDED(layout->HitTestTextPosition(

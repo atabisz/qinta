@@ -62,6 +62,14 @@ set(SOURCES
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
+    # The Direct2D/DirectWrite implementations of the drawing and text seams.
+    # These used to be compiled only by render_d2d_tests, because nothing in the
+    # app referenced tinta::RenderTarget -- the app called Direct2D directly. Now
+    # the drawing sites go through the seam, so leaving them out of this list
+    # produces a clean COMPILE and 25 unresolved externals at link: the reason
+    # the app target needs them is exactly the reason the rewire is real.
+    src/render_d2d.cpp
+    src/text_d2d.cpp
     src/syntax.cpp
     src/utils.cpp
     src/search.cpp
@@ -269,9 +277,10 @@ if(BUILD_TESTING)
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
     add_executable(context_menu_tests tests/context_menu_tests.cpp src/context_menu.cpp
-        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
+        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
+        src/render_d2d.cpp src/text_d2d.cpp)
     target_include_directories(context_menu_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(context_menu_tests PRIVATE md4c shell32)
+    target_link_libraries(context_menu_tests PRIVATE md4c shell32 d2d1 dwrite)
     target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME context_menu COMMAND context_menu_tests)
     endif()  # WIN32
@@ -282,7 +291,8 @@ if(BUILD_TESTING)
 
     if(WIN32)
     add_executable(math_layout_tests tests/math_layout_tests.cpp
-        src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
+        src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
+        src/render_d2d.cpp src/text_d2d.cpp)
     target_include_directories(math_layout_tests PRIVATE include src ${md4c_SOURCE_DIR}/src)
     target_link_libraries(math_layout_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32 ole32)
     target_compile_definitions(math_layout_tests PRIVATE UNICODE _UNICODE
@@ -473,6 +483,8 @@ if(BUILD_TESTING)
     add_executable(inline_style_tests
         tests/inline_style_tests.cpp
         src/inline_style.cpp
+        src/render_d2d.cpp
+        src/text_d2d.cpp
         src/markdown.cpp
         src/themes.cpp
         src/config_dir.cpp

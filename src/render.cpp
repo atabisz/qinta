@@ -69,6 +69,12 @@ static LayoutInfo createLayout(App& app, std::wstring_view text, IDWriteTextForm
     return info;
 }
 
+static LayoutInfo createLayout(App& app, std::wstring_view text,
+                               tinta::TextFormat* format, float lineHeight,
+                               IDWriteTypography* typography) {
+    return createLayout(app, text, nativeTextFormat(format), lineHeight, typography);
+}
+
 static void addTextRect(App& app, const tinta::RectF& rect, size_t docStart, size_t docLength,
                         size_t runIndex = (size_t)-1) {
     size_t idx = app.textRects.size();
@@ -248,7 +254,7 @@ static void shiftLayoutItems(App& app, const LayoutSnapshot& from, float dx) {
     }
 }
 
-static float getSpaceWidth(App& app, IDWriteTextFormat* format) {
+static float getSpaceWidth(App& app, tinta::TextFormat* format) {
     if (format == app.textFormat) return app.spaceWidthText;
     if (format == app.boldFormat) return app.spaceWidthBold;
     if (format == app.italicFormat) return app.spaceWidthItalic;
@@ -392,7 +398,7 @@ void analyzeBreakOpportunities(App& app, const std::wstring& text, std::vector<b
 
 static void layoutInlineContent(App& app, const std::vector<ElementPtr>& elements,
                                 float startX, float& y, float maxWidth,
-                                IDWriteTextFormat* baseFormat, tinta::Color baseColor,
+                                tinta::TextFormat* baseFormat, tinta::Color baseColor,
                                 const std::string& baseLinkUrl = {}, float customLineHeight = 0.0f) {
     float x = startX;
     float lineHeight = customLineHeight > 0 ? customLineHeight : baseFormat->GetFontSize() * 1.7f;
@@ -453,13 +459,14 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             mathBoxes.resize(runs.size());
             mathBaselines.resize(runs.size(), 0);
         }
-        IDWriteTextFormat* format = run.style.format ? run.style.format : baseFormat;
+        tinta::TextFormat* format = run.style.format ? run.style.format : baseFormat;
         float size = format->GetFontSize();
         mathBoxes[i] = mathParse(app, toWide(run.elem->text), size, false);
         if (!mathBoxes[i]) continue;
         float baseline = size * 0.8f;
         IDWriteTextLayout* probe = nullptr;
-        if (SUCCEEDED(app.dwriteFactory->CreateTextLayout(L"Ag", 2, format, 1000, 1000, &probe))) {
+        if (SUCCEEDED(app.dwriteFactory->CreateTextLayout(
+                L"Ag", 2, nativeTextFormat(format), 1000, 1000, &probe))) {
             DWRITE_LINE_METRICS metrics{};
             UINT32 count = 1;
             if (SUCCEEDED(probe->GetLineMetrics(&metrics, 1, &count))) baseline = metrics.baseline;
@@ -473,7 +480,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     for (size_t runIndex = 0; runIndex < runs.size(); runIndex++) {
         const auto& run = runs[runIndex];
         const ElementPtr& elem = run.elem;
-        IDWriteTextFormat* format = run.style.format;
+        tinta::TextFormat* format = run.style.format;
         tinta::Color color = run.style.color;
         const std::string& linkUrl = run.style.linkUrl;
         bool isLink = run.style.isLink;
@@ -943,7 +950,7 @@ static void layoutParagraph(App& app, const ElementPtr& elem, float& y, float in
 static void layoutHeading(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth) {
     float scale = app.contentScale * app.zoomFactor;
     int levelIndex = std::min(elem->level - 1, 5);
-    IDWriteTextFormat* format = app.headingFormats[levelIndex] ? app.headingFormats[levelIndex] : app.textFormat;
+    tinta::TextFormat* format = app.headingFormats[levelIndex] ? app.headingFormats[levelIndex] : app.textFormat;
 
     if (elem->level == 1) {
         y += 16 * scale;
@@ -1014,6 +1021,12 @@ static LayoutInfo createWrappedLayout(App& app, std::wstring_view text,
     info.width = metrics.widthIncludingTrailingWhitespace;
     info.height = metrics.height;
     return info;
+}
+
+static LayoutInfo createWrappedLayout(App& app, std::wstring_view text,
+                                      tinta::TextFormat* format, float width,
+                                      float height) {
+    return createWrappedLayout(app, text, nativeTextFormat(format), width, height);
 }
 
 static tinta::Color mermaidColor(const mermaid::Color& color) {
@@ -2571,7 +2584,7 @@ static bool loadSvgBitmap(App& app, const std::wstring& path,
                               D2D1_ALPHA_MODE_PREMULTIPLIED),
             192.0f, 192.0f);
         ID2D1Bitmap* bitmap = nullptr;
-        if (SUCCEEDED(app.renderTarget->CreateBitmapFromWicBitmap(
+        if (SUCCEEDED(app.nativeRenderTarget->CreateBitmapFromWicBitmap(
                 wicBitmap, &bp, &bitmap)) &&
             bitmap) {
             entry.bitmap = bitmap;
@@ -2673,7 +2686,7 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
     }
 
     ID2D1Bitmap* bitmap = nullptr;
-    hr = app.renderTarget->CreateBitmapFromWicBitmap(converter, nullptr, &bitmap);
+    hr = app.nativeRenderTarget->CreateBitmapFromWicBitmap(converter, nullptr, &bitmap);
     converter->Release();
     frame->Release();
     decoder->Release();
@@ -2807,7 +2820,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
             // whose slightly wider advances then wrapped a "fitting" cell
             // one line past its measured row height (#148)
             bool isHeader = (r == 0);
-            IDWriteTextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
+            tinta::TextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
             bool plainCell = cell->children.size() == 1 &&
                              cell->children[0]->type == ElementType::Text;
             float textWidth = 0;
@@ -2920,7 +2933,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
     for (size_t r = 0; r < rows.size(); r++) {
         float maxRowH = lineHeight + cellPadding * 2;
         bool isHeader = (r == 0);
-        IDWriteTextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
+        tinta::TextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
         tinta::Color textColor = isHeader ? app.theme.heading : app.theme.text;
         const auto& row = rows[r];
 
@@ -2990,7 +3003,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
 
         for (size_t c = 0; c < row->children.size() && c < (size_t)colCount; c++) {
             const auto& cell = row->children[c];
-            IDWriteTextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
+            tinta::TextFormat* fmt = isHeader ? app.boldFormat : app.textFormat;
             tinta::Color textColor = isHeader ? app.theme.heading : app.theme.text;
 
             // In-place editing (#148): the preview records every cell's
@@ -3092,7 +3105,7 @@ static void layoutHorizontalRule(App& app, float& y, float indent, float maxWidt
 // small #chips, one row above the document (wrapping when needed)
 static void layoutProperties(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth) {
     float scale = app.contentScale * app.zoomFactor;
-    IDWriteTextFormat* chipFormat = app.supSubFormat ? app.supSubFormat : app.textFormat;
+    tinta::TextFormat* chipFormat = app.supSubFormat ? app.supSubFormat : app.textFormat;
     float chipH = 22.0f * scale;
     float padX = 8.0f * scale;
     float gap = 6.0f * scale;
@@ -3374,7 +3387,7 @@ void completeAsyncImage(App& app, void* asyncResult) {
         D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
             D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
         ID2D1Bitmap* bitmap = nullptr;
-        if (SUCCEEDED(app.renderTarget->CreateBitmap(
+        if (SUCCEEDED(app.nativeRenderTarget->CreateBitmap(
                 D2D1::SizeU(result->width, result->height),
                 result->pixels.data(), result->width * 4, props, &bitmap)) && bitmap) {
             entry.bitmap = bitmap;

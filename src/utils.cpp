@@ -12,6 +12,10 @@ std::wstring toWide(const std::string& str) {
     return platform::fromUtf8(str);
 }
 
+float measureText(App& app, const std::wstring& text, tinta::TextFormat* format) {
+    return measureText(app, text, nativeTextFormat(format));
+}
+
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),

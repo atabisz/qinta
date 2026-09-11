@@ -73,7 +73,7 @@ static IDWriteTextLayout* createEditorLineLayout(App& app, size_t lineStart, siz
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(
         app.editorText.data() + lineStart, (UINT32)lineLen,
-        app.editorTextFormat, maxWidth, 1e7f, &layout);
+        nativeTextFormat(app.editorTextFormat), maxWidth, 1e7f, &layout);
     // The shared editor format is NO_WRAP; the wrap toggle overrides per layout
     if (layout && editorWrapOn(app)) {
         layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
@@ -1096,7 +1096,7 @@ void openFileDialog(App& app, HWND hwnd) {
 
 void renderQuickNoteEmptyState(App& app) {
     if (!quickNoteEmptyStateActive(app) || !app.editorShowPreview) return;
-    IDWriteTextFormat* format = app.folderBrowserFormat;
+    tinta::TextFormat* format = app.folderBrowserFormat;
     if (!format || !app.renderTarget || !app.brush || !app.dwriteFactory)
         return;
 
@@ -1109,9 +1109,9 @@ void renderQuickNoteEmptyState(App& app) {
 
     IDWriteTextLayout* labelLayout = nullptr;
     IDWriteTextLayout* chipLayout = nullptr;
-    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label), format,
+    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label), nativeTextFormat(format),
                                         2000.0f, 100.0f, &labelLayout);
-    app.dwriteFactory->CreateTextLayout(chip, (UINT32)wcslen(chip), format,
+    app.dwriteFactory->CreateTextLayout(chip, (UINT32)wcslen(chip), nativeTextFormat(format),
                                         2000.0f, 100.0f, &chipLayout);
     if (!labelLayout || !chipLayout) {
         if (labelLayout) labelLayout->Release();
@@ -1167,8 +1167,8 @@ void renderQuickNoteEmptyState(App& app) {
     // Label
     float labelX = ix + iconW + dpi(app, 10.0f);
     app.brush->SetColor(app.theme.text);
-    app.renderTarget->DrawTextLayout(
-        tinta::pointF(labelX, cy - lm.height * 0.5f), labelLayout, app.brush);
+    app.nativeRenderTarget->DrawTextLayout(
+        tinta::pointF(labelX, cy - lm.height * 0.5f), labelLayout, app.nativeBrush);
 
     // Ctrl+O keycap chip
     float chipX = labelX + lm.width + dpi(app, 12.0f);
@@ -1184,9 +1184,9 @@ void renderQuickNoteEmptyState(App& app) {
     tinta::Color chipText = app.theme.text;
     chipText.a = 0.55f;
     app.brush->SetColor(chipText);
-    app.renderTarget->DrawTextLayout(
+    app.nativeRenderTarget->DrawTextLayout(
         tinta::pointF(chipX + dpi(app, 8.0f), cy - cm.height * 0.5f),
-        chipLayout, app.brush);
+        chipLayout, app.nativeBrush);
     labelLayout->Release();
     chipLayout->Release();
 
@@ -1197,16 +1197,16 @@ void renderQuickNoteEmptyState(App& app) {
         const wchar_t* hint = tr(app, key);
         IDWriteTextLayout* layout = nullptr;
         app.dwriteFactory->CreateTextLayout(hint, (UINT32)wcslen(hint),
-                                            format, 2000.0f, 100.0f, &layout);
+                                            nativeTextFormat(format), 2000.0f, 100.0f, &layout);
         if (layout) {
             DWRITE_TEXT_METRICS hm{};
             layout->GetMetrics(&hm);
             tinta::Color muted = app.theme.text;
             muted.a = 0.5f;
             app.brush->SetColor(muted);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(cx - hm.width * 0.5f, hintY), layout,
-                app.brush);
+                app.nativeBrush);
             hintY += hm.height + dpi(app, 4.0f);
             layout->Release();
         }
@@ -2825,7 +2825,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
 
     app.renderTarget->PushAxisAlignedClip(
         tinta::rectF(0, 0, editorWidth, (float)app.height),
-        D2D1_ANTIALIAS_MODE_ALIASED);
+        tinta::AntialiasMode::Aliased);
 
     size_t selMin = 0, selMax = 0;
     if (app.editorHasSelection) {
@@ -2904,8 +2904,8 @@ static void renderEditorWrapped(App& app, float editorWidth) {
         // Line text
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
-            app.renderTarget->DrawTextLayout(
-                tinta::pointF(textX, lineY), lineLayout, app.brush);
+            app.nativeRenderTarget->DrawTextLayout(
+                tinta::pointF(textX, lineY), lineLayout, app.nativeBrush);
         }
 
         // Caret
@@ -2965,7 +2965,7 @@ void renderEditor(App& app, float editorWidth) {
     // Clip to editor area
     app.renderTarget->PushAxisAlignedClip(
         tinta::rectF(0, 0, editorWidth, (float)app.height),
-        D2D1_ANTIALIAS_MODE_ALIASED);
+        tinta::AntialiasMode::Aliased);
 
     // Calculate visible line range
     int firstVisible = std::max(0, (int)((app.editorScrollY - padding) / lineHeight));
@@ -3071,8 +3071,8 @@ void renderEditor(App& app, float editorWidth) {
         // Line text
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
-            app.renderTarget->DrawTextLayout(
-                tinta::pointF(textBase, lineY), lineLayout, app.brush);
+            app.nativeRenderTarget->DrawTextLayout(
+                tinta::pointF(textBase, lineY), lineLayout, app.nativeBrush);
         }
 
     }

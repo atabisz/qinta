@@ -201,13 +201,14 @@ void runCloseAction(App& app, int closeAction) {
 
 // One text layout with the emphasis range bolded
 IDWriteTextLayout* chipTextLayout(App& app, const App::SignalChip& chip,
-                                  IDWriteTextFormat* fmt, float maxW,
+                                  tinta::TextFormat* fmt, float maxW,
                                   float maxH, float* outWidth) {
     std::wstring full = chip.text;
     if (!chip.emph.empty()) full += chip.emph;
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(full.c_str(), (UINT32)full.size(),
-                                        fmt, maxW, maxH, &layout);
+                                        nativeTextFormat(fmt), maxW, maxH,
+                                        &layout);
     if (layout && !chip.emph.empty()) {
         DWRITE_TEXT_RANGE range{(UINT32)chip.text.size(),
                                 (UINT32)chip.emph.size()};
@@ -329,7 +330,7 @@ void renderSignalChips(App& app) {
         i++;
     }
 
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     float margin = dpi(app, 14.0f);
     float bottom = (float)app.height - margin -
                    (app.showStats ? dpi(app, 55.0f) : 0.0f);
@@ -404,13 +405,13 @@ void renderSignalChips(App& app) {
             app.brush->SetColor(bink);
             IDWriteTextLayout* bl = nullptr;
             app.dwriteFactory->CreateTextLayout(n, (UINT32)wcslen(n),
-                                                app.signalSmallFormat, bw,
+                                                nativeTextFormat(app.signalSmallFormat), bw,
                                                 bw, &bl);
             if (bl) {
                 bl->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 bl->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.renderTarget->DrawTextLayout(
-                    tinta::pointF(badge.left, badge.top), bl, app.brush);
+                app.nativeRenderTarget->DrawTextLayout(
+                    tinta::pointF(badge.left, badge.top), bl, app.nativeBrush);
                 bl->Release();
             }
         }
@@ -518,10 +519,10 @@ void renderSignalChips(App& app) {
             app.brush->SetColor(inkAt(app, 0.92f * alpha));
             DWRITE_TEXT_METRICS m{};
             layout->GetMetrics(&m);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               r.top + (chipH - m.height) * 0.5f),
-                layout, app.brush);
+                layout, app.nativeBrush);
         }
 
         // Pin (hover or pinned) then the cross
@@ -698,9 +699,9 @@ void renderSignalChips(App& app) {
                 rowH, nullptr);
             if (tl) {
                 app.brush->SetColor(inkAt(app, 0.9f));
-                app.renderTarget->DrawTextLayout(
+                app.nativeRenderTarget->DrawTextLayout(
                     tinta::pointF(ib.right + dpi(app, 9.0f), ry + dpi(app, 5.0f)),
-                    tl, app.brush);
+                    tl, app.nativeBrush);
                 tl->Release();
             }
             if (!c.traySub.empty() && app.signalSmallFormat) {

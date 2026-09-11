@@ -86,7 +86,7 @@ void applyTheme(App& app, int themeIndex) {
     // If the fonts are unchanged the existing text formats are identical —
     // skip recreating ~47 IDWriteTextFormat objects. Colors are baked into
     // the cached layout runs, so a relayout is still needed.
-    bool sameFonts = app.textFormat &&
+    bool sameFonts = app.nativeTextFormat &&
         wcscmp(app.theme.fontFamily, newTheme.fontFamily) == 0 &&
         wcscmp(app.theme.codeFontFamily, newTheme.codeFontFamily) == 0;
 
@@ -115,18 +115,20 @@ void updateTextFormats(App& app) {
     // Math boxes were laid out against the old theme font
     mathClearCache();
     // Release existing formats
-    if (app.textFormat) { app.textFormat->Release(); app.textFormat = nullptr; }
-    if (app.headingFormat) { app.headingFormat->Release(); app.headingFormat = nullptr; }
-    if (app.codeFormat) { app.codeFormat->Release(); app.codeFormat = nullptr; }
-    if (app.boldFormat) { app.boldFormat->Release(); app.boldFormat = nullptr; }
-    if (app.italicFormat) { app.italicFormat->Release(); app.italicFormat = nullptr; }
-    if (app.boldItalicFormat) { app.boldItalicFormat->Release(); app.boldItalicFormat = nullptr; }
-    if (app.codeBoldFormat) { app.codeBoldFormat->Release(); app.codeBoldFormat = nullptr; }
-    if (app.codeItalicFormat) { app.codeItalicFormat->Release(); app.codeItalicFormat = nullptr; }
-    if (app.codeBoldItalicFormat) { app.codeBoldItalicFormat->Release(); app.codeBoldItalicFormat = nullptr; }
-    if (app.supSubFormat) { app.supSubFormat->Release(); app.supSubFormat = nullptr; }
-    for (auto& fmt : app.headingFormats) {
-        if (fmt) { fmt->Release(); fmt = nullptr; }
+    app.textFormatStorage.reset(); app.nativeTextFormat = nullptr; app.textFormat = nullptr;
+    app.headingFormatStorage.reset(); app.nativeHeadingFormat = nullptr; app.headingFormat = nullptr;
+    app.codeFormatStorage.reset(); app.nativeCodeFormat = nullptr; app.codeFormat = nullptr;
+    app.boldFormatStorage.reset(); app.nativeBoldFormat = nullptr; app.boldFormat = nullptr;
+    app.italicFormatStorage.reset(); app.nativeItalicFormat = nullptr; app.italicFormat = nullptr;
+    app.boldItalicFormatStorage.reset(); app.nativeBoldItalicFormat = nullptr; app.boldItalicFormat = nullptr;
+    app.codeBoldFormatStorage.reset(); app.nativeCodeBoldFormat = nullptr; app.codeBoldFormat = nullptr;
+    app.codeItalicFormatStorage.reset(); app.nativeCodeItalicFormat = nullptr; app.codeItalicFormat = nullptr;
+    app.codeBoldItalicFormatStorage.reset(); app.nativeCodeBoldItalicFormat = nullptr; app.codeBoldItalicFormat = nullptr;
+    app.supSubFormatStorage.reset(); app.nativeSupSubFormat = nullptr; app.supSubFormat = nullptr;
+    for (int i = 0; i < 6; ++i) {
+        app.headingFormatsStorage[i].reset();
+        app.nativeHeadingFormats[i] = nullptr;
+        app.headingFormats[i] = nullptr;
     }
 
     // Create text formats with current zoom and theme fonts
@@ -139,46 +141,46 @@ void updateTextFormats(App& app) {
 
     app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.textFormat);
+        fontSize, L"en-us", &app.nativeTextFormat);
 
     app.dwriteFactory->CreateTextFormat(themeHeadingFont(app.theme), nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        28.0f * scale, L"en-us", &app.headingFormat);
+        28.0f * scale, L"en-us", &app.nativeHeadingFormat);
 
     app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.codeFormat);
+        codeSize, L"en-us", &app.nativeCodeFormat);
 
     app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.boldFormat);
+        fontSize, L"en-us", &app.nativeBoldFormat);
 
     app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.italicFormat);
+        fontSize, L"en-us", &app.nativeItalicFormat);
 
     // Inline spans nest, so every weight/style combination needs a format:
     // ***both***, **`code`**, *`code`*
     app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.boldItalicFormat);
+        fontSize, L"en-us", &app.nativeBoldItalicFormat);
 
     app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.codeBoldFormat);
+        codeSize, L"en-us", &app.nativeCodeBoldFormat);
 
     app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.codeItalicFormat);
+        codeSize, L"en-us", &app.nativeCodeItalicFormat);
 
     app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.codeBoldItalicFormat);
+        codeSize, L"en-us", &app.nativeCodeBoldItalicFormat);
 
     // Small format for ^superscript^ / ~subscript~ spans
     app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize * 0.68f, L"en-us", &app.supSubFormat);
+        fontSize * 0.68f, L"en-us", &app.nativeSupSubFormat);
 
     // Heading formats by level: the theme's heading face, which inherits
     // the main font unless the theme sets headingfont= (#155). Abyss pins
@@ -189,29 +191,29 @@ void updateTextFormats(App& app) {
     for (int i = 0; i < 6; i++) {
         app.dwriteFactory->CreateTextFormat(headingFont, nullptr,
             DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            headingSizes[i] * scale, L"en-us", &app.headingFormats[i]);
+            headingSizes[i] * scale, L"en-us", &app.nativeHeadingFormats[i]);
     }
 
     // Set consistent baseline alignment for all formats
-    if (app.textFormat) app.textFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.headingFormat) app.headingFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.codeFormat) app.codeFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.boldFormat) app.boldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.italicFormat) app.italicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.boldItalicFormat) app.boldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.codeBoldFormat) app.codeBoldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.codeItalicFormat) app.codeItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.codeBoldItalicFormat) app.codeBoldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.supSubFormat) app.supSubFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    for (auto* fmt : app.headingFormats) {
+    if (app.nativeTextFormat) app.nativeTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeHeadingFormat) app.nativeHeadingFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeCodeFormat) app.nativeCodeFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeBoldFormat) app.nativeBoldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeItalicFormat) app.nativeItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeBoldItalicFormat) app.nativeBoldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeCodeBoldFormat) app.nativeCodeBoldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeCodeItalicFormat) app.nativeCodeItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeCodeBoldItalicFormat) app.nativeCodeBoldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    if (app.nativeSupSubFormat) app.nativeSupSubFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+    for (auto* fmt : app.nativeHeadingFormats) {
         if (fmt) fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
     // Cache space widths
-    if (app.textFormat) app.spaceWidthText = measureText(app, L" ", app.textFormat);
-    if (app.boldFormat) app.spaceWidthBold = measureText(app, L" ", app.boldFormat);
-    if (app.italicFormat) app.spaceWidthItalic = measureText(app, L" ", app.italicFormat);
-    if (app.codeFormat) app.spaceWidthCode = measureText(app, L" ", app.codeFormat);
+    if (app.nativeTextFormat) app.spaceWidthText = measureText(app, L" ", app.nativeTextFormat);
+    if (app.nativeBoldFormat) app.spaceWidthBold = measureText(app, L" ", app.nativeBoldFormat);
+    if (app.nativeItalicFormat) app.spaceWidthItalic = measureText(app, L" ", app.nativeItalicFormat);
+    if (app.nativeCodeFormat) app.spaceWidthCode = measureText(app, L" ", app.nativeCodeFormat);
 
     // Build font fallback chain for emoji and CJK support
     if (!app.fontFallback) {
@@ -313,6 +315,7 @@ void updateTextFormats(App& app) {
     }
 
     updateOverlayFormats(app);
+    app.seatTextFormats();
     app.appliedZoomFactor = app.zoomFactor;
     app.layoutDirty = true;
 }
@@ -325,24 +328,24 @@ void updateOverlayFormats(App& app) {
     // Search overlay format
     app.dwriteFactory->CreateTextFormat(app.theme.fontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        16.0f * scale, L"en-us", &app.searchTextFormat);
+        16.0f * scale, L"en-us", &app.nativeSearchTextFormat);
 
     // Signal chips: subtitles, badges, and the tiny state labels
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        10.0f * scale, L"en-us", &app.signalSmallFormat);
-    if (app.signalSmallFormat) {
-        app.signalSmallFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        10.0f * scale, L"en-us", &app.nativeSignalSmallFormat);
+    if (app.nativeSignalSmallFormat) {
+        app.nativeSignalSmallFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     }
 
     // Theme chooser formats
     app.dwriteFactory->CreateTextFormat(L"Segoe UI Light", nullptr,
         DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        28.0f * scale, L"en-us", &app.themeTitleFormat);
+        28.0f * scale, L"en-us", &app.nativeThemeTitleFormat);
 
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        11.0f * scale, L"en-us", &app.themeHeaderFormat);
+        11.0f * scale, L"en-us", &app.nativeThemeHeaderFormat);
 
     // Theme preview formats (3 per theme, several distinct font families) are
     // created lazily by ensureThemePreviewFormats when the chooser first opens
@@ -354,21 +357,21 @@ void updateOverlayFormats(App& app) {
     // overflow the fixed stats box
     app.dwriteFactory->CreateTextFormat(app.theme.codeFontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.statsFormat);
+        13.0f * scale, L"en-us", &app.nativeStatsFormat);
 
     // Folder browser format
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.folderBrowserFormat);
-    if (app.folderBrowserFormat) {
+        13.0f * scale, L"en-us", &app.nativeFolderBrowserFormat);
+    if (app.nativeFolderBrowserFormat) {
         // Entries render on fixed-height rows: wrapping would overlap the next
         // row, so keep everything single-line and trim with an ellipsis
-        app.folderBrowserFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        app.nativeFolderBrowserFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
         IDWriteInlineObject* ellipsis = nullptr;
-        app.dwriteFactory->CreateEllipsisTrimmingSign(app.folderBrowserFormat, &ellipsis);
+        app.dwriteFactory->CreateEllipsisTrimmingSign(app.nativeFolderBrowserFormat, &ellipsis);
         if (ellipsis) {
-            app.folderBrowserFormat->SetTrimming(&trimming, ellipsis);
+            app.nativeFolderBrowserFormat->SetTrimming(&trimming, ellipsis);
             ellipsis->Release();
         }
     }
@@ -376,10 +379,10 @@ void updateOverlayFormats(App& app) {
     // TOC formats
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.tocFormatBold);
+        13.0f * scale, L"en-us", &app.nativeTocFormatBold);
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        12.0f * scale, L"en-us", &app.tocFormat);
+        12.0f * scale, L"en-us", &app.nativeTocFormat);
     auto configureTocFormat = [&](IDWriteTextFormat* format) {
         if (!format) return;
         // TOC entries occupy fixed-height rows. Wrapping would paint into the
@@ -393,22 +396,22 @@ void updateOverlayFormats(App& app) {
             ellipsis->Release();
         }
     };
-    configureTocFormat(app.tocFormatBold);
-    configureTocFormat(app.tocFormat);
+    configureTocFormat(app.nativeTocFormatBold);
+    configureTocFormat(app.nativeTocFormat);
 
     // Editor text format (monospace, same size as body)
     float editorScale = app.contentScale * app.zoomFactor;
     float editorFontSize = 14.0f * editorScale;
     app.dwriteFactory->CreateTextFormat(app.theme.codeFontFamily, nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        editorFontSize, L"en-us", &app.editorTextFormat);
-    if (app.editorTextFormat) {
-        app.editorTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        editorFontSize, L"en-us", &app.nativeEditorTextFormat);
+    if (app.nativeEditorTextFormat) {
+        app.nativeEditorTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         // Measure actual monospace character width and the font's natural
         // line metrics (before uniform spacing overrides them below)
         float naturalHeight = 0.0f, naturalBaseline = 0.0f;
         IDWriteTextLayout* measureLayout = nullptr;
-        app.dwriteFactory->CreateTextLayout(L"M", 1, app.editorTextFormat,
+        app.dwriteFactory->CreateTextLayout(L"M", 1, app.nativeEditorTextFormat,
             10000.0f, 100.0f, &measureLayout);
         if (measureLayout) {
             DWRITE_TEXT_METRICS metrics{};
@@ -434,7 +437,7 @@ void updateOverlayFormats(App& app) {
         float editorBaseline = (naturalHeight > 0.0f && naturalBaseline > 0.0f)
             ? naturalBaseline + (editorLineHeight - naturalHeight) * 0.5f
             : editorFontSize * 1.2f;
-        app.editorTextFormat->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM,
+        app.nativeEditorTextFormat->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM,
             editorLineHeight, editorBaseline);
     }
 
@@ -443,14 +446,19 @@ void updateOverlayFormats(App& app) {
     app.dwriteFactory->CreateTextFormat(L"Consolas", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
         DWRITE_FONT_STRETCH_NORMAL, 9.5f * editorScale, L"en-us",
-        &app.editorGutterFormat);
-    if (app.editorGutterFormat) {
-        app.editorGutterFormat->SetTextAlignment(
+        &app.nativeEditorGutterFormat);
+    if (app.nativeEditorGutterFormat) {
+        app.nativeEditorGutterFormat->SetTextAlignment(
             DWRITE_TEXT_ALIGNMENT_TRAILING);
-        app.editorGutterFormat->SetParagraphAlignment(
+        app.nativeEditorGutterFormat->SetParagraphAlignment(
             DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        app.editorGutterFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        app.nativeEditorGutterFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     }
+
+    // Seating is idempotent, so calling it here as well as at the end of
+    // updateTextFormats costs nothing and means this function is safe to call
+    // on its own -- which it is, from the overlay and DPI paths.
+    app.seatTextFormats();
 }
 
 void ensureThemePreviewFormats(App& app) {
@@ -462,14 +470,19 @@ void ensureThemePreviewFormats(App& app) {
         const D2DTheme& t = themeAt(i);
         app.dwriteFactory->CreateTextFormat(t.fontFamily, nullptr,
             DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            14.0f * scale, L"en-us", &app.themePreviewFormats[i].name);
+            14.0f * scale, L"en-us", &app.themePreviewFormats[i].nativeName);
         app.dwriteFactory->CreateTextFormat(t.fontFamily, nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            11.0f * scale, L"en-us", &app.themePreviewFormats[i].preview);
+            11.0f * scale, L"en-us", &app.themePreviewFormats[i].nativePreview);
         app.dwriteFactory->CreateTextFormat(t.codeFontFamily, nullptr,
             DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            10.0f * scale, L"en-us", &app.themePreviewFormats[i].code);
+            10.0f * scale, L"en-us", &app.themePreviewFormats[i].nativeCode);
     }
+
+    // After the resize(), never before: the wrappers live inside the vector's
+    // elements, so seating earlier would leave them pointing into a buffer that
+    // resize() then reallocated.
+    app.seatTextFormats();
 }
 
 void createTypography(App& app) {
@@ -531,7 +544,7 @@ static void invalidateDeviceBitmaps(App& app) {
 // remaining work look like six construction sites when it is four.
 static void configureTextRendering(App& app) {
     // Enable high-quality text
-    app.renderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+    app.nativeRenderTarget->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
 
     // Create custom rendering params for improved text quality
     IDWriteRenderingParams* defaultParams = nullptr;
@@ -550,19 +563,21 @@ static void configureTextRendering(App& app) {
         defaultParams->Release();
 
         if (customParams) {
-            app.renderTarget->SetTextRenderingParams(customParams);
+            app.nativeRenderTarget->SetTextRenderingParams(customParams);
             customParams->Release();
         }
     }
 }
 
 bool createRenderTarget(App& app) {
-    if (app.renderTarget) {
-        app.renderTarget->Release();
+    if (app.nativeRenderTarget) {
+        app.nativeRenderTarget->Release();
+        app.nativeRenderTarget = nullptr;
         app.renderTarget = nullptr;
     }
-    if (app.brush) {
-        app.brush->Release();
+    if (app.nativeBrush) {
+        app.nativeBrush->Release();
+        app.nativeBrush = nullptr;
         app.brush = nullptr;
     }
 
@@ -584,19 +599,27 @@ bool createRenderTarget(App& app) {
     HRESULT hr = app.d2dFactory->CreateHwndRenderTarget(
         rtProps,
         D2D1::HwndRenderTargetProperties(app.hwnd, size, D2D1_PRESENT_OPTIONS_IMMEDIATELY),
-        &app.renderTarget
+        &app.nativeRenderTarget
     );
     if (FAILED(hr)) return false;
 
-    hr = app.renderTarget->CreateSolidColorBrush(tinta::colorF(1, 1, 1), &app.brush);
+    hr = app.nativeRenderTarget->CreateSolidColorBrush(tinta::colorF(1, 1, 1), &app.nativeBrush);
     if (FAILED(hr)) return false;
 
     // Cache device context for color emoji rendering
     if (app.deviceContext) { app.deviceContext->Release(); app.deviceContext = nullptr; }
-    app.renderTarget->QueryInterface(__uuidof(ID2D1DeviceContext),
+    app.nativeRenderTarget->QueryInterface(__uuidof(ID2D1DeviceContext),
         reinterpret_cast<void**>(&app.deviceContext));
 
     configureTextRendering(app);
+
+    // The drawing sites reach the device through app.renderTarget and app.brush,
+    // so the wrappers have to be seated before the first frame. Both natives are
+    // non-null here; every early return above leaves them null and the matching
+    // seam pointer null with them, which is what callers already null-check.
+    app.seatRenderTarget();
+    app.seatBrush();
+    app.seatDashedStrokeStyle();
 
     return true;
 }

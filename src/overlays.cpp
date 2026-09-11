@@ -85,7 +85,7 @@ void renderSearchOverlay(App& app) {
     }
 
     // Search text
-    IDWriteTextFormat* searchTextFormat = app.searchTextFormat;
+    tinta::TextFormat* searchTextFormat = app.searchTextFormat;
     if (searchTextFormat) {
         float textX = barX + dpi(app, 42.0f);
         float textWidth = barWidth - dpi(app, 120.0f);  // Leave room for count
@@ -113,7 +113,7 @@ void renderSearchOverlay(App& app) {
             if (app.searchActive && app.cursorBlinkOn &&
                 !(app.searchReplaceMode && app.replaceFieldActive)) {
                 static std::wstring cachedQuery;
-                static IDWriteTextFormat* cachedFormat = nullptr;
+                static tinta::TextFormat* cachedFormat = nullptr;
                 static float cachedQueryWidth = 0.0f;
                 if (cachedQuery != app.searchQuery || cachedFormat != searchTextFormat) {
                     cachedQueryWidth = measureText(app, app.searchQuery, searchTextFormat);
@@ -429,7 +429,7 @@ void renderFolderBrowser(App& app) {
 
     app.folderCrumbHits.clear();
     app.folderPinRect = tinta::RectF{};
-    IDWriteTextFormat* browserFormat = app.folderBrowserFormat;
+    tinta::TextFormat* browserFormat = app.folderBrowserFormat;
     if (browserFormat) {
         float padding = dpi(app, 12.0f);
         float itemHeight = g.itemHeight;
@@ -442,7 +442,7 @@ void renderFolderBrowser(App& app) {
             float w = 0.0f;
             IDWriteTextLayout* layout = nullptr;
             if (app.dwriteFactory && SUCCEEDED(app.dwriteFactory->CreateTextLayout(
-                    s.c_str(), (UINT32)s.length(), browserFormat,
+                    s.c_str(), (UINT32)s.length(), nativeTextFormat(browserFormat),
                     1000000.0f, g.headerH, &layout)) && layout) {
                 DWRITE_TEXT_METRICS metrics;
                 if (SUCCEEDED(layout->GetMetrics(&metrics))) {
@@ -732,7 +732,7 @@ void renderFolderBrowser(App& app) {
         app.renderTarget->PushAxisAlignedClip(
             tinta::rectF(g.cardLeft, listStartY + namingOffset, g.cardRight,
                         g.listBottom),
-            D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            tinta::AntialiasMode::PerPrimitive);
 
         // Section labels ride inside the scroll like rows do
         auto drawLabel = [&](const char* key, float y) {
@@ -997,8 +997,8 @@ void renderToc(App& app) {
 
     app.tocCloseRect = tinta::RectF{};
     app.tocPinRect = tinta::RectF{};
-    IDWriteTextFormat* tocBold = app.tocFormatBold;
-    IDWriteTextFormat* tocNormal = app.tocFormat;
+    tinta::TextFormat* tocBold = app.tocFormatBold;
+    tinta::TextFormat* tocNormal = app.tocFormat;
     if (tocBold && tocNormal) {
         float padding = dpi(app, 12.0f);
         float itemHeight = dpi(app, 26.0f);
@@ -1069,17 +1069,17 @@ void renderToc(App& app) {
             IDWriteTextLayout* filterLayout = nullptr;
             app.dwriteFactory->CreateTextLayout(
                 app.tocFilter.c_str(), (UINT32)app.tocFilter.size(),
-                tocNormal, panelWidth, headerHeight, &filterLayout);
+                nativeTextFormat(tocNormal), panelWidth, headerHeight, &filterLayout);
             if (filterLayout) {
                 DWRITE_TEXT_METRICS fm{};
                 filterLayout->GetMetrics(&fm);
                 tinta::Color filterColor = app.theme.accent;
                 filterColor.a = anim;
                 app.brush->SetColor(filterColor);
-                app.renderTarget->DrawTextLayout(
+                app.nativeRenderTarget->DrawTextLayout(
                     tinta::pointF(cardRight - padding - dpi(app, 38.0f) - fm.width,
                                   headerY + dpi(app, 1.0f)),
-                    filterLayout, app.brush);
+                    filterLayout, app.nativeBrush);
                 filterLayout->Release();
             }
         }
@@ -1207,7 +1207,7 @@ void renderToc(App& app) {
             float rowRight = cardRight - dpi(app, 8.0f);
             app.renderTarget->PushAxisAlignedClip(
                 tinta::rectF(cardLeft, listStartY, cardRight, listBottom),
-                D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+                tinta::AntialiasMode::PerPrimitive);
             for (size_t row = 0; row < visible.size(); row++) {
                 float itemY = listStartY + row * itemHeight - app.tocScroll;
 
@@ -1258,7 +1258,7 @@ void renderToc(App& app) {
                 }
 
                 // Type scale by level: H1 bold heading ink, H2 body, H3 quiet
-                IDWriteTextFormat* fmt =
+                tinta::TextFormat* fmt =
                     (heading.level == 1 || isCurrent) ? tocBold : tocNormal;
                 tinta::Color textColor;
                 if (heading.level == 1 || isCurrent) {
@@ -1363,7 +1363,7 @@ void renderLinkPeek(App& app) {
         app.brush);
 
     // The rendered page
-    app.renderTarget->DrawBitmap(
+    app.nativeRenderTarget->DrawBitmap(
         app.linkPeekBitmap,
         tinta::rectF(p.left + 1.0f, p.top + titleH, p.right - 1.0f,
                     p.bottom - 1.0f),
@@ -1422,7 +1422,7 @@ void renderLightbox(App& app) {
     app.renderTarget->FillRectangle(
         tinta::rectF(0, 0, (float)app.width, (float)app.height), app.brush);
     tinta::RectF dest = lightboxImageRect(app);
-    app.renderTarget->DrawBitmap(
+    app.nativeRenderTarget->DrawBitmap(
         app.lightboxBitmap, dest, 1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nullptr);
     // Thin border so light images do not bleed into the backdrop
@@ -1542,7 +1542,7 @@ void renderThemeChooser(App& app) {
     // Header: title, key hint, follow toggle, close
     float hy = panelY + pad;
     if (app.themeTitleFormat) {
-        app.themeTitleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.themeTitleFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color titleColor = chrome.heading;
         titleColor.a = anim;
         app.brush->SetColor(titleColor);
@@ -1556,7 +1556,7 @@ void renderThemeChooser(App& app) {
     if (app.tocFormat) {
         // Key hint beside the title, built from the live keymap
         std::wstring hint = keyLabel(app.keymap[KA_THEME]) + L" / Esc";
-        app.tocFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.tocFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color hintColor = ink;
         hintColor.a = 0.45f * anim;
         app.brush->SetColor(hintColor);
@@ -1607,7 +1607,7 @@ void renderThemeChooser(App& app) {
         tinta::Color toggleText = ink;
         toggleText.a = 0.7f * anim;
         app.folderBrowserFormat->SetTextAlignment(
-            DWRITE_TEXT_ALIGNMENT_LEADING);
+            tinta::TextAlignment::Leading);
         app.brush->SetColor(toggleText);
         app.renderTarget->DrawText(
             followWindows, (UINT32)wcslen(followWindows),
@@ -1665,7 +1665,7 @@ void renderThemeChooser(App& app) {
     float cardW = (panelWidth - pad * 2.0f - dpi(app, 16.0f)) / 2.0f;
     float colX[2] = {panelX + pad, panelX + pad + cardW + dpi(app, 16.0f)};
     if (app.themeHeaderFormat) {
-        app.themeHeaderFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.themeHeaderFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color headerColor = ink;
         headerColor.a = 0.5f * anim;
         app.brush->SetColor(headerColor);
@@ -1738,15 +1738,15 @@ void renderThemeChooser(App& app) {
 
         float cx = x + dpi(app, 12.0f);
         float rowY = y + dpi(app, 7.0f);
-        IDWriteTextFormat* nameFormat =
+        tinta::TextFormat* nameFormat =
             (i < (int)app.themePreviewFormats.size())
                 ? app.themePreviewFormats[i].name
                 : nullptr;
-        IDWriteTextFormat* previewFormat =
+        tinta::TextFormat* previewFormat =
             (i < (int)app.themePreviewFormats.size())
                 ? app.themePreviewFormats[i].preview
                 : nullptr;
-        IDWriteTextFormat* codeFormat =
+        tinta::TextFormat* codeFormat =
             (i < (int)app.themePreviewFormats.size())
                 ? app.themePreviewFormats[i].code
                 : nullptr;
@@ -1754,7 +1754,7 @@ void renderThemeChooser(App& app) {
         // Row 1: name in the theme's heading voice + accent dash (+ pin)
         float nameW = 0.0f;
         if (nameFormat) {
-            nameFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            nameFormat->SetTextAlignment(tinta::TextAlignment::Leading);
             tinta::Color nameColor = t.heading;
             nameColor.a = anim;
             app.brush->SetColor(nameColor);
@@ -1792,20 +1792,20 @@ void renderThemeChooser(App& app) {
                 app.renderTarget->DrawRoundedRectangle(
                     tinta::roundedRect(pin, dpi(app, 8.0f), dpi(app, 8.0f)),
                     app.brush, 1.0f);
-                app.tocFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                app.tocFormat->SetTextAlignment(tinta::TextAlignment::Center);
                 app.renderTarget->DrawText(
                     t.isDark ? L"\u263E" : L"\u2600", 1, app.tocFormat,
                     tinta::rectF(pin.left, pin.top - dpi(app, 1.0f), pin.right,
                                 pin.bottom),
                     app.brush);
-                app.tocFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+                app.tocFormat->SetTextAlignment(tinta::TextAlignment::Leading);
             }
         }
 
         // Row 2: body voice
         if (previewFormat && cardH > dpi(app, 52.0f)) {
-            previewFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            previewFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            previewFormat->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            previewFormat->SetTextAlignment(tinta::TextAlignment::Leading);
             tinta::Color textColor = t.text;
             textColor.a = anim;
             app.brush->SetColor(textColor);
@@ -1843,7 +1843,7 @@ void renderThemeChooser(App& app) {
                 tinta::roundedRect(chip, dpi(app, 4.0f), dpi(app, 4.0f)),
                 app.brush);
             if (codeFormat) {
-                codeFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                nativeTextFormat(codeFormat)->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 tinta::Color codeColor = themeInlineCodeColor(t);
                 codeColor.a = anim;
                 app.brush->SetColor(codeColor);
@@ -1917,7 +1917,7 @@ void renderThemeChooser(App& app) {
     // Footer: edit-theme entry (left), follow-system explainer (right)
     if (app.tocFormat) {
         float fy = panelY + panelHeight - pad - dpi(app, 18.0f);
-        app.tocFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.tocFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         std::wstring edit = std::wstring(L"\u270E ") + tr(app, "settings.edit");
         edit += L" - themes.ini";
         tinta::Color ec = ink;
@@ -1977,9 +1977,9 @@ void renderHelpOverlay(App& app) {
 
     // Title (fixed, not scrolled)
     float titleBottomY = panelY + dpi(app, 55.0f);
-    IDWriteTextFormat* titleFormat = app.themeTitleFormat;
+    tinta::TextFormat* titleFormat = app.themeTitleFormat;
     if (titleFormat) {
-        titleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        titleFormat->SetTextAlignment(tinta::TextAlignment::Center);
         tinta::Color titleColor = app.theme.heading;
         titleColor.a = anim;
         app.brush->SetColor(titleColor);
@@ -1997,7 +1997,7 @@ void renderHelpOverlay(App& app) {
                    TINTA_VERSION_PATCH);
         IDWriteTextLayout* verLayout = nullptr;
         app.dwriteFactory->CreateTextLayout(
-            version, (UINT32)wcslen(version), app.tocFormat,
+            version, (UINT32)wcslen(version), nativeTextFormat(app.tocFormat),
             panelWidth - dpi(app, 22.0f), dpi(app, 20.0f), &verLayout);
         if (verLayout) {
             // Shared formats may carry another overlay's alignment; pin it
@@ -2005,15 +2005,15 @@ void renderHelpOverlay(App& app) {
             tinta::Color verColor = app.theme.text;
             verColor.a = 0.45f * anim;
             app.brush->SetColor(verColor);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(panelX, panelY + dpi(app, 18.0f)), verLayout,
-                app.brush);
+                app.nativeBrush);
             verLayout->Release();
         }
     }
 
-    IDWriteTextFormat* boldFmt = app.tocFormatBold;
-    IDWriteTextFormat* normalFmt = app.tocFormat;
+    tinta::TextFormat* boldFmt = app.tocFormatBold;
+    tinta::TextFormat* normalFmt = app.tocFormat;
     if (!boldFmt || !normalFmt) return;
 
     // Shortcut entries
@@ -2110,13 +2110,13 @@ void renderHelpOverlay(App& app) {
     // Push clip so content doesn't draw outside panel
     app.renderTarget->PushAxisAlignedClip(
         tinta::rectF(panelX, contentTopY, panelX + panelWidth, contentBottomY),
-        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        tinta::AntialiasMode::PerPrimitive);
 
     float y = contentTopY - app.helpScroll;
 
     auto drawSection = [&](const wchar_t* title, const HelpEntry* entries, int count) {
         // Section header
-        boldFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        boldFmt->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color headerColor = app.theme.accent;
         headerColor.a = anim;
         app.brush->SetColor(headerColor);
@@ -2126,7 +2126,7 @@ void renderHelpOverlay(App& app) {
 
         for (int i = 0; i < count; i++) {
             // Key
-            boldFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            boldFmt->SetTextAlignment(tinta::TextAlignment::Leading);
             tinta::Color keyColor = app.theme.text;
             keyColor.a = 0.9f * anim;
             app.brush->SetColor(keyColor);
@@ -2134,7 +2134,7 @@ void renderHelpOverlay(App& app) {
                 tinta::rectF(leftX + dpi(app, 8.0f), y, leftX + keyColWidth, y + lineH), app.brush);
 
             // Description
-            normalFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+            normalFmt->SetTextAlignment(tinta::TextAlignment::Leading);
             tinta::Color descriptionColor = app.theme.text;
             descriptionColor.a = 0.7f * anim;
             app.brush->SetColor(descriptionColor);
@@ -2152,7 +2152,7 @@ void renderHelpOverlay(App& app) {
     drawSection(tr(app, "help.section.general"), generalEntries, (int)_countof(generalEntries));
 
     // Footer hint
-    normalFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    normalFmt->SetTextAlignment(tinta::TextAlignment::Center);
     tinta::Color footerColor = app.theme.text;
     footerColor.a = 0.55f * anim;
     app.brush->SetColor(footerColor);
@@ -2204,7 +2204,7 @@ void renderContextMenu(App& app) {
     }
     float anim = app.contextMenuAnimation;
 
-    IDWriteTextFormat* format = app.folderBrowserFormat;
+    tinta::TextFormat* format = app.folderBrowserFormat;
     if (!format) return;
 
     float x = app.contextMenuX;
@@ -2277,16 +2277,16 @@ void renderContextMenu(App& app) {
             IDWriteTextLayout* hint = nullptr;
             app.dwriteFactory->CreateTextLayout(
                 hintText.c_str(), (UINT32)hintText.size(),
-                format, 1000.0f, itemH, &hint);
+                nativeTextFormat(format), 1000.0f, itemH, &hint);
             if (hint) {
                 DWRITE_TEXT_METRICS metrics{};
                 hint->GetMetrics(&metrics);
                 tinta::Color hintColor = app.theme.text;
                 hintColor.a = 0.4f * anim;
                 app.brush->SetColor(hintColor);
-                app.renderTarget->DrawTextLayout(
+                app.nativeRenderTarget->DrawTextLayout(
                     tinta::pointF(x + w - inset - metrics.width, textY),
-                    hint, app.brush);
+                    hint, app.nativeBrush);
                 hint->Release();
             }
         }
@@ -2331,7 +2331,7 @@ bool folderSearchToggleAt(const App& app, float x, float y) {
 
 void renderFolderSearchResults(App& app) {
     float anim = app.searchAnimation;
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
 
     // Toggle button (always drawn with the bar so the feature is discoverable)
     {
@@ -2506,7 +2506,7 @@ void renderPrintPreview(App& app) {
     // are interaction-driven, so the per-paint upload cost is irrelevant.
     if (!app.printPreviewPixels.empty() && app.printPreviewPxW && app.printPreviewPxH) {
         ID2D1Bitmap* bmp = nullptr;
-        app.renderTarget->CreateBitmap(
+        app.nativeRenderTarget->CreateBitmap(
             D2D1::SizeU(app.printPreviewPxW, app.printPreviewPxH),
             app.printPreviewPixels.data(), app.printPreviewPxW * 4,
             D2D1::BitmapProperties(D2D1::PixelFormat(
@@ -2522,26 +2522,35 @@ void renderPrintPreview(App& app) {
                     tinta::rectF(px - i, py - i, px + pw + i, py + ph + i),
                     app.brush, 1.5f);
             }
-            app.renderTarget->DrawBitmap(bmp,
+            app.nativeRenderTarget->DrawBitmap(bmp,
                 tinta::rectF(px, py, px + pw, py + ph),
                 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
             bmp->Release();
         }
     }
 
-    IDWriteTextFormat* uiFmt = nullptr;
-    IDWriteTextFormat* btnFmt = nullptr;
+    IDWriteTextFormat* nativeUiFmt = nullptr;
+    IDWriteTextFormat* nativeBtnFmt = nullptr;
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * ui, L"en-us", &uiFmt);
+        13.0f * ui, L"en-us", &nativeUiFmt);
     app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * ui, L"en-us", &btnFmt);
+        13.0f * ui, L"en-us", &nativeBtnFmt);
+
+    // Two formats created for this one overlay and freed on the way out. The
+    // wrapper the seam needs is also what owns them: D2DTextFormat releases in
+    // its destructor, which is why the explicit Release pair at the end of this
+    // function is gone rather than kept alongside.
+    D2DTextFormat uiFmtStorage{nativeUiFmt};
+    D2DTextFormat btnFmtStorage{nativeBtnFmt};
+    tinta::TextFormat* uiFmt = nativeUiFmt ? &uiFmtStorage : nullptr;
+    tinta::TextFormat* btnFmt = nativeBtnFmt ? &btnFmtStorage : nullptr;
 
     int pageCount = (int)app.printPreviewBounds.size() - 1;
     if (uiFmt) {
-        uiFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        uiFmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        uiFmt->SetTextAlignment(tinta::TextAlignment::Center);
+        uiFmt->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
         wchar_t label[64];
          swprintf_s(label, tr(app, "print.title"),
                     app.printPreviewPage + 1, pageCount > 0 ? pageCount : 1);
@@ -2567,7 +2576,7 @@ void renderPrintPreview(App& app) {
         }
         if (uiFmt) {
             app.brush->SetColor(active ? tinta::colorF(1.0f, 1.0f, 1.0f) : th.text);
-            uiFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            uiFmt->SetTextAlignment(tinta::TextAlignment::Center);
             app.renderTarget->DrawText(text, (UINT32)wcslen(text), uiFmt, rect, app.brush);
         }
     };
@@ -2613,8 +2622,8 @@ void renderPrintPreview(App& app) {
     app.renderTarget->DrawRoundedRectangle(tinta::roundedRect(cancelR, r, r), app.brush, 1.0f);
 
     if (btnFmt) {
-        btnFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        btnFmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        btnFmt->SetTextAlignment(tinta::TextAlignment::Center);
+        btnFmt->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
         app.brush->SetColor(tinta::colorF(1.0f, 1.0f, 1.0f));
         const wchar_t* printLabel = tr(app, "print.print");
         app.renderTarget->DrawText(printLabel, (UINT32)wcslen(printLabel), btnFmt, printR, app.brush);
@@ -2625,7 +2634,7 @@ void renderPrintPreview(App& app) {
 
     // Hint, bottom left
     if (uiFmt) {
-        uiFmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        uiFmt->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color hintC = th.text;
         hintC.a = 0.5f;
         app.brush->SetColor(hintC);
@@ -2634,8 +2643,6 @@ void renderPrintPreview(App& app) {
             tinta::rectF(margin, h - bottomBarH, cancelR.left - gap, h), app.brush);
     }
 
-    if (uiFmt) uiFmt->Release();
-    if (btnFmt) btnFmt->Release();
 }
 
 // --- Settings overlay (Ctrl+,) ---
@@ -2680,11 +2687,12 @@ void settingsToggle(App& app, float x, float y, bool on, int action, float anim)
 }
 
 void settingsChip(App& app, float& x, float y, const wchar_t* label, bool active,
-                  int action, float anim, IDWriteTextFormat* fmt) {
+                  int action, float anim, tinta::TextFormat* fmt) {
     float h = dpi(app, 24.0f);
     float padX = dpi(app, 12.0f);
     IDWriteTextLayout* tl = nullptr;
-    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label), fmt, 500.0f, h, &tl);
+    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label),
+                                        nativeTextFormat(fmt), 500.0f, h, &tl);
     float textW = dpi(app, 40.0f);
     if (tl) { DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m); textW = m.width; }
     float w = textW + padX * 2;
@@ -2703,8 +2711,8 @@ void settingsChip(App& app, float& x, float y, const wchar_t* label, bool active
         app.brush->SetColor(c);
     }
     if (tl) {
-        app.renderTarget->DrawTextLayout(
-            tinta::pointF(x + padX, y + (h - dpi(app, 17.0f)) / 2), tl, app.brush);
+        app.nativeRenderTarget->DrawTextLayout(
+            tinta::pointF(x + padX, y + (h - dpi(app, 17.0f)) / 2), tl, app.nativeBrush);
         tl->Release();
     }
     app.settingsHits.push_back({tinta::rectF(x, y, x + w, y + h), action});
@@ -2722,7 +2730,7 @@ void renderSettingsOverlay(App& app) {
     float anim = app.settingsAnimation;
     app.settingsHits.clear();
 
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     if (!fmt) return;
 
     // Keep the underlying document visible while settings are open.
@@ -2759,7 +2767,7 @@ void renderSettingsOverlay(App& app) {
 
     // Title
     if (app.themeTitleFormat) {
-        app.themeTitleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.themeTitleFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color tc = app.theme.heading; tc.a = anim;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "settings.title");
@@ -3315,7 +3323,7 @@ static float promptKeycap(App& app, const wchar_t* label, float rightX,
 }
 
 void renderConfirmExitDialog(App& app) {
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     if (!fmt) return;
     app.confirmExitHits.clear();
     const D2DTheme& base = app.theme;
@@ -3408,7 +3416,7 @@ void renderConfirmExitDialog(App& app) {
 
     IDWriteTextLayout* tl = nullptr;
     app.dwriteFactory->CreateTextLayout(
-        title.c_str(), (UINT32)title.size(), fmt,
+        title.c_str(), (UINT32)title.size(), nativeTextFormat(fmt),
         kx - ib.right - dpi(app, 12.0f), iconBox, &tl);
     if (tl) {
         tl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -3420,9 +3428,9 @@ void renderConfirmExitDialog(App& app) {
         tl->GetMetrics(&m);
         tinta::Color c = base.text; c.a = 0.95f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawTextLayout(
+        app.nativeRenderTarget->DrawTextLayout(
             tinta::pointF(ib.right + dpi(app, 9.0f), row1cy - m.height * 0.5f),
-            tl, app.brush);
+            tl, app.nativeBrush);
         tl->Release();
     }
 
@@ -3472,7 +3480,7 @@ void renderConfirmExitDialog(App& app) {
 // offers to create the file and start typing. The body line shows the
 // resolved target path.
 void renderCreateRefDialog(App& app) {
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     if (!fmt) return;
     app.createRefHits.clear();
     const D2DTheme& base = app.theme;
@@ -3557,7 +3565,7 @@ void renderCreateRefDialog(App& app) {
     {
         IDWriteTextLayout* tl = nullptr;
         app.dwriteFactory->CreateTextLayout(
-            title.c_str(), (UINT32)title.size(), fmt,
+            title.c_str(), (UINT32)title.size(), nativeTextFormat(fmt),
             kx - ib.right - dpi(app, 12.0f), iconBox, &tl);
         if (tl) {
             tl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -3569,10 +3577,10 @@ void renderCreateRefDialog(App& app) {
             tl->GetMetrics(&m);
             tinta::Color c = base.text; c.a = 0.95f;
             app.brush->SetColor(c);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               row1cy - m.height * 0.5f),
-                tl, app.brush);
+                tl, app.nativeBrush);
             tl->Release();
         }
     }
@@ -3581,7 +3589,7 @@ void renderCreateRefDialog(App& app) {
     if (app.signalSmallFormat) {
         IDWriteTextLayout* pl = nullptr;
         app.dwriteFactory->CreateTextLayout(
-            path.c_str(), (UINT32)path.size(), app.signalSmallFormat,
+            path.c_str(), (UINT32)path.size(), nativeTextFormat(app.signalSmallFormat),
             r.right - pad - (ib.right + dpi(app, 9.0f)), dpi(app, 14.0f), &pl);
         if (pl) {
             pl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -3589,10 +3597,10 @@ void renderCreateRefDialog(App& app) {
             pl->SetTrimming(&trimOpt, nullptr);
             tinta::Color c = base.text; c.a = 0.5f;
             app.brush->SetColor(c);
-            app.renderTarget->DrawTextLayout(
+            app.nativeRenderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               r.top + dpi(app, 34.0f)),
-                pl, app.brush);
+                pl, app.nativeBrush);
             pl->Release();
         }
     }
@@ -3657,7 +3665,7 @@ static const char* shortcutActionNameKey(int i) {
 }
 
 void renderShortcutEditor(App& app) {
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     if (!fmt) return;
     app.shortcutHits.clear();
     const D2DTheme& base = app.theme;
@@ -3681,7 +3689,7 @@ void renderShortcutEditor(App& app) {
     app.renderTarget->DrawRoundedRectangle(panel, app.brush, 1.0f);
 
     if (app.themeTitleFormat) {
-        app.themeTitleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.themeTitleFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color tc = base.heading; tc.a = 1.0f;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "shortcuts.editor.title");
@@ -3768,7 +3776,7 @@ void renderShortcutEditor(App& app) {
 }
 
 void renderThemeEditor(App& app) {
-    IDWriteTextFormat* fmt = app.folderBrowserFormat;
+    tinta::TextFormat* fmt = app.folderBrowserFormat;
     if (!fmt) return;
     app.themeEditorHits.clear();
     const D2DTheme& base = app.theme;      // dialog chrome uses the ACTIVE theme
@@ -3791,7 +3799,7 @@ void renderThemeEditor(App& app) {
     app.renderTarget->DrawRoundedRectangle(panel, app.brush, 1.0f);
 
     if (app.themeTitleFormat) {
-        app.themeTitleFormat->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        app.themeTitleFormat->SetTextAlignment(tinta::TextAlignment::Leading);
         tinta::Color tc = base.heading; tc.a = 1.0f;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "theme.editor.title");
@@ -3924,17 +3932,26 @@ void renderThemeEditor(App& app) {
 
         const wchar_t* fam = app.themeEditorFont.empty()
             ? L"Segoe UI" : app.themeEditorFont.c_str();
-        IDWriteTextFormat* h = nullptr; IDWriteTextFormat* b = nullptr;
-        IDWriteTextFormat* m = nullptr;
+        IDWriteTextFormat* nativeH = nullptr; IDWriteTextFormat* nativeB = nullptr;
+        IDWriteTextFormat* nativeM = nullptr;
         app.dwriteFactory->CreateTextFormat(fam, nullptr, DWRITE_FONT_WEIGHT_BOLD,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 20.0f),
-            L"en-us", &h);
+            L"en-us", &nativeH);
         app.dwriteFactory->CreateTextFormat(fam, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 13.5f),
-            L"en-us", &b);
+            L"en-us", &nativeB);
         app.dwriteFactory->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 12.5f),
-            L"en-us", &m);
+            L"en-us", &nativeM);
+        // Owning wrappers rather than three Release calls: the seam takes the
+        // wrapper, and D2DTextFormat frees the native when this block exits.
+        D2DTextFormat hStorage{nativeH};
+        D2DTextFormat bStorage{nativeB};
+        D2DTextFormat mStorage{nativeM};
+        tinta::TextFormat* h = nativeH ? &hStorage : nullptr;
+        tinta::TextFormat* b = nativeB ? &bStorage : nullptr;
+        tinta::TextFormat* m = nativeM ? &mStorage : nullptr;
+
         float sx = spec.left + dpi(app, 18.0f);
         float sw2 = spec.right - dpi(app, 18.0f) - sx;
         if (h) {
@@ -3942,7 +3959,6 @@ void renderThemeEditor(App& app) {
             app.renderTarget->DrawText(L"The Quick Brown Fox", 19, h,
                 tinta::rectF(sx, spec.top + dpi(app, 14.0f), sx + sw2,
                             spec.top + dpi(app, 44.0f)), app.brush);
-            h->Release();
         }
         if (b) {
             app.brush->SetColor(work.text);
@@ -3959,7 +3975,6 @@ void renderThemeEditor(App& app) {
             app.renderTarget->DrawText(L"an accent,", 10, b,
                 tinta::rectF(sx + dpi(app, 92.0f), spec.top + dpi(app, 96.0f),
                             sx + dpi(app, 170.0f), spec.top + dpi(app, 118.0f)), app.brush);
-            b->Release();
         }
         if (m) {
             tinta::RectF pill = tinta::rectF(sx, spec.top + dpi(app, 122.0f),
@@ -3971,7 +3986,6 @@ void renderThemeEditor(App& app) {
             app.renderTarget->DrawText(L"inline_code()", 13, m,
                 tinta::rectF(pill.left + dpi(app, 8.0f), pill.top + dpi(app, 2.0f),
                             pill.right, pill.bottom), app.brush);
-            m->Release();
         }
     }
 
@@ -3984,7 +3998,7 @@ void renderThemeEditor(App& app) {
         app.brush->SetColor(c);
         app.renderTarget->DrawRoundedRectangle(
             tinta::roundedRect(list, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush, 1.0f);
-        app.renderTarget->PushAxisAlignedClip(list, D2D1_ANTIALIAS_MODE_ALIASED);
+        app.renderTarget->PushAxisAlignedClip(list, tinta::AntialiasMode::Aliased);
 
         float rowH = dpi(app, 26.0f);
         float maxScroll = std::max(0.0f,
@@ -4003,17 +4017,18 @@ void renderThemeEditor(App& app) {
                 app.renderTarget->FillRectangle(
                     tinta::rectF(list.left + 1, ry, list.right - 1, ry + rowH), app.brush);
             }
-            IDWriteTextFormat* ff = nullptr;
+            IDWriteTextFormat* nativeFf = nullptr;
             app.dwriteFactory->CreateTextFormat(fam.c_str(), nullptr,
                 DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, dpi(app, 14.0f), L"en-us", &ff);
+                DWRITE_FONT_STRETCH_NORMAL, dpi(app, 14.0f), L"en-us", &nativeFf);
+            D2DTextFormat ffStorage{nativeFf};
+            tinta::TextFormat* ff = nativeFf ? &ffStorage : nullptr;
             tinta::Color tc = base.text; tc.a = selected ? 1.0f : 0.8f;
             app.brush->SetColor(tc);
             if (ff) {
                 app.renderTarget->DrawText(fam.c_str(), (UINT32)fam.size(), ff,
                     tinta::rectF(list.left + dpi(app, 12.0f), ry + dpi(app, 3.0f),
                                 list.right - dpi(app, 8.0f), ry + rowH), app.brush);
-                ff->Release();
             }
             // Clamp the hit rect to the visible list: rows drawn under the
             // clip must not steal clicks from the buttons below
@@ -4046,7 +4061,7 @@ void renderThemeEditor(App& app) {
         tinta::Color saveText = base.background;
         saveText.a = 1.0f;
         app.brush->SetColor(saveText);
-        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        fmt->SetTextAlignment(tinta::TextAlignment::Center);
         app.renderTarget->DrawText(saveLabel, (UINT32)wcslen(saveLabel), fmt,
             tinta::rectF(save.left, save.top + dpi(app, 6.0f), save.right, save.bottom),
             app.brush);
@@ -4059,7 +4074,7 @@ void renderThemeEditor(App& app) {
         app.renderTarget->DrawText(cancelLabel, (UINT32)wcslen(cancelLabel), fmt,
             tinta::rectF(cancel.left, cancel.top + dpi(app, 6.0f), cancel.right, cancel.bottom),
             app.brush);
-        fmt->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
+        fmt->SetTextAlignment(tinta::TextAlignment::Leading);
         app.themeEditorHits.push_back({save, TE_SAVE});
         app.themeEditorHits.push_back({cancel, TE_CANCEL});
 

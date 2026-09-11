@@ -536,7 +536,7 @@ void renderTabStrip(App& app) {
                             wicBitmap, GUID_WICPixelFormat32bppPBGRA,
                             WICBitmapDitherTypeNone, nullptr, 0.0,
                             WICBitmapPaletteTypeCustom))) {
-                        app.renderTarget->CreateBitmapFromWicBitmap(
+                        app.nativeRenderTarget->CreateBitmapFromWicBitmap(
                             converter, nullptr, &app.titleIconBitmap);
                     }
                     converter->Release();
@@ -551,7 +551,7 @@ void renderTabStrip(App& app) {
         float iconSize = dpi(app, 16.0f);
         float ix = (iconCell - iconSize) * 0.5f;
         float iy = (stripH - iconSize) * 0.5f;
-        app.renderTarget->DrawBitmap(
+        app.nativeRenderTarget->DrawBitmap(
             app.titleIconBitmap,
             tinta::rectF(ix, iy, ix + iconSize, iy + iconSize));
     }
@@ -585,7 +585,7 @@ void renderTabStrip(App& app) {
                 app.brush);
             IDWriteTextLayout* layout = nullptr;
             app.dwriteFactory->CreateTextLayout(
-                title.c_str(), (UINT32)title.size(), app.folderBrowserFormat,
+                title.c_str(), (UINT32)title.size(), nativeTextFormat(app.folderBrowserFormat),
                 std::max(1.0f, maxRight - textLeft), stripH, &layout);
             if (layout) {
                 DWRITE_TEXT_METRICS tm{};
@@ -637,7 +637,7 @@ void renderTabStrip(App& app) {
 
         app.renderTarget->PushAxisAlignedClip(
             tinta::rectF(0, 0, stripRight, stripH),
-            D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+            tinta::AntialiasMode::PerPrimitive);
 
         for (size_t i = 0; i < app.tabs.size(); i++) {
             // Pulled clear of the strip: the slot stays as a gap while
@@ -1278,7 +1278,7 @@ void renderTabMenu(App& app) {
     }
     float anim = app.tabMenuAnimation;
 
-    IDWriteTextFormat* format = app.folderBrowserFormat;
+    tinta::TextFormat* format = app.folderBrowserFormat;
     if (!format) return;
 
     float x = app.tabMenuX;
@@ -1331,16 +1331,16 @@ void renderTabMenu(App& app) {
             IDWriteTextLayout* hint = nullptr;
             app.dwriteFactory->CreateTextLayout(
                 TAB_MENU[i].shortcut, (UINT32)wcslen(TAB_MENU[i].shortcut),
-                format, 1000.0f, itemH, &hint);
+                nativeTextFormat(format), 1000.0f, itemH, &hint);
             if (hint) {
                 DWRITE_TEXT_METRICS metrics{};
                 hint->GetMetrics(&metrics);
                 tinta::Color hintColor = app.theme.text;
                 hintColor.a = 0.4f * anim;
                 app.brush->SetColor(hintColor);
-                app.renderTarget->DrawTextLayout(
+                app.nativeRenderTarget->DrawTextLayout(
                     tinta::pointF(x + w - inset - metrics.width, textY), hint,
-                    app.brush);
+                    app.nativeBrush);
                 hint->Release();
             }
         }

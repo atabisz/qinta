@@ -98,14 +98,14 @@ void render(App& app);
 void render(App& app) {
     if (!app.renderTarget) return;
 
-    app.renderTarget->BeginDraw();
+    app.nativeRenderTarget->BeginDraw();
     app.drawCalls = 0;
 
     // Print preview replaces the whole frame: the document is in print
     // layout while it is open, so the normal paths would draw nonsense
     if (app.showPrintPreview) {
         renderPrintPreview(app);
-        app.renderTarget->EndDraw();
+        app.nativeRenderTarget->EndDraw();
         return;
     }
 
@@ -237,13 +237,13 @@ void render(App& app) {
         {
             tinta::RectF sheet = editSheetRect(app);
             app.renderTarget->PushAxisAlignedClip(
-                sheet, D2D1_ANTIALIAS_MODE_ALIASED);
+                sheet, tinta::AntialiasMode::Aliased);
         }
 
-        D2D1_MATRIX_3X2_F originalTransform;
+        tinta::Matrix3x2F originalTransform;
         app.renderTarget->GetTransform(&originalTransform);
         app.renderTarget->SetTransform(
-            D2D1::Matrix3x2F::Translation(previewX, 0) * originalTransform);
+            tinta::matrixTranslation(previewX, 0) * originalTransform);
 
         // The caret block's accent wash under the document content
         renderPreviewCaretBlock(app, previewWidth);
@@ -259,7 +259,7 @@ void render(App& app) {
     // panel's slide so it stays fully readable beside it
     if (documentViewportX(app) > 0.0f) {
         app.renderTarget->SetTransform(
-            D2D1::Matrix3x2F::Translation(documentViewportX(app), 0));
+            tinta::matrixTranslation(documentViewportX(app), 0));
     }
 
     // Start page: the launcher draws over the (empty) document; panels,
@@ -332,9 +332,9 @@ render_document:
             0.0f,
         };
         app.d2dFactory->CreateStrokeStyle(
-            properties, nullptr, 0, &app.dashedStrokeStyle);
+            properties, nullptr, 0, &app.nativeDashedStrokeStyle);
     }
-    ID2D1StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle;
+    tinta::StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle;
 
     for (const auto& connector : app.layoutConnectors) {
         if (connector.bounds.bottom < viewportTop - cullMargin ||
@@ -410,20 +410,20 @@ render_document:
             }
         }
 
-        D2D1_MATRIX_3X2_F previous;
+        tinta::Matrix3x2F previous;
         app.renderTarget->GetTransform(&previous);
         app.renderTarget->SetTransform(
-            D2D1::Matrix3x2F::Translation(shape.rect.left - app.scrollX,
+            tinta::matrixTranslation(shape.rect.left - app.scrollX,
                                           shape.rect.top - app.scrollY) * previous);
         if (shape.fill.a > 0.0f) {
             app.brush->SetColor(shape.fill);
-            app.renderTarget->FillGeometry(shape.geometry, app.brush);
+            app.nativeRenderTarget->FillGeometry(shape.geometry, app.nativeBrush);
             app.drawCalls++;
         }
         if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
             app.brush->SetColor(shape.stroke);
-            app.renderTarget->DrawGeometry(
-                shape.geometry, app.brush, shape.strokeWidth);
+            app.nativeRenderTarget->DrawGeometry(
+                shape.geometry, app.nativeBrush, shape.strokeWidth);
             app.drawCalls++;
         }
         app.renderTarget->SetTransform(previous);
@@ -446,21 +446,21 @@ render_document:
         if (shape.type == App::LayoutShapeType::Path) {
             // Geometry was built eagerly at layout time in local space
             if (!shape.geometry) continue;
-            D2D1_MATRIX_3X2_F previous;
+            tinta::Matrix3x2F previous;
             app.renderTarget->GetTransform(&previous);
             app.renderTarget->SetTransform(
-                D2D1::Matrix3x2F::Translation(shape.rect.left - app.scrollX,
+                tinta::matrixTranslation(shape.rect.left - app.scrollX,
                                               shape.rect.top - app.scrollY) *
                 previous);
             if (shape.fill.a > 0.0f) {
                 app.brush->SetColor(shape.fill);
-                app.renderTarget->FillGeometry(shape.geometry, app.brush);
+                app.nativeRenderTarget->FillGeometry(shape.geometry, app.nativeBrush);
                 app.drawCalls++;
             }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 app.brush->SetColor(shape.stroke);
-                app.renderTarget->DrawGeometry(
-                    shape.geometry, app.brush, shape.strokeWidth);
+                app.nativeRenderTarget->DrawGeometry(
+                    shape.geometry, app.nativeBrush, shape.strokeWidth);
                 app.drawCalls++;
             }
             app.renderTarget->SetTransform(previous);
@@ -555,7 +555,7 @@ render_document:
             bmp.destRect.top > viewportBottom + cullMargin) continue;
         if (bmp.destRect.right < viewportLeft - cullMargin ||
             bmp.destRect.left > viewportRight + cullMargin) continue;
-        app.renderTarget->DrawBitmap(bmp.bitmap,
+        app.nativeRenderTarget->DrawBitmap(bmp.bitmap,
             tinta::rectF(bmp.destRect.left - app.scrollX,
                          bmp.destRect.top - app.scrollY,
                          bmp.destRect.right - app.scrollX,
@@ -575,10 +575,10 @@ render_document:
         app.brush->SetColor(run.color);
         tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
         if (app.deviceContext) {
-            app.deviceContext->DrawTextLayout(drawPos, run.layout, app.brush,
+            app.deviceContext->DrawTextLayout(drawPos, run.layout, app.nativeBrush,
                 D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
         } else {
-            app.renderTarget->DrawTextLayout(drawPos, run.layout, app.brush);
+            app.nativeRenderTarget->DrawTextLayout(drawPos, run.layout, app.nativeBrush);
         }
         app.drawCalls++;
     }
@@ -629,13 +629,13 @@ render_document:
                 1.0f));
             IDWriteTextLayout* btnLayout = nullptr;
             const wchar_t* copyLabel = tr(app, "codeblock.copy");
-            app.dwriteFactory->CreateTextLayout(copyLabel, (UINT32)wcslen(copyLabel), app.codeFormat,
+            app.dwriteFactory->CreateTextLayout(copyLabel, (UINT32)wcslen(copyLabel), nativeTextFormat(app.codeFormat),
                 btnW, btnH, &btnLayout);
             if (btnLayout) {
                 btnLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 btnLayout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.renderTarget->DrawTextLayout(
-                    tinta::pointF(btnX, btnY), btnLayout, app.brush);
+                app.nativeRenderTarget->DrawTextLayout(
+                    tinta::pointF(btnX, btnY), btnLayout, app.nativeBrush);
                 btnLayout->Release();
             }
 
@@ -667,16 +667,16 @@ render_document:
                         cb.fitActive ? L"1:1" : L"Fit";
                     IDWriteTextLayout* fitLayout = nullptr;
                     app.dwriteFactory->CreateTextLayout(
-                        fitLabel, (UINT32)wcslen(fitLabel), app.codeFormat,
+                        fitLabel, (UINT32)wcslen(fitLabel), nativeTextFormat(app.codeFormat),
                         fitW, btnH, &fitLayout);
                     if (fitLayout) {
                         fitLayout->SetTextAlignment(
                             DWRITE_TEXT_ALIGNMENT_CENTER);
                         fitLayout->SetParagraphAlignment(
                             DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                        app.renderTarget->DrawTextLayout(
+                        app.nativeRenderTarget->DrawTextLayout(
                             tinta::pointF(fitX, btnY), fitLayout,
-                            app.brush);
+                            app.nativeBrush);
                         fitLayout->Release();
                     }
                 }
@@ -697,14 +697,14 @@ render_document:
                 IDWriteTextLayout* pngLayout = nullptr;
                 const wchar_t* pngLabel = tr(app, "diagram.png");
                 app.dwriteFactory->CreateTextLayout(
-                    pngLabel, (UINT32)wcslen(pngLabel), app.codeFormat, pngW,
+                    pngLabel, (UINT32)wcslen(pngLabel), nativeTextFormat(app.codeFormat), pngW,
                     btnH, &pngLayout);
                 if (pngLayout) {
                     pngLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                     pngLayout->SetParagraphAlignment(
                         DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                    app.renderTarget->DrawTextLayout(
-                        tinta::pointF(pngX, btnY), pngLayout, app.brush);
+                    app.nativeRenderTarget->DrawTextLayout(
+                        tinta::pointF(pngX, btnY), pngLayout, app.nativeBrush);
                     pngLayout->Release();
                 }
             }
@@ -744,14 +744,14 @@ render_document:
             IDWriteTextLayout* btnLayout = nullptr;
             const wchar_t* copyLabel = tr(app, "table.copy");
             app.dwriteFactory->CreateTextLayout(
-                copyLabel, (UINT32)wcslen(copyLabel), app.codeFormat, btnW,
+                copyLabel, (UINT32)wcslen(copyLabel), nativeTextFormat(app.codeFormat), btnW,
                 btnH, &btnLayout);
             if (btnLayout) {
                 btnLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
                 btnLayout->SetParagraphAlignment(
                     DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.renderTarget->DrawTextLayout(
-                    tinta::pointF(btnX, btnY), btnLayout, app.brush);
+                app.nativeRenderTarget->DrawTextLayout(
+                    tinta::pointF(btnX, btnY), btnLayout, app.nativeBrush);
                 btnLayout->Release();
             }
 
@@ -777,15 +777,15 @@ render_document:
                 const wchar_t* fitLabel = tb.fitActive ? L"1:1" : L"Fit";
                 IDWriteTextLayout* fitLayout = nullptr;
                 app.dwriteFactory->CreateTextLayout(
-                    fitLabel, (UINT32)wcslen(fitLabel), app.codeFormat,
+                    fitLabel, (UINT32)wcslen(fitLabel), nativeTextFormat(app.codeFormat),
                     fitW, btnH, &fitLayout);
                 if (fitLayout) {
                     fitLayout->SetTextAlignment(
                         DWRITE_TEXT_ALIGNMENT_CENTER);
                     fitLayout->SetParagraphAlignment(
                         DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                    app.renderTarget->DrawTextLayout(
-                        tinta::pointF(fitX, btnY), fitLayout, app.brush);
+                    app.nativeRenderTarget->DrawTextLayout(
+                        tinta::pointF(fitX, btnY), fitLayout, app.nativeBrush);
                     fitLayout->Release();
                 }
             }
@@ -996,7 +996,7 @@ render_document:
     // Back to screen coordinates: notifications, stats, and overlays
     // (including the folder browser panel itself) are not shifted
     if (!app.editMode && documentViewportX(app) > 0.0f) {
-        app.renderTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+        app.renderTarget->SetTransform(tinta::matrixIdentity());
     }
 
     // Review annotations: text tint, marker rail, hover preview (#126)
@@ -1051,7 +1051,7 @@ render_document:
 
     // Close edit mode split view clipping
     if (app.editMode) {
-        D2D1_MATRIX_3X2_F identity = D2D1::Matrix3x2F::Identity();
+        tinta::Matrix3x2F identity = tinta::matrixIdentity();
         app.renderTarget->SetTransform(identity);
         app.renderTarget->PopAxisAlignedClip();
 
@@ -1094,7 +1094,7 @@ render_document:
     if (app.confirmExitPending) renderConfirmExitDialog(app);
     if (app.createRefPending) renderCreateRefDialog(app);
 
-    app.renderTarget->EndDraw();
+    app.nativeRenderTarget->EndDraw();
 }
 
 // --- Update check ---
@@ -1401,7 +1401,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // Resize the target in place: device resources (image and
                 // diagram bitmaps) stay valid, unlike a full recreation
                 if (!app->renderTarget ||
-                    FAILED(app->renderTarget->Resize(
+                    FAILED(app->nativeRenderTarget->Resize(
                         D2D1::SizeU(app->width, app->height)))) {
                     createRenderTarget(*app);
                 }

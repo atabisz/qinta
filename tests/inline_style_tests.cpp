@@ -16,23 +16,30 @@ void check(bool condition, const char* message) {
 }
 
 // Sentinel format handles: emphasisFormat/inlineCodeFormat only ever select
-// between them, so they are never dereferenced and DirectWrite is not needed
-IDWriteTextFormat* fake(int id) {
-    return reinterpret_cast<IDWriteTextFormat*>(static_cast<intptr_t>(id));
+// between them, so they are never dereferenced and DirectWrite is not needed.
+// They are seam handles rather than IDWriteTextFormat* because that is what the
+// App members and InlineStyle::format now hold -- and because a seam handle is
+// the stronger sentinel: tinta::TextFormat has virtual methods, so a stray
+// dereference of one of these faults instead of reading a vtable that happens
+// to be there.
+tinta::TextFormat* fake(int id) {
+    return reinterpret_cast<tinta::TextFormat*>(static_cast<intptr_t>(id));
 }
 
-IDWriteTextFormat* const kBase   = fake(1);
-IDWriteTextFormat* const kBold   = fake(2);
-IDWriteTextFormat* const kItalic = fake(3);
-IDWriteTextFormat* const kBoldIt = fake(4);
-IDWriteTextFormat* const kSupSub = fake(5);
-IDWriteTextFormat* const kCode   = fake(6);
-IDWriteTextFormat* const kCodeB  = fake(7);
-IDWriteTextFormat* const kCodeI  = fake(8);
-IDWriteTextFormat* const kCodeBI = fake(9);
+tinta::TextFormat* const kBase   = fake(1);
+tinta::TextFormat* const kBold   = fake(2);
+tinta::TextFormat* const kItalic = fake(3);
+tinta::TextFormat* const kBoldIt = fake(4);
+tinta::TextFormat* const kSupSub = fake(5);
+tinta::TextFormat* const kCode   = fake(6);
+tinta::TextFormat* const kCodeB  = fake(7);
+tinta::TextFormat* const kCodeI  = fake(8);
+tinta::TextFormat* const kCodeBI = fake(9);
 
-// App::~App releases every text format it holds, and the sentinels are not
-// real COM objects, so they have to be gone before the App is
+// App::~App releases the NATIVE format pointers, which these sentinels never
+// occupy -- so teardown no longer touches them. The guard stays because the
+// tests read these members back and an escaped sentinel would make a later
+// failure read as a wrong selection rather than as leftover fixture state.
 struct FormatGuard {
     App& app;
     explicit FormatGuard(App& a) : app(a) {

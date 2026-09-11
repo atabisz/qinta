@@ -50,9 +50,10 @@ void tabCopy(App& app, int index) {
     clickTabCopy(app);
 }
 void renderStrip(App& app) {
-    app.renderTarget->BeginDraw();
+    app.nativeRenderTarget->BeginDraw();
     renderTabStrip(app);
-    check(SUCCEEDED(app.renderTarget->EndDraw()), "native title strip renders");
+    check(SUCCEEDED(app.nativeRenderTarget->EndDraw()),
+          "native title strip renders");
 }
 void rightClick(App& app, int x, int y) {
     closeTabMenu(app);

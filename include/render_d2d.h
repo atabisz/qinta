@@ -105,6 +105,9 @@ public:
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;
 
+    void SetTransform(const tinta::Matrix3x2F& transform) override;
+    void GetTransform(tinta::Matrix3x2F* transform) override;
+
     ID2D1RenderTarget* native() const { return target_; }
 
 private:

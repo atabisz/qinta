@@ -2,6 +2,7 @@
 
 #include <QPaintDevice>
 #include <QPen>
+#include <QTransform>
 
 // See include/render_qt.h for why this backend exists and which Direct2D-to-Qt
 // mappings it is claiming. Everything here is a translation; nothing decides
@@ -185,4 +186,29 @@ void QtRenderTarget::PushAxisAlignedClip(const tinta::RectF& rect,
 
 void QtRenderTarget::PopAxisAlignedClip() {
     painter_.restore();
+}
+
+void QtRenderTarget::SetTransform(const tinta::Matrix3x2F& transform) {
+    // setWorldTransform's second argument defaults to false, meaning REPLACE rather
+    // than compose, which is what the seam specifies -- every call site in the tree
+    // composes for itself. Passing true here would double-apply at all 10
+    // app.renderTarget sites, and the picture would still look plausible.
+    //
+    // The argument order of QTransform's six-float constructor is m11, m12, m21,
+    // m22, dx, dy, matching D2D1_MATRIX_3X2_F name for name. That was measured, not
+    // read off the names: built this way, T * S maps (1,1) to (22,2), identical to
+    // building the same two matrices with translate() and scale().
+    painter_.setWorldTransform(QTransform(transform.m11, transform.m12, transform.m21,
+                                          transform.m22, transform.dx, transform.dy));
+}
+
+void QtRenderTarget::GetTransform(tinta::Matrix3x2F* transform) {
+    if (!transform) return;
+    const QTransform current = painter_.worldTransform();
+    *transform = tinta::Matrix3x2F{static_cast<float>(current.m11()),
+                                   static_cast<float>(current.m12()),
+                                   static_cast<float>(current.m21()),
+                                   static_cast<float>(current.m22()),
+                                   static_cast<float>(current.dx()),
+                                   static_cast<float>(current.dy())};
 }

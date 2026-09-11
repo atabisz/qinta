@@ -125,6 +125,37 @@ struct Ellipse {
 #endif
 };
 
+// A 2D affine transform, laid out to match D2D1_MATRIX_3X2_F.
+//
+// READ THE SDK BEFORE EDITING THE MEMBER LIST. Unlike every other type in this
+// file, D2D_MATRIX_3X2_F (dcommon.h) is not a flat struct -- it is a UNION of three
+// anonymous structs offering the same 24 bytes under three spellings: {m11, m12,
+// m21, m22, dx, dy}, {_11, _12, _21, _22, _31, _32}, and FLOAT m[3][2]. The names
+// used here are the first of those. The union is why the conversion operator below
+// assigns through a named member rather than using a braced initialiser: brace
+// -initialising a union sets its FIRST member, which happens to be the struct we
+// want, but that would be relying on the SDK's declaration order for correctness
+// rather than on the member name.
+//
+// The convention is ROW-VECTOR -- a point is a row multiplied on the LEFT, so
+// `p * A * B` applies A and then B, and dx/dy are the translation. Qt's QTransform
+// agrees, measured rather than assumed: see operator* below.
+struct Matrix3x2F {
+    float m11, m12, m21, m22, dx, dy;
+#ifdef _WIN32
+    operator D2D1_MATRIX_3X2_F() const {
+        D2D1_MATRIX_3X2_F out;
+        out.m11 = m11;
+        out.m12 = m12;
+        out.m21 = m21;
+        out.m22 = m22;
+        out.dx = dx;
+        out.dy = dy;
+        return out;
+    }
+#endif
+};
+
 // --- Factory helpers ---------------------------------------------------------
 //
 // These mirror the d2d1helper.h D2D1:: helpers one-for-one, INCLUDING the
@@ -173,6 +204,51 @@ inline Ellipse ellipse(const PointF& point, float radiusX, float radiusY) {
     return Ellipse{point, radiusX, radiusY};
 }
 
+// --- Transform helpers -------------------------------------------------------
+//
+// These mirror D2D1::Matrix3x2F::Identity/Translation/Scale, which is what the 17
+// SetTransform sites currently call. Named as free functions rather than static
+// members of Matrix3x2F because a static member function would be fine but an
+// aggregate with member functions is a step towards the constructor this file
+// forbids, and the free-function spelling keeps the rename mechanical:
+// `D2D1::Matrix3x2F::Translation(` -> `tinta::matrixTranslation(`.
+//
+// Deliberately NOT provided: Rotation and Skew. No call site uses them, and the
+// pattern this file already records is that measuring removes methods -- an
+// unused rotation helper would be untested code carrying a sign convention that
+// is easy to get wrong in exactly the way nothing would notice.
+
+inline Matrix3x2F matrixIdentity() {
+    return Matrix3x2F{1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f};
+}
+
+inline Matrix3x2F matrixTranslation(float dx, float dy) {
+    return Matrix3x2F{1.0f, 0.0f, 0.0f, 1.0f, dx, dy};
+}
+
+inline Matrix3x2F matrixScale(float scaleX, float scaleY) {
+    return Matrix3x2F{scaleX, 0.0f, 0.0f, scaleY, 0.0f, 0.0f};
+}
+
+// Row-vector composition: `a * b` applies a FIRST, then b.
+//
+// MEASURED against Qt rather than inferred from the member names, because both
+// libraries spell their members m11/m12/m21/m22/dx/dy and that similarity is
+// exactly what makes a wrong assumption here invisible. Qt 6.4.2, mapping the
+// point (1,1): translate(10,0) alone -> (11,1); scale(2,2) alone -> (2,2);
+// T * S -> (22,2); and the control S * T -> (12,2), a DIFFERENT answer, so the
+// pair is non-commutative and the agreement is evidence rather than luck. (22,2)
+// is what row-vector `p * T * S` predicts, so Qt and Direct2D compose in the same
+// order and neither backend needs an operand swap.
+inline Matrix3x2F operator*(const Matrix3x2F& a, const Matrix3x2F& b) {
+    return Matrix3x2F{a.m11 * b.m11 + a.m12 * b.m21,
+                      a.m11 * b.m12 + a.m12 * b.m22,
+                      a.m21 * b.m11 + a.m22 * b.m21,
+                      a.m21 * b.m12 + a.m22 * b.m22,
+                      a.dx * b.m11 + a.dy * b.m21 + b.dx,
+                      a.dx * b.m12 + a.dy * b.m22 + b.dy};
+}
+
 #ifdef _WIN32
 // --- Layout claim ------------------------------------------------------------
 //
@@ -214,6 +290,20 @@ static_assert(offsetof(Ellipse, point) == offsetof(D2D1_ELLIPSE, point), "Ellips
 static_assert(offsetof(Ellipse, radiusX) == offsetof(D2D1_ELLIPSE, radiusX), "Ellipse::radiusX offset");
 static_assert(offsetof(Ellipse, radiusY) == offsetof(D2D1_ELLIPSE, radiusY), "Ellipse::radiusY offset");
 
+// The one type in this file whose SDK counterpart is a union, so these offsetofs
+// are reaching through an anonymous struct. That is well defined in C++ and is
+// precisely why they are worth asserting: the union offers the same bytes as
+// `_11.._32` and as `m[3][2]`, so a member-name mistake here would still compile
+// against one of the other spellings and quietly mean something else.
+static_assert(sizeof(Matrix3x2F) == sizeof(D2D1_MATRIX_3X2_F),
+              "tinta::Matrix3x2F must match D2D1_MATRIX_3X2_F");
+static_assert(offsetof(Matrix3x2F, m11) == offsetof(D2D1_MATRIX_3X2_F, m11), "Matrix3x2F::m11 offset");
+static_assert(offsetof(Matrix3x2F, m12) == offsetof(D2D1_MATRIX_3X2_F, m12), "Matrix3x2F::m12 offset");
+static_assert(offsetof(Matrix3x2F, m21) == offsetof(D2D1_MATRIX_3X2_F, m21), "Matrix3x2F::m21 offset");
+static_assert(offsetof(Matrix3x2F, m22) == offsetof(D2D1_MATRIX_3X2_F, m22), "Matrix3x2F::m22 offset");
+static_assert(offsetof(Matrix3x2F, dx) == offsetof(D2D1_MATRIX_3X2_F, dx), "Matrix3x2F::dx offset");
+static_assert(offsetof(Matrix3x2F, dy) == offsetof(D2D1_MATRIX_3X2_F, dy), "Matrix3x2F::dy offset");
+
 // Direct2D -> tinta, for the places that read a value back OUT of a Direct2D
 // object (GetSize, GetColor and similar). This direction cannot be a conversion
 // operator -- it would have to be a converting constructor on the tinta type,
@@ -225,6 +315,9 @@ inline Color fromD2D(const D2D1_COLOR_F& c) { return Color{c.r, c.g, c.b, c.a}; 
 inline PointF fromD2D(const D2D1_POINT_2F& p) { return PointF{p.x, p.y}; }
 inline SizeF fromD2D(const D2D1_SIZE_F& s) { return SizeF{s.width, s.height}; }
 inline RectF fromD2D(const D2D1_RECT_F& r) { return RectF{r.left, r.top, r.right, r.bottom}; }
+inline Matrix3x2F fromD2D(const D2D1_MATRIX_3X2_F& m) {
+    return Matrix3x2F{m.m11, m.m12, m.m21, m.m22, m.dx, m.dy};
+}
 
 // The one place the layout assertions above are load-bearing rather than
 // belt-and-braces. A conversion operator converts one value; it cannot convert

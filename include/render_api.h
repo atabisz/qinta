@@ -82,8 +82,15 @@
 //     a portable spelling of that is a design question rather than a rename. A
 //     concrete backend owns its own construction; this interface is about the
 //     drawing calls only.
-//   * SetTransform/GetTransform (17 + 6 sites). They need a 3x2 matrix type that
-//     geometry.h does not have yet.
+//   * Bitmaps (DrawBitmap 7, CreateBitmapFromWicBitmap 4, CreateBitmap 2 on
+//     app.renderTarget). A second seam in its own right, and WIC-coupled: the
+//     portable counterpart of "decode this image" is a dependency decision, not a
+//     rename, so it is not being smuggled in behind a drawing call.
+//   * Geometry paths (FillGeometry 2, DrawGeometry 2). They need a path object,
+//     which is a handle type like StrokeStyle rather than a value type.
+//
+// SetTransform/GetTransform WERE on this list. They are now in the interface, and
+// tinta::Matrix3x2F in geometry.h is the 3x2 matrix type they needed.
 //
 // Naming stays qualified as tinta::, for the reason geometry.h gives: bare Color
 // is already ambiguous across most of src/.
@@ -168,6 +175,20 @@ public:
     // function, so a backend may implement these with a save/restore stack.
     virtual void PushAxisAlignedClip(const RectF& rect, AntialiasMode mode) = 0;
     virtual void PopAxisAlignedClip() = 0;
+
+    // The transform is REPLACED, not composed. Every call site in the tree already
+    // does its own composing -- the pattern is GetTransform into a local, then
+    // SetTransform(something * previous), then SetTransform(previous) to restore --
+    // so a seam that composed instead would double-apply at all 10 renderTarget
+    // sites. Qt's setWorldTransform has a combine flag defaulting to replace, and
+    // that default is the one this seam means.
+    //
+    // GetTransform takes an out-pointer rather than returning a value because that
+    // is Direct2D's signature and the six sites read
+    // `GetTransform(&previous)`. Non-const because ID2D1RenderTarget::GetTransform
+    // is non-const on the wrapper this seam delegates to.
+    virtual void SetTransform(const Matrix3x2F& transform) = 0;
+    virtual void GetTransform(Matrix3x2F* transform) = 0;
 };
 
 }  // namespace tinta

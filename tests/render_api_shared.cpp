@@ -660,6 +660,146 @@ int runRenderApiAssertions(RenderHarness& h) {
               "and brings it inside the box it was given");
     }
 
+    // --- Transforms: round-trip, then the composition ORDER -------------------
+    //
+    // The order claim is the one worth the most here. QTransform and
+    // D2D1_MATRIX_3X2_F name their members identically and compose identically, and
+    // that similarity is exactly what would make an operand swap in one backend
+    // invisible: the picture stays plausible, just wrong. So it is asserted as a
+    // RELATION between two compositions of the same two matrices, which needs no
+    // absolute pixel value and holds for either backend.
+    {
+        whiteSurface(h);
+        tinta::Matrix3x2F read{};
+        tinta::RenderTarget& rt = h.begin();
+        rt.GetTransform(&read);
+        h.end();
+        check(read.m11 == 1.0f && read.m22 == 1.0f && read.m12 == 0.0f &&
+                  read.m21 == 0.0f && read.dx == 0.0f && read.dy == 0.0f,
+              "CONTROL: a fresh target starts at the identity transform");
+    }
+
+    {
+        whiteSurface(h);
+        // Deliberately not a translation or a scale: an asymmetric matrix catches a
+        // backend that transposes m12 and m21, which every symmetric test misses.
+        const tinta::Matrix3x2F sent{2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f};
+        tinta::Matrix3x2F read{};
+        tinta::RenderTarget& rt = h.begin();
+        rt.SetTransform(sent);
+        rt.GetTransform(&read);
+        rt.SetTransform(tinta::matrixIdentity());
+        h.end();
+        check(read.m11 == sent.m11 && read.m12 == sent.m12 && read.m21 == sent.m21 &&
+                  read.m22 == sent.m22 && read.dx == sent.dx && read.dy == sent.dy,
+              "GetTransform returns exactly what SetTransform was given, m12/m21 not transposed");
+    }
+
+    {
+        // Identity must leave ink where an untransformed draw put it, and a
+        // translation must move it by the amount translated. Both measured in
+        // PIXELS, because a backend could store a transform it never applies.
+        std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+
+        whiteSurface(h);
+        h.begin().FillRectangle(tinta::rectF(20, 10, 40, 30), brush.get());
+        h.end();
+        const int plainLeft = leftmostPainted(h);
+        const int plainTop = topmostPainted(h);
+        check(plainLeft >= 0, "CONTROL: the untransformed rectangle painted something");
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(tinta::matrixIdentity());
+            rt.FillRectangle(tinta::rectF(20, 10, 40, 30), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        check(leftmostPainted(h) == plainLeft && topmostPainted(h) == plainTop,
+              "an explicit identity transform changes nothing");
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(tinta::matrixTranslation(30.0f, 20.0f));
+            rt.FillRectangle(tinta::rectF(20, 10, 40, 30), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        check(leftmostPainted(h) == plainLeft + 30,
+              "a translation moves ink right by exactly the amount translated");
+        check(topmostPainted(h) == plainTop + 20,
+              "and down by exactly the amount translated");
+
+        // REPLACE, NOT COMPOSE -- and this pair exists because writing the
+        // falsifier first showed the rest of the block could not see the
+        // difference. Qt's setWorldTransform takes a combine flag; the seam
+        // specifies replace, because all 10 call sites in the tree compose for
+        // themselves and a composing seam would double-apply. But every other
+        // block here resets to identity inside the same session and then opens a
+        // FRESH painter, which starts at identity regardless -- so a backend
+        // passing combine=true would have gone green everywhere above. The second
+        // SetTransform below is what makes the flag observable: under compose it
+        // would leave the translation standing.
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(tinta::matrixTranslation(30.0f, 20.0f));
+            rt.SetTransform(tinta::matrixIdentity());
+            rt.FillRectangle(tinta::rectF(20, 10, 40, 30), brush.get());
+            h.end();
+        }
+        check(leftmostPainted(h) == plainLeft,
+              "SetTransform REPLACES: a following identity undoes the translation rather than composing with it");
+        check(topmostPainted(h) == plainTop,
+              "and it does so on both axes, which a compose would leave shifted down");
+    }
+
+    {
+        // THE ORDER ASSERTION. translation * scale applies the translation first, so
+        // the scale multiplies the already-translated offset; the other order scales
+        // first and then adds an unscaled offset. Both put ink further right than
+        // nothing does, and they must NOT agree with each other -- which is what
+        // makes this a test of composition rather than of either operation.
+        std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+        const tinta::Matrix3x2F t = tinta::matrixTranslation(10.0f, 0.0f);
+        const tinta::Matrix3x2F s = tinta::matrixScale(2.0f, 2.0f);
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(t * s);
+            rt.FillRectangle(tinta::rectF(1, 1, 6, 6), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        const int translateThenScale = leftmostPainted(h);
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(s * t);
+            rt.FillRectangle(tinta::rectF(1, 1, 6, 6), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        const int scaleThenTranslate = leftmostPainted(h);
+
+        check(translateThenScale > 0 && scaleThenTranslate > 0,
+              "CONTROL: both compositions painted something");
+        check(translateThenScale != scaleThenTranslate,
+              "CONTROL: the two matrices do not commute, so the order is observable");
+        check(translateThenScale > scaleThenTranslate,
+              "translation * scale scales the offset too, so its ink lands further right");
+
+        // And the seam's own arithmetic agrees with what the pixels just showed,
+        // which is what rules out both backends applying the same wrong order.
+        const tinta::Matrix3x2F composed = t * s;
+        check(composed.dx == 20.0f && composed.m11 == 2.0f,
+              "tinta::operator* composes in row-vector order: dx is scaled to 20");
+    }
+
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",
                 failures == 0 ? "all " : "", checks, failures, h.name());
     return failures;

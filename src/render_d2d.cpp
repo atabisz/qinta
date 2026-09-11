@@ -148,3 +148,17 @@ void D2DRenderTarget::PushAxisAlignedClip(const tinta::RectF& rect,
 void D2DRenderTarget::PopAxisAlignedClip() {
     target_->PopAxisAlignedClip();
 }
+
+void D2DRenderTarget::SetTransform(const tinta::Matrix3x2F& transform) {
+    // The implicit conversion operator on tinta::Matrix3x2F, copying field by
+    // field. The layout static_asserts in geometry.h would license a cast instead,
+    // and a copy still beats one for the reason that file gives.
+    target_->SetTransform(transform);
+}
+
+void D2DRenderTarget::GetTransform(tinta::Matrix3x2F* transform) {
+    if (!transform) return;
+    D2D1_MATRIX_3X2_F current;
+    target_->GetTransform(&current);
+    *transform = tinta::fromD2D(current);
+}

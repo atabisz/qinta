@@ -24,6 +24,14 @@ class QPaintDevice;
 //   DrawLine(a, b, brush, strokeWidth)            -> QPen width, centred on the line
 //   FillEllipse(centre, radiusX, radiusY)         -> drawEllipse(centre, rx, ry)
 //   PushAxisAlignedClip / Pop                     -> save() + setClipRect(IntersectClip) / restore()
+//   SetTransform / GetTransform                   -> setWorldTransform(t, /*combine=*/false) / worldTransform()
+//
+// That last one is exact in a way worth stating, because it is the mapping most
+// likely to be assumed rather than checked: QTransform and D2D1_MATRIX_3X2_F both
+// name their members m11/m12/m21/m22/dx/dy AND both compose in row-vector order,
+// so `a * b` means "apply a, then b" in each. Measured on a non-commutative pair
+// (Qt: translate(10,0) * scale(2,2) maps (1,1) to (22,2), the control the other way
+// round gives (12,2)), not inferred from the naming.
 //
 // Two differences that are real and are handled here rather than left to callers:
 //
@@ -78,6 +86,9 @@ public:
 
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;
+
+    void SetTransform(const tinta::Matrix3x2F& transform) override;
+    void GetTransform(tinta::Matrix3x2F* transform) override;
 
 private:
     void setFill(tinta::Brush* brush);

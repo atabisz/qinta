@@ -522,7 +522,7 @@ void renderTabStrip(App& app) {
 
     // App icon (16px, centered in a 40px cell)
     float iconCell = dpi(app, 40.0f);
-    if (!app.titleIconBitmap && app.wicFactory && app.renderTarget) {
+    if (!app.nativeTitleIconBitmap && app.wicFactory && app.renderTarget) {
         HICON icon = (HICON)LoadImageW(GetModuleHandleW(nullptr), L"IDI_ICON1",
                                        IMAGE_ICON, 32, 32, 0);
         if (icon) {
@@ -537,7 +537,7 @@ void renderTabStrip(App& app) {
                             WICBitmapDitherTypeNone, nullptr, 0.0,
                             WICBitmapPaletteTypeCustom))) {
                         app.nativeRenderTarget->CreateBitmapFromWicBitmap(
-                            converter, nullptr, &app.titleIconBitmap);
+                            converter, nullptr, &app.nativeTitleIconBitmap);
                     }
                     converter->Release();
                 }
@@ -547,12 +547,12 @@ void renderTabStrip(App& app) {
         }
     }
     if (!app.editMode) renderAppMenuButtonBackground(app);
-    if (app.titleIconBitmap) {
+    if (app.nativeTitleIconBitmap) {
         float iconSize = dpi(app, 16.0f);
         float ix = (iconCell - iconSize) * 0.5f;
         float iy = (stripH - iconSize) * 0.5f;
-        app.nativeRenderTarget->DrawBitmap(
-            app.titleIconBitmap,
+        app.renderTarget->DrawBitmap(
+            app.titleIconBitmap(),
             tinta::rectF(ix, iy, ix + iconSize, iy + iconSize));
     }
 

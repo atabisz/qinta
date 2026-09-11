@@ -50,9 +50,9 @@ static void toggleFitBlock(App& app, HWND hwnd, unsigned key);
 static void clearLinkPeek(App& app) {
     app.linkPeekActive = false;
     app.linkPeekUrl.clear();
-    if (app.linkPeekBitmap) {
-        app.linkPeekBitmap->Release();
-        app.linkPeekBitmap = nullptr;
+    if (app.nativeLinkPeekBitmap) {
+        app.nativeLinkPeekBitmap->Release();
+        app.nativeLinkPeekBitmap = nullptr;
     }
 }
 
@@ -4252,8 +4252,8 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     if (!bitmap) return;
     // The render may have shrunk to the target's real height
     app.linkPeekPanel.bottom = py + titleH + contentH + 2.0f;
-    if (app.linkPeekBitmap) app.linkPeekBitmap->Release();
-    app.linkPeekBitmap = bitmap;
+    if (app.nativeLinkPeekBitmap) app.nativeLinkPeekBitmap->Release();
+    app.nativeLinkPeekBitmap = bitmap;
     app.linkPeekTitle = target.filename().wstring();
     app.linkPeekActive = true;
     InvalidateRect(hwnd, nullptr, FALSE);

@@ -1331,7 +1331,7 @@ void renderToc(App& app) {
 // --- Link peek ---
 
 void renderLinkPeek(App& app) {
-    if (!app.linkPeekActive || !app.linkPeekBitmap ||
+    if (!app.linkPeekActive || !app.nativeLinkPeekBitmap ||
         app.hoveredLink != app.linkPeekUrl || !app.folderBrowserFormat) {
         return;
     }
@@ -1363,11 +1363,10 @@ void renderLinkPeek(App& app) {
         app.brush);
 
     // The rendered page
-    app.nativeRenderTarget->DrawBitmap(
-        app.linkPeekBitmap,
+    app.renderTarget->DrawBitmap(
+        app.linkPeekBitmap(),
         tinta::rectF(p.left + 1.0f, p.top + titleH, p.right - 1.0f,
-                    p.bottom - 1.0f),
-        1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nullptr);
+                    p.bottom - 1.0f));
 
     tinta::Color border = app.theme.accent;
     border.a = 0.55f;
@@ -1381,7 +1380,7 @@ void openLightbox(App& app, ID2D1Bitmap* bitmap) {
     if (!bitmap) return;
     closeLightbox(app);
     bitmap->AddRef();
-    app.lightboxBitmap = bitmap;
+    app.nativeLightboxBitmap = bitmap;
     app.showLightbox = true;
     app.lightboxZoom = 1.0f;
     app.lightboxPanX = 0.0f;
@@ -1390,17 +1389,18 @@ void openLightbox(App& app, ID2D1Bitmap* bitmap) {
 }
 
 void closeLightbox(App& app) {
-    if (app.lightboxBitmap) {
-        app.lightboxBitmap->Release();
-        app.lightboxBitmap = nullptr;
+    if (app.nativeLightboxBitmap) {
+        app.nativeLightboxBitmap->Release();
+        app.nativeLightboxBitmap = nullptr;
     }
     app.showLightbox = false;
     app.lightboxDragging = false;
 }
 
 tinta::RectF lightboxImageRect(const App& app) {
-    if (!app.lightboxBitmap) return tinta::RectF{};
-    tinta::SizeF size = tinta::fromD2D(app.lightboxBitmap->GetSize());
+    tinta::Bitmap* bitmap = app.lightboxBitmap();
+    if (!bitmap) return tinta::RectF{};
+    tinta::SizeF size = bitmap->GetSize();
     float availW = (float)app.width * 0.94f;
     float availH = (float)app.height - chromeTopHeight(app) - dpi(app, 24.0f);
     // Fit large images to the view, keep small ones at natural size
@@ -1417,14 +1417,12 @@ tinta::RectF lightboxImageRect(const App& app) {
 }
 
 void renderLightbox(App& app) {
-    if (!app.lightboxBitmap || !app.renderTarget || !app.brush) return;
+    if (!app.nativeLightboxBitmap || !app.renderTarget || !app.brush) return;
     app.brush->SetColor(tinta::colorF(0.0f, 0.0f, 0.0f, 0.82f));
     app.renderTarget->FillRectangle(
         tinta::rectF(0, 0, (float)app.width, (float)app.height), app.brush);
     tinta::RectF dest = lightboxImageRect(app);
-    app.nativeRenderTarget->DrawBitmap(
-        app.lightboxBitmap, dest, 1.0f,
-        D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, nullptr);
+    app.renderTarget->DrawBitmap(app.lightboxBitmap(), dest);
     // Thin border so light images do not bleed into the backdrop
     app.brush->SetColor(tinta::colorF(1.0f, 1.0f, 1.0f, 0.18f));
     app.renderTarget->DrawRectangle(dest, app.brush, 1.0f);
@@ -2522,9 +2520,15 @@ void renderPrintPreview(App& app) {
                     tinta::rectF(px - i, py - i, px + pw + i, py + ph + i),
                     app.brush, 1.5f);
             }
-            app.nativeRenderTarget->DrawBitmap(bmp,
-                tinta::rectF(px, py, px + pw, py + ph),
-                1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+            // A local wrapper rather than a seated one: this bitmap is created
+            // and released inside this block, so nothing outside it can hold a
+            // handle. The site stays Direct2D-terminal because CreateBitmap is
+            // native by the seam's own exclusion policy -- what the seam buys
+            // here is that the whole block draws through ONE target, instead of
+            // the shadow ring going through the seam and the page through D2D.
+            D2DBitmap wrapper{bmp};
+            app.renderTarget->DrawBitmap(&wrapper,
+                tinta::rectF(px, py, px + pw, py + ph));
             bmp->Release();
         }
     }

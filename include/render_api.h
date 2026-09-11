@@ -232,10 +232,12 @@ public:
     //
     // srcRect is a POINTER, not a defaulted value, because null means "all of it"
     // and that is a distinct state from any rectangle -- there is no rectangle that
-    // means "whatever size this bitmap turns out to be". Both sites that pass the
-    // argument today pass null, so the sub-rect path is exercised only by the shared
-    // assertions; it is implemented rather than stubbed because a backend that
-    // ignored srcRect would draw a plausible picture of the wrong region.
+    // means "whatever size this bitmap turns out to be". NO call site passes it --
+    // the two that used to pass D2D's equivalent passed null, and now take the
+    // default -- so the sub-rect path is exercised ONLY by the shared assertions.
+    // It is implemented rather than stubbed because a backend that ignored srcRect
+    // would draw a plausible picture of the wrong region, and with no caller the
+    // assertions are the only thing that would ever notice.
     virtual void DrawBitmap(Bitmap* bitmap, const RectF& destRect, float opacity = 1.0f,
                             BitmapInterpolationMode interpolationMode =
                                 BitmapInterpolationMode::Linear,

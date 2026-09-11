@@ -199,10 +199,10 @@ void renderEditRail(App& app) {
     renderAppMenuButtonBackground(app);
     float y = dpi(app, 11.0f);
     startPageEnsureIcon(app);
-    if (app.startPageIconBitmap) {
+    if (app.nativeStartPageIconBitmap) {
         float iconSize = dpi(app, 20.0f);
-        app.nativeRenderTarget->DrawBitmap(
-            app.startPageIconBitmap,
+        app.renderTarget->DrawBitmap(
+            app.startPageIconBitmap(),
             tinta::rectF((railW - iconSize) * 0.5f, y,
                         (railW + iconSize) * 0.5f, y + iconSize));
     }

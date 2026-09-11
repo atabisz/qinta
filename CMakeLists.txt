@@ -283,6 +283,18 @@ if(BUILD_TESTING)
     target_link_libraries(context_menu_tests PRIVATE md4c shell32 d2d1 dwrite)
     target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME context_menu COMMAND context_menu_tests)
+
+    # Needs no display and no render target: D2DBitmap borrows, so the assertions
+    # use fake addresses they never dereference. It links the two backend sources
+    # for the same reason context_menu_tests does -- App holds wrappers BY VALUE,
+    # so any target that instantiates App needs their vtables.
+    add_executable(bitmap_seam_tests tests/bitmap_seam_tests.cpp
+        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
+        src/render_d2d.cpp src/text_d2d.cpp)
+    target_include_directories(bitmap_seam_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
+    target_link_libraries(bitmap_seam_tests PRIVATE md4c shell32 d2d1 dwrite)
+    target_compile_definitions(bitmap_seam_tests PRIVATE UNICODE _UNICODE)
+    add_test(NAME bitmap_seam COMMAND bitmap_seam_tests)
     endif()  # WIN32
 
     add_executable(math_parser_tests tests/math_parser_tests.cpp src/math_parser.cpp src/math_macros.cpp)

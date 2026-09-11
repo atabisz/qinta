@@ -404,7 +404,7 @@ void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
 // --- Rendering -----------------------------------------------------------
 
 void startPageEnsureIcon(App& app) {
-    if (app.startPageIconBitmap || !app.wicFactory || !app.renderTarget)
+    if (app.nativeStartPageIconBitmap || !app.wicFactory || !app.renderTarget)
         return;
     HICON icon = (HICON)LoadImageW(GetModuleHandleW(nullptr), L"IDI_ICON1",
                                    IMAGE_ICON, 64, 64, 0);
@@ -420,7 +420,7 @@ void startPageEnsureIcon(App& app) {
                     WICBitmapDitherTypeNone, nullptr, 0.0,
                     WICBitmapPaletteTypeCustom))) {
                 app.nativeRenderTarget->CreateBitmapFromWicBitmap(
-                    converter, nullptr, &app.startPageIconBitmap);
+                    converter, nullptr, &app.nativeStartPageIconBitmap);
             }
             converter->Release();
         }
@@ -482,10 +482,10 @@ void renderStartPage(App& app) {
     DWRITE_TEXT_METRICS wmM = spMetrics(wm);
     float iconSize = dpi(app, 34.0f);
     float heroH = std::max(wmM.height, iconSize);
-    if (app.startPageIconBitmap) {
+    if (app.nativeStartPageIconBitmap) {
         float iy = y0 + (heroH - iconSize) * 0.5f;
-        app.nativeRenderTarget->DrawBitmap(
-            app.startPageIconBitmap,
+        app.renderTarget->DrawBitmap(
+            app.startPageIconBitmap(),
             tinta::rectF(x0, iy, x0 + iconSize, iy + iconSize));
     }
     float wmX = x0 + iconSize + dpi(app, 14.0f);

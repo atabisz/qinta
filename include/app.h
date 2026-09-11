@@ -248,13 +248,28 @@ struct App {
     struct LayoutBitmap {
         ID2D1Bitmap* bitmap = nullptr;
         tinta::RectF destRect{};
+        // Reseated on read rather than stored, which is the shape the BORROWED
+        // ownership of D2DBitmap buys: the wrapper is one pointer, so rebuilding
+        // it costs nothing and it cannot go stale. A stored tinta::Bitmap* aimed
+        // at a sibling member would keep pointing at the pre-move address after
+        // this vector reallocates (render.cpp resize/push_back both do), and the
+        // dangle would only show as a wrong picture. mutable because the drawing
+        // loop iterates by const reference and this caches a view of state the
+        // accessor does not change. The text-format family CANNOT do this --
+        // reseating a unique_ptr<D2DTextFormat> on every read would thrash
+        // allocations -- so this is the ownership difference paying out.
+        mutable D2DBitmap bitmapStorage{nullptr};
+        tinta::Bitmap* seam() const {
+            bitmapStorage = D2DBitmap{bitmap};
+            return bitmap ? &bitmapStorage : nullptr;
+        }
     };
     std::vector<LayoutBitmap> layoutBitmaps;
 
     // Image lightbox: clicking an inline image views it full size over a
     // dimmed backdrop; wheel zooms, drag pans, Esc or a click closes
     bool showLightbox = false;
-    ID2D1Bitmap* lightboxBitmap = nullptr;  // AddRef'd while open
+    ID2D1Bitmap* nativeLightboxBitmap = nullptr;  // AddRef'd while open
     float lightboxZoom = 1.0f;              // multiplier over fit-to-view
     float lightboxPanX = 0.0f;
     float lightboxPanY = 0.0f;
@@ -508,7 +523,7 @@ struct App {
     bool sessionOwner = true;
     // 16px window icon drawn in the strip (device bitmap: recreated with
     // the render target)
-    ID2D1Bitmap* titleIconBitmap = nullptr;
+    ID2D1Bitmap* nativeTitleIconBitmap = nullptr;
 
     // Start page (design t7): the launcher that replaced the sample
     // document. It is the universal empty state: any tab with no
@@ -523,7 +538,7 @@ struct App {
     std::vector<RecentDoc> startPageRecents;
     int startPageHover = 0;  // hit id under the mouse, 0 = none
     std::vector<std::pair<tinta::RectF, int>> startPageHits;  // rebuilt each paint
-    ID2D1Bitmap* startPageIconBitmap = nullptr;  // hero icon (device bitmap)
+    ID2D1Bitmap* nativeStartPageIconBitmap = nullptr;  // hero icon (device bitmap)
 
     // Folder browser overlay
     bool showFolderBrowser = false;
@@ -666,7 +681,7 @@ struct App {
     // Peeking a plain-text file: the whole-file code block drops its card
     // chrome, since the peek panel already frames the content
     bool peekFrameless = false;
-    ID2D1Bitmap* linkPeekBitmap = nullptr;  // owned while active
+    ID2D1Bitmap* nativeLinkPeekBitmap = nullptr;  // owned while active
     tinta::RectF linkPeekAnchorDoc{};        // hovered link rect (doc coords)
     tinta::RectF linkPeekPanel{};            // placed panel (screen coords)
     int annotEditorIndex = -1;    // -1 = creating a new annotation
@@ -1259,24 +1274,24 @@ struct App {
         imageCache.clear();
         imageCacheBytes = 0;
         imageCacheUseClock = 0;
-        if (titleIconBitmap) {
-            titleIconBitmap->Release();
-            titleIconBitmap = nullptr;
+        if (nativeTitleIconBitmap) {
+            nativeTitleIconBitmap->Release();
+            nativeTitleIconBitmap = nullptr;
         }
-        if (startPageIconBitmap) {
-            startPageIconBitmap->Release();
-            startPageIconBitmap = nullptr;
+        if (nativeStartPageIconBitmap) {
+            nativeStartPageIconBitmap->Release();
+            nativeStartPageIconBitmap = nullptr;
         }
     }
 
     void shutdown() {
-        if (lightboxBitmap) {
-            lightboxBitmap->Release();
-            lightboxBitmap = nullptr;
+        if (nativeLightboxBitmap) {
+            nativeLightboxBitmap->Release();
+            nativeLightboxBitmap = nullptr;
         }
-        if (linkPeekBitmap) {
-            linkPeekBitmap->Release();
-            linkPeekBitmap = nullptr;
+        if (nativeLinkPeekBitmap) {
+            nativeLinkPeekBitmap->Release();
+            nativeLinkPeekBitmap = nullptr;
         }
         clearLayoutCache();
         releaseOverlayFormats();
@@ -1393,6 +1408,40 @@ struct App {
         seatDashedStrokeStyle();
         seatTextFormats();
     }
+
+    // The four scalar bitmaps are reached through ACCESSORS, not through a seated
+    // pointer field like the render target and the formats. The reason is their
+    // lifetime, not their type: each of these is created and released while the app
+    // runs -- the lightbox opens and closes, the link peek arms and disarms -- so a
+    // seated field would need reseating at all 8 of its mutation sites, and missing
+    // one would leave a stale pointer that still draws the PREVIOUS image. Reseating
+    // on read cannot be forgotten. It is affordable only because D2DBitmap borrows
+    // (see render_d2d.h): rebuilding the wrapper is one pointer store and no
+    // refcount traffic. Deliberately NOT the shape to copy for an owning wrapper.
+    //
+    // const, with mutable storage, because lightboxImageRect takes a const App&.
+    tinta::Bitmap* titleIconBitmap() const {
+        titleIconBitmapStorage = D2DBitmap{nativeTitleIconBitmap};
+        return nativeTitleIconBitmap ? &titleIconBitmapStorage : nullptr;
+    }
+    tinta::Bitmap* startPageIconBitmap() const {
+        startPageIconBitmapStorage = D2DBitmap{nativeStartPageIconBitmap};
+        return nativeStartPageIconBitmap ? &startPageIconBitmapStorage : nullptr;
+    }
+    tinta::Bitmap* lightboxBitmap() const {
+        lightboxBitmapStorage = D2DBitmap{nativeLightboxBitmap};
+        return nativeLightboxBitmap ? &lightboxBitmapStorage : nullptr;
+    }
+    tinta::Bitmap* linkPeekBitmap() const {
+        linkPeekBitmapStorage = D2DBitmap{nativeLinkPeekBitmap};
+        return nativeLinkPeekBitmap ? &linkPeekBitmapStorage : nullptr;
+    }
+
+private:
+    mutable D2DBitmap titleIconBitmapStorage{nullptr};
+    mutable D2DBitmap startPageIconBitmapStorage{nullptr};
+    mutable D2DBitmap lightboxBitmapStorage{nullptr};
+    mutable D2DBitmap linkPeekBitmapStorage{nullptr};
 };
 
 inline float dpi(const App& app, float value) {

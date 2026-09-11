@@ -549,13 +549,15 @@ render_document:
     }
 
     // Render images (bitmaps)
+    // const& is preserved: LayoutBitmap::seam() is const over mutable storage
+    // precisely so this loop does not have to give up its constness to draw.
     for (const auto& bmp : app.layoutBitmaps) {
         if (!bmp.bitmap) continue;
         if (bmp.destRect.bottom < viewportTop - cullMargin ||
             bmp.destRect.top > viewportBottom + cullMargin) continue;
         if (bmp.destRect.right < viewportLeft - cullMargin ||
             bmp.destRect.left > viewportRight + cullMargin) continue;
-        app.nativeRenderTarget->DrawBitmap(bmp.bitmap,
+        app.renderTarget->DrawBitmap(bmp.seam(),
             tinta::rectF(bmp.destRect.left - app.scrollX,
                          bmp.destRect.top - app.scrollY,
                          bmp.destRect.right - app.scrollX,

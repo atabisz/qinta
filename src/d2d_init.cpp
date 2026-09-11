@@ -527,13 +527,13 @@ static void invalidateDeviceBitmaps(App& app) {
         else { it = app.imageCache.erase(it); }
     }
     // The title-bar icon is a device bitmap too; the strip recreates it
-    if (app.titleIconBitmap) {
-        app.titleIconBitmap->Release();
-        app.titleIconBitmap = nullptr;
+    if (app.nativeTitleIconBitmap) {
+        app.nativeTitleIconBitmap->Release();
+        app.nativeTitleIconBitmap = nullptr;
     }
-    if (app.startPageIconBitmap) {
-        app.startPageIconBitmap->Release();
-        app.startPageIconBitmap = nullptr;
+    if (app.nativeStartPageIconBitmap) {
+        app.nativeStartPageIconBitmap->Release();
+        app.nativeStartPageIconBitmap = nullptr;
     }
 }
 

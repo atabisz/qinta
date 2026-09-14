@@ -289,9 +289,14 @@ fi
 # It is here for the revert shape, which the manifest CANNOT see: put src/search.cpp
 # back into portable_compile_only and drop search_tests, and the manifest is green
 # again -- the file still compiles, still appears in the build log, still matches its
-# line above -- while 40 assertions and the only execution of that file on any
-# platform are gone. That is one plausible edit, not a contrived one: it is exactly
-# what undoing this slice looks like. The object line tells the two apart.
+# line above -- while every assertion in that file, and the only execution of it on
+# any platform, are gone. That is one plausible edit, not a contrived one: it is
+# exactly what undoing this slice looks like. The object line tells the two apart.
+#
+# This comment said "40 assertions" for one span and the test printed 53 -- measured
+# by running the binary, not by reading the source. No count is named here now, on
+# purpose: the test prints its own on success, so the only copy of the number is the
+# one that cannot go stale. Same defect as the two counts corrected in CMakeLists.txt.
 if grep -qE "search_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
     check 0 "tests/search_tests.cpp was compiled by $CXX_BIN, so src/search.cpp is asserted off Windows and not merely compiled"
 else

@@ -181,6 +181,8 @@ public:
     void SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) override;
     void SetFontSize(float fontSize, tinta::TextRange range) override;
     void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
+    void SetTypography(const tinta::Typography& typography,
+                       tinta::TextRange range) override;
 
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the

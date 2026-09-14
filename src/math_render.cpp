@@ -757,7 +757,11 @@ void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
         // holds is the wrapper's and the one the cache holds is MathBox's.
         run.layout->AddRef();
         App::LayoutTextRun r;
-        r.layout = std::make_shared<D2DTextLayout>(run.layout);
+        // app.dwriteFactory is for SetTypography (see text_d2d.h). Nothing in a maths
+        // box sets font features today, so this argument is currently unused here --
+        // it is passed because the parameter is required, and it is required so that a
+        // site like this one cannot quietly become a layout that ignores typography.
+        r.layout = std::make_shared<D2DTextLayout>(run.layout, app.dwriteFactory);
         r.pos = tinta::pointF(x + run.x, y + run.y);
         // Whole-box bounds keep viewport culling conservative and correct
         r.bounds = tinta::rectF(x, y, x + box->width, y + box->height);

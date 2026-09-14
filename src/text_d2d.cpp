@@ -515,6 +515,42 @@ void D2DTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range)
     layout_->SetStrikethrough(strikethrough ? TRUE : FALSE, native);
 }
 
+void D2DTextLayout::SetTypography(const tinta::Typography& typography,
+                                 tinta::TextRange range) {
+    if (!layout_) return;
+    // An empty list applies nothing, matching what the null IDWriteTypography this
+    // replaced meant at render.cpp's `if (typography)`. Returning early also avoids
+    // creating a COM object to say nothing with.
+    if (typography.count == 0) return;
+    if (!factory_) return;
+
+    // Created per call rather than cached. The code this replaces built two
+    // IDWriteTypography objects once at startup and reused them for the process
+    // lifetime, so this IS more work per paint -- one CreateTypography plus up to
+    // three AddFontFeature plus a Release, per layout. It is deliberate, and the
+    // reason is that a cache belongs to whoever owns the lifetime, which would mean
+    // new state on a backend that is scheduled for deletion. If a paint-path
+    // measurement ever shows this mattering, the fix is a small bounded cache on
+    // D2DTextFactory keyed by the Typography value -- not a return to passing COM
+    // objects across the seam.
+    IDWriteTypography* native = nullptr;
+    if (FAILED(factory_->CreateTypography(&native)) || !native) return;
+
+    for (size_t i = 0; i < typography.count; ++i) {
+        const tinta::FontFeature& f = typography.features[i];
+        // packOpenTypeTag is the portable spelling of DWRITE_MAKE_OPENTYPE_TAG; the
+        // two are asserted equal in tests/typography_tests.cpp rather than assumed.
+        const DWRITE_FONT_FEATURE feature{
+            static_cast<DWRITE_FONT_FEATURE_TAG>(tinta::packOpenTypeTag(f)),
+            f.parameter};
+        native->AddFontFeature(feature);
+    }
+
+    const DWRITE_TEXT_RANGE nativeRange{range.startPosition, range.length};
+    layout_->SetTypography(native, nativeRange);
+    native->Release();
+}
+
 // --- D2DTextFactory ---------------------------------------------------------
 
 std::unique_ptr<tinta::TextFormat> D2DTextFactory::CreateTextFormat(
@@ -553,7 +589,10 @@ std::unique_ptr<tinta::TextLayout> D2DTextFactory::CreateTextLayout(
         if (layout) layout->Release();
         return nullptr;
     }
-    return std::make_unique<D2DTextLayout>(layout);
+    // factory_ is handed on so the layout can implement SetTypography; see the
+    // constructor comment in text_d2d.h, which also records that this is one of THREE
+    // construction sites and not the one it first claimed.
+    return std::make_unique<D2DTextLayout>(layout, factory_);
 }
 
 std::unique_ptr<tinta::InlineObject> D2DTextFactory::CreateEllipsisTrimmingSign(

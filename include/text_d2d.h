@@ -113,7 +113,25 @@ private:
 
 class D2DTextLayout final : public tinta::TextLayout {
 public:
-    explicit D2DTextLayout(IDWriteTextLayout* layout) : layout_(layout) {}
+    // The IDWriteFactory is BORROWED and is here for exactly one method:
+    // SetTypography, which has to build an IDWriteTypography and DirectWrite offers
+    // no way to get a factory back out of an object it made (unlike Direct2D, where
+    // every ID2D1Resource has GetFactory). It is a required parameter rather than a
+    // defaulted one because a null factory would make SetTypography a silent no-op.
+    //
+    // CORRECTED 2026-09-15 -- THREE CONSTRUCTION SITES, NOT ONE, and the correction
+    // is the argument for the design. This comment said "there is exactly ONE
+    // construction site in the tree -- D2DTextFactory::CreateTextLayout", measured by
+    // grepping for make_unique. Wrong population: two more construct through
+    // make_shared, at src/render.cpp:136 and src/math_render.cpp:760. MSVC found both
+    // immediately, because the parameter is required. Had it been defaulted to
+    // nullptr for convenience, the build would have stayed green and two of the three
+    // layouts in the tree would have accepted SetTypography and applied nothing --
+    // the exact failure this seam's test exists to make visible, reintroduced one
+    // layer below the test. A required parameter costs three lines and cannot be
+    // wrong about how many callers there are.
+    D2DTextLayout(IDWriteTextLayout* layout, IDWriteFactory* factory)
+        : layout_(layout), factory_(factory) {}
     ~D2DTextLayout() override;
 
     D2DTextLayout(const D2DTextLayout&) = delete;
@@ -150,11 +168,14 @@ public:
     void SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) override;
     void SetFontSize(float fontSize, tinta::TextRange range) override;
     void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
+    void SetTypography(const tinta::Typography& typography,
+                       tinta::TextRange range) override;
 
     IDWriteTextLayout* native() const { return layout_; }
 
 private:
-    IDWriteTextLayout* layout_;  // owned
+    IDWriteTextLayout* layout_;   // owned
+    IDWriteFactory* factory_;     // borrowed -- App owns the DWrite factory
 };
 
 class D2DTextFactory final : public tinta::TextFactory {

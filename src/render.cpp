@@ -133,7 +133,13 @@ static void addTextRun(App& app, LayoutInfo&& info, const tinta::PointF& pos,
     // transfer that used to be implicit in assigning the raw pointer here. When
     // createLayout eventually moves onto the seam it returns a unique_ptr that
     // converts to this shared_ptr for free, so the member does not change again.
-    run.layout = std::make_shared<D2DTextLayout>(info.layout);
+    // The factory is handed on for SetTypography; text_d2d.h's constructor comment
+    // says why DirectWrite makes it necessary. This site is one of THREE that
+    // construct a D2DTextLayout -- the constructor comment originally claimed one,
+    // and requiring the parameter rather than defaulting it is what turned that
+    // wrong claim into two compile errors instead of two layouts that silently
+    // applied no font features.
+    run.layout = std::make_shared<D2DTextLayout>(info.layout, app.dwriteFactory);
     run.pos = pos;
     run.bounds = bounds;
     run.color = color;

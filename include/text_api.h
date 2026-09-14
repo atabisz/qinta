@@ -65,11 +65,24 @@
 //   * PER-RANGE STYLING needs a TextRange struct, and offsets flow IN only, so the
 //     contract above already covers it. SetTypography additionally takes an
 //     IDWriteTypography, a COM object nothing in the tree reads.
+//     CORRECTED 2026-09-15: that last sentence was a claim about the DirectWrite
+//     SPELLING and it was treated as a claim about the population. Measured, the
+//     population is two fixed sets of at most three OpenType tags, applied
+//     whole-range and never read -- so the portable meaning is a value type, and
+//     SetTypography is now on the interface below. See TYPOGRAPHY above. Nothing
+//     was wrong with the census; what was wrong was inferring unportability from
+//     the shape of the Windows argument rather than from what callers do with it.
 //   * SetFontFallback is neither per-range nor styling, and carries no offset at
 //     all. It is a whole-layout property behind an IDWriteTextLayout2 QI taking a
 //     native IDWriteFontFallback*, and Qt does font fallback automatically, so
 //     there is no portable meaning to give it. It stays native deliberately, and
 //     createEditorLineLayout keeps its QI by going through nativeTextLayout().
+//     STRENGTHENED 2026-09-15: it needs no seam method AT ALL, and the reason is
+//     where the calls sit rather than what they do. In render.cpp the QI-and-set is
+//     inside createLayout itself, not at any of its 19 call sites, so once creation
+//     goes through the factory the whole thing is a backend detail -- the Direct2D
+//     backend does the QI, the Qt backend does nothing, and no caller can tell.
+//     Six sites that looked like six future seam calls are zero.
 //
 // WHAT MEASURING ALSO REMOVED
 //
@@ -191,6 +204,108 @@ struct TextRange {
     uint32_t startPosition = 0;
     uint32_t length = 0;
 };
+
+// TYPOGRAPHY -- an OpenType feature list, and the one place this seam is a VALUE
+// where DirectWrite has an object.
+//
+// The note at the top of this header called SetTypography unportable because it
+// "takes an IDWriteTypography, a COM object nothing in the tree reads". That was a
+// statement about the DirectWrite spelling, not about the population, and measuring
+// the population refuted it. The whole of typography in this app is TWO FIXED SETS
+// built once in createTypography and applied whole-range:
+//
+//   body font  liga · kern · calt
+//   code font  liga · dlig
+//
+// Five tags, two sets, never read back, never varied per call site -- all 19 layout
+// call sites in render.cpp pass one of exactly two App members. So the portable
+// meaning is not an object with a lifetime; it is a short list of four-character
+// tags, copied by value like Trimming and TextRange. That is why Typography below
+// has no virtual anything and appears in no factory signature.
+//
+// The tag is held as four ASCII chars rather than DirectWrite's packed uint32,
+// because the ASCII form is the one BOTH backends can reconstruct (DirectWrite packs
+// it, HarfBuzz and Qt spell it out) and the one that is readable in a test failure.
+struct FontFeature {
+    char tag[4] = {0, 0, 0, 0};  // e.g. {'l','i','g','a'} -- NOT null-terminated
+    uint32_t parameter = 1;      // 1 = enable. Nothing in the tree uses another value.
+};
+
+// Fixed capacity, because the population is two sets of at most three. A vector here
+// would buy an allocation per layout in a paint path for a list that has never been
+// longer than three entries in the history of this file. `add` returns false rather
+// than truncating silently if the list is full, so a sixth feature is a visible
+// failure rather than a missing ligature nobody can explain.
+//
+// The tag parameter is `const char (&)[5]` so that add("liga") compiles and
+// add("lig") and add("ligax") do not: a wrong-length OpenType tag is the defect this
+// type is most likely to be handed, and the compiler can catch all of it.
+struct Typography {
+    static constexpr size_t kMaxFeatures = 8;
+
+    FontFeature features[kMaxFeatures] = {};
+    size_t count = 0;
+
+    bool add(const char (&tag)[5], uint32_t parameter = 1) {
+        if (count >= kMaxFeatures) return false;
+        FontFeature& f = features[count];
+        f.tag[0] = tag[0]; f.tag[1] = tag[1]; f.tag[2] = tag[2]; f.tag[3] = tag[3];
+        f.parameter = parameter;
+        ++count;
+        return true;
+    }
+
+    bool has(const char (&tag)[5]) const {
+        for (size_t i = 0; i < count; ++i) {
+            const FontFeature& f = features[i];
+            if (f.tag[0] == tag[0] && f.tag[1] == tag[1] &&
+                f.tag[2] == tag[2] && f.tag[3] == tag[3]) return true;
+        }
+        return false;
+    }
+};
+
+// DirectWrite's DWRITE_MAKE_OPENTYPE_TAG, spelled portably so that the packing can
+// be asserted off Windows and compared against the SDK macro on it. The byte order
+// is little-endian-first by OpenType convention, not by accident: 'l' is the LOW
+// byte of the tag 'liga'.
+inline uint32_t packOpenTypeTag(const FontFeature& feature) {
+    return static_cast<uint32_t>(static_cast<unsigned char>(feature.tag[0])) |
+           (static_cast<uint32_t>(static_cast<unsigned char>(feature.tag[1])) << 8) |
+           (static_cast<uint32_t>(static_cast<unsigned char>(feature.tag[2])) << 16) |
+           (static_cast<uint32_t>(static_cast<unsigned char>(feature.tag[3])) << 24);
+}
+
+// WHETHER THE TARGET STACK CAN HONOUR A FEATURE -- a documented divergence, not a
+// backend implementation detail, which is why it is declared here and not in
+// src/text_qt.cpp.
+//
+// Qt 6.4.2 (what is installed, and what Ubuntu 24.04 ships) has NO per-font feature
+// API: QFont::setFeature arrived in 6.7 and is absent from this qfont.h. What Qt can
+// still honour, and how:
+//
+//   kern  QFont::setKerning(true) -- an explicit API, so this one is really applied
+//   liga  a HarfBuzz default; on unless a font turns it off. Free.
+//   calt  a HarfBuzz default. Free.
+//   dlig  NOT EXPRESSIBLE. Dropped.
+//
+// So four of the five survive and `dlig` on code spans does not. That is Alex's
+// call, taken 2026-09-15 over the alternative of requiring Qt 6.7+ for one tag: most
+// programming fonts ship their =>/!= ligatures under `calt` or `liga` rather than
+// `dlig`, so the visible loss is probably nil -- but "probably" is doing work in that
+// sentence, which is exactly why the divergence is asserted in a test instead of
+// being left for someone to notice in a screenshot. When the Direct2D backend goes,
+// code spans lose discretionary ligatures on Windows too.
+//
+// Raising the floor to Qt 6.7 would make this function return true for everything
+// and is the only reason to revisit it.
+inline bool qtCanHonourFeature(const FontFeature& feature) {
+    const char* t = feature.tag;
+    const bool isKern = t[0] == 'k' && t[1] == 'e' && t[2] == 'r' && t[3] == 'n';
+    const bool isLiga = t[0] == 'l' && t[1] == 'i' && t[2] == 'g' && t[3] == 'a';
+    const bool isCalt = t[0] == 'c' && t[1] == 'a' && t[2] == 'l' && t[3] == 't';
+    return isKern || isLiga || isCalt;
+}
 
 // Field-for-field DWRITE_TEXT_METRICS, same names in the same order. Call sites
 // read five of the nine -- width 55, height 37, widthIncludingTrailingWhitespace
@@ -457,6 +572,17 @@ public:
     // portable concept yet, and pretending otherwise would put a COM type or a
     // COM version negotiation on this header.
     //
+    // CORRECTED 2026-09-15 -- ONE of those two, not both. SetTypography is now
+    // here, because the argument above was about the Windows argument's shape and
+    // not about the population: two fixed tag sets, applied whole-range, never
+    // read. Its portable form is the Typography VALUE at the top of this file, so
+    // no COM type reaches this header and the objection is answered rather than
+    // waived. SetCharacterSpacing's objection is untouched and still stands --
+    // that one really is a COM version negotiation, and it stays native.
+    //
+    // So the per-range group is now FOUR methods, and the ranged-only contract
+    // below covers all four identically.
+    //
     // The signatures are RANGED-ONLY even though five of the six callers style
     // the whole text. A whole-layout overload would save those five a `{0, len}`
     // they already write today, at the cost of two spellings per property and a
@@ -472,6 +598,18 @@ public:
     virtual void SetFontWeight(FontWeight weight, TextRange range) = 0;
     virtual void SetFontSize(float fontSize, TextRange range) = 0;
     virtual void SetStrikethrough(bool strikethrough, TextRange range) = 0;
+
+    // An EMPTY feature list is a legal argument and must apply nothing, because
+    // that is what the null IDWriteTypography the call site can already pass
+    // means today -- `if (typography)` at render.cpp:51. Making the empty list a
+    // no-op keeps the caller's existing shape rather than asking 19 sites to test
+    // for it.
+    //
+    // A backend that cannot honour a feature drops it SILENTLY and by design; see
+    // qtCanHonourFeature. This method reports nothing, because a caller that
+    // learned "your ligatures were declined" has nothing it could do about it,
+    // and the divergence belongs in a test rather than in a return value.
+    virtual void SetTypography(const Typography& typography, TextRange range) = 0;
 };
 
 // Object creation, which render_api.h deliberately left out of the drawing seam

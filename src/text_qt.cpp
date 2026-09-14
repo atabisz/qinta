@@ -456,6 +456,43 @@ void QtTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range) 
     addRangedFormat(format, range);
 }
 
+void QtTextLayout::SetTypography(const tinta::Typography& typography,
+                                tinta::TextRange range) {
+    // What this backend can and cannot honour, and why, is documented once at
+    // qtCanHonourFeature in text_api.h -- including that dropping `dlig` is a
+    // decision rather than an omission. This function is only the mechanics.
+    //
+    // Of the three features Qt can honour, exactly ONE has an API: `kern` becomes
+    // QTextCharFormat::setFontKerning, which is per-range and so goes through the
+    // same addRangedFormat path as every other ranged setter here. `liga` and `calt`
+    // are HarfBuzz defaults, already on, and there is nothing to call for them --
+    // which is a real difference from being unsupported and is why they are not
+    // silently lumped in with `dlig`.
+    if (typography.count == 0) return;
+
+    bool sawKerning = false;
+    bool enableKerning = false;
+    for (size_t i = 0; i < typography.count; ++i) {
+        const tinta::FontFeature& f = typography.features[i];
+        if (!tinta::qtCanHonourFeature(f)) continue;  // `dlig` leaves here
+        const char* t = f.tag;
+        if (t[0] == 'k' && t[1] == 'e' && t[2] == 'r' && t[3] == 'n') {
+            sawKerning = true;
+            enableKerning = f.parameter != 0;
+        }
+        // liga / calt: on by default in the shaper, nothing to apply.
+    }
+
+    // No format is added when the list contained nothing with an API behind it.
+    // Adding an empty QTextCharFormat would still create a format range, which
+    // costs a shaping segment boundary for no visual effect.
+    if (!sawKerning) return;
+
+    QTextCharFormat format;
+    format.setFontKerning(enableKerning);
+    addRangedFormat(format, range);
+}
+
 void QtTextLayout::ensureRun() const {
     if (!run_) {
         run_ = std::make_unique<QtTextRun>(text_, font_, style_, maxWidth_, maxHeight_,

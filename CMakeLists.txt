@@ -476,6 +476,50 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME syntax COMMAND syntax_tests)
 
+    # --- THE TYPOGRAPHY VALUE TYPES, AND THE DIVERGENCE THEY DOCUMENT ------------
+    #
+    # NO SOURCES. Everything under test is a value type or an inline function in
+    # include/text_api.h -- FontFeature, Typography, packOpenTypeTag,
+    # qtCanHonourFeature -- so the link line is the test and nothing else. That is not
+    # a shortcut; it is the shape of the decision this seam took. DirectWrite's
+    # SetTypography takes an IDWriteTypography, a COM object with a lifetime, and
+    # text_api.h refused it on those grounds. Measuring the population refuted the
+    # objection: all of typography in this app is two fixed sets of at most three
+    # OpenType tags, applied whole-range, never read back. A short list of
+    # four-character tags is a value, and a value needs no device to assert.
+    #
+    # WHAT THIS TARGET IS ACTUALLY FOR, and it is not the packing arithmetic.
+    #
+    # Qt 6.4.2 has no per-font feature API -- QFont::setFeature arrived in 6.7 -- so
+    # `dlig` on code spans CANNOT be honoured and is dropped, by decision rather than
+    # by oversight. That is the single most invisible thing in this slice: a dropped
+    # OpenType feature raises no error, returns no failure, and renders text that is
+    # correct in every respect except one ligature substitution, in a font that may
+    # not even ship the feature. Nothing else in this repo could ever notice. So the
+    # divergence is asserted here by name, which converts a decision recorded in a
+    # comment into one that fails loudly if someone later assumes all five features
+    # survive the port.
+    #
+    # The Windows half of the file is the other reason it exists: src/text_d2d.cpp
+    # says in a comment that packOpenTypeTag is the portable spelling of
+    # DWRITE_MAKE_OPENTYPE_TAG and that "the two are asserted equal in
+    # tests/typography_tests.cpp rather than assumed". Under _WIN32 this test includes
+    # <dwrite.h> and checks exactly that, against the macro and against two of the
+    # SDK's own named tag constants. Those checks are runtime rather than
+    # static_assert, deliberately: a static_assert inside `#ifdef _WIN32` is
+    # indistinguishable from one that never compiled, whereas a printed ok/FAIL line
+    # is counted by the tally the binary prints on exit.
+    add_executable(typography_tests
+        tests/typography_tests.cpp
+    )
+    target_include_directories(typography_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_compile_definitions(typography_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME typography COMMAND typography_tests)
+
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
     # THREE FILES, down from four: src/syntax.cpp has left for syntax_tests above,

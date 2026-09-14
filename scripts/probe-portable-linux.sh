@@ -262,6 +262,24 @@ else
     check 1 "tests/syntax_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# The typography value types in include/text_api.h have exactly ONE consumer,
+# tests/typography_tests.cpp, and that target links NO src/ file at all -- so the
+# manifest above cannot see it in either direction. It is the purest case of the
+# failure shape this section exists for: drop the target and nothing goes red, the
+# ctest count simply falls by one while ctest prints "100% tests passed".
+#
+# It is also the one where losing the assertion costs the most, because of WHAT it
+# asserts. Qt 6.4.2 cannot honour `dlig`, so the port drops discretionary ligatures
+# on code spans by decision. A dropped OpenType feature produces no error and no
+# visible failure -- just text with one fewer substitution. This test is the only
+# instrument in the repo that can tell the deliberate drop from an accidental one,
+# and the only instrument that can tell THIS test is still running is this check.
+if grep -qE "typography_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/typography_tests.cpp was compiled by $CXX_BIN, so the typography seam types and the dropped-dlig divergence are asserted off Windows"
+else
+    check 1 "tests/typography_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

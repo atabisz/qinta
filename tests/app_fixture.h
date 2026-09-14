@@ -177,6 +177,24 @@ public:
     void SetFontSize(float, tinta::TextRange) override {}
     void SetStrikethrough(bool, tinta::TextRange) override {}
 
+    // The one setter on this fake that RECORDS instead of ignoring. Everything
+    // above is ignored because no test asks what a fake was told to draw in bold;
+    // typography is different, because the thing worth asserting about it is
+    // exactly that the value reached the backend intact -- a caller passing two
+    // fixed sets and a backend applying what it can is the whole contract, and a
+    // fake that swallowed the argument could not tell a working seam from a seam
+    // that dropped every feature on the floor.
+    void SetTypography(const tinta::Typography& typography,
+                       tinta::TextRange range) override {
+        lastTypography_ = typography;
+        lastTypographyRange_ = range;
+        ++typographyCalls_;
+    }
+
+    const tinta::Typography& lastTypography() const { return lastTypography_; }
+    tinta::TextRange lastTypographyRange() const { return lastTypographyRange_; }
+    int typographyCalls() const { return typographyCalls_; }
+
     void SetTextAlignment(tinta::TextAlignment) override {}
     void SetParagraphAlignment(tinta::ParagraphAlignment) override {}
     void SetWordWrapping(tinta::WordWrapping) override {}
@@ -191,6 +209,9 @@ private:
     size_t len_;
     float cw_;
     float h_;
+    tinta::Typography lastTypography_{};
+    tinta::TextRange lastTypographyRange_{};
+    int typographyCalls_ = 0;
 };
 
 inline std::wstring wide(const char* s) {

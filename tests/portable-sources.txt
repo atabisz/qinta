@@ -65,33 +65,46 @@ text_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# These are here because the build compiles them (the portable_compile_only
-# OBJECT library in CMakeLists.txt), which is exactly what every other line here
-# claims and no more. They are the entries whose files no test EXECUTES off
-# Windows.
+# ONE ENTRY, down from two. selection.cpp used to head this section and has moved
+# to its own heading below: it is now linked and RUN off Windows by
+# selection_tests. The blocker that kept it here -- App holding the Direct2D
+# backend wrappers BY VALUE, so linking anything that instantiates an App wanted
+# vtables out of the two Windows-only backend sources -- was removed by moving
+# App's storage to pointers to the abstract seam types. The measurement, including
+# the undefined symbols that actually appeared -- four, then a fifth, then md_parse,
+# each found by a link rather than predicted -- and the check that the binary
+# contains zero D2D wrapper symbols, is in the selection_tests comment in
+# CMakeLists.txt.
 #
-# WHY they cannot link -- corrected, because the reason given here was wrong
-# twice over. It said isWordBoundary lives in utils.cpp (it moved to
-# text_utils.cpp, which builds off Windows) and that no portable target can
-# construct an App (measured false: a stack `App app;` compiles with zero
-# errors). The real reason is that App holds the Direct2D backend wrappers BY
-# VALUE, so linking one wants vtables out of the two Windows-only backend
-# sources. The full measurement is in that target's comment in CMakeLists.txt,
-# which also says what would have to change.
+# editrail.cpp is here because the build compiles it (the portable_compile_only
+# OBJECT library in CMakeLists.txt), which is exactly what every other line here
+# claims and no more. It reached zero errors when its two CRT calls (swprintf_s,
+# _countof) moved to portable_str.h and std::size, and it compiles with include/
+# and md4c only, no Qt at all -- measured, not assumed. Nothing executes it on
+# EITHER platform; its drawing code goes through the render and text seams, which
+# ARE asserted against each other, so the layer beneath it is tested and its own
+# logic is not.
 #
 # READ THE COUNT OF THIS SECTION, NOT THE COUNT OF THE FILE. Every other line in
 # this manifest is compiled AND linked AND run, so a reader totalling the lines
 # and calling them tested files will be wrong by exactly the number of entries
-# below. That is why they sit under their own heading instead of being sprinkled
-# into the sections above.
-selection.cpp
-# editrail.cpp reached zero errors when its two CRT calls (swprintf_s, _countof)
-# moved to portable_str.h and std::size. It compiles with include/ and md4c only,
-# no Qt at all -- measured, not assumed. Same caveat as selection.cpp: nothing
-# executes it off Windows, and its drawing code goes through the render and text
-# seams, which ARE asserted against each other, so the layer beneath it is tested
-# and its own logic is not.
+# below. That is why it sits under its own heading instead of being sprinkled into
+# the sections above.
 editrail.cpp
+
+# --- The first file that takes an App& and is asserted off Windows -------------
+#
+# selection.cpp. Compiled, linked AND run by selection_tests on both platforms,
+# so it belongs in a tested section rather than the compile-only one above.
+#
+# Its word-selection rules -- including the deliberate trailing-hit rule, where a
+# caret just past a word selects the word rather than the space -- had never been
+# executed by any test on any platform before that target existed. What is still
+# NOT asserted: selectionOffsetAtPoint, selectionHighlightRects, selectionRangeRect
+# and the populated path through selectionLineRange all need a real layout fixture
+# (app.layoutTextRuns, app.textRects, app.lineBuckets), which is not built yet. The
+# test file says so at the top rather than letting a green tally imply otherwise.
+selection.cpp
 
 # --- Portable application logic ----------------------------------------------
 i18n.cpp

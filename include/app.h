@@ -33,6 +33,10 @@
 // can have a genuine stand-in off Windows and a CALL cannot. Each explains itself.
 #include "win32_api.h"
 
+// App's seam-wrapper storage. In its own header so it can be asserted off Windows
+// with fake backends -- see seated.h and tests/seated_tests.cpp.
+#include "seated.h"
+
 #ifdef _WIN32
 #include <d2d1.h>
 #include <d2d1_1.h>
@@ -231,7 +235,7 @@ struct App {
     // d2d_init.cpp, never by a drawing call.
     ID2D1Factory* d2dFactory = nullptr;
     ID2D1HwndRenderTarget* nativeRenderTarget = nullptr;
-    D2DRenderTarget renderTargetStorage{nullptr};
+    Seated<tinta::RenderTarget, ID2D1RenderTarget> renderTargetStorage;
     // What the 566 drawing sites call. Null until seatRenderTarget() runs, and
     // null again the moment the native goes -- callers already null-check it.
     tinta::RenderTarget* renderTarget = nullptr;
@@ -244,7 +248,7 @@ struct App {
     // Cached dashed stroke for mermaid edges (factory object: created once,
     // survives render-target recreation)
     ID2D1StrokeStyle* nativeDashedStrokeStyle = nullptr;
-    D2DStrokeStyle dashedStrokeStyleStorage{nullptr};
+    Seated<tinta::StrokeStyle, ID2D1StrokeStyle> dashedStrokeStyleStorage;
     tinta::StrokeStyle* dashedStrokeStyle = nullptr;
 
     // Editor paint-path line layouts, keyed by line start offset. Cleared on
@@ -266,7 +270,7 @@ struct App {
         editorLayoutUseClock = 0;
     }
     ID2D1SolidColorBrush* nativeBrush = nullptr;
-    D2DBrush brushStorage{nullptr};
+    Seated<tinta::Brush, ID2D1SolidColorBrush> brushStorage;
     // The scratch brush every draw call passes: 991 sites name it, of which only
     // 483 call a method (474 SetColor, 6 Release, 3 GetColor). SetColor and
     // GetColor are on tinta::Brush already and their arguments are tinta::Color
@@ -350,10 +354,16 @@ struct App {
         // accessor does not change. The text-format family CANNOT do this --
         // reseating a unique_ptr<D2DTextFormat> on every read would thrash
         // allocations -- so this is the ownership difference paying out.
-        mutable D2DBitmap bitmapStorage{nullptr};
+        mutable Seated<tinta::Bitmap, ID2D1Bitmap> bitmapStorage;
         tinta::Bitmap* seam() const {
-            bitmapStorage = D2DBitmap{bitmap};
-            return bitmap ? &bitmapStorage : nullptr;
+#ifdef _WIN32
+            return bitmapStorage.seat<D2DBitmap>(bitmap);
+#else
+            // Nothing off Windows can produce an ID2D1Bitmap*, so this member is
+            // unconditionally null here and there is nothing to wrap.
+            bitmapStorage.reset();
+            return nullptr;
+#endif
         }
     };
     std::vector<LayoutBitmap> layoutBitmaps;
@@ -389,7 +399,7 @@ struct App {
     // what the bitmap slice taught: reseat-on-read is the answer to a native that gets
     // REPLACED, not to a borrowed wrapper as such. Rebuilding this one on every read
     // would rewrap at each of the 36 layout-creation sites and buy nothing.
-    D2DTextFactory textFactoryStorage{nullptr};
+    Seated<tinta::TextFactory, IDWriteFactory> textFactoryStorage;
     tinta::TextFactory* textFactory = nullptr;
     // Same pair rule as the Direct2D members above: native holds and owns,
     // wrapper keeps the name the 106 DrawText sites already pass. Only 40 sites
@@ -413,19 +423,19 @@ struct App {
     IDWriteTextFormat* nativeThemeTitleFormat = nullptr;
     IDWriteTextFormat* nativeThemeHeaderFormat = nullptr;
 
-    std::unique_ptr<D2DTextFormat> textFormatStorage;
-    std::unique_ptr<D2DTextFormat> headingFormatStorage;
-    std::unique_ptr<D2DTextFormat> codeFormatStorage;
-    std::unique_ptr<D2DTextFormat> boldFormatStorage;
-    std::unique_ptr<D2DTextFormat> italicFormatStorage;
-    std::unique_ptr<D2DTextFormat> boldItalicFormatStorage;
-    std::unique_ptr<D2DTextFormat> codeBoldFormatStorage;
-    std::unique_ptr<D2DTextFormat> codeItalicFormatStorage;
-    std::unique_ptr<D2DTextFormat> codeBoldItalicFormatStorage;
-    std::unique_ptr<D2DTextFormat> headingFormatsStorage[6];
-    std::unique_ptr<D2DTextFormat> searchTextFormatStorage;
-    std::unique_ptr<D2DTextFormat> themeTitleFormatStorage;
-    std::unique_ptr<D2DTextFormat> themeHeaderFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> textFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> headingFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> codeFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> boldFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> italicFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> boldItalicFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> codeBoldFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> codeItalicFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> codeBoldItalicFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> headingFormatsStorage[6];
+    Seated<tinta::TextFormat, IDWriteTextFormat> searchTextFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> themeTitleFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> themeHeaderFormatStorage;
 
     tinta::TextFormat* textFormat = nullptr;
     tinta::TextFormat* headingFormat = nullptr;
@@ -449,9 +459,9 @@ struct App {
         IDWriteTextFormat* nativeName = nullptr;
         IDWriteTextFormat* nativePreview = nullptr;
         IDWriteTextFormat* nativeCode = nullptr;
-        std::unique_ptr<D2DTextFormat> nameStorage;
-        std::unique_ptr<D2DTextFormat> previewStorage;
-        std::unique_ptr<D2DTextFormat> codeStorage;
+        Seated<tinta::TextFormat, IDWriteTextFormat> nameStorage;
+        Seated<tinta::TextFormat, IDWriteTextFormat> previewStorage;
+        Seated<tinta::TextFormat, IDWriteTextFormat> codeStorage;
         tinta::TextFormat* name = nullptr;
         tinta::TextFormat* preview = nullptr;
         tinta::TextFormat* code = nullptr;
@@ -464,25 +474,25 @@ struct App {
 
     // Folder browser text format
     IDWriteTextFormat* nativeFolderBrowserFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> folderBrowserFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> folderBrowserFormatStorage;
     tinta::TextFormat* folderBrowserFormat = nullptr;
 
     // TOC text formats
     IDWriteTextFormat* nativeTocFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> tocFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatStorage;
     tinta::TextFormat* tocFormat = nullptr;
     IDWriteTextFormat* nativeTocFormatBold = nullptr;
-    std::unique_ptr<D2DTextFormat> tocFormatBoldStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatBoldStorage;
     tinta::TextFormat* tocFormatBold = nullptr;
 
     // Signal chips: subtitles, badges, and the tiny PINNED/HELD labels
     IDWriteTextFormat* nativeSignalSmallFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> signalSmallFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> signalSmallFormatStorage;
     tinta::TextFormat* signalSmallFormat = nullptr;
 
     // Stats overlay: UI chrome, so it must not follow the document zoom
     IDWriteTextFormat* nativeStatsFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> statsFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> statsFormatStorage;
     tinta::TextFormat* statsFormat = nullptr;
 
     // Markdown
@@ -1317,15 +1327,15 @@ struct App {
 
     // Editor text format (monospace)
     IDWriteTextFormat* nativeSupSubFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> supSubFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> supSubFormatStorage;
     tinta::TextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
     IDWriteTextFormat* nativeEditorTextFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> editorTextFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> editorTextFormatStorage;
     tinta::TextFormat* editorTextFormat = nullptr;
     float editorCharWidth = 0.0f; // Measured monospace char width
     // Slim in-editor line-number gutter (design t11)
     IDWriteTextFormat* nativeEditorGutterFormat = nullptr;
-    std::unique_ptr<D2DTextFormat> editorGutterFormatStorage;
+    Seated<tinta::TextFormat, IDWriteTextFormat> editorGutterFormatStorage;
     tinta::TextFormat* editorGutterFormat = nullptr;
 
     // Metrics
@@ -1405,14 +1415,14 @@ struct App {
         releaseImageCache();
         releaseNative(wicFactory);
         releaseNative(nativeBrush);
-        brushStorage = D2DBrush{nullptr};
+        brushStorage.reset();
         brush = nullptr;
         releaseNative(nativeDashedStrokeStyle);
-        dashedStrokeStyleStorage = D2DStrokeStyle{nullptr};
+        dashedStrokeStyleStorage.reset();
         dashedStrokeStyle = nullptr;
         releaseNative(deviceContext);
         releaseNative(nativeRenderTarget);
-        renderTargetStorage = D2DRenderTarget{nullptr};
+        renderTargetStorage.reset();
         renderTarget = nullptr;
         releaseNative(fontFallback);
         releaseNative(textAnalyzer);
@@ -1438,7 +1448,7 @@ struct App {
             // seated pointer non-null would hand a post-shutdown caller a factory
             // wrapping a released COM object, which is the stale-wrapper failure the
             // bitmap accessors exist to prevent, arriving by the other door.
-            textFactoryStorage = D2DTextFactory{nullptr};
+            textFactoryStorage.reset();
             textFactory = nullptr;
         }
         releaseNative(d2dFactory);
@@ -1455,13 +1465,18 @@ struct App {
     // D2DTextFormat OWNS -- its destructor Releases. A blind reset-then-rewrap
     // of an unchanged native would therefore Release the very pointer the new
     // wrapper is about to hold, which is why seatFormat compares first.
-    static void seatFormat(std::unique_ptr<D2DTextFormat>& storage,
+    static void seatFormat(Seated<tinta::TextFormat, IDWriteTextFormat>& storage,
                            IDWriteTextFormat* native, tinta::TextFormat*& out) {
-        if (!native) { storage.reset(); out = nullptr; return; }
-        if (!storage || storage->native() != native) {
-            storage = std::make_unique<D2DTextFormat>(native);
-        }
-        out = storage.get();
+#ifdef _WIN32
+        out = storage.seat<D2DTextFormat>(native);
+#else
+        // Unreachable off Windows for the same reason as every other seat: the
+        // native is an incomplete type there and nothing can produce one. Stating
+        // the postcondition rather than assuming it, as seatRenderTarget does.
+        (void)native;
+        storage.reset();
+        out = nullptr;
+#endif
     }
 
     // The one seat function that needs a guard, and the reason is narrow: the
@@ -1476,13 +1491,14 @@ struct App {
     // in the one build where the compiler is the only check there is.
     void seatRenderTarget() {
 #ifdef _WIN32
-        renderTargetStorage = D2DRenderTarget{nativeRenderTarget};
-        renderTarget = nativeRenderTarget ? &renderTargetStorage : nullptr;
+        renderTargetStorage.seat<D2DRenderTarget>(nativeRenderTarget);
+        renderTarget = renderTargetStorage.get();
 #else
         // nativeRenderTarget is unconditionally null here -- the interface is
         // incomplete, so nothing can produce one -- and the storage is already
         // default-constructed empty. Stating the postcondition rather than
         // assuming it.
+        renderTargetStorage.reset();
         renderTarget = nullptr;
 #endif
     }
@@ -1491,19 +1507,33 @@ struct App {
     // borrows, so it has no destructor to Release the pointer a new wrapper is about
     // to hold, and the compare-first guard seatFormat needs would be dead weight here.
     void seatTextFactory() {
-        textFactoryStorage = D2DTextFactory{dwriteFactory};
-        textFactory = dwriteFactory ? &textFactoryStorage : nullptr;
+#ifdef _WIN32
+        textFactoryStorage.seat<D2DTextFactory>(dwriteFactory);
+        textFactory = textFactoryStorage.get();
+#else
+        textFactoryStorage.reset();
+        textFactory = nullptr;
+#endif
     }
 
     void seatBrush() {
-        brushStorage = D2DBrush{nativeBrush};
-        brush = nativeBrush ? &brushStorage : nullptr;
+#ifdef _WIN32
+        brushStorage.seat<D2DBrush>(nativeBrush);
+        brush = brushStorage.get();
+#else
+        brushStorage.reset();
+        brush = nullptr;
+#endif
     }
 
     void seatDashedStrokeStyle() {
-        dashedStrokeStyleStorage = D2DStrokeStyle{nativeDashedStrokeStyle};
-        dashedStrokeStyle = nativeDashedStrokeStyle ? &dashedStrokeStyleStorage
-                                                    : nullptr;
+#ifdef _WIN32
+        dashedStrokeStyleStorage.seat<D2DStrokeStyle>(nativeDashedStrokeStyle);
+        dashedStrokeStyle = dashedStrokeStyleStorage.get();
+#else
+        dashedStrokeStyleStorage.reset();
+        dashedStrokeStyle = nullptr;
+#endif
     }
 
     void seatTextFormats() {
@@ -1563,27 +1593,43 @@ struct App {
     //
     // const, with mutable storage, because lightboxImageRect takes a const App&.
     tinta::Bitmap* titleIconBitmap() const {
-        titleIconBitmapStorage = D2DBitmap{nativeTitleIconBitmap};
-        return nativeTitleIconBitmap ? &titleIconBitmapStorage : nullptr;
+#ifdef _WIN32
+        return titleIconBitmapStorage.seat<D2DBitmap>(nativeTitleIconBitmap);
+#else
+        titleIconBitmapStorage.reset();
+        return nullptr;
+#endif
     }
     tinta::Bitmap* startPageIconBitmap() const {
-        startPageIconBitmapStorage = D2DBitmap{nativeStartPageIconBitmap};
-        return nativeStartPageIconBitmap ? &startPageIconBitmapStorage : nullptr;
+#ifdef _WIN32
+        return startPageIconBitmapStorage.seat<D2DBitmap>(nativeStartPageIconBitmap);
+#else
+        startPageIconBitmapStorage.reset();
+        return nullptr;
+#endif
     }
     tinta::Bitmap* lightboxBitmap() const {
-        lightboxBitmapStorage = D2DBitmap{nativeLightboxBitmap};
-        return nativeLightboxBitmap ? &lightboxBitmapStorage : nullptr;
+#ifdef _WIN32
+        return lightboxBitmapStorage.seat<D2DBitmap>(nativeLightboxBitmap);
+#else
+        lightboxBitmapStorage.reset();
+        return nullptr;
+#endif
     }
     tinta::Bitmap* linkPeekBitmap() const {
-        linkPeekBitmapStorage = D2DBitmap{nativeLinkPeekBitmap};
-        return nativeLinkPeekBitmap ? &linkPeekBitmapStorage : nullptr;
+#ifdef _WIN32
+        return linkPeekBitmapStorage.seat<D2DBitmap>(nativeLinkPeekBitmap);
+#else
+        linkPeekBitmapStorage.reset();
+        return nullptr;
+#endif
     }
 
 private:
-    mutable D2DBitmap titleIconBitmapStorage{nullptr};
-    mutable D2DBitmap startPageIconBitmapStorage{nullptr};
-    mutable D2DBitmap lightboxBitmapStorage{nullptr};
-    mutable D2DBitmap linkPeekBitmapStorage{nullptr};
+    mutable Seated<tinta::Bitmap, ID2D1Bitmap> titleIconBitmapStorage;
+    mutable Seated<tinta::Bitmap, ID2D1Bitmap> startPageIconBitmapStorage;
+    mutable Seated<tinta::Bitmap, ID2D1Bitmap> lightboxBitmapStorage;
+    mutable Seated<tinta::Bitmap, ID2D1Bitmap> linkPeekBitmapStorage;
 };
 
 inline float dpi(const App& app, float value) {

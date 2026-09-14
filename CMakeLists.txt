@@ -240,55 +240,83 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME platform_paths COMMAND platform_paths_tests)
 
+    # src/selection.cpp -- LINKED AND RUN off Windows, which it was not until this
+    # commit. It used to be in portable_compile_only below, under a long comment
+    # explaining why it could compile but never link.
+    #
+    # THAT COMMENT'S BLOCKER IS GONE, and it is worth recording what it was, because
+    # it was the reason this file sat compile-only for ten spans: App held the
+    # Direct2D backends BY VALUE -- renderTargetStorage, brushStorage,
+    # bitmapStorage, textFactoryStorage and the *FormatStorage members -- so a
+    # portable target that instantiated an App wanted vtables for D2DRenderTarget,
+    # D2DBrush, D2DBitmap, D2DTextFactory and D2DTextFormat::~D2DTextFormat, all of
+    # which live in src/render_d2d.cpp and src/text_d2d.cpp, both Windows-only by
+    # design. The seam was abstract at the call sites and concrete at the storage.
+    # App now owns pointers to the abstract seam types (include/seated.h), so the
+    # vtable comes from whichever backend was installed and an App that is never
+    # drawn needs none.
+    #
+    # MEASURED, in the order the errors actually appeared, because "it links now"
+    # was a prediction before it was a reading and the prediction was incomplete:
+    # linking tests/selection_tests.cpp against selection.cpp alone leaves FOUR
+    # undefined symbols, not the three predicted -- THEMES, isWordBoundary(wchar_t),
+    # and qmd::MarkdownParser's constructor and destructor -- plus tintaConfigDir()
+    # once those are supplied. Every one is in a source already listed as portable,
+    # so the remainder was wiring and not a second blocker. The resulting binary
+    # contains ZERO D2D wrapper symbols (nm -C, grep -c, = 0), which is the property
+    # the storage change bought and is checked rather than assumed.
+    #
+    # It DOES link md4c, and the first version of this comment said it did not --
+    # reasoning that qmd::Element's constructor is inline and nothing here calls the
+    # parser, so no md4c symbol could be referenced. The link disagreed: md_parse,
+    # undefined. src/markdown.cpp references it whether or not this test parses
+    # anything, and App holds a qmd::MarkdownParser, so its constructor and
+    # destructor come along. Same as context_menu_tests and bitmap_seam_tests, which
+    # both link the md4c target too -- the thing to have copied in the first place.
+    add_executable(selection_tests
+        tests/selection_tests.cpp
+        src/selection.cpp
+        src/themes.cpp
+        src/text_utils.cpp
+        src/markdown.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(selection_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
+    target_link_libraries(selection_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(selection_tests PRIVATE shell32)
+        target_compile_definitions(selection_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME selection COMMAND selection_tests)
+
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
-    # src/selection.cpp is the first file to become acceptable to a non-Windows
-    # compiler without becoming TESTABLE by one, and the two are different facts.
-    # It compiles: measured, a real .o with -Iinclude and nothing else, no Qt at
-    # all.
+    # src/editrail.cpp is now the only file here. It reached zero errors when its
+    # two CRT calls (swprintf_s, _countof) moved to portable_str.h and std::size,
+    # and it compiles with include/ and md4c only, no Qt at all -- measured, not
+    # assumed.
     #
-    # WHY IT STILL CANNOT LINK -- CORRECTED, because the previous version of this
-    # comment was wrong in both of its two reasons and wrong in the direction that
-    # discourages checking.
-    #
-    # It said the blocking symbol was isWordBoundary. That was true and is no
-    # longer: isWordBoundary now lives in src/text_utils.cpp, which builds off
-    # Windows. It was also never the only one.
-    #
-    # It said "no portable target can construct an App at all", because ~App()
-    # calls releaseNative on incomplete native pointers. MEASURED AND FALSE: a
-    # stack `App app;` compiles clean with g++ 13 and -Iinclude, zero errors.
-    # releaseNative is #ifdef _WIN32 (include/app.h line 105) and its non-Windows
-    # arm just forgets the pointer, so nothing ever dereferences an incomplete
-    # type. The header does not produce the loud failure that comment credited it
-    # with.
-    #
-    # The REAL blocker is at link, and it is App's storage rather than its
-    # destructor: App holds the Direct2D backends BY VALUE --
-    # renderTargetStorage, brushStorage, bitmapStorage, textFactoryStorage and the
-    # *FormatStorage members. So a portable target that instantiates an App wants
-    # vtables for D2DRenderTarget, D2DBrush, D2DBitmap and D2DTextFactory plus
-    # D2DTextFormat::~D2DTextFormat, all of which are in src/render_d2d.cpp and
-    # src/text_d2d.cpp, both Windows-only by design. The seam is abstract at the
-    # call sites and concrete at the storage, and THAT is what has to change
-    # before anything taking an App& can be asserted off Windows -- the same
-    # by-value fact the bitmap_seam_tests comment below notes for Windows.
-    #
-    # So an OBJECT library, which compiles and stops. Without it the green has
-    # nowhere durable to live: this repo has no CI, so the only record would be a
-    # scratch script on one machine, with hand-written flags that can drift from
-    # the ones the build actually uses. This target reads the file with the
-    # project's own include paths, and the probe sees the /src/selection.cpp.o
-    # compile line in the build log exactly as it sees every other object -- which
-    # is what lets tests/portable-sources.txt list it honestly.
+    # WHY AN OBJECT LIBRARY rather than a test: nothing executes it off Windows.
+    # Without this target the green has nowhere durable to live -- this repo has no
+    # CI, so the only record would be a scratch script on one machine, with
+    # hand-written flags that can drift from the ones the build actually uses. This
+    # target reads the file with the project's own include paths, and
+    # scripts/probe-portable-linux.sh sees the /src/editrail.cpp.o compile line in
+    # the build log exactly as it sees every other object -- which is what lets
+    # tests/portable-sources.txt list it honestly.
     #
     # What this does NOT prove, stated because a target that compiles is easy to
-    # mistake for a target that passes: no assertion in this repo executes a line
-    # of selection.cpp off Windows. Its hit-testing goes through
-    # tinta::TextLayout, whose two backends ARE asserted against each other, so
-    # the seam under it is tested -- this file's own logic is not, on either
-    # platform, and was not before this commit either.
-    add_library(portable_compile_only OBJECT src/selection.cpp src/editrail.cpp)
+    # mistake for a target that passes: no assertion in this repo executes a line of
+    # editrail.cpp on EITHER platform. Its drawing goes through the render and text
+    # seams, which ARE asserted against each other, so the layer beneath it is
+    # tested and its own logic is not.
+    #
+    # selection.cpp's departure from this target is not a loss of coverage: the
+    # portable probe asserts the manifest against what the build compiled, and
+    # selection_tests above compiles it with the same include paths, so it is still
+    # seen -- now with a linked, running binary behind it.
+    add_library(portable_compile_only OBJECT src/editrail.cpp)
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
@@ -550,6 +578,33 @@ if(BUILD_TESTING)
         target_compile_definitions(text_utils_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME text_utils COMMAND text_utils_tests)
+
+    # include/seated.h -- App's seam-wrapper storage, asserted with fake backends
+    # on both platforms.
+    #
+    # This target exists because the slice that introduced Seated<> could only be
+    # verified by the Windows app linking and drawing. The seating logic itself had
+    # no assertion: its only callers are the seat* functions in app.h, whose only
+    # caller is src/d2d_init.cpp, which is Windows-only and absent from
+    # tests/portable-sources.txt. The property everything rests on -- that
+    # reseating an UNCHANGED native does not rebuild the wrapper, because the
+    # wrapper OWNS the native and would Release it -- is invisible to both the app
+    # running correctly and the compiler.
+    #
+    # It compiles ONE header and no sources: seated.h includes only <memory> and
+    # <utility> and names no backend, so this target is also the standing check
+    # that it stays that way. If someone adds a D2D or Qt include to it, this stops
+    # configuring off Windows rather than being discovered later by the app link.
+    add_executable(seated_tests
+        tests/seated_tests.cpp
+    )
+    target_include_directories(seated_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_compile_definitions(seated_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME seated COMMAND seated_tests)
 
     # Qt 6 text layout -- the contract the DirectWrite text code has to be ported
     # onto, measured before any of that port is written. OPT-IN: find_package is

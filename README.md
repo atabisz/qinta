@@ -348,6 +348,28 @@ link — gating them would hide the very inventory the flag exists to print.
 Flipping the default requires Qt on Windows, which is not installed on the machine this is
 developed on. That is an install and a decision, not a CMake change.
 
+### Where the two stacks will not agree
+
+Some behaviour cannot be identical on both backends, and the position taken here is to pick
+one, write it down, and assert it in a test rather than let it be discovered later as a bug.
+The tests carry these as per-backend expectations, so a future change that accidentally
+"fixes" one of them fails loudly.
+
+- **Discretionary ligatures in code blocks.** The DirectWrite path applies `dlig`; the Qt
+  path does not, because Qt 6.4's `QTextCharFormat` has no per-feature API and
+  `QFont::setFeature` only arrived in 6.7. Standard ligatures, kerning and contextual
+  alternates (`liga`, `kern`, `calt`) work on both. In practice this affects a handful of
+  glyph pairs in fonts like Fira Code. `qtCanHonourFeature` is the single place that decides
+  it, and it is a **whitelist rather than a `dlig` special case**, so a feature added later
+  is refused until someone states that Qt can honour it — the test asserts that too, using
+  `swsh`. The test runs 37 assertions on Windows and 34 off it; the three extra are not
+  about `dlig` but are cross-checks that the portable tag packing equals the DirectWrite SDK
+  macros, which can only be compiled where the SDK exists.
+- **Line breaking on a lone carriage return, and on U+2029.** Qt does not break where
+  DirectWrite does. Both are deliberately left unasserted for now — they need the line
+  breaking seam that `render.cpp` still lacks, and asserting a behaviour before the seam
+  exists would pin the wrong thing.
+
 ### Status
 
 Measured on 2026-09-15 at this commit, Windows and Linux both built and tested in the
@@ -357,7 +379,7 @@ same session.
 
 | Area | State |
 |---|---|
-| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting | Compile *and* assert off Windows — 17 test targets |
+| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting, OpenType typography | Compile *and* assert off Windows — 18 test targets |
 | Text seam (`text_api.h`) + Qt backend | Done, tested headless |
 | Render seam (`render_api.h`) + Qt backend | Done, tested headless |
 | Win32 scalar + call seams | Done — 5 scalars admitted from an error census (`UINT32`, `FLOAT`, `BOOL`, `TRUE`, `FALSE`), 6 more refused for appearing in no error at all, and `HRESULT`/`SUCCEEDED` withheld deliberately so COM-shaped code cannot quietly compile off Windows |
@@ -366,13 +388,14 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **19 run on Linux, 17 of them shared with the 27 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 29 distinct test targets in total |
+| Tests running off Windows | **20 run on Linux, 18 of them shared with the 28 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 30 distinct test targets in total |
+| Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
 
-**To do — 24 files, 30,022 lines**
+**To do — 24 files, 30,122 lines**
 
 | Area | Size | Note |
 |---|---|---|
-| `render.cpp` | 3,448 | **The blocker.** 128 native Direct2D/DirectWrite mentions across five seams that do not exist yet: WIC image decoding, `ID2D1SvgDocument`, path-geometry arcs, `IDWriteTextAnalysisSource` line breaking, and the `IDWriteTextLayout2` font-fallback query. Text layout is narrower than the total suggests: the 19 call sites go through **three** local helpers (`createLayout`, `createWrappedLayout`, `createDiagramTextLayout`), and `dwriteFactory` is named at exactly **4** places in the file. No paragraph can be laid out off Windows today, but the reason is three functions, not nineteen |
+| `render.cpp` | 3,498 | **Still the blocker, but no longer for text.** Native mentions went 128 → 93, and live ones — excluding comments — 115 → 75; the *text* subset fell 56 → 16. Every layout now goes through `app.textFactory` and `dwriteFactory` is named at zero live sites, so paragraphs, wrapped labels and diagram text all lay out off Windows. What remains is four other seams: path-geometry arcs (22 live mentions), WIC image decoding (10), line breaking via `IDWriteTextAnalysisSource`/`Sink` (6), `ID2D1SvgDocument` (3), plus the `IDWriteTextLayout2` font-fallback query (2), which is deliberately *not* pushed into the backend — see the note below the table. The residual `ID2D1`/`D2D1_` count is unchanged at 16/33, because drawing is a different seam and this work did not touch it |
 | Window and message loop | 4,348 + 2,273 | `input.cpp`, `main_d2d.cpp` — Win32 message pump → Qt event handling |
 | Editor | 3,138 | `editor.cpp`, including IME input via `imm.h` → Qt input methods |
 | Overlays, annotations, math, table edit | 4,109 + 1,194 + 848 + 616 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction |
@@ -385,6 +408,16 @@ same session.
 | Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
 | The Windows backends themselves | 219 + 596 + 212 + 146 + 65 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp` — **deleted or replaced, not ported.** Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the two backends go once Qt covers what they do |
+
+The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
+it is worth a note because the reasoning is not visible from the code. Folding
+`SetFontFallback` into the backend's `CreateTextLayout` would make it invisible to every
+caller — and would change behaviour in files nobody touched. Fifteen sites already create
+layouts through `app.textFactory` and none has ever had a fallback, which
+`git log -S'SetFontFallback'` confirms across the whole history; several of them *measure*
+text, so giving them a fallback would move measured widths and therefore layout. It stays
+in `render.cpp` as one named helper, which also makes it the single line to delete if that
+answer ever changes.
 
 That last row is the change of goal made arithmetic. These five files used to be listed
 separately as "will never move", excluded from the count on the grounds that they were
@@ -410,20 +443,30 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 20,402 / 56,932 | **35.8%** |
+| A. Source lines free of the Windows stack | 20,439 / 57,253 | **35.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 33 / 57 | 57.9% |
 | C. Files a *running* test links | 30 / 57 | 52.6% |
-| D. Windows tests that also run off Windows | 17 / 27 | 63.0% |
-| E. All test targets, run off Windows | 19 / 29 | 65.5% |
+| D. Windows tests that also run off Windows | 18 / 28 | 64.3% |
+| E. All test targets, run off Windows | 20 / 30 | 66.7% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 
-**Basis A, 35.8%, is the headline** — it is the figure the probe itself prints on every
-run, so it is the one comparable across time. Two honest caveats on it. It *understates*
-progress, because its denominator includes 6,508 lines of headers that the manifest
-never credits even when they are portable. And it *overstates* readiness, because three
-of the 33 compiling files (`search.cpp`, `editrail.cpp`, `i18n_app.cpp`) are
-compile-only: nothing executes them on either platform, so they are proof that a compiler
-accepts them and nothing more.
+**Basis A, 35.7%, is the headline** — it is the figure the probe itself prints on every
+run, so it is the one comparable across time. Three honest caveats on it.
+
+It *understates* progress, because its denominator includes headers that the manifest
+never credits even when they are portable. It *overstates* readiness, because three of the
+33 compiling files (`search.cpp`, `editrail.cpp`, `i18n_app.cpp`) are compile-only:
+nothing executes them on either platform, so they are proof that a compiler accepts them
+and nothing more.
+
+And it just moved the *wrong way* on a commit that was real progress: 35.8% → 35.7%, while
+`render.cpp` lost 40 live DirectWrite text mentions and gained a working seam. The reason
+is arithmetic, not regression. Basis A counts lines in portable *files*, so putting a
+not-yet-portable file's text path on the seam credits nothing until the whole file
+compiles — and the explanatory comments that came with the change made the denominator
+bigger. A metric that can fall on a good commit is worth keeping anyway, because it is
+honest about what it measures, but it is not the metric to read for whether the port is
+progressing. The `render.cpp` row in the table above is.
 
 A basis was **removed** rather than updated when the goal changed. There used to be a
 line reading "same, excluding the five never-move files — 36.6%", and it measured
@@ -434,10 +477,13 @@ meaning anything is worse than no percentage, so it is gone rather than adjusted
 Basis F is the one to keep in view, and the change of goal made it stricter: it used to
 ask whether a non-Windows binary existed, and now asks how many of the three platforms
 run Tinta on Qt. **The answer is none.** Windows runs, on the stack being replaced.
-`render.cpp` — 3,448 lines and 128 native Direct2D and DirectWrite mentions — is the
-single file standing between "the library compiles and is tested" and "it runs anywhere on
-Qt", and it is the same blocker under either goal. That is the one piece of good news in this section: going
-single-stack did not add a blocker, it removed the obligation to maintain two.
+`render.cpp` — 3,498 lines and 93 native Direct2D and DirectWrite mentions, 75 of them
+live — is the single file standing between "the library compiles and is tested" and "it
+runs anywhere on Qt", and it is the same blocker under either goal. It is a *smaller*
+blocker than it was: text layout came off DirectWrite entirely, and the four seams left in
+it are drawing and decoding rather than typesetting. That is the good news in this section,
+together with the fact that going single-stack did not add a blocker — it removed the
+obligation to maintain two.
 
 Call it roughly a third of the way through by volume, with the hardest single file still
 ahead — and note that the finish line moved out, not in: 1,238 lines of Windows backend

@@ -234,6 +234,19 @@ else
     check 1 "tests/render_api_shared.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# tests/app_fixture.h needs naming for the same reason as the two headers above,
+# and it is the one that matters most for the port: it is the synthetic App layout
+# that lets anything taking an App& be asserted off Windows at all. It appears in
+# no object list, the src/ manifest cannot see it, and its only consumer is a
+# single target -- so if selection_layout_tests were dropped or moved inside
+# if(WIN32), the ctest count would fall by one and every check in this script
+# would still pass. That is the failure shape this file exists to make loud.
+if grep -qE "selection_layout_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/selection_layout_tests.cpp was compiled by $CXX_BIN, so tests/app_fixture.h was read off Windows"
+else
+    check 1 "tests/selection_layout_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

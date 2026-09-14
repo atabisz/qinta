@@ -9,7 +9,7 @@
 // positions into app.docText (selAnchor / selFocus); highlight rectangles
 // and the copied text both derive from that range, so what is highlighted,
 // what was aimed at, and what lands on the clipboard always agree. Caret
-// positions snap to glyph clusters via each run's IDWriteTextLayout
+// positions snap to glyph clusters via each run's tinta::TextLayout
 // (App::LayoutTextRun, reachable from a TextRect through runIndex).
 
 // Document-space point -> caret offset. Points that miss text vertically

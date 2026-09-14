@@ -18,15 +18,17 @@
 // from whichever backend was installed, and none needs to be for an App that is
 // never drawn. This target is the first thing to actually spend that.
 //
-// WHAT IS DELIBERATELY NOT ASSERTED HERE. selectionOffsetAtPoint,
+// WHAT IS NOT ASSERTED HERE, AND WHERE IT IS. selectionOffsetAtPoint,
 // selectionHighlightRects, selectionRangeRect and the populated path through
 // selectionLineRange all read app.layoutTextRuns, app.textRects and
 // app.lineBuckets, which means a real layout fixture rather than a stack App with
-// one string set. That fixture is worth building and is not built here; saying so
-// beats letting the gap be inferred from a green tally. The functions below need
-// nothing but app.docText and the selection flags, so they are asserted for real,
-// and the empty-container behaviour of selectionLineRange is asserted because it
-// needs no fixture at all.
+// one string set. That fixture now exists -- tests/app_fixture.h -- and those four
+// are asserted by tests/selection_layout_tests.cpp, which found three undocumented
+// decisions in them. This file deliberately stays fixture-free: the functions
+// below need nothing but app.docText and the selection flags, so a failure here is
+// unambiguously about word boundaries rather than about layout arithmetic. The
+// empty-container behaviour of selectionLineRange is asserted here for the same
+// reason -- it needs no fixture at all.
 
 #include "app.h"
 #include "selection.h"

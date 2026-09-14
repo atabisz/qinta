@@ -99,11 +99,20 @@ editrail.cpp
 #
 # Its word-selection rules -- including the deliberate trailing-hit rule, where a
 # caret just past a word selects the word rather than the space -- had never been
-# executed by any test on any platform before that target existed. What is still
-# NOT asserted: selectionOffsetAtPoint, selectionHighlightRects, selectionRangeRect
-# and the populated path through selectionLineRange all need a real layout fixture
-# (app.layoutTextRuns, app.textRects, app.lineBuckets), which is not built yet. The
-# test file says so at the top rather than letting a green tally imply otherwise.
+# executed by any test on any platform before that target existed.
+#
+# NOW ASSERTED IN FULL, by a second target. This section used to end by naming four
+# functions it did not cover -- selectionOffsetAtPoint, selectionHighlightRects,
+# selectionRangeRect and the populated path through selectionLineRange -- because
+# they read app.layoutTextRuns, app.textRects and app.lineBuckets and so need a
+# layout rather than a string. tests/app_fixture.h is that layout, and
+# tests/selection_layout_tests.cpp asserts all four off Windows.
+#
+# The fixture works because LayoutTextRun::layout is a shared_ptr to the ABSTRACT
+# tinta::TextLayout, so a fake layout is a class in a test header instead of a
+# device, a factory and a window. It reaches branches a real backend cannot easily
+# be made to reach: the caret-pair fallback in selectionHighlightRects, for one,
+# which had never executed and turns out to agree with the primary path exactly.
 selection.cpp
 
 # --- Portable application logic ----------------------------------------------

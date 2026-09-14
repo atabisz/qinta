@@ -290,6 +290,50 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME selection COMMAND selection_tests)
 
+    # The other half of src/selection.cpp: the four functions that need a LAYOUT,
+    # not just docText. Same sources as selection_tests, plus tests/app_fixture.h.
+    #
+    # A SECOND TARGET RATHER THAN MORE CASES IN THE FIRST, for the reason
+    # code_block_layout_tests and blockquote_layout_tests are separate from their
+    # neighbours: the fixture is the expensive part. selection_tests needs nothing
+    # but an App and a string, and keeping it that way means a failure there is
+    # unambiguously about word boundaries. A failure here is about layout
+    # arithmetic, or about the fixture, and the split says which before anything is
+    # read.
+    #
+    # WHAT MADE THIS POSSIBLE, since it is the same unlock as selection_tests and
+    # the more interesting half of it: App's layout members -- textRects,
+    # lineBuckets, layoutTextRuns -- are plain containers of portable structs, but
+    # LayoutTextRun::layout is a shared_ptr to the ABSTRACT tinta::TextLayout. So a
+    # fake layout is a class in a test header rather than a device, a factory and a
+    # window. It was a shared_ptr to the abstract type before this work started;
+    # what was missing was an App that could be constructed off Windows to hold it.
+    #
+    # NO NEW LINK DEPENDENCIES over selection_tests -- measured by building it, not
+    # by reasoning about it, because the equivalent prediction for selection_tests
+    # was wrong three times running. The fake layout implements the seam interface,
+    # whose methods are all pure virtual, so nothing new is referenced.
+    add_executable(selection_layout_tests
+        tests/selection_layout_tests.cpp
+        src/selection.cpp
+        src/themes.cpp
+        src/text_utils.cpp
+        src/markdown.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(selection_layout_tests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(selection_layout_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(selection_layout_tests PRIVATE shell32)
+        target_compile_definitions(selection_layout_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME selection_layout COMMAND selection_layout_tests)
+
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
     # src/editrail.cpp is now the only file here. It reached zero errors when its

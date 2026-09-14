@@ -12,6 +12,7 @@
 #include "tabs.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
 
 // --- Small helpers (same one-shot layout pattern as the start page) ----
@@ -30,58 +31,75 @@ static tinta::Color railA(tinta::Color c, float a) {
     return c;
 }
 
-static IDWriteTextLayout* railLayout(App& app, const std::wstring& text,
-                                     float sizeDip,
-                                     DWRITE_FONT_WEIGHT weight,
-                                     const wchar_t* family = L"Segoe UI",
-                                     DWRITE_FONT_STYLE style =
-                                         DWRITE_FONT_STYLE_NORMAL) {
-    IDWriteTextFormat* fmt = nullptr;
-    app.dwriteFactory->CreateTextFormat(
-        family, nullptr, weight, style, DWRITE_FONT_STRETCH_NORMAL,
-        dpi(app, sizeDip), L"en-us", &fmt);
+// This file was chosen for the layout-factory conversion on a measurement, not
+// on how easy it looked: it named DWRITE_ 53 times while already running 34 of
+// its 35 drawing calls through app.renderTarget, so nearly all of that
+// remaining DirectWrite surface was ONE factory's signature leaking two enum
+// types into a struct, four static tables and thirteen call sites.
+//
+// The return type carries the ownership convention now. It used to be a raw
+// IDWriteTextLayout* that every caller had to remember to Release -- the same
+// spelling the editor's CACHED factory uses for a pointer callers must NOT
+// release, with only a comment telling the two apart. unique_ptr and a raw
+// borrow are different types, so the distinction stops depending on a comment.
+static std::unique_ptr<tinta::TextLayout> railLayout(
+        App& app, const std::wstring& text, float sizeDip,
+        tinta::FontWeight weight, const wchar_t* family = L"Segoe UI",
+        tinta::FontStyle style = tinta::FontStyle::Normal) {
+    std::unique_ptr<tinta::TextFormat> fmt = app.textFactory->CreateTextFormat(
+        family, weight, style, tinta::FontStretch::Normal, dpi(app, sizeDip),
+        L"en-us");
     if (!fmt) return nullptr;
-    fmt->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
-                                        fmt, 4096.0f, 200.0f, &layout);
-    fmt->Release();
-    return layout;
+    // Still set on the FORMAT and not the layout, as before. Every rail label
+    // is a single unwrapped line, so the property belongs to the format the
+    // layout is about to be built from.
+    fmt->SetWordWrapping(tinta::WordWrapping::NoWrap);
+    return app.textFactory->CreateTextLayout(text.c_str(),
+                                             (uint32_t)text.size(), fmt.get(),
+                                             4096.0f, 200.0f);
 }
 
-static void railDraw(App& app, IDWriteTextLayout* layout, float x, float y,
+static void railDraw(App& app, tinta::TextLayout* layout, float x, float y,
                      tinta::Color color) {
     if (!layout) return;
     app.brush->SetColor(color);
-    app.nativeRenderTarget->DrawTextLayout(tinta::pointF(x, y), layout,
-                                     app.nativeBrush);
+    app.renderTarget->DrawTextLayout(tinta::pointF(x, y), layout, app.brush);
 }
 
-// Centers a glyph layout in a rect, then releases it
+// Centers a glyph layout in a rect. No longer releases it -- the caller's
+// unique_ptr does, which is why this takes a borrowed pointer.
 static void railGlyph(App& app, const std::wstring& text, float sizeDip,
-                      DWRITE_FONT_WEIGHT weight, DWRITE_FONT_STYLE style,
+                      tinta::FontWeight weight, tinta::FontStyle style,
                       const wchar_t* family, tinta::RectF r,
                       tinta::Color color, bool strike = false) {
-    IDWriteTextLayout* l =
+    std::unique_ptr<tinta::TextLayout> l =
         railLayout(app, text, sizeDip, weight, family, style);
     if (!l) return;
     if (strike) {
+        // THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE, and it is honest
+        // about what it is: per-range styling has no seam method. Counting the
+        // whole population rather than trusting the note that called it "7
+        // per-range sites", it is SIX -- and five of the six pass {0, size},
+        // the whole text, exactly as this one does. Only signals.cpp's chip
+        // emphasis wants a real sub-range. So the eventual seam method is a
+        // whole-layout one for five sites plus a ranged one for a single
+        // caller, a much smaller design than "add ranged styling" -- and it is
+        // not this slice's to make.
         DWRITE_TEXT_RANGE all{0, (UINT32)text.size()};
-        l->SetStrikethrough(TRUE, all);
+        nativeTextLayout(l.get())->SetStrikethrough(TRUE, all);
     }
-    DWRITE_TEXT_METRICS m{};
+    tinta::TextMetrics m{};
     l->GetMetrics(&m);
-    railDraw(app, l, r.left + (r.right - r.left - m.width) * 0.5f,
+    railDraw(app, l.get(), r.left + (r.right - r.left - m.width) * 0.5f,
              r.top + (r.bottom - r.top - m.height) * 0.5f, color);
-    l->Release();
 }
 
 struct RailBtn {
     int id;
     const wchar_t* glyph;
     float size;
-    DWRITE_FONT_WEIGHT weight;
-    DWRITE_FONT_STYLE style;
+    tinta::FontWeight weight;
+    tinta::FontStyle style;
     const wchar_t* family;
     bool strike;
     const char* tipKey;      // i18n label
@@ -89,37 +107,37 @@ struct RailBtn {
 };
 
 static const RailBtn kTextBtns[] = {
-    {1, L"B", 13.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL,
+    {1, L"B", 13.0f, tinta::FontWeight::Bold, tinta::FontStyle::Normal,
      L"Segoe UI", false, "rail.bold", L"Ctrl+B"},
-    {2, L"I", 13.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC,
+    {2, L"I", 13.0f, tinta::FontWeight::Normal, tinta::FontStyle::Italic,
      L"Georgia", false, "rail.italic", L"Ctrl+I"},
-    {3, L"S", 13.0f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+    {3, L"S", 13.0f, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
      L"Segoe UI", true, "rail.strike", L""},
-    {4, L"</>", 10.5f, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+    {4, L"</>", 10.5f, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
      L"Consolas", false, "rail.code", L""},
-    {5, L"\U0001F517", 12.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.link", L"Ctrl+K"},
+    {5, L"\U0001F517", 12.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.link", L"Ctrl+K"},
 };
 static const RailBtn kBlockBtns[] = {
-    {10, L"\u2022\u2261", 12.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.bullets", L""},
-    {11, L"\u2611", 13.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.tasks", L""},
-    {12, L"\u275D", 13.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.quote", L""},
+    {10, L"\u2022\u2261", 12.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.bullets", L""},
+    {11, L"\u2611", 13.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.tasks", L""},
+    {12, L"\u275D", 13.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.quote", L""},
 };
 static const RailBtn kInsertBtns[] = {
-    {20, L"\u229E", 13.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.table", L""},
-    {21, L"\u25C8", 13.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.diagram", L""},
-    {22, L"\U0001F5BC", 12.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.image", L""},
+    {20, L"\u229E", 13.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.table", L""},
+    {21, L"\u25C8", 13.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.diagram", L""},
+    {22, L"\U0001F5BC", 12.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.image", L""},
 };
 // Foot: pandoc export, shown only when an executable was found
 static const RailBtn kFootBtns[] = {
-    {23, L"\u2912", 13.0f, DWRITE_FONT_WEIGHT_NORMAL,
-     DWRITE_FONT_STYLE_NORMAL, L"Segoe UI", false, "rail.export", L""},
+    {23, L"\u2912", 13.0f, tinta::FontWeight::Normal,
+     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.export", L""},
 };
 
 static const RailBtn* railBtnById(int id) {
@@ -143,7 +161,7 @@ static const RailBtn* railBtnById(int id) {
 void renderEditRail(App& app) {
     app.editRailHits.clear();
     if (!app.editMode || !app.renderTarget || !app.brush ||
-        !app.dwriteFactory) {
+        !app.textFactory) {
         return;
     }
 
@@ -277,15 +295,15 @@ void renderEditRail(App& app) {
             }
         }
         std::wstring label = tr(app, hovBtn->tipKey);
-        IDWriteTextLayout* ll =
-            railLayout(app, label, 12.0f, DWRITE_FONT_WEIGHT_NORMAL);
-        IDWriteTextLayout* kl =
+        std::unique_ptr<tinta::TextLayout> ll =
+            railLayout(app, label, 12.0f, tinta::FontWeight::Normal);
+        std::unique_ptr<tinta::TextLayout> kl =
             hovBtn->tipKeys[0]
                 ? railLayout(app, hovBtn->tipKeys, 10.5f,
-                             DWRITE_FONT_WEIGHT_NORMAL)
+                             tinta::FontWeight::Normal)
                 : nullptr;
         if (ll) {
-            DWRITE_TEXT_METRICS lm{}, km{};
+            tinta::TextMetrics lm{}, km{};
             ll->GetMetrics(&lm);
             if (kl) kl->GetMetrics(&km);
             float pad = dpi(app, 12.0f);
@@ -309,13 +327,12 @@ void renderEditRail(App& app) {
             app.renderTarget->DrawRoundedRectangle(
                 tinta::roundedRect(fr, dpi(app, 7.0f), dpi(app, 7.0f)),
                 app.brush, 1.0f);
-            railDraw(app, ll, fx + pad, fy + (h - lm.height) * 0.5f, text);
+            railDraw(app, ll.get(), fx + pad, fy + (h - lm.height) * 0.5f,
+                     text);
             if (kl) {
-                railDraw(app, kl, fx + pad + lm.width + gap,
+                railDraw(app, kl.get(), fx + pad + lm.width + gap,
                          fy + (h - km.height) * 0.5f, railA(text, 0.45f));
-                kl->Release();
             }
-            ll->Release();
         }
     }
 }
@@ -449,7 +466,13 @@ void closeEditCtxMenu(App& app) {
 void renderEditCtxMenu(App& app) {
     app.editCtxHits.clear();
     app.editCtxSubHits.clear();
-    if (!app.editCtxOpen || !app.renderTarget || !app.dwriteFactory) return;
+    // The SECOND guard in this file, and I missed it on the first sweep because I
+    // matched one spelling's exact indentation instead of counting the population.
+    // Both gates now test app.textFactory, the wrapper these functions actually
+    // call through: app.dwriteFactory being alive says nothing about whether the
+    // seam was seated, and the whole point of the conversion is that the seam is
+    // the only text factory this file names.
+    if (!app.editCtxOpen || !app.renderTarget || !app.textFactory) return;
 
     const D2DTheme& th = app.theme;
     tinta::Color text = th.text;
@@ -506,15 +529,15 @@ void renderEditCtxMenu(App& app) {
     float cy = my + padV;
     for (const ECtxItem& it : kECtx) {
         if (it.id == 0) {
-            IDWriteTextLayout* hl = railLayout(app, tr(app, it.label), 10.0f,
-                                               DWRITE_FONT_WEIGHT_SEMI_BOLD);
+            std::unique_ptr<tinta::TextLayout> hl =
+                railLayout(app, tr(app, it.label), 10.0f,
+                           tinta::FontWeight::SemiBold);
             if (hl) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 hl->GetMetrics(&m);
-                railDraw(app, hl, mx + dpi(app, 14.0f),
+                railDraw(app, hl.get(), mx + dpi(app, 14.0f),
                          cy + hdH - m.height - dpi(app, 2.0f),
                          railA(text, 0.45f));
-                hl->Release();
             }
             cy += hdH;
             continue;
@@ -535,34 +558,33 @@ void renderEditCtxMenu(App& app) {
         float alpha = disabled ? 0.38f : 1.0f;
         if (it.icon[0]) {
             railGlyph(app, it.icon, it.id == 113 ? 9.5f : 12.0f,
-                      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                      tinta::FontWeight::Normal, tinta::FontStyle::Normal,
                       it.id == 113 ? L"Consolas" : L"Segoe UI",
                       tinta::rectF(r.left + dpi(app, 6.0f), r.top,
                                   r.left + dpi(app, 28.0f), r.bottom),
                       railA(accent, alpha));
         }
-        IDWriteTextLayout* ll = railLayout(app, tr(app, it.label), 13.0f,
-                                           DWRITE_FONT_WEIGHT_NORMAL);
+        std::unique_ptr<tinta::TextLayout> ll =
+            railLayout(app, tr(app, it.label), 13.0f,
+                       tinta::FontWeight::Normal);
         if (ll) {
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             ll->GetMetrics(&m);
-            railDraw(app, ll, r.left + dpi(app, 34.0f),
+            railDraw(app, ll.get(), r.left + dpi(app, 34.0f),
                      cy + (rowH - m.height) * 0.5f,
                      subOpen ? railA(accent, 0.95f)
                              : railA(text, 0.92f * alpha));
-            ll->Release();
         }
         if (it.hint[0]) {
-            IDWriteTextLayout* hl = railLayout(app, it.hint, 11.0f,
-                                               DWRITE_FONT_WEIGHT_NORMAL,
-                                               L"Consolas");
+            std::unique_ptr<tinta::TextLayout> hl =
+                railLayout(app, it.hint, 11.0f, tinta::FontWeight::Normal,
+                           L"Consolas");
             if (hl) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 hl->GetMetrics(&m);
-                railDraw(app, hl, r.right - dpi(app, 10.0f) - m.width,
+                railDraw(app, hl.get(), r.right - dpi(app, 10.0f) - m.width,
                          cy + (rowH - m.height) * 0.5f,
                          railA(text, 0.45f * alpha));
-                hl->Release();
             }
         }
         if (!disabled) app.editCtxHits.push_back({r, it.id});
@@ -600,13 +622,12 @@ void renderEditCtxMenu(App& app) {
         app.renderTarget->DrawRoundedRectangle(
             tinta::roundedRect(sp, dpi(app, 8.0f), dpi(app, 8.0f)),
             app.brush, 1.0f);
-        IDWriteTextLayout* hl = railLayout(app, tr(app, "ectx.templates"),
-                                           10.5f,
-                                           DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        std::unique_ptr<tinta::TextLayout> hl =
+            railLayout(app, tr(app, "ectx.templates"), 10.5f,
+                       tinta::FontWeight::SemiBold);
         if (hl) {
-            railDraw(app, hl, sx + dpi(app, 14.0f), sy + dpi(app, 8.0f),
+            railDraw(app, hl.get(), sx + dpi(app, 14.0f), sy + dpi(app, 8.0f),
                      railA(text, 0.5f));
-            hl->Release();
         }
         float ry = sy + dpi(app, 30.0f);
         for (int i = 0; i < 7; i++) {
@@ -621,31 +642,29 @@ void renderEditCtxMenu(App& app) {
                     app.brush);
             }
             railGlyph(app, kEDiag[i].icon, 12.0f,
-                      DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                      tinta::FontWeight::Normal, tinta::FontStyle::Normal,
                       L"Segoe UI",
                       tinta::rectF(r.left + dpi(app, 6.0f), r.top,
                                   r.left + dpi(app, 28.0f), r.bottom),
                       accent);
-            IDWriteTextLayout* ll = railLayout(app, tr(app, kEDiag[i].label),
-                                               13.0f,
-                                               DWRITE_FONT_WEIGHT_NORMAL);
+            std::unique_ptr<tinta::TextLayout> ll =
+                railLayout(app, tr(app, kEDiag[i].label), 13.0f,
+                           tinta::FontWeight::Normal);
             if (ll) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 ll->GetMetrics(&m);
-                railDraw(app, ll, r.left + dpi(app, 34.0f),
+                railDraw(app, ll.get(), r.left + dpi(app, 34.0f),
                          ry + (srowH - m.height) * 0.5f,
                          railA(text, 0.92f));
-                ll->Release();
             }
-            IDWriteTextLayout* hint = railLayout(app, kEDiag[i].hint, 10.5f,
-                                                 DWRITE_FONT_WEIGHT_NORMAL,
-                                                 L"Consolas");
+            std::unique_ptr<tinta::TextLayout> hint =
+                railLayout(app, kEDiag[i].hint, 10.5f,
+                           tinta::FontWeight::Normal, L"Consolas");
             if (hint) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 hint->GetMetrics(&m);
-                railDraw(app, hint, r.right - dpi(app, 10.0f) - m.width,
+                railDraw(app, hint.get(), r.right - dpi(app, 10.0f) - m.width,
                          ry + (srowH - m.height) * 0.5f, railA(text, 0.4f));
-                hint->Release();
             }
             app.editCtxSubHits.push_back({r, 130 + i});
             ry += srowH + dpi(app, 2.0f);
@@ -670,13 +689,12 @@ void renderEditCtxMenu(App& app) {
         app.renderTarget->DrawRoundedRectangle(
             tinta::roundedRect(sp, dpi(app, 8.0f), dpi(app, 8.0f)),
             app.brush, 1.0f);
-        IDWriteTextLayout* hl = railLayout(app, tr(app, "rail.export"),
-                                           10.5f,
-                                           DWRITE_FONT_WEIGHT_SEMI_BOLD);
+        std::unique_ptr<tinta::TextLayout> hl =
+            railLayout(app, tr(app, "rail.export"), 10.5f,
+                       tinta::FontWeight::SemiBold);
         if (hl) {
-            railDraw(app, hl, sx + dpi(app, 14.0f), sy + dpi(app, 8.0f),
+            railDraw(app, hl.get(), sx + dpi(app, 14.0f), sy + dpi(app, 8.0f),
                      railA(text, 0.5f));
-            hl->Release();
         }
         float ry = sy + dpi(app, 30.0f);
         for (int i = 0; i < PANDOC_FORMAT_COUNT; i++) {
@@ -690,27 +708,24 @@ void renderEditCtxMenu(App& app) {
                     tinta::roundedRect(r, dpi(app, 5.0f), dpi(app, 5.0f)),
                     app.brush);
             }
-            IDWriteTextLayout* ll = railLayout(app, pandocFormatLabel(i),
-                                               13.0f,
-                                               DWRITE_FONT_WEIGHT_NORMAL);
+            std::unique_ptr<tinta::TextLayout> ll =
+                railLayout(app, pandocFormatLabel(i), 13.0f,
+                           tinta::FontWeight::Normal);
             if (ll) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 ll->GetMetrics(&m);
-                railDraw(app, ll, r.left + dpi(app, 12.0f),
+                railDraw(app, ll.get(), r.left + dpi(app, 12.0f),
                          ry + (srowH - m.height) * 0.5f,
                          railA(text, 0.92f));
-                ll->Release();
             }
-            IDWriteTextLayout* hint = railLayout(app, pandocFormatExt(i),
-                                                 10.5f,
-                                                 DWRITE_FONT_WEIGHT_NORMAL,
-                                                 L"Consolas");
+            std::unique_ptr<tinta::TextLayout> hint =
+                railLayout(app, pandocFormatExt(i), 10.5f,
+                           tinta::FontWeight::Normal, L"Consolas");
             if (hint) {
-                DWRITE_TEXT_METRICS m{};
+                tinta::TextMetrics m{};
                 hint->GetMetrics(&m);
-                railDraw(app, hint, r.right - dpi(app, 10.0f) - m.width,
+                railDraw(app, hint.get(), r.right - dpi(app, 10.0f) - m.width,
                          ry + (srowH - m.height) * 0.5f, railA(text, 0.4f));
-                hint->Release();
             }
             app.editCtxSubHits.push_back({r, 150 + i});
             ry += srowH + dpi(app, 2.0f);
@@ -755,14 +770,13 @@ void renderEditCtxMenu(App& app) {
         swprintf_s(sizeLabel, _countof(sizeLabel), L"%d \u00D7 %d %ls",
                    app.editCtxGridC, app.editCtxGridR,
                    tr(app, "ectx.table_word"));
-        IDWriteTextLayout* sl = railLayout(app, sizeLabel, 12.0f,
-                                           DWRITE_FONT_WEIGHT_NORMAL);
+        std::unique_ptr<tinta::TextLayout> sl =
+            railLayout(app, sizeLabel, 12.0f, tinta::FontWeight::Normal);
         if (sl) {
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             sl->GetMetrics(&m);
-            railDraw(app, sl, sx + (sw - m.width) * 0.5f,
+            railDraw(app, sl.get(), sx + (sw - m.width) * 0.5f,
                      sy + sh - dpi(app, 22.0f), railA(text, 0.9f));
-            sl->Release();
         }
         // The whole grid area is one hit; cell resolution happens on move
         app.editCtxSubHits.push_back(

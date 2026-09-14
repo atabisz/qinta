@@ -57,7 +57,8 @@ struct ID2D1Bitmap;
 struct IDWriteFactory;
 struct IDWriteTextFormat;
 struct IDWriteTextLayout;
-struct IDWriteTypography;
+// IDWriteTypography's forward declaration is gone with the two members that
+// needed it -- App names no typography COM type at all now, on either platform.
 struct IDWriteFontFallback;
 struct IDWriteTextAnalyzer;
 struct IWICImagingFactory;
@@ -468,9 +469,21 @@ struct App {
     };
     std::vector<ThemePreviewFormats> themePreviewFormats;
 
-    // OpenType typography
-    IDWriteTypography* bodyTypography = nullptr;
-    IDWriteTypography* codeTypography = nullptr;
+    // OpenType typography, BY VALUE since 2026-09-15.
+    //
+    // These were two IDWriteTypography*, created once in createTypography and
+    // Released at shutdown. Measured before the change: all 12 call sites in
+    // render.cpp passed one of exactly these two members, whole-range, and not one
+    // read a feature back -- so the portable meaning of the pair is a short list of
+    // four-character OpenType tags, which is what tinta::Typography is.
+    //
+    // Being values is the whole saving. There is nothing to create, nothing to
+    // Release (the two releaseNative calls in releaseNative() below are gone), no
+    // null to check at 12 call sites, and no ordering constraint against the DWrite
+    // factory's lifetime. They also survive a device loss without being rebuilt,
+    // which the COM objects did not.
+    tinta::Typography bodyTypography;
+    tinta::Typography codeTypography;
 
     // Folder browser text format
     IDWriteTextFormat* nativeFolderBrowserFormat = nullptr;
@@ -1440,8 +1453,10 @@ struct App {
             nativeHeadingFormats[i] = nullptr;
             headingFormats[i] = nullptr;
         }
-        releaseNative(bodyTypography);
-        releaseNative(codeTypography);
+        // bodyTypography and codeTypography used to be released here. They are
+        // tinta::Typography values now and own nothing; deliberately not replaced
+        // with a clear(), because they hold the feature sets the app always wants
+        // and there is no device to lose them with.
         if (dwriteFactory) {
             releaseNative(dwriteFactory);
             // The wrapper borrows, so it has nothing to release -- but leaving the

@@ -35,44 +35,81 @@ constexpr float kLineBucketTolerance = 5.0f;
 // Horizontal padding drawn around an inline `code` pill
 constexpr float kCodeSpanPadding = 4.0f;
 
+// OWNING, since 2026-09-15, and that is the substance of the change rather than a
+// side effect of it. The old member was a raw IDWriteTextLayout* whose ownership
+// moved by convention: four call sites called Release() by hand (two of them inside
+// a measure-and-discard loop), one handed the pointer to a D2DTextLayout, and one
+// nulled the field to signal a transfer. All six of those are gone -- the shared_ptr
+// says what each of them said in comments, and the compiler enforces it.
 struct LayoutInfo {
-    IDWriteTextLayout* layout = nullptr;
+    std::shared_ptr<tinta::TextLayout> layout;
     float width = 0.0f;
     float height = 0.0f;
 };
 
-static LayoutInfo createLayout(App& app, std::wstring_view text, IDWriteTextFormat* format,
-                               float lineHeight, IDWriteTypography* typography) {
-    LayoutInfo info;
-    if (!format || text.empty()) return info;
-
-    app.dwriteFactory->CreateTextLayout(text.data(), (UINT32)text.length(),
-        format, kHugeWidth, lineHeight, &info.layout);
-    if (info.layout) {
-        if (typography) {
-            info.layout->SetTypography(typography, {0, (UINT32)text.length()});
-        }
-        // Apply font fallback for emoji support
-        if (app.fontFallback) {
-            IDWriteTextLayout2* layout2 = nullptr;
-            if (SUCCEEDED(info.layout->QueryInterface(__uuidof(IDWriteTextLayout2),
-                    reinterpret_cast<void**>(&layout2)))) {
-                layout2->SetFontFallback(app.fontFallback);
-                layout2->Release();
-            }
-        }
-        DWRITE_TEXT_METRICS metrics{};
-        info.layout->GetMetrics(&metrics);
-        info.width = metrics.widthIncludingTrailingWhitespace;
-        info.height = metrics.height;
+// THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE'S TEXT PATH, and it is here rather
+// than inside D2DTextFactory::CreateTextLayout on purpose.
+//
+// Emoji and CJK fallback is a DirectWrite concept: an IDWriteFontFallback chain built
+// in d2d_init.cpp and attached to each layout through an IDWriteTextLayout2 QI. The
+// obvious tidy-up is to move it into the backend factory so every layout it makes
+// gets one. Measured, that is a behaviour change well outside this commit: 15 sites
+// already create through app.textFactory -- utils.cpp's measureText, tabs.cpp,
+// overlays.cpp, main_d2d.cpp, export_html.cpp, editrail.cpp -- and NOT ONE has ever
+// had a fallback (`git log -S SetFontFallback -- src/utils.cpp` returns nothing).
+// Several of them measure text, so handing them a fallback silently changes measured
+// widths, and therefore the layout, in a commit whose subject is the seam.
+//
+// So the fallback stays attached to exactly the layouts that already had it, and this
+// is the one place to delete when that question is answered on its own terms. It also
+// replaces three copies of the same QI block, which is why the reach-through is now
+// countable: one site instead of three.
+//
+// nativeTextLayout() asserts the handle really came from the DirectWrite backend, so
+// a Qt layout arriving here trips rather than silently skipping. That is the right
+// failure: this file includes urlmon.h and calls ID2D1 directly, and does not pretend
+// to be portable.
+static void applyEmojiFallback(App& app, tinta::TextLayout* layout) {
+    if (!layout || !app.fontFallback) return;
+    IDWriteTextLayout* native = nativeTextLayout(layout);
+    if (!native) return;
+    IDWriteTextLayout2* layout2 = nullptr;
+    if (SUCCEEDED(native->QueryInterface(__uuidof(IDWriteTextLayout2),
+            reinterpret_cast<void**>(&layout2)))) {
+        layout2->SetFontFallback(app.fontFallback);
+        layout2->Release();
     }
-    return info;
 }
 
+// ONE overload now, where there were two. The native-format version existed only to
+// feed app.dwriteFactory->CreateTextLayout; measured before the change, all 12 call
+// sites already passed a tinta::TextFormat*, so the second overload was an adapter
+// with no callers of its own and it disappears rather than moving.
+//
+// The typography argument is a const& to a value where it used to be a nullable COM
+// pointer, so the `if (typography)` guard is gone: an empty Typography applies
+// nothing, which text_api.h states as the contract and typography_tests.cpp asserts.
+// That is a guard removed because the type made it unreachable, not one dropped.
 static LayoutInfo createLayout(App& app, std::wstring_view text,
                                tinta::TextFormat* format, float lineHeight,
-                               IDWriteTypography* typography) {
-    return createLayout(app, text, nativeTextFormat(format), lineHeight, typography);
+                               const tinta::Typography& typography) {
+    LayoutInfo info;
+    if (!format || text.empty() || !app.textFactory) return info;
+
+    info.layout = app.textFactory->CreateTextLayout(
+        text.data(), static_cast<uint32_t>(text.length()), format,
+        kHugeWidth, lineHeight);
+    if (!info.layout) return info;
+
+    info.layout->SetTypography(typography,
+                               {0, static_cast<uint32_t>(text.length())});
+    applyEmojiFallback(app, info.layout.get());
+
+    tinta::TextMetrics metrics{};
+    info.layout->GetMetrics(&metrics);
+    info.width = metrics.widthIncludingTrailingWhitespace;
+    info.height = metrics.height;
+    return info;
 }
 
 static void addTextRect(App& app, const tinta::RectF& rect, size_t docStart, size_t docLength,
@@ -124,22 +161,19 @@ static void addTextRun(App& app, LayoutInfo&& info, const tinta::PointF& pos,
     if (!info.layout) return;
 
     App::LayoutTextRun run;
-    // Wrapping the native rather than creating through app.textFactory, and it is a
-    // transitional step with a definite end. This file is Windows-only for reasons
-    // that have nothing to do with text -- urlmon.h, d2d1_3.h, direct ID2D1 calls --
-    // and createLayout above needs SetTypography and the IDWriteTextLayout2 QI for
-    // SetFontFallback, neither of which is a portable concept (text_api.h says why).
-    // D2DTextLayout's constructor OWNS what it is handed, which is exactly the
-    // transfer that used to be implicit in assigning the raw pointer here. When
-    // createLayout eventually moves onto the seam it returns a unique_ptr that
-    // converts to this shared_ptr for free, so the member does not change again.
-    // The factory is handed on for SetTypography; text_d2d.h's constructor comment
-    // says why DirectWrite makes it necessary. This site is one of THREE that
-    // construct a D2DTextLayout -- the constructor comment originally claimed one,
-    // and requiring the parameter rather than defaulting it is what turned that
-    // wrong claim into two compile errors instead of two layouts that silently
-    // applied no font features.
-    run.layout = std::make_shared<D2DTextLayout>(info.layout, app.dwriteFactory);
+    // A MOVE, and the prediction that got it here is worth keeping. Last span this
+    // line read `std::make_shared<D2DTextLayout>(info.layout, app.dwriteFactory)`,
+    // wrapping a native layout because createLayout still made one, and the comment
+    // said: "when createLayout eventually moves onto the seam it returns a unique_ptr
+    // that converts to this shared_ptr for free, so the member does not change
+    // again." That is exactly what happened -- App::LayoutTextRun::layout is
+    // untouched by this commit, and this site stops naming a backend at all.
+    //
+    // It also means this file no longer constructs a D2DTextLayout anywhere, taking
+    // the population from three to two (text_d2d.cpp's factory and math_render.cpp's
+    // maths-box retain). text_d2d.h's constructor comment records both the count and
+    // the fact that it has now been wrong once.
+    run.layout = std::move(info.layout);
     run.pos = pos;
     run.bounds = bounds;
     run.color = color;
@@ -639,24 +673,23 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 float baseWidth = baseInfo.width;
 
                 // Measure ruby text
-                LayoutInfo rubyInfo = {nullptr, 0.0f};
+                LayoutInfo rubyInfo;
                 float rubyWidth = 0.0f;
                 if (!rubyText.empty()) {
                     rubyInfo = createLayout(app, rubyText, baseFormat, rubyLineHeight, app.bodyTypography);
                     if (rubyInfo.layout) {
-                        // Set smaller font size on the ruby layout.
-                        //
-                        // STILL NATIVE, AND NOT FOR WANT OF A SEAM METHOD:
-                        // text_api.h has SetFontSize(float, TextRange) now. What
-                        // gates this site is createLayout, which returns a LayoutInfo
-                        // holding a native IDWriteTextLayout* and applies
-                        // app.bodyTypography to it -- and SetTypography takes an
-                        // IDWriteTypography COM object, so it is one of the two calls
-                        // in the census that stay native by design. Converting this
-                        // needs the typography question answered first.
-                        DWRITE_TEXT_RANGE range = {0, (UINT32)rubyText.length()};
+                        // Set smaller font size on the ruby layout. ON THE SEAM as of
+                        // 2026-09-15, and its old comment is worth recording because
+                        // it named its own unblocking condition and was right: it said
+                        // "what gates this site is createLayout ... SetTypography takes
+                        // an IDWriteTypography COM object ... converting this needs the
+                        // typography question answered first." The typography question
+                        // was answered, and the conversion is these three lines --
+                        // DWRITE_TEXT_RANGE to tinta::TextRange, DWRITE_TEXT_METRICS to
+                        // tinta::TextMetrics, same field names either side.
+                        tinta::TextRange range = {0, (uint32_t)rubyText.length()};
                         rubyInfo.layout->SetFontSize(rubyFontSize, range);
-                        DWRITE_TEXT_METRICS metrics{};
+                        tinta::TextMetrics metrics{};
                         rubyInfo.layout->GetMetrics(&metrics);
                         rubyWidth = metrics.widthIncludingTrailingWhitespace;
                     }
@@ -727,15 +760,25 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         LayoutInfo measureInfo = createLayout(app, text, format, lineHeight, app.bodyTypography);
         {
             if (measureInfo.layout) {
-                UINT32 clusterCount = 0;
+                // The first call is a COUNT PROBE, and its return value is ignored
+                // deliberately: a probe reports FAILURE while still yielding the
+                // count, on both backends. That is not an assumption about
+                // DirectWrite's E_NOT_SUFFICIENT_BUFFER leaking through the seam --
+                // tests/render_api_shared.cpp asserts it against both
+                // implementations by name ("reports FAILURE while yielding the
+                // count ... the two backends reach it by different routes and must
+                // still agree"), because a backend that returned false WITHOUT
+                // setting the count would leave every width in cumW at zero here
+                // and nothing would error.
+                uint32_t clusterCount = 0;
                 measureInfo.layout->GetClusterMetrics(nullptr, 0, &clusterCount);
                 if (clusterCount > 0) {
-                    std::vector<DWRITE_CLUSTER_METRICS> clusters(clusterCount);
-                    if (SUCCEEDED(measureInfo.layout->GetClusterMetrics(
-                            clusters.data(), clusterCount, &clusterCount))) {
+                    std::vector<tinta::ClusterMetrics> clusters(clusterCount);
+                    if (measureInfo.layout->GetClusterMetrics(
+                            clusters.data(), clusterCount, &clusterCount)) {
                         size_t cpos = 0;
                         float w = 0.0f;
-                        for (UINT32 ci = 0; ci < clusterCount && cpos < text.length(); ci++) {
+                        for (uint32_t ci = 0; ci < clusterCount && cpos < text.length(); ci++) {
                             w += clusters[ci].width;
                             cpos += clusters[ci].length;
                             if (cpos <= text.length()) {
@@ -777,8 +820,14 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             }
             LayoutInfo info;
             if (coversAll) {
-                info = measureInfo;
-                measureInfo.layout = nullptr;
+                // A MOVE, where this was an assignment followed by nulling the
+                // source field by hand to signal the transfer. Same effect, except
+                // that the old pair could be separated by an edit and the move
+                // cannot: measureInfo.layout is empty afterwards because the
+                // shared_ptr says so, not because the next line remembered to.
+                info.layout = std::move(measureInfo.layout);
+                info.width = measureInfo.width;
+                info.height = measureInfo.height;
             } else {
                 info = createLayout(app, segText, format, lineHeight, app.bodyTypography);
             }
@@ -893,8 +942,10 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             pos = bp;
         }
         flushSegment(lastWordEnd);
-        if (measureInfo.layout) measureInfo.layout->Release();
-
+        // measureInfo.layout was Released here by hand. It is a shared_ptr now, so
+        // whichever of the two things happened -- flushSegment moved it into a run,
+        // or the element wrapped and it was only ever a measurement -- the layout
+        // dies at the right time without this line deciding which case it was in.
         app.docText += text;
 
         if (isLink && lastWordEndX > linkLineStartX) {
@@ -1015,41 +1066,33 @@ static void layoutHeading(App& app, const ElementPtr& elem, float& y, float inde
     y += 12 * scale;
 }
 
+// The mermaid label layout, and the same collapse as createLayout: the native
+// overload had no callers of its own -- all three sites passed app.textFormat -- so
+// two functions become one. This one applies no typography, which is not an omission
+// but the behaviour it always had; diagram labels have never carried font features.
 static LayoutInfo createWrappedLayout(App& app, std::wstring_view text,
-                                      IDWriteTextFormat* format,
-                                      float width, float height) {
+                                      tinta::TextFormat* format, float width,
+                                      float height) {
     LayoutInfo info;
-    if (!format || text.empty() || width <= 0.0f || height <= 0.0f) return info;
-
-    app.dwriteFactory->CreateTextLayout(
-        text.data(), static_cast<UINT32>(text.length()),
-        format, width, height, &info.layout);
-    if (!info.layout) return info;
-
-    info.layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    info.layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-    info.layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    if (app.fontFallback) {
-        IDWriteTextLayout2* layout2 = nullptr;
-        if (SUCCEEDED(info.layout->QueryInterface(
-                __uuidof(IDWriteTextLayout2),
-                reinterpret_cast<void**>(&layout2)))) {
-            layout2->SetFontFallback(app.fontFallback);
-            layout2->Release();
-        }
+    if (!format || text.empty() || width <= 0.0f || height <= 0.0f ||
+        !app.textFactory) {
+        return info;
     }
 
-    DWRITE_TEXT_METRICS metrics{};
+    info.layout = app.textFactory->CreateTextLayout(
+        text.data(), static_cast<uint32_t>(text.length()), format, width, height);
+    if (!info.layout) return info;
+
+    info.layout->SetWordWrapping(tinta::WordWrapping::Wrap);
+    info.layout->SetTextAlignment(tinta::TextAlignment::Center);
+    info.layout->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
+    applyEmojiFallback(app, info.layout.get());
+
+    tinta::TextMetrics metrics{};
     info.layout->GetMetrics(&metrics);
     info.width = metrics.widthIncludingTrailingWhitespace;
     info.height = metrics.height;
     return info;
-}
-
-static LayoutInfo createWrappedLayout(App& app, std::wstring_view text,
-                                      tinta::TextFormat* format, float width,
-                                      float height) {
-    return createWrappedLayout(app, text, nativeTextFormat(format), width, height);
 }
 
 static tinta::Color mermaidColor(const mermaid::Color& color) {
@@ -1143,7 +1186,9 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             app, label, app.textFormat, maxLabelWidth, measureHeight);
         float width = std::max(minimumWidth, measured.width + paddingX * 2.0f);
         float height = std::max(minimumHeight, measured.height + paddingY * 2.0f);
-        if (measured.layout) measured.layout->Release();
+        // `measured` is shaped only to read .width and .height off it and is dropped
+        // at the end of the iteration. The explicit Release() that used to be here is
+        // the one this loop could most easily have leaked past a `continue`.
 
         if (node.shape == mermaid::NodeShape::Diamond) {
             width = std::max(width * 1.28f, 150.0f * scale);
@@ -1187,7 +1232,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             edgeLabel.width - labelPaddingX * 2.0f, measureHeight);
         edgeLabel.height = std::max(
             28.0f * scale, measured.height + labelPaddingY * 2.0f);
-        if (measured.layout) measured.layout->Release();
+        // Measurement only, as above -- dropped with the loop iteration.
 
         float labelExtent = vertical ? edgeLabel.height : edgeLabel.width;
         rankGap = std::max(rankGap, labelExtent + 20.0f * scale);
@@ -1706,69 +1751,69 @@ tinta::Color resolveDiagramRoleImpl(const App& app,
     return color;
 }
 
-// Per-layout-pass cache of text formats for the diagram text styles
+// Per-layout-pass cache of text formats for the diagram text styles.
+//
+// The formats are unique_ptrs to seam handles now, which deletes the destructor: the
+// Release loop it replaced was correct, but it was the only thing standing between
+// this cache and a leak, and a cache is exactly the shape where an early return gets
+// added later. get() still returns a borrowed raw pointer, deliberately -- the map
+// owns every format for the whole layout pass and no caller outlives it.
 struct DiagramFormats {
     App& app;
-    std::map<int, IDWriteTextFormat*> formats;
+    std::map<int, std::unique_ptr<tinta::TextFormat>> formats;
 
     explicit DiagramFormats(App& application) : app(application) {}
     DiagramFormats(const DiagramFormats&) = delete;
     DiagramFormats& operator=(const DiagramFormats&) = delete;
-    ~DiagramFormats() {
-        for (auto& entry : formats) {
-            if (entry.second) entry.second->Release();
-        }
-    }
 
-    IDWriteTextFormat* get(const mermaidext::TextStyle& style, float scale) {
+    tinta::TextFormat* get(const mermaidext::TextStyle& style, float scale) {
         int key = (style.bold ? 1 : 0) | (style.italic ? 2 : 0) |
                   (style.mono ? 4 : 0) |
                   (static_cast<int>(style.scale * 100.0f + 0.5f) << 3);
         auto found = formats.find(key);
-        if (found != formats.end()) return found->second;
+        if (found != formats.end()) return found->second.get();
 
+        if (!app.textFactory) return nullptr;
         const wchar_t* family =
             style.mono ? app.theme.codeFontFamily : app.theme.fontFamily;
         float size = (style.mono ? 13.0f : 14.0f) * scale * style.scale;
-        IDWriteTextFormat* format = nullptr;
-        app.dwriteFactory->CreateTextFormat(
-            family, nullptr,
-            style.bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD
-                       : DWRITE_FONT_WEIGHT_NORMAL,
-            style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, size, L"en-us", &format);
-        formats[key] = format;
-        return format;
+        std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
+            family,
+            style.bold ? tinta::FontWeight::SemiBold : tinta::FontWeight::Normal,
+            style.italic ? tinta::FontStyle::Italic : tinta::FontStyle::Normal,
+            tinta::FontStretch::Normal, size, L"en-us");
+        tinta::TextFormat* borrowed = format.get();
+        // Cached even when creation FAILED, which is what the old code did by
+        // storing a null IDWriteTextFormat*. Kept on purpose: it means a font family
+        // the system cannot resolve is attempted once per layout pass rather than
+        // once per diagram label.
+        formats[key] = std::move(format);
+        return borrowed;
     }
 };
 
-static IDWriteTextLayout* createDiagramTextLayout(
+// Returns an OWNING handle where it used to return a raw IDWriteTextLayout* that both
+// callers had to dispose of themselves -- one by Release(), the other by handing it to
+// a LayoutInfo. That split is what made the raw return worth changing: two callers,
+// two different disposal routes, and nothing in the signature saying so.
+static std::shared_ptr<tinta::TextLayout> createDiagramTextLayout(
         App& app, DiagramFormats& formats, const std::wstring& text,
         const mermaidext::TextStyle& style, float scale, float width,
         float height, int alignH, int alignV) {
-    IDWriteTextFormat* format = formats.get(style, scale);
-    if (!format || text.empty()) return nullptr;
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(
-        text.data(), static_cast<UINT32>(text.size()), format,
-        std::max(width, 1.0f), std::max(height, 1.0f), &layout);
+    tinta::TextFormat* format = formats.get(style, scale);
+    if (!format || text.empty() || !app.textFactory) return nullptr;
+    std::shared_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+        text.data(), static_cast<uint32_t>(text.size()), format,
+        std::max(width, 1.0f), std::max(height, 1.0f));
     if (!layout) return nullptr;
-    layout->SetTextAlignment(alignH < 0 ? DWRITE_TEXT_ALIGNMENT_LEADING
-                             : alignH > 0 ? DWRITE_TEXT_ALIGNMENT_TRAILING
-                                          : DWRITE_TEXT_ALIGNMENT_CENTER);
+    layout->SetTextAlignment(alignH < 0 ? tinta::TextAlignment::Leading
+                             : alignH > 0 ? tinta::TextAlignment::Trailing
+                                          : tinta::TextAlignment::Center);
     layout->SetParagraphAlignment(alignV < 0
-                                      ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
-                                  : alignV > 0 ? DWRITE_PARAGRAPH_ALIGNMENT_FAR
-                                               : DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-    if (app.fontFallback) {
-        IDWriteTextLayout2* layout2 = nullptr;
-        if (SUCCEEDED(layout->QueryInterface(
-                __uuidof(IDWriteTextLayout2),
-                reinterpret_cast<void**>(&layout2)))) {
-            layout2->SetFontFallback(app.fontFallback);
-            layout2->Release();
-        }
-    }
+                                      ? tinta::ParagraphAlignment::Near
+                                  : alignV > 0 ? tinta::ParagraphAlignment::Far
+                                               : tinta::ParagraphAlignment::Center);
+    applyEmojiFallback(app, layout.get());
     return layout;
 }
 
@@ -1859,16 +1904,15 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                          float wrapWidth) -> mermaidext::Size {
         if (text.empty()) return {};
         std::wstring wide = toWide(text);
-        IDWriteTextLayout* layout = createDiagramTextLayout(
+        std::shared_ptr<tinta::TextLayout> layout = createDiagramTextLayout(
             app, formats, wide, style, scale,
             wrapWidth > 0.0f ? wrapWidth : kHugeWidth, kHugeWidth, -1, -1);
         if (!layout) return {};
         if (wrapWidth <= 0.0f) {
-            layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            layout->SetWordWrapping(tinta::WordWrapping::NoWrap);
         }
-        DWRITE_TEXT_METRICS metrics{};
+        tinta::TextMetrics metrics{};
         layout->GetMetrics(&metrics);
-        layout->Release();
         return {metrics.widthIncludingTrailingWhitespace, metrics.height};
     };
 
@@ -2029,15 +2073,15 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
         // Slight width slack: boxes are sized from measured text, and
         // re-wrapping at the exact measured width can push the last word
         // (or a CJK character) onto a phantom second line
-        IDWriteTextLayout* layout = createDiagramTextLayout(
+        std::shared_ptr<tinta::TextLayout> layout = createDiagramTextLayout(
             app, formats, wide, prim->style, scale,
             rect.right - rect.left + 2.5f, rect.bottom - rect.top + 2.0f,
             prim->alignH, prim->alignV);
         if (!layout) continue;
-        LayoutInfo info;
-        info.layout = layout;
-        DWRITE_TEXT_METRICS metrics{};
+        tinta::TextMetrics metrics{};
         layout->GetMetrics(&metrics);
+        LayoutInfo info;
+        info.layout = std::move(layout);
         info.width = metrics.widthIncludingTrailingWhitespace;
         info.height = metrics.height;
         size_t docStart = app.docText.size();
@@ -2285,11 +2329,12 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
         std::wstring title = style.title;
         LayoutInfo info = createLayout(app, title, app.textFormat, 24.0f, app.bodyTypography);
         if (info.layout) {
-            // Native for the same reason the ruby site above is: createLayout owns
-            // the typography reach-through, so the layout it returns cannot be a
-            // tinta::TextLayout until that is resolved.
-            DWRITE_TEXT_RANGE range = {0, (UINT32)title.length()};
-            info.layout->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);
+            // On the seam, and its old comment said why it was not: "native for the
+            // same reason the ruby site above is: createLayout owns the typography
+            // reach-through, so the layout it returns cannot be a tinta::TextLayout
+            // until that is resolved." Resolved.
+            tinta::TextRange range = {0, (uint32_t)title.length()};
+            info.layout->SetFontWeight(tinta::FontWeight::SemiBold, range);
         }
         tinta::PointF pos = tinta::pointF(indent + quoteIndent, y);
         tinta::RectF bounds = tinta::rectF(indent + quoteIndent, y,
@@ -2853,8 +2898,7 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
             if (plainCell && !text.empty() && fmt) {
                 LayoutInfo mi = createLayout(app, text, fmt, lineHeight,
                                              app.bodyTypography);
-                textWidth = mi.width;
-                if (mi.layout) mi.layout->Release();
+                textWidth = mi.width;  // measurement only; `mi` dies with the scope
             } else if (!cell->children.empty() && fmt) {
                 // Styled cell: plain-text extraction lies about width —
                 // inline code renders in the mono face plus a padded chip

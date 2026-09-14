@@ -504,25 +504,32 @@ void ensureThemePreviewFormats(App& app) {
     app.seatTextFormats();
 }
 
+// PORTABLE AS WRITTEN, AND DELIBERATELY LEFT HERE. Nothing below names DirectWrite
+// any more -- no factory, no COM, no HRESULT -- so this function could move into a
+// portable translation unit today. It stays in d2d_init.cpp because moving it is a
+// separate change with its own reason to exist (there is no portable init file yet
+// to move it INTO), and mixing the two would make this commit's claim -- that
+// render.cpp no longer creates any DirectWrite object -- harder to check.
+//
+// The SDK's DWRITE_FONT_FEATURE_TAG_* spellings are gone with the COM objects. The
+// tags are the four-character OpenType names those macros encode, and
+// tests/typography_tests.cpp asserts that this file's two sets are exactly the ones
+// it measures -- including that `dlig` is the one Qt cannot honour.
 void createTypography(App& app) {
-    // Release existing typography objects
-    if (app.bodyTypography) { app.bodyTypography->Release(); app.bodyTypography = nullptr; }
-    if (app.codeTypography) { app.codeTypography->Release(); app.codeTypography = nullptr; }
+    // Body: standard ligatures, kerning, contextual alternates.
+    app.bodyTypography = tinta::Typography{};
+    app.bodyTypography.add("liga");
+    app.bodyTypography.add("kern");
+    app.bodyTypography.add("calt");
 
-    // Body typography - standard ligatures, kerning, contextual alternates
-    app.dwriteFactory->CreateTypography(&app.bodyTypography);
-    if (app.bodyTypography) {
-        app.bodyTypography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1});
-        app.bodyTypography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_KERNING, 1});
-        app.bodyTypography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_CONTEXTUAL_ALTERNATES, 1});
-    }
-
-    // Code typography - programming ligatures (for fonts like Cascadia Code, Fira Code)
-    app.dwriteFactory->CreateTypography(&app.codeTypography);
-    if (app.codeTypography) {
-        app.codeTypography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_STANDARD_LIGATURES, 1});
-        app.codeTypography->AddFontFeature({DWRITE_FONT_FEATURE_TAG_DISCRETIONARY_LIGATURES, 1});
-    }
+    // Code: programming ligatures, for fonts like Cascadia Code and Fira Code.
+    // `dlig` is honoured by the DirectWrite backend and DROPPED by the Qt one,
+    // which is a decision (Alex, 2026-09-15) rather than an omission -- Qt 6.4's
+    // QTextCharFormat has no per-feature API and QFont::setFeature arrived in 6.7.
+    // qtCanHonourFeature in text_api.h is where that lives; this is just the set.
+    app.codeTypography = tinta::Typography{};
+    app.codeTypography.add("liga");
+    app.codeTypography.add("dlig");
 }
 
 // Every device bitmap dies with the render target that made it, so a target

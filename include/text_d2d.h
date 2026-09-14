@@ -119,17 +119,25 @@ public:
     // every ID2D1Resource has GetFactory). It is a required parameter rather than a
     // defaulted one because a null factory would make SetTypography a silent no-op.
     //
-    // CORRECTED 2026-09-15 -- THREE CONSTRUCTION SITES, NOT ONE, and the correction
-    // is the argument for the design. This comment said "there is exactly ONE
-    // construction site in the tree -- D2DTextFactory::CreateTextLayout", measured by
-    // grepping for make_unique. Wrong population: two more construct through
-    // make_shared, at src/render.cpp:136 and src/math_render.cpp:760. MSVC found both
-    // immediately, because the parameter is required. Had it been defaulted to
-    // nullptr for convenience, the build would have stayed green and two of the three
-    // layouts in the tree would have accepted SetTypography and applied nothing --
-    // the exact failure this seam's test exists to make visible, reintroduced one
-    // layer below the test. A required parameter costs three lines and cannot be
-    // wrong about how many callers there are.
+    // TWO CONSTRUCTION SITES: D2DTextFactory::CreateTextLayout in text_d2d.cpp, and
+    // src/math_render.cpp's maths-box retain. Count it with `rg 'D2DTextLayout>?\('`
+    // rather than trusting this line -- it has already been wrong once, and the two
+    // corrections are the useful part of the comment:
+    //
+    // 2026-09-15, first: it said "exactly ONE construction site", measured by grepping
+    // only for make_unique. There were three; the other two used make_shared. MSVC
+    // reported both the moment the factory parameter became required. Had the
+    // parameter been defaulted to nullptr for convenience, the build would have
+    // stayed green and two of the three layouts in the tree would have accepted
+    // SetTypography and applied nothing -- the exact silent failure this seam's test
+    // exists to make visible, reintroduced one layer below the test. That is the
+    // argument for a required parameter: three lines, and it cannot be wrong about
+    // how many callers there are.
+    //
+    // 2026-09-15, same day, second: three became TWO, because render.cpp's site went
+    // away when createLayout moved onto app.textFactory. A population under active
+    // migration is a moving number, which is the real reason to measure it rather
+    // than read it here.
     D2DTextLayout(IDWriteTextLayout* layout, IDWriteFactory* factory)
         : layout_(layout), factory_(factory) {}
     ~D2DTextLayout() override;

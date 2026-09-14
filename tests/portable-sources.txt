@@ -65,7 +65,7 @@ text_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# FOUR ENTRIES. selection.cpp used to head this section and has moved
+# THREE ENTRIES. selection.cpp used to head this section and has moved
 # to its own heading below: it is now linked and RUN off Windows by
 # selection_tests. The blocker that kept it here -- App holding the Direct2D
 # backend wrappers BY VALUE, so linking anything that instantiates an App wanted
@@ -92,18 +92,16 @@ text_qt.cpp
 # the sections above.
 editrail.cpp
 
-# The three that arrived together, found by a census rather than by porting work:
-# g++ -fsyntax-only over every file NOT listed in this manifest, which turned up six
-# at zero errors. Two of the six had passing tests gated to Windows and are now in
-# tested sections below; one is staying out deliberately (src/settings_app.cpp says
-# why in its own header); these three had nowhere to record the reading.
+# The two that are left of the three that arrived together, found by a census rather
+# than by porting work: g++ -fsyntax-only over every file NOT listed in this
+# manifest, which turned up six at zero errors. Two of the six had passing tests
+# gated to Windows and are now in tested sections below; one is staying out
+# deliberately (src/settings_app.cpp says why in its own header); these had nowhere
+# to record the reading.
 #
-# syntax.cpp is the one that most deserves to leave this section. It is 392 lines of
-# pure logic -- keyword sets and the code-block highlighter -- with no App, no seam
-# and no test on EITHER platform. Its own header already describes fixing 9 errors
-# that only a non-Windows compiler surfaced, which means it was made portable and
-# then left where nothing would notice if it stopped being so. That is exactly the
-# hole this section exists to stop, and asserting it is the obvious next slice.
+# syntax.cpp HAS LEFT THIS SECTION -- see its own heading below. This section's note
+# used to say it was "the one that most deserves to leave", and that is now done
+# rather than pending, which is the only reason a line moves out of here.
 #
 # search.cpp compiles but cannot link: it includes render.h and reaches into the
 # layout, and src/render.cpp is 128 Direct2D/DirectWrite mentions deep, so a running
@@ -114,6 +112,21 @@ editrail.cpp
 # compile too once App stopped naming a backend.
 i18n_app.cpp
 search.cpp
+
+# --- The highlighter, compiled AND run off Windows -----------------------------
+#
+# syntax.cpp. 392 lines of pure logic -- ten keyword sets, a language-id lookup, a
+# hand-written lexer and a colour switch -- and until tests/syntax_tests.cpp it had
+# no test on EITHER platform. Its own header describes fixing 9 errors that only a
+# non-Windows compiler surfaced, so it was MADE portable and then parked where
+# nothing would notice if it stopped being correct. Compiling is not testing, and
+# this line now claims both.
+#
+# The target needs NOTHING else on its link line: no md4c, no platform paths, no
+# themes.cpp. It uses D2DTheme and SyntaxTokenType as types, not as behaviour, so
+# the file has no undefined symbols outside the CRT -- measured by linking it, not
+# predicted, because the equivalent prediction for selection.cpp was wrong three
+# times running.
 syntax.cpp
 
 # --- The first file that takes an App& and is asserted off Windows -------------

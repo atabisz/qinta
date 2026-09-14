@@ -401,25 +401,58 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME inline_styles COMMAND inline_style_tests)
 
+    # --- THE HIGHLIGHTER, ASSERTED ON BOTH PLATFORMS -----------------------------
+    #
+    # src/syntax.cpp had no test on EITHER platform until this target. It was in the
+    # portable_compile_only library below, under a comment that said it was "the one
+    # that most deserves assertions -- pure logic, no App, no seam, and not a single
+    # test on any platform today". That comment was right, and this is the target it
+    # was asking for; the file has left the compile-only library entirely.
+    #
+    # CHEAPEST TARGET IN THIS FILE, and worth saying why: syntax.cpp constructs no
+    # App, calls no seam and touches no device. It needs D2DTheme (a plain aggregate
+    # of colours in include/theme_data.h) and SyntaxTokenType (an enum in app.h), and
+    # both are types rather than behaviour. So the link line is the test plus the one
+    # source -- no md4c, no platform paths, no themes.cpp. That was NOT predicted,
+    # it was measured: the equivalent prediction for selection_tests was wrong three
+    # times running, going 3 -> 4 -> 5 -> 6 undefined symbols, each step found by a
+    # linker rather than by reasoning. Here the linker was asked first and had
+    # nothing to say.
+    #
+    # THE INVARIANT IS THE POINT. tokenizeLine must partition its input: the tokens
+    # concatenated back together have to reproduce the line exactly. The test asserts
+    # that on every line it tokenizes, which is what makes the assertion count worth
+    # anything -- a hand-written lexer's characteristic bug is an off-by-one in a
+    # token's span, and this catches the whole family without predicting which one.
+    add_executable(syntax_tests
+        tests/syntax_tests.cpp
+        src/syntax.cpp
+    )
+    target_include_directories(syntax_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${md4c_SOURCE_DIR}/src
+    )
+    if(WIN32)
+        target_compile_definitions(syntax_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME syntax COMMAND syntax_tests)
+
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
-    # FOUR FILES, up from one. src/editrail.cpp reached zero errors when its two CRT
-    # calls (swprintf_s, _countof) moved to portable_str.h and std::size, and it
-    # compiles with include/ and md4c only, no Qt at all -- measured, not assumed.
+    # THREE FILES, down from four: src/syntax.cpp has left for syntax_tests above,
+    # which is what this comment used to ask for. src/editrail.cpp reached zero
+    # errors when its two CRT calls (swprintf_s, _countof) moved to portable_str.h
+    # and std::size, and it compiles with include/ and md4c only, no Qt at all --
+    # measured, not assumed.
     #
-    # The other three arrived together, and how they were found matters more than
+    # The other two arrived together, and how they were found matters more than
     # that they were added. A census -- g++ -fsyntax-only over every src/ file NOT in
     # tests/portable-sources.txt, with the project's own include paths -- found six
     # files at zero errors. Two of them (context_menu.cpp, inline_style.cpp) already
     # had passing tests, gated to Windows, and have moved to real targets above. One
     # (settings_app.cpp) is staying out on purpose and says why in its own header.
-    # These three had no test to un-gate and nowhere to record the reading:
+    # These had no test to un-gate and nowhere to record the reading:
     #
-    #   src/syntax.cpp    392 lines. Keyword sets and the code-block highlighter. Its
-    #                     own header already describes fixing 9 errors that only a
-    #                     non-Windows compiler surfaced -- so it was MADE portable and
-    #                     then never added anywhere that would notice if it stopped
-    #                     being so.
     #   src/search.cpp    299 lines. In-document and folder search. Compiles here; it
     #                     would not LINK, because it includes render.h and reaches
     #                     into the layout, and render.cpp is 128 native Direct2D and
@@ -429,9 +462,7 @@ if(BUILD_TESTING)
     #                     could compile off Windows, and then the half that got left
     #                     behind turned out to compile too.
     #
-    # NONE OF THE THREE IS EXECUTED BY ANYTHING, on either platform. syntax.cpp is
-    # the one that most deserves assertions -- pure logic, no App, no seam, and not a
-    # single test on any platform today -- and this target is not that. It is the
+    # NEITHER IS EXECUTED BY ANYTHING, on either platform. This target is the
     # cheapest honest way to stop the reading from rotting in the meantime.
     #
     # WHY AN OBJECT LIBRARY rather than a test: nothing executes it off Windows.
@@ -455,7 +486,6 @@ if(BUILD_TESTING)
     # seen -- now with a linked, running binary behind it.
     add_library(portable_compile_only OBJECT
         src/editrail.cpp
-        src/syntax.cpp
         src/search.cpp
         src/i18n_app.cpp
     )

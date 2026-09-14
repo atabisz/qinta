@@ -247,6 +247,21 @@ else
     check 1 "tests/selection_layout_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# include/syntax.h has exactly ONE consumer, tests/syntax_tests.cpp, and syntax.cpp
+# is in the manifest above -- so the SOURCE is watched and the header is not. Naming
+# the test object is the difference between "the highlighter still compiles" and
+# "the highlighter is still asserted": if syntax_tests were dropped or moved inside
+# if(WIN32), src/syntax.cpp would keep appearing in the manifest comparison via
+# nothing at all -- it has no other portable target now that it has left
+# portable_compile_only -- and this script would be the only thing that noticed.
+# That is the shape measured twice before on this tree: hiding a target drops the
+# ctest count by one while ctest still prints "100% tests passed".
+if grep -qE "syntax_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/syntax_tests.cpp was compiled by $CXX_BIN, so include/syntax.h is asserted off Windows"
+else
+    check 1 "tests/syntax_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

@@ -180,30 +180,41 @@ The executable will be at `build/Release/tinta.exe`.
 
 ## Cross-platform port (Windows / macOS / Linux)
 
-> Work in progress in this fork. It changes nothing about the Windows build above:
-> the shipping app is still Direct2D and DirectWrite, and every figure in this
-> section is measured by a script in the repo rather than estimated.
+> Work in progress in this fork. The Windows build documented above still works today
+> and is still Direct2D and DirectWrite — but that is the starting point, not the
+> destination. Every figure in this section is measured by a script in the repo rather
+> than estimated.
 
 ### The goal
 
-Tinta is a Windows app by construction — Direct2D for drawing, DirectWrite for text,
-Win32 for windowing — and that is the reason it starts in under 100 ms. The goal here
-is to reach macOS and Linux **without giving that up on Windows**: the Direct2D and
-DirectWrite backends stay, and a second backend sits behind the same interfaces so
-platform-specific code exists in exactly one place per platform rather than being
-sprayed through 57 source files.
+**One stack on every platform.** Tinta is a Windows app by construction — Direct2D for
+drawing, DirectWrite for text, Win32 for windowing — and the goal is to move all three
+onto Qt 6 on Windows, macOS and Linux alike, not to keep the native stack on Windows
+and bolt a second one on for everywhere else.
 
-The secondary goal turned out to matter more than expected: a codebase that can be
-compiled by a second toolchain can also be *tested* by one. Most of Tinta's logic was
-untestable in practice because a test binary needed a window, a Direct2D factory and a
-device. Behind an abstract interface, a test can supply a fake — and a fake reaches
-failure paths that neither real backend will produce on demand. Several of the tests
-that now exist could not have been written before the seams did.
+That is a deliberate choice against the cheaper option. Keeping Direct2D on Windows and
+running Qt only elsewhere would ship sooner, and the seam architecture below would
+support it indefinitely. It would also mean two rendering backends, two text engines and
+two windowing paths to keep at parity forever — every visual bug reproducible on one
+platform and not the other, every feature written twice, and a test suite that can only
+ever assert that the two agree rather than that either is right. One stack costs more up
+front and less every day after.
+
+So the Direct2D and DirectWrite backends are **transitional**. They are what keeps
+Windows working while Qt catches up, and they come out when it has.
+
+The secondary goal turned out to matter more than expected, and it survives the change
+of destination intact: a codebase that can be compiled by a second toolchain can also
+be *tested* by one. Most of Tinta's logic was untestable in practice because a test
+binary needed a window, a Direct2D factory and a device. Behind an abstract interface, a
+test can supply a fake — and a fake reaches failure paths that no real backend will
+produce on demand. Several of the tests that now exist could not have been written
+before the seams did, which is why the seams stay even after the second backend goes.
 
 ### Stack choice: Qt 6
 
-Qt 6 (Core + Gui only — not Widgets, not QML), chosen over Skia after comparing both
-against what Tinta actually needs:
+Qt 6 (Core + Gui only — not Widgets, not QML) on **all three platforms**, chosen over
+Skia after comparing both against what Tinta actually needs:
 
 | | Qt 6 | Skia |
 |---|---|---|
@@ -218,19 +229,37 @@ libraries. Qt 6 covers all of it and brings the window and input layers too. Qt 
 open-source build ships Core and Gui under LGPL v3, so a dynamically linked binary can
 be distributed alongside an MIT-licensed source tree.
 
+**What Windows gives up, stated plainly rather than discovered later.** Moving Windows
+onto Qt trades a native stack for a portable one, and the two costs are real: Tinta's
+sub-100 ms start comes partly from having almost nothing to initialise, and Qt is a
+larger runtime to load and to ship; and DirectWrite's Windows text rendering is the
+reference for how text looks on Windows, so Qt's rendering of the same document will not
+be pixel-identical. Neither has been measured on this tree yet — no Qt build of Tinta
+exists on any platform — so both are risks to measure at the first runnable Qt binary,
+not conclusions. They are the price of the paragraph above, and worth it for the reason
+given there.
+
 ### How the port is built: seams, not `#ifdef`
 
 There is no `#ifdef _WIN32` sprinkled through the drawing code. Each platform
-dependency becomes a small abstract interface with a header per backend:
+dependency becomes a small abstract interface with a header per backend. The
+"transitional" column is what keeps Windows working today and is scheduled for deletion;
+the "target" column is where every platform ends up:
 
-| Seam | Replaces | Windows backend | Portable backend |
+| Seam | Replaces | Transitional (Windows, to be removed) | Target (all platforms) |
 |---|---|---|---|
 | `include/text_api.h` | DirectWrite text layout and formats | `src/text_d2d.cpp` | `src/text_qt.cpp` |
 | `include/render_api.h` | Direct2D render target, brushes, bitmaps | `src/render_d2d.cpp` | `src/render_qt.cpp` |
-| `include/win32_types.h` | Win32 scalar types (`UINT32`, `BOOL`, `FLOAT`, …) | real `<windows.h>` types | stand-in typedefs, each pinned to the SDK's by `static_assert` |
+| `include/win32_types.h` | Win32 scalar types (`UINT32`, `BOOL`, `FLOAT`, …) | real `<windows.h>` types | stand-in typedefs, each pinned to the SDK's by `static_assert` — and eventually neither, once no code names them |
 | `include/win32_api.h` | Win32 and CRT *calls* (`swprintf_s`, `PostMessage`, …) | native | portable spellings |
-| `include/platform_paths.h` | Config and data directory lookup | `src/platform_paths_win32.cpp` | `src/platform_paths_posix.cpp` |
+| `include/platform_paths.h` | Config and data directory lookup | `src/platform_paths_win32.cpp` | `src/platform_paths_posix.cpp`, then `QStandardPaths` |
 | `include/seated.h` | How `App` *stores* a backend object | — | `Seated<Seam, Native>` |
+
+The seams themselves are **not** transitional, even though a single-stack app does not
+strictly need an abstraction over its one backend. They stay because they are what makes
+the code testable without a device: a fake layout is a class in a test header instead of
+a factory, a window and a GPU. Collapsing them into direct Qt calls to "simplify" would
+buy nothing and cost the fixture that 400-plus assertions run on.
 
 `seated.h` is the one that is easy to underrate. Rewiring call sites onto an interface
 does not make a type portable while the type still *names* a backend as a member —
@@ -253,9 +282,12 @@ cmake --build build-linux -j"$(nproc)"
 (cd build-linux && ctest --output-on-failure)
 ```
 
-Qt is **opt-in**: CMake looks for it with `find_package(Qt6 QUIET COMPONENTS Core Gui)`
-and simply skips the `qt_text` and `render_api` targets when it is absent, which is the
-expected outcome on Windows. Those two tests run headless and set
+Qt is currently **opt-in**: CMake looks for it with
+`find_package(Qt6 QUIET COMPONENTS Core Gui)` and simply skips the `qt_text` and
+`render_api` targets when it is absent, which is what happens on Windows today. That is
+transitional too — under one stack Qt becomes a hard requirement on Windows as well, and
+making it one is a step that has not been taken because no Qt is installed on the Windows
+machine this is developed on. Those two tests run headless and set
 `QT_QPA_PLATFORM=offscreen` themselves — it is not interchangeable with `minimal`, and
 running with no platform plugin at all aborts under WSL.
 
@@ -275,14 +307,14 @@ from anywhere. Run it after any change that touches which files build off Window
 
 ### Status
 
-Measured at `b1b42a5` on 2026-09-15, Windows and Linux both built and tested in the
+Measured on 2026-09-15 at this commit, Windows and Linux both built and tested in the
 same session.
 
 **Done**
 
 | Area | State |
 |---|---|
-| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings | Compile *and* assert off Windows — 16 test targets |
+| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting | Compile *and* assert off Windows — 17 test targets |
 | Text seam (`text_api.h`) + Qt backend | Done, tested headless |
 | Render seam (`render_api.h`) + Qt backend | Done, tested headless |
 | Win32 scalar + call seams | Done — 5 scalars admitted from an error census (`UINT32`, `FLOAT`, `BOOL`, `TRUE`, `FALSE`), 6 more refused for appearing in no error at all, and `HRESULT`/`SUCCEEDED` withheld deliberately so COM-shaped code cannot quietly compile off Windows |
@@ -291,9 +323,9 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **18 run on Linux, 16 of them shared with the 26 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 28 distinct test targets in total |
+| Tests running off Windows | **19 run on Linux, 17 of them shared with the 27 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 29 distinct test targets in total |
 
-**To do — 19 files, 28,784 lines**
+**To do — 24 files, 30,022 lines**
 
 | Area | Size | Note |
 |---|---|---|
@@ -309,18 +341,20 @@ same session.
 | Keyboard seam | — | Designed, not built: 17 `GetKeyState` sites, two keys, one predicate → `QGuiApplication::keyboardModifiers()` |
 | Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
+| The Windows backends themselves | 219 + 596 + 212 + 146 + 65 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp` — **deleted or replaced, not ported.** Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the two backends go once Qt covers what they do |
 
-Five files will **never** move and are excluded from the "to do" count above:
-`render_d2d.cpp` and `text_d2d.cpp` are the Windows backends by design, and
-`platform_paths_win32.cpp`, `settings_win32.cpp` and `settings_app.cpp` are the Windows
-side of seams (the last one stays out deliberately, as the tripwire that catches `App`
-or a registry call creeping back into the portable half of `settings.cpp`).
+That last row is the change of goal made arithmetic. These five files used to be listed
+separately as "will never move", excluded from the count on the grounds that they were
+the Windows half of a permanent pair. Under one stack there is no permanent Windows half,
+so they are work — 1,238 lines of it — and they are counted.
 
-Ten test targets still run only on Windows. Four of them always will, being Windows-only
-by *subject* rather than by leftover dependency: `render_d2d` and `text_factory` assert
-on the Direct2D and DirectWrite objects themselves, `bitmap_seam` asserts on the
-Direct2D bitmap wrapper, and `config_paths` deliberately includes `windows.h` to check
-how config lookup copes with MSIX filesystem virtualization. The remaining six
+Ten test targets still run only on Windows. Under the previous goal four of them always
+would, being Windows-only by *subject*: `render_d2d` and `text_factory` assert on the
+Direct2D and DirectWrite objects themselves, `bitmap_seam` asserts on the Direct2D bitmap
+wrapper, and `config_paths` deliberately includes `windows.h` to check how config lookup
+copes with MSIX filesystem virtualization. Under one stack the first three go with the
+backends they test, and only `config_paths` clearly survives — MSIX is a Windows
+packaging fact and stays true whatever draws the window. The remaining six
 (`blockquote_layout`, `code_block_layout`, `math_layout`, `inline_code_theme`,
 `copy_file_path`, `input_shortcuts`) are blocked behind the files above, mostly behind
 `render.cpp`.
@@ -333,26 +367,40 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines compiling off Windows | 20,402 / 56,932 | **35.8%** |
-| B. Same, excluding the five never-move files | 20,402 / 55,694 | 36.6% |
-| C. `src/*.cpp` files compiling off Windows | 33 / 57 | 57.9% |
-| D. Files a *running* test links | 29 / 57 | 50.9% |
-| E. Windows tests that also run off Windows | 16 / 26 | 61.5% |
-| E2. All test targets, run off Windows | 18 / 28 | 64.3% |
-| F. **A runnable non-Windows Tinta** | 0 / 1 | **0%** |
+| A. Source lines free of the Windows stack | 20,402 / 56,932 | **35.8%** |
+| B. `src/*.cpp` files compiling without Windows headers | 33 / 57 | 57.9% |
+| C. Files a *running* test links | 30 / 57 | 52.6% |
+| D. Windows tests that also run off Windows | 17 / 27 | 63.0% |
+| E. All test targets, run off Windows | 19 / 29 | 65.5% |
+| F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 
 **Basis A, 35.8%, is the headline** — it is the figure the probe itself prints on every
 run, so it is the one comparable across time. Two honest caveats on it. It *understates*
 progress, because its denominator includes 6,508 lines of headers that the manifest
-never credits as portable even when they are. And it *overstates* readiness, because
-four of the 33 compiling files (`syntax.cpp`, `search.cpp`, `editrail.cpp`,
-`i18n_app.cpp`) are compile-only: nothing executes them on either platform, so they are
-proof that a compiler accepts them and nothing more.
+never credits even when they are portable. And it *overstates* readiness, because three
+of the 33 compiling files (`search.cpp`, `editrail.cpp`, `i18n_app.cpp`) are
+compile-only: nothing executes them on either platform, so they are proof that a compiler
+accepts them and nothing more.
 
-Basis F is the one to keep in view: **there is no non-Windows binary of Tinta.** The
-port is at the "the library compiles and is tested" stage, not the "it runs" stage, and
-`render.cpp` is what stands between the two. Call it roughly a third of the way through
-by volume, with the hardest single file still ahead.
+A basis was **removed** rather than updated when the goal changed. There used to be a
+line reading "same, excluding the five never-move files — 36.6%", and it measured
+something that no longer exists: under one stack nothing is excluded, because the Windows
+backends are work rather than furniture. A percentage whose denominator quietly stops
+meaning anything is worse than no percentage, so it is gone rather than adjusted.
+
+Basis F is the one to keep in view, and the change of goal made it stricter: it used to
+ask whether a non-Windows binary existed, and now asks how many of the three platforms
+run Tinta on Qt. **The answer is none.** Windows runs, on the stack being replaced.
+`render.cpp` — 3,448 lines and 128 native Direct2D and DirectWrite mentions, with all 18
+`createLayout` sites calling `CreateTextLayout` directly — is the single file standing
+between "the library compiles and is tested" and "it runs anywhere on Qt", and it is the
+same blocker under either goal. That is the one piece of good news in this section: going
+single-stack did not add a blocker, it removed the obligation to maintain two.
+
+Call it roughly a third of the way through by volume, with the hardest single file still
+ahead — and note that the finish line moved out, not in: 1,238 lines of Windows backend
+became work, and re-verifying Windows on a new stack is effort that appears in no line
+count here.
 
 ## Usage
 

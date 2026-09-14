@@ -121,6 +121,17 @@ public:
 
     void GetMetrics(tinta::TextMetrics* metrics) const override;
 
+    bool HitTestPoint(float pointX, float pointY, bool* isTrailingHit,
+                      bool* isInside, tinta::HitTestMetrics* metrics) const override;
+    bool HitTestTextPosition(uint32_t textPosition, bool isTrailingHit,
+                             float* pointX, float* pointY,
+                             tinta::HitTestMetrics* metrics) const override;
+    bool HitTestTextRange(uint32_t textPosition, uint32_t textLength,
+                          float originX, float originY,
+                          tinta::HitTestMetrics* metrics,
+                          uint32_t maxMetricsCount,
+                          uint32_t* actualMetricsCount) const override;
+
     IDWriteTextLayout* native() const { return layout_; }
 
 private:

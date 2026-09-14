@@ -87,6 +87,33 @@ static_assert(offsetof(tinta::TextMetrics, maxBidiReorderingDepth) ==
 static_assert(offsetof(tinta::TextMetrics, lineCount) ==
                   offsetof(DWRITE_TEXT_METRICS, lineCount), "lineCount");
 
+// Same drift alarm for the hit-test struct, and here it is doing more work than
+// the TextMetrics one: DWRITE_HIT_TEST_METRICS mixes UINT32, FLOAT and BOOL, so a
+// portable struct that spelled the two BOOLs as `bool` would be 6 bytes short and
+// every field from `bidiLevel` on would silently read the wrong memory. These
+// assertions are what make `int32_t` in text_api.h a checked decision rather than
+// a hopeful one.
+static_assert(sizeof(tinta::HitTestMetrics) == sizeof(DWRITE_HIT_TEST_METRICS),
+              "tinta::HitTestMetrics must match DWRITE_HIT_TEST_METRICS");
+static_assert(offsetof(tinta::HitTestMetrics, textPosition) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, textPosition), "textPosition");
+static_assert(offsetof(tinta::HitTestMetrics, length) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, length), "length");
+static_assert(offsetof(tinta::HitTestMetrics, left) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, left), "left");
+static_assert(offsetof(tinta::HitTestMetrics, top) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, top), "top");
+static_assert(offsetof(tinta::HitTestMetrics, width) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, width), "width");
+static_assert(offsetof(tinta::HitTestMetrics, height) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, height), "height");
+static_assert(offsetof(tinta::HitTestMetrics, bidiLevel) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, bidiLevel), "bidiLevel");
+static_assert(offsetof(tinta::HitTestMetrics, isText) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, isText), "isText");
+static_assert(offsetof(tinta::HitTestMetrics, isTrimmed) ==
+                  offsetof(DWRITE_HIT_TEST_METRICS, isTrimmed), "isTrimmed");
+
 static_assert(sizeof(tinta::Trimming) == sizeof(DWRITE_TRIMMING),
               "tinta::Trimming must match DWRITE_TRIMMING");
 static_assert(offsetof(tinta::Trimming, granularity) ==
@@ -239,6 +266,121 @@ void D2DTextLayout::GetMetrics(tinta::TextMetrics* metrics) const {
     metrics->layoutHeight = native.layoutHeight;
     metrics->maxBidiReorderingDepth = native.maxBidiReorderingDepth;
     metrics->lineCount = native.lineCount;
+}
+
+// --- D2DTextLayout hit testing ----------------------------------------------
+//
+// The offset contract text_api.h states is an IDENTITY on this backend, and that
+// is worth saying out loud rather than leaving as an absent conversion: DirectWrite
+// counts text positions in UTF-16 code units, wchar_t is 16 bits here, so a
+// caller-buffer index and a DirectWrite text position are the same number. There is
+// no mapping code below because there is no mapping to do -- not because it was
+// forgotten. The Qt backend is where that contract costs something.
+//
+// The out-parameter shuffling is real, though. DirectWrite wants BOOL* (4 bytes)
+// and FLOAT*, and the seam promises bool* and float*, so each method copies through
+// a local rather than casting. `reinterpret_cast<BOOL*>(a bool*)` would compile,
+// write 4 bytes into 1, and corrupt whatever the caller put next on the stack.
+
+namespace {
+
+// The struct layout is asserted identical above, so this could be a memcpy. It is
+// written field by field for the reason geometry.h gives and the GetMetrics copy
+// repeats: a copy needs no aliasing argument to be correct, and if a future SDK
+// widens a field the assertions fail loudly while a memcpy would keep compiling.
+void copyHitTestMetrics(const DWRITE_HIT_TEST_METRICS& native,
+                        tinta::HitTestMetrics* out) {
+    out->textPosition = native.textPosition;
+    out->length = native.length;
+    out->left = native.left;
+    out->top = native.top;
+    out->width = native.width;
+    out->height = native.height;
+    out->bidiLevel = native.bidiLevel;
+    out->isText = native.isText;
+    out->isTrimmed = native.isTrimmed;
+}
+
+}  // namespace
+
+bool D2DTextLayout::HitTestPoint(float pointX, float pointY, bool* isTrailingHit,
+                                 bool* isInside,
+                                 tinta::HitTestMetrics* metrics) const {
+    // Zero the outputs before the early return, because 5 of the 13 call sites
+    // ignore the return value entirely and read the metrics regardless -- e.g.
+    // editor.cpp:2512, which uses m.textPosition to place a caret. A refusal that
+    // left them untouched would hand those sites uninitialised memory on the one
+    // path where the layout is missing.
+    if (isTrailingHit) *isTrailingHit = false;
+    if (isInside) *isInside = false;
+    if (metrics) *metrics = tinta::HitTestMetrics{};
+    if (!layout_) return false;
+
+    BOOL nativeTrailing = FALSE;
+    BOOL nativeInside = FALSE;
+    DWRITE_HIT_TEST_METRICS native{};
+    if (FAILED(const_cast<IDWriteTextLayout*>(layout_)->HitTestPoint(
+            pointX, pointY, &nativeTrailing, &nativeInside, &native))) {
+        return false;
+    }
+
+    if (isTrailingHit) *isTrailingHit = nativeTrailing != FALSE;
+    if (isInside) *isInside = nativeInside != FALSE;
+    if (metrics) copyHitTestMetrics(native, metrics);
+    return true;
+}
+
+bool D2DTextLayout::HitTestTextPosition(uint32_t textPosition, bool isTrailingHit,
+                                        float* pointX, float* pointY,
+                                        tinta::HitTestMetrics* metrics) const {
+    if (pointX) *pointX = 0.0f;
+    if (pointY) *pointY = 0.0f;
+    if (metrics) *metrics = tinta::HitTestMetrics{};
+    if (!layout_) return false;
+
+    FLOAT nativeX = 0.0f;
+    FLOAT nativeY = 0.0f;
+    DWRITE_HIT_TEST_METRICS native{};
+    if (FAILED(const_cast<IDWriteTextLayout*>(layout_)->HitTestTextPosition(
+            textPosition, isTrailingHit ? TRUE : FALSE, &nativeX, &nativeY,
+            &native))) {
+        return false;
+    }
+
+    if (pointX) *pointX = nativeX;
+    if (pointY) *pointY = nativeY;
+    if (metrics) copyHitTestMetrics(native, metrics);
+    return true;
+}
+
+bool D2DTextLayout::HitTestTextRange(uint32_t textPosition, uint32_t textLength,
+                                     float originX, float originY,
+                                     tinta::HitTestMetrics* metrics,
+                                     uint32_t maxMetricsCount,
+                                     uint32_t* actualMetricsCount) const {
+    // The count-probe pass (metrics == nullptr, maxMetricsCount == 0) is a
+    // SUPPORTED call and not a degenerate one: editor.cpp:2792 makes it to size a
+    // vector before the real pass. DirectWrite answers it with E_NOT_SUFFICIENT_
+    // BUFFER and a filled-in count, so the count must be forwarded even though the
+    // HRESULT failed -- returning false here while leaving *actualMetricsCount at 0
+    // would make that site conclude the range is empty and draw nothing.
+    if (actualMetricsCount) *actualMetricsCount = 0;
+    if (!layout_) return false;
+
+    // The one cast in this file, and the asymmetry with copyHitTestMetrics above is
+    // deliberate: this parameter is an ARRAY the caller sized, so a field-by-field
+    // copy would need a heap temporary of unknown length inside a method that
+    // otherwise allocates nothing. The ten assertions at the top of this file --
+    // sizeof plus all nine offsets -- are precisely what licenses the cast, which
+    // is why they are not ceremony here even though the TextMetrics ones are only a
+    // drift alarm.
+    UINT32 nativeCount = 0;
+    const HRESULT hr = const_cast<IDWriteTextLayout*>(layout_)->HitTestTextRange(
+        textPosition, textLength, originX, originY,
+        reinterpret_cast<DWRITE_HIT_TEST_METRICS*>(metrics), maxMetricsCount,
+        &nativeCount);
+    if (actualMetricsCount) *actualMetricsCount = nativeCount;
+    return SUCCEEDED(hr);
 }
 
 // --- D2DTextFactory ---------------------------------------------------------

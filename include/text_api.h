@@ -43,6 +43,34 @@
 // hit-testing enters this seam, something could, and the answer wants to be
 // designed rather than inherited. See the note on string arguments below.
 //
+// CORRECTION: THAT GROUPING WAS A DESCRIPTION, NOT A CENSUS
+//
+// Written a session later, after checking the coupling against each member. The 33
+// are four groups with four different gates, and only the first is gated on the
+// offset question:
+//
+//   hit-testing        13  HitTestTextPosition 6 · HitTestTextRange 4 · HitTestPoint 3
+//   per-range styling   7  SetFontWeight 4 · SetTypography 1 · SetStrikethrough 1 · SetFontSize 1
+//   pure measurement    7  GetLineMetrics 5 · GetClusterMetrics 2
+//   font fallback       6  SetFontFallback
+//
+// Hit-testing is now on the interface below, with the offset contract stated on
+// the methods rather than left open. Of the rest:
+//
+//   * The 7 MEASUREMENT sites were never gated on anything. GetLineMetrics and
+//     GetClusterMetrics are GetMetrics's siblings -- same shape, same direction,
+//     no offset in or out -- and they were deferred purely by sitting in the same
+//     paragraph as a design question that does not touch them. They need one more
+//     struct each and nothing else.
+//   * PER-RANGE STYLING needs a TextRange struct, and offsets flow IN only, so the
+//     contract above already covers it. SetTypography additionally takes an
+//     IDWriteTypography, a COM object nothing in the tree reads.
+//   * SetFontFallback is neither per-range nor styling, and carries no offset at
+//     all. It is a whole-layout property behind an IDWriteTextLayout2 QI taking a
+//     native IDWriteFontFallback*, and Qt does font fallback automatically, so
+//     there is no portable meaning to give it. It stays native deliberately, and
+//     createEditorLineLayout keeps its QI by going through nativeTextLayout().
+//
 // WHAT MEASURING ALSO REMOVED
 //
 // SetMaxWidth, SetMaxHeight, GetMaxWidth and GetMaxHeight appear NOWHERE in the
@@ -169,6 +197,30 @@ struct TextMetrics {
     uint32_t lineCount;
 };
 
+// Field-for-field DWRITE_HIT_TEST_METRICS, same names in the same order, and
+// carried whole for the reason TextMetrics is: a site declaring
+// `DWRITE_HIT_TEST_METRICS m` becomes `tinta::HitTestMetrics m` as a one-word
+// edit, across all 10 declarations, with every field access below it untouched.
+// Call sites read six of the nine -- left 6, width 4, textPosition 3, length 3,
+// top 3, height 2 -- and bidiLevel, isText and isTrimmed are read nowhere.
+//
+// isText and isTrimmed are int32_t and not bool. They are BOOL in DirectWrite,
+// which is 4 bytes, and the layout claim in the Windows backend is the only thing
+// checking that this struct still matches the SDK's -- a 1-byte bool would break
+// exactly the assertion that exists to catch a widened field. Same reason
+// Trimming::delimiter stays uint32_t rather than wchar_t.
+struct HitTestMetrics {
+    uint32_t textPosition;
+    uint32_t length;
+    float left;
+    float top;
+    float width;
+    float height;
+    uint32_t bidiLevel;
+    int32_t isText;
+    int32_t isTrimmed;
+};
+
 // An opaque handle, for the same reason StrokeStyle is one: a trimming sign is
 // built once (CreateEllipsisTrimmingSign, 3 sites) and only ever handed back to
 // SetTrimming. Three of the seven SetTrimming sites pass one and four pass
@@ -216,6 +268,51 @@ public:
 class TextLayout : public TextFormat {
 public:
     virtual void GetMetrics(TextMetrics* metrics) const = 0;
+
+    // HIT TESTING, AND THE OFFSET CONTRACT
+    //
+    // **Every text offset and length below -- in either direction -- is an index
+    // into the caller's wchar_t buffer, in whatever units that buffer's elements
+    // are.** Not UTF-16 code units, not code points: the same units
+    // CreateTextLayout's `stringLength` already means. A backend whose internal
+    // representation differs owes the conversion, in both directions.
+    //
+    // The header note above frames this as an open design question. It is not one,
+    // and reading the call sites is what settles it -- they had already answered:
+    //
+    //   selection.cpp:163   off = run->docStart + m.textPosition + (trailing ? m.length : 0)
+    //   editor.cpp:321      c   = m.textPosition + (trailing ? m.length : 0)   -> + editorLineStarts[line]
+    //   editor.cpp:2517     the same shape, producing a column into editorText
+    //
+    // All three add the returned offset to a document offset that indexes a
+    // std::wstring. An offset in any other unit would be arithmetic between two
+    // different coordinate systems -- which compiles, and is silently wrong only
+    // for text containing a character outside the BMP, only on a platform where
+    // wchar_t is 32-bit, at 13 sites that all look correct. On Windows the rule is
+    // an identity, because DirectWrite's units and a 16-bit wchar_t are the same
+    // thing, so adopting it cannot change behaviour on the platform that ships.
+    //
+    // Note that `length` is bound by the same rule as `textPosition`. It is a
+    // CLUSTER length in DirectWrite, which sounds internal, but two of the three
+    // sites above add it straight to a document offset, so it is caller-facing.
+    //
+    // The three return bool rather than void -- 8 of the 13 sites branch on
+    // SUCCEEDED(), so `SUCCEEDED(x)` becomes `x` and the branch survives the edit.
+    // HitTestTextRange follows DirectWrite's two-pass shape (metrics=nullptr,
+    // maxMetricsCount=0 to learn the count first), because editor.cpp:2792 uses it.
+
+    virtual bool HitTestPoint(float pointX, float pointY, bool* isTrailingHit,
+                              bool* isInside, HitTestMetrics* metrics) const = 0;
+
+    virtual bool HitTestTextPosition(uint32_t textPosition, bool isTrailingHit,
+                                     float* pointX, float* pointY,
+                                     HitTestMetrics* metrics) const = 0;
+
+    virtual bool HitTestTextRange(uint32_t textPosition, uint32_t textLength,
+                                  float originX, float originY,
+                                  HitTestMetrics* metrics,
+                                  uint32_t maxMetricsCount,
+                                  uint32_t* actualMetricsCount) const = 0;
 };
 
 // Object creation, which render_api.h deliberately left out of the drawing seam

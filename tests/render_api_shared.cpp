@@ -53,6 +53,7 @@
 
 #include "render_api_shared.h"
 
+#include <cmath>
 #include <cstdio>
 
 namespace {
@@ -658,6 +659,374 @@ int runRenderApiAssertions(RenderHarness& h) {
               "trimming shortens the laid-out text");
         check(trimmed.width <= 81.0f,
               "and brings it inside the box it was given");
+    }
+
+    // --- Hit testing: the offset contract, in BOTH directions ------------------
+    //
+    // text_api.h's TextLayout states the contract these assertions exist to hold the
+    // backends to: every offset crossing the seam indexes the CALLER'S wchar_t
+    // buffer. On Windows that is an identity and unfalsifiable by construction --
+    // DirectWrite's units and a 16-bit wchar_t are the same thing -- which is exactly
+    // why the assertions live here rather than in the Windows test. The Qt backend
+    // has to convert, and the only thing that can catch a wrong conversion is a
+    // suite that runs the same round trip against a backend that does not need one.
+    //
+    // Every check below is RELATIONAL. "The caret for offset 2 is right of offset 1",
+    // "a point inside a glyph maps back to that glyph's offset", "a wrapped range
+    // yields more rectangles than an unwrapped one" hold in Segoe UI and DejaVu Sans
+    // alike. A literal x would be a statement about a typeface, and -- worse -- would
+    // pass on whichever backend it was written against and redden on the other, which
+    // is the failure mode that makes a cross-backend literal actively misleading.
+    {
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        std::unique_ptr<tinta::TextLayout> layout =
+            format ? h.textFactory().CreateTextLayout(L"Hi there", 8, format.get(),
+                                                      1000.0f, 100.0f)
+                   : nullptr;
+        check(layout != nullptr, "CONTROL: a layout exists to hit-test at all");
+
+        if (layout) {
+            // --- direction OUT: offset -> point ---
+            float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f, x2 = 0.0f, y2 = 0.0f;
+            tinta::HitTestMetrics m0{};
+            tinta::HitTestMetrics m1{};
+            tinta::HitTestMetrics m2{};
+            const bool ok0 = layout->HitTestTextPosition(0, false, &x0, &y0, &m0);
+            const bool ok1 = layout->HitTestTextPosition(1, false, &x1, &y1, &m1);
+            const bool ok2 = layout->HitTestTextPosition(2, false, &x2, &y2, &m2);
+
+            check(ok0 && ok1 && ok2,
+                  "CONTROL: HitTestTextPosition succeeds, so the numbers below are answers "
+                  "and not zeroed outputs");
+            check(x1 > x0, "the caret for offset 1 is right of offset 0");
+            check(x2 > x1, "and offset 2 right of offset 1");
+            check(y0 == y1 && y1 == y2,
+                  "all three are on one line, so they report one y");
+
+            // THE FIELD THE CONTRACT IS ABOUT. A backend that answered in its own
+            // internal units would still be monotonic and would still look right on
+            // screen; textPosition coming back as the offset that went in is the only
+            // thing that says the two coordinate systems are the same one.
+            check(m0.textPosition == 0 && m1.textPosition == 1 && m2.textPosition == 2,
+                  "the metrics report back the caller's own offsets, not a re-indexing");
+            check(m0.length >= 1 && m1.length >= 1,
+                  "and a length in those same units, at least one unit per ASCII character");
+            check(m0.width > 0.0f && m0.height > 0.0f,
+                  "a real character has a real box");
+
+            // Adjacent clusters ABUT. This is the relation that catches a width taken
+            // from the wrong cluster or a leading edge measured from the line start:
+            // both stay monotonic, and only this fails.
+            check(std::fabs((x0 + m0.width) - x1) <= 1.0f,
+                  "offset 0's trailing edge meets offset 1's leading edge");
+
+            // A trailing hit is the far side of the SAME cluster, which is what all 3
+            // of the tree's out-offset sites branch on when they add m.length.
+            float xTrail = 0.0f;
+            float yTrail = 0.0f;
+            layout->HitTestTextPosition(0, true, &xTrail, &yTrail, nullptr);
+            check(xTrail > x0, "a trailing hit reports the far edge of the cluster");
+            check(std::fabs(xTrail - x1) <= 1.0f,
+                  "which is where the next cluster starts");
+
+            // --- direction IN: point -> offset, closing the loop ---
+            //
+            // This is the assertion the whole slice is for. It is also the only one
+            // that would catch a conversion that is self-consistent but wrong -- a
+            // backend mapping offsets through the same wrong table in both directions
+            // passes every monotonicity check above and fails here.
+            bool trailing = false;
+            bool inside = false;
+            tinta::HitTestMetrics back{};
+            const bool okIn = layout->HitTestPoint(x1 + m1.width * 0.25f,
+                                                   y1 + m1.height * 0.5f, &trailing,
+                                                   &inside, &back);
+            check(okIn, "CONTROL: HitTestPoint succeeds");
+            check(back.textPosition == 1,
+                  "a point inside offset 1's glyph maps back to offset 1 -- the offset "
+                  "contract round-trips");
+            check(inside, "and reports the point as inside the text");
+            check(!trailing,
+                  "a point in the LEADING quarter of a glyph is not a trailing hit");
+
+            bool trailing2 = false;
+            layout->HitTestPoint(x1 + m1.width * 0.9f, y1 + m1.height * 0.5f, &trailing2,
+                                 nullptr, nullptr);
+            check(trailing2,
+                  "a point in the TRAILING tenth of the same glyph is -- the flag is "
+                  "derived from the point, not fixed");
+
+            // Past the end of the text, which is what a drag-select does. The call must
+            // SUCCEED and report not-inside; refusing would make selection.cpp's 5
+            // sites lose the drag.
+            bool insideFar = true;
+            const bool okFar = layout->HitTestPoint(900.0f, y0 + m0.height * 0.5f, nullptr,
+                                                    &insideFar, nullptr);
+            check(okFar, "a point past the end of the line still answers");
+            check(!insideFar, "and says it is outside the text");
+        }
+    }
+
+    // --- A CHARACTER OUTSIDE THE BMP, which is the only case the map exists for --
+    //
+    // Every assertion above uses ASCII, and I nearly shipped the slice that way. Asking
+    // what a mutation to the Qt index map WOULD redden is what caught it: nothing. The
+    // map is live on Linux -- wchar_t is 32 bits there, so it is built and consulted --
+    // but for ASCII it is numerically the identity, so breaking it changes no number
+    // any assertion above reads. The contract's whole subject was untested by the suite
+    // written to test it.
+    //
+    // U+1F600 is TWO wchar_t units on Windows and ONE on Linux, so the offsets a caller
+    // uses genuinely differ by platform. That is not a problem for the assertions, it is
+    // the point of them: the contract says an offset indexes the CALLER'S buffer, so the
+    // expected values are derived from the literal's own element count rather than
+    // written down. `b` is the last element on both platforms whatever its index is.
+    //
+    // No glyph coverage is assumed. Whether the font can draw U+1F600 affects how the
+    // cluster LOOKS and not how it is indexed, and a .notdef box still has a width.
+    {
+        const wchar_t kAstral[] = L"a\U0001F600b";
+        const uint32_t kAstralLen = (uint32_t)(sizeof(kAstral) / sizeof(wchar_t)) - 1;
+        // The units the astral character occupies in the caller's buffer: 2 where
+        // wchar_t is UTF-16, 1 where it is UTF-32.
+        const uint32_t kAstralUnits = (sizeof(wchar_t) == 2) ? 2u : 1u;
+        const uint32_t kOffsetOfB = 1u + kAstralUnits;
+
+        // CONTROL, and it is not ceremony: if the compiler encoded the literal some
+        // third way, every expectation below would be measuring the wrong thing while
+        // still looking self-consistent.
+        check(kAstralLen == 1u + kAstralUnits + 1u,
+              "CONTROL: the astral literal has the element count this platform's wchar_t "
+              "implies, so the offsets below are the caller's real ones");
+
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        std::unique_ptr<tinta::TextLayout> layout =
+            format ? h.textFactory().CreateTextLayout(kAstral, kAstralLen, format.get(),
+                                                      1000.0f, 100.0f)
+                   : nullptr;
+        check(layout != nullptr, "CONTROL: a layout over non-BMP text exists");
+
+        if (layout) {
+            float xa = 0.0f, xAstral = 0.0f, xb = 0.0f, ignored = 0.0f;
+            tinta::HitTestMetrics ma{};
+            tinta::HitTestMetrics mAstral{};
+            tinta::HitTestMetrics mb{};
+            layout->HitTestTextPosition(0, false, &xa, &ignored, &ma);
+            layout->HitTestTextPosition(1, false, &xAstral, &ignored, &mAstral);
+            layout->HitTestTextPosition(kOffsetOfB, false, &xb, &ignored, &mb);
+
+            check(ma.length == 1, "'a' occupies one caller unit");
+
+            // THE ASSERTION THE MAP EXISTS FOR. A Qt backend that reported QString
+            // units would answer 2 here on Linux, where the correct answer is 1 --
+            // and that is the number that flows straight into a document offset at
+            // 2 of the 3 out-offset call sites.
+            check(mAstral.length == kAstralUnits,
+                  "the astral character's length is reported in the CALLER's units, "
+                  "which is 2 on a UTF-16 wchar_t and 1 on a UTF-32 one");
+            check(mAstral.textPosition == 1, "and it starts at offset 1 on both");
+
+            // THE OTHER HALF, and the one that catches an index map broken in the OUT
+            // direction rather than the length: 'b' must be laid out entirely after the
+            // astral cluster. An offset mapped without the conversion lands mid
+            // surrogate pair, where both backends resolve to the cluster's own start --
+            // so 'b' would report the astral character's x and this fails while every
+            // monotonicity check above still passes.
+            check(mAstral.width > 0.0f,
+                  "CONTROL: the astral cluster has a real width, glyph or .notdef box");
+            check(xb > xAstral,
+                  "'b' begins to the right of the astral character, so its offset was "
+                  "converted and not passed through");
+            check(mb.textPosition == kOffsetOfB,
+                  "and 'b' reports the caller's own offset for itself");
+
+            // Round-trip through the astral cluster: a point inside it must come back
+            // as offset 1 with the caller's length, on both platforms.
+            tinta::HitTestMetrics back{};
+            layout->HitTestPoint(xAstral + mAstral.width * 0.5f, mAstral.height * 0.5f,
+                                 nullptr, nullptr, &back);
+            check(back.textPosition == 1 && back.length == kAstralUnits,
+                  "a point inside the astral character round-trips to offset 1 with the "
+                  "caller's own length");
+        }
+    }
+
+    // --- Which coordinate space a hit-test x is in -----------------------------
+    //
+    // THIS ONE SETTLES A QUESTION RATHER THAN GUARDING AN ANSWER, and text_qt.cpp
+    // says so at the point it depends on it. QtTextRun does its own alignment via
+    // QTextLine::setPosition instead of QTextOption, and whether Qt's cursorToX
+    // includes that offset is invisible for a Leading-aligned string -- where the
+    // offset is 0 and both readings agree -- and wrong by half the box for a Centered
+    // one. Direct2D has no such ambiguity, so this is a genuine cross-backend claim:
+    // the two must put the first caret in the same place relative to the ink.
+    //
+    // The relation is to GetMetrics().left, which is the ink's own left edge in the
+    // same space. Tying the two readings together is what makes neither of them free
+    // to drift, and it needs no literal and no font.
+    {
+        float caretLefts[2] = {0.0f, 0.0f};
+        float inkLefts[2] = {0.0f, 0.0f};
+        bool got[2] = {false, false};
+        const tinta::TextAlignment order[2] = {tinta::TextAlignment::Leading,
+                                               tinta::TextAlignment::Center};
+        for (int i = 0; i < 2; i++) {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (!format) continue;
+            format->SetTextAlignment(order[i]);
+            std::unique_ptr<tinta::TextLayout> layout =
+                h.textFactory().CreateTextLayout(L"Hi", 2, format.get(), 180.0f, 60.0f);
+            if (!layout) continue;
+            tinta::TextMetrics tm{};
+            layout->GetMetrics(&tm);
+            inkLefts[i] = tm.left;
+            float x = 0.0f;
+            float y = 0.0f;
+            got[i] = layout->HitTestTextPosition(0, false, &x, &y, nullptr);
+            caretLefts[i] = x;
+        }
+        check(got[0] && got[1], "CONTROL: both alignments produced a hit-test answer");
+        // The control that stops the pair below from being vacuous: if alignment were
+        // ignored altogether, both columns would be zero and both equalities would
+        // hold for the wrong reason.
+        check(inkLefts[1] > inkLefts[0],
+              "CONTROL: Center really does move the ink right, so the two rows differ");
+        check(std::fabs(caretLefts[0] - inkLefts[0]) <= 1.0f,
+              "leading-aligned: the first caret sits at the ink's left edge");
+        check(std::fabs(caretLefts[1] - inkLefts[1]) <= 1.0f,
+              "centred: it sits at the ink's left edge THERE too -- a hit-test x is in "
+              "layout space, alignment offset included");
+        check(caretLefts[1] > caretLefts[0],
+              "so the centred caret is right of the leading one, by the same offset the "
+              "ink moved");
+    }
+
+    // --- HitTestTextRange: one rectangle per line, and the two-pass protocol ----
+    //
+    // The two-pass shape is asserted as a PROTOCOL and not just on its happy path,
+    // because editor.cpp:2792 sizes a vector from the count-probe pass and would draw
+    // no selection at all if a backend answered that pass with zero. The two backends
+    // reach the same answer by different routes -- DirectWrite fails the call with
+    // E_NOT_SUFFICIENT_BUFFER while filling the count in, Qt counts the lines it
+    // walked -- so agreement here is a real cross-backend claim rather than a
+    // restatement of one implementation.
+    {
+        std::unique_ptr<tinta::TextFormat> wideFormat = makeFormat(h);
+        std::unique_ptr<tinta::TextFormat> narrowFormat = makeFormat(h);
+        std::unique_ptr<tinta::TextLayout> wide =
+            wideFormat ? h.textFactory().CreateTextLayout(kLongText, kLongLength,
+                                                          wideFormat.get(), 1000.0f, 200.0f)
+                       : nullptr;
+        std::unique_ptr<tinta::TextLayout> narrow =
+            narrowFormat ? h.textFactory().CreateTextLayout(kLongText, kLongLength,
+                                                            narrowFormat.get(), 80.0f, 200.0f)
+                         : nullptr;
+        check(wide != nullptr && narrow != nullptr,
+              "CONTROL: both a one-line and a wrapped layout exist to range-test");
+
+        if (wide && narrow) {
+            uint32_t wideCount = 0;
+            uint32_t narrowCount = 0;
+            const bool wideProbe =
+                wide->HitTestTextRange(0, kLongLength, 0.0f, 0.0f, nullptr, 0, &wideCount);
+            const bool narrowProbe =
+                narrow->HitTestTextRange(0, kLongLength, 0.0f, 0.0f, nullptr, 0, &narrowCount);
+
+            check(wideCount >= 1,
+                  "CONTROL: the count-probe pass reports a count, so a zero below would "
+                  "be a refusal and not an empty range");
+            check(!wideProbe && !narrowProbe,
+                  "the count-probe pass reports FAILURE -- it could not fill a buffer it "
+                  "was not given -- while still yielding the count");
+            check(narrowCount > wideCount,
+                  "a wrapped range spans more lines than an unwrapped one, so it yields "
+                  "more rectangles");
+
+            // The real pass. Same range, a buffer big enough, and the count must not
+            // change: a backend that recounted differently on the second pass would
+            // overrun the buffer the first pass sized.
+            std::vector<tinta::HitTestMetrics> boxes(narrowCount + 4);
+            uint32_t actual = 0;
+            const bool real = narrow->HitTestTextRange(0, kLongLength, 0.0f, 0.0f,
+                                                       boxes.data(),
+                                                       (uint32_t)boxes.size(), &actual);
+            check(real, "the pass WITH a buffer succeeds");
+            check(actual == narrowCount,
+                  "and returns the same count the probe pass promised");
+
+            bool allReal = actual > 0;
+            for (uint32_t i = 0; i < actual; i++) {
+                if (boxes[i].width <= 0.0f || boxes[i].height <= 0.0f) allReal = false;
+            }
+            check(allReal, "every rectangle returned has a real width and height");
+
+            bool descending = false;
+            for (uint32_t i = 1; i < actual; i++) {
+                if (boxes[i].top <= boxes[i - 1].top) descending = true;
+            }
+            check(!descending,
+                  "successive rectangles move DOWN the layout, one line at a time");
+
+            // originX/originY are an offset the caller supplies and the metrics carry,
+            // which is easy to accept and silently ignore.
+            std::vector<tinta::HitTestMetrics> shifted(narrowCount + 4);
+            uint32_t shiftedCount = 0;
+            narrow->HitTestTextRange(0, kLongLength, 10.0f, 20.0f, shifted.data(),
+                                     (uint32_t)shifted.size(), &shiftedCount);
+            check(shiftedCount == actual, "the origin does not change how many there are");
+            if (shiftedCount == actual && actual > 0) {
+                check(std::fabs((shifted[0].left - boxes[0].left) - 10.0f) <= 0.5f &&
+                          std::fabs((shifted[0].top - boxes[0].top) - 20.0f) <= 0.5f,
+                      "but it does shift them, by exactly what was passed");
+            }
+
+            // AN EMPTY RANGE IS A CARET, AND THIS ASSERTION IS THE ONE THAT WAS WRONG.
+            //
+            // It first said "an empty range succeeds with a count of 0", which is what
+            // the Qt backend did and what I believed the reasonable contract was. It
+            // passed on Qt and failed on Direct2D, and the measurement settled it:
+            // DirectWrite returns ONE metric, zero width, full line height, at the
+            // requested offset. So the assertion now states DirectWrite's contract and
+            // the Qt backend was changed to meet it -- because that is the behaviour
+            // the editor's selection drawing already sees, and preserving it is the
+            // entire premise of the seam.
+            //
+            // The relation to HitTestTextPosition is what keeps this from being a
+            // transcription of one implementation: an empty selection's rectangle must
+            // sit exactly where that offset's caret sits, which is a claim about the
+            // two methods agreeing and needs no literal.
+            const uint32_t caretAt = 2;
+            uint32_t emptyProbeCount = 7;
+            const bool emptyProbe = narrow->HitTestTextRange(caretAt, 0, 0.0f, 0.0f,
+                                                            nullptr, 0, &emptyProbeCount);
+            check(emptyProbeCount == 1,
+                  "an empty range yields ONE rectangle -- the caret -- and not zero");
+            check(!emptyProbe,
+                  "and its count-probe pass fails like any other, so the two-pass "
+                  "protocol has no special case");
+
+            tinta::HitTestMetrics caretBox[2]{};
+            uint32_t caretCount = 0;
+            const bool caretOk = narrow->HitTestTextRange(caretAt, 0, 0.0f, 0.0f, caretBox,
+                                                          2, &caretCount);
+            check(caretOk && caretCount == 1, "the pass with a buffer returns that one");
+            check(caretBox[0].width == 0.0f,
+                  "the caret rectangle has ZERO width -- it is a position, not a span");
+            check(caretBox[0].height > 0.0f,
+                  "and a real height, so it is drawable as a caret");
+            check(caretBox[0].textPosition == caretAt && caretBox[0].length == 0,
+                  "reported at the offset asked for, with a length of 0");
+
+            float caretX = 0.0f;
+            float caretY = 0.0f;
+            const bool caretPosOk =
+                narrow->HitTestTextPosition(caretAt, false, &caretX, &caretY, nullptr);
+            check(caretPosOk, "CONTROL: the same offset also answers HitTestTextPosition");
+            check(std::fabs(caretBox[0].left - caretX) <= 1.0f &&
+                      std::fabs(caretBox[0].top - caretY) <= 1.0f,
+                  "and the empty range's rectangle sits exactly where that caret is -- "
+                  "the two hit-test directions agree about one offset");
+        }
     }
 
     // --- Transforms: round-trip, then the composition ORDER -------------------

@@ -311,6 +311,313 @@ const QtTextRun& QtTextLayout::run() const {
     return *run_;
 }
 
+// --- QtTextLayout hit testing -----------------------------------------------
+//
+// WHERE THE COORDINATES COME FROM, AND THE ONE THING I DID NOT TAKE ON TRUST
+//
+// QtTextRun does its own alignment: it computes an offset from the box width and
+// calls QTextLine::setPosition, rather than handing Qt a QTextOption alignment. Qt's
+// QTextLine::cursorToX and xToCursor are documented in terms of "the line", and
+// whether that means the line's own origin or the layout's is exactly the sort of
+// thing that is invisible for a Leading-aligned string and wrong by half the box for
+// a Centered one. The code below assumes those two functions work in LAYOUT space --
+// that setPosition's x is already included -- and that assumption is not left as a
+// comment: the shared cross-backend suite asserts that a Centered layout's
+// HitTestTextPosition(0) x agrees with GetMetrics().left, on both backends. If Qt
+// omitted the offset, that assertion reddens on Qt alone and the repair is to add
+// line.position().x() here.
+//
+// The vertical is NOT in that space and is added explicitly. QtTextRun lays lines
+// out from y=0 and applies its paragraph offset at draw time, which is also why
+// metrics_.top is the paragraph offset -- so a line's layout-space top is
+// paragraphOffset() + line.y(), and every `top` and `pointY` below is built that way.
+
+namespace {
+
+// The fields describing a run of text on ONE line, which is the shape all three
+// methods produce. A helper because deriving left/width from two cursor x positions
+// is the part that is easy to write three subtly different ways -- and because min
+// and fabs rather than (xLo, xHi - xLo) is what keeps it a rectangle if a
+// right-to-left run ever makes the later offset the leftmost one.
+void fillLineSpan(const QTextLine& line, qreal paragraphOffset, qreal xLo, qreal xHi,
+                  uint32_t callerPos, uint32_t callerLength,
+                  tinta::HitTestMetrics* out) {
+    out->textPosition = callerPos;
+    out->length = callerLength;
+    out->left = static_cast<float>(std::min(xLo, xHi));
+    out->top = static_cast<float>(paragraphOffset + line.y());
+    out->width = static_cast<float>(std::fabs(xHi - xLo));
+    out->height = static_cast<float>(line.height());
+    // Qt exposes a per-LINE direction (QTextLine::textDirection) and not the
+    // per-cluster embedding level DWRITE_HIT_TEST_METRICS::bidiLevel carries. The
+    // span-27 census put bidiLevel at 0 call sites, alongside isText and isTrimmed,
+    // so this reports 0 rather than deriving a level from the line direction --
+    // which would be a different claim wearing the right field name.
+    out->bidiLevel = 0;
+    out->isText = 1;
+    out->isTrimmed = 0;
+}
+
+}  // namespace
+
+void QtTextLayout::ensureIndexMap() const {
+    if constexpr (sizeof(wchar_t) == 2) {
+        return;  // a caller unit IS a QString unit; the map is the identity
+    } else {
+        if (!callerToQt_.empty()) return;
+        callerToQt_.reserve(static_cast<size_t>(text_.size()) + 1);
+        for (int i = 0; i < text_.size();) {
+            callerToQt_.push_back(i);
+            // A surrogate PAIR is one caller unit when wchar_t is 32 bits. A LONE
+            // surrogate -- which QString permits and real text does not -- is
+            // treated as one unit too, so that a malformed string produces a
+            // consistent map instead of running off the end.
+            if (text_.at(i).isHighSurrogate() && i + 1 < text_.size() &&
+                text_.at(i + 1).isLowSurrogate()) {
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        callerToQt_.push_back(text_.size());
+    }
+}
+
+int QtTextLayout::toQtIndex(uint32_t callerIndex) const {
+    if constexpr (sizeof(wchar_t) == 2) {
+        return static_cast<int>(callerIndex);
+    } else {
+        ensureIndexMap();
+        if (callerToQt_.empty()) return static_cast<int>(callerIndex);
+        const size_t clamped = std::min<size_t>(callerIndex, callerToQt_.size() - 1);
+        return callerToQt_[clamped];
+    }
+}
+
+uint32_t QtTextLayout::toCallerIndex(int qtIndex) const {
+    if constexpr (sizeof(wchar_t) == 2) {
+        return static_cast<uint32_t>(qtIndex);
+    } else {
+        ensureIndexMap();
+        if (callerToQt_.empty()) return static_cast<uint32_t>(qtIndex);
+        // Ascending by construction, so the inverse is a binary search.
+        // lower_bound and not upper_bound: an index landing exactly on a caller
+        // unit's first QString position must map to THAT unit, and an index landing
+        // inside a surrogate pair -- which Qt's cluster-aware cursor movement does
+        // not produce, but a clamped or arithmetic index could -- rounds up to the
+        // next boundary rather than quietly reporting the pair's start.
+        const auto it = std::lower_bound(callerToQt_.begin(), callerToQt_.end(), qtIndex);
+        if (it == callerToQt_.end()) return static_cast<uint32_t>(callerToQt_.size() - 1);
+        return static_cast<uint32_t>(it - callerToQt_.begin());
+    }
+}
+
+bool QtTextLayout::HitTestPoint(float pointX, float pointY, bool* isTrailingHit,
+                                bool* isInside, tinta::HitTestMetrics* metrics) const {
+    // Outputs zeroed before any early return, the same discipline as the Direct2D
+    // side and for the same measured reason: 5 of the 13 call sites ignore the
+    // return value and read the metrics regardless.
+    if (isTrailingHit) *isTrailingHit = false;
+    if (isInside) *isInside = false;
+    if (metrics) *metrics = tinta::HitTestMetrics{};
+
+    ensureRun();
+    const QTextLayout& layout = run_->layout();
+    const int lineCount = layout.lineCount();
+    if (lineCount == 0) return false;
+
+    const qreal paragraphOffset = run_->paragraphOffset();
+    const qreal y = static_cast<qreal>(pointY) - paragraphOffset;
+
+    // NEAREST line, not strictly-containing line. A point above or below the text
+    // has to answer with the first or last line and isInside=false rather than
+    // refusing: that case is a drag-select running past the end of the text, which
+    // is what selection.cpp's 5 sites do for a living.
+    int index = lineCount - 1;
+    for (int i = 0; i < lineCount; ++i) {
+        const QTextLine candidate = layout.lineAt(i);
+        if (y < candidate.y() + candidate.height()) {
+            index = i;
+            break;
+        }
+    }
+
+    const QTextLine line = layout.lineAt(index);
+    if (!line.isValid()) return false;
+
+    // TWO xToCursor CALLS, AND THEY ARE NOT REDUNDANT.
+    //
+    // CursorOnCharacter gives the cluster the point is inside. CursorBetweenCharacters
+    // snaps to the nearer cluster BOUNDARY, so it is one cluster further along once
+    // the point passes the midpoint. DirectWrite reports exactly that pair -- the
+    // cluster, plus a flag for which half of it was hit -- and one call cannot
+    // reconstruct it: a single call answers "which cluster" or "which boundary",
+    // never both, and the flag is the difference between placing a caret before a
+    // character and after it.
+    const int qtOn =
+        line.xToCursor(static_cast<qreal>(pointX), QTextLine::CursorOnCharacter);
+    const int qtBetween =
+        line.xToCursor(static_cast<qreal>(pointX), QTextLine::CursorBetweenCharacters);
+
+    const int qtLength = layout.text().size();
+    const int qtPos = std::min(qtOn, qtBetween);
+    int qtEnd = layout.nextCursorPosition(qtPos);
+    if (qtEnd < qtPos || qtEnd > qtLength) qtEnd = qtPos;
+
+    const qreal xLo = line.cursorToX(qtPos);
+    const qreal xHi = line.cursorToX(qtEnd);
+
+    if (isTrailingHit) *isTrailingHit = qtBetween > qtOn;
+    if (isInside) {
+        const qreal left = std::min(xLo, xHi);
+        const qreal right = std::max(xLo, xHi);
+        *isInside = static_cast<qreal>(pointX) >= left &&
+                    static_cast<qreal>(pointX) < right && y >= line.y() &&
+                    y < line.y() + line.height();
+    }
+    if (metrics) {
+        fillLineSpan(line, paragraphOffset, xLo, xHi, toCallerIndex(qtPos),
+                     toCallerIndex(qtEnd) - toCallerIndex(qtPos), metrics);
+    }
+    return true;
+}
+
+bool QtTextLayout::HitTestTextPosition(uint32_t textPosition, bool isTrailingHit,
+                                       float* pointX, float* pointY,
+                                       tinta::HitTestMetrics* metrics) const {
+    if (pointX) *pointX = 0.0f;
+    if (pointY) *pointY = 0.0f;
+    if (metrics) *metrics = tinta::HitTestMetrics{};
+
+    ensureRun();
+    const QTextLayout& layout = run_->layout();
+    if (layout.lineCount() == 0) return false;
+
+    // Clamped against the LAID-OUT string and not against text_. QtTextRun's
+    // constructor elides before laying out, so a trimmed layout's lines cover fewer
+    // characters than the layout was constructed with, and an offset past the
+    // elision point has no glyph to report. Clamping answers with the last real
+    // position; not clamping would ask Qt for a line that does not exist. (No call
+    // site combines trimming with hit-testing today -- all 7 SetTrimming sites are
+    // labels -- so this is a guard, not a behaviour anything depends on.)
+    const int qtLength = layout.text().size();
+    const int qtPos = std::clamp(toQtIndex(textPosition), 0, qtLength);
+
+    QTextLine line = layout.lineForTextPosition(qtPos);
+    if (!line.isValid()) line = layout.lineAt(layout.lineCount() - 1);
+    if (!line.isValid()) return false;
+
+    // A trailing hit is the FAR EDGE OF THE CLUSTER at this position, not qtPos + 1.
+    // nextCursorPosition is cluster-aware, which is the entire reason it is used:
+    // +1 lands inside a surrogate pair or a combining sequence and asks for an x
+    // that Qt itself considers a non-position.
+    int qtEnd = layout.nextCursorPosition(qtPos);
+    if (qtEnd < qtPos || qtEnd > qtLength) qtEnd = qtPos;
+
+    const qreal xLo = line.cursorToX(qtPos);
+    const qreal xHi = line.cursorToX(qtEnd);
+
+    if (pointX) *pointX = static_cast<float>(isTrailingHit ? xHi : xLo);
+    if (pointY) *pointY = static_cast<float>(run_->paragraphOffset() + line.y());
+    if (metrics) {
+        fillLineSpan(line, run_->paragraphOffset(), xLo, xHi, toCallerIndex(qtPos),
+                     toCallerIndex(qtEnd) - toCallerIndex(qtPos), metrics);
+    }
+    return true;
+}
+
+bool QtTextLayout::HitTestTextRange(uint32_t textPosition, uint32_t textLength,
+                                    float originX, float originY,
+                                    tinta::HitTestMetrics* metrics,
+                                    uint32_t maxMetricsCount,
+                                    uint32_t* actualMetricsCount) const {
+    if (actualMetricsCount) *actualMetricsCount = 0;
+
+    ensureRun();
+    const QTextLayout& layout = run_->layout();
+    const int lineCount = layout.lineCount();
+    if (lineCount == 0) return false;
+
+    const int qtLength = layout.text().size();
+    const int qtLo = std::clamp(toQtIndex(textPosition), 0, qtLength);
+    // Clamped low at qtLo, which also absorbs a textPosition + textLength that wraps
+    // uint32: the sum comes back smaller, clamps up to qtLo, and the range reads as
+    // empty -- a count of 0 rather than a walk over a nonsense span.
+    const int qtHi = std::clamp(toQtIndex(textPosition + textLength), qtLo, qtLength);
+
+    const qreal paragraphOffset = run_->paragraphOffset();
+
+    // AN EMPTY RANGE IS A CARET, NOT NOTHING -- AND THIS IS MEASURED, NOT ASSUMED.
+    //
+    // I wrote this backend to answer a zero-length range with a count of 0, on the
+    // reasoning that no characters means no rectangles, and asserted that shape in the
+    // shared suite. It passed here and reddened on Direct2D, which is the entire
+    // reason the suite runs one assertion set against both. What DirectWrite actually
+    // returns for HitTestTextRange(2, 0, ...) is ONE metric: textPosition 2, length 0,
+    // width 0, height the full line height -- the caret rectangle at that offset.
+    //
+    // DirectWrite wins, and not by seniority: it is the behaviour the editor's
+    // selection drawing already sees today, so a Qt backend answering 0 would be a
+    // silent behaviour change on exactly the path this seam exists to preserve. A
+    // zero-width rectangle also carries strictly more information than an empty
+    // count -- it says WHERE the empty selection is.
+    if (qtHi == qtLo) {
+        QTextLine line = layout.lineForTextPosition(qtLo);
+        if (!line.isValid()) line = layout.lineAt(lineCount - 1);
+        if (!line.isValid()) return false;
+        if (metrics && maxMetricsCount >= 1) {
+            const qreal x = line.cursorToX(qtLo);
+            fillLineSpan(line, paragraphOffset, x, x, toCallerIndex(qtLo), 0, &metrics[0]);
+            metrics[0].left += originX;
+            metrics[0].top += originY;
+        }
+        if (actualMetricsCount) *actualMetricsCount = 1;
+        // False for the count-probe pass and true once there is room for the one
+        // rectangle, which is the same protocol the loop below follows.
+        return maxMetricsCount >= 1;
+    }
+
+    // ONE METRIC PER LINE THE RANGE TOUCHES, which is DirectWrite's contract and the
+    // reason the count cannot be known before the walk: a two-character range is one
+    // rectangle or two depending entirely on where the layout happened to wrap.
+    uint32_t produced = 0;
+    for (int i = 0; i < lineCount; ++i) {
+        const QTextLine line = layout.lineAt(i);
+        if (!line.isValid()) continue;
+
+        const int lineLo = line.textStart();
+        const int lineHi = lineLo + line.textLength();
+        const int lo = std::max(qtLo, lineLo);
+        const int hi = std::min(qtHi, lineHi);
+        if (lo >= hi) continue;
+
+        // `produced` is incremented outside the buffer check, not inside it. The
+        // count-probe pass passes maxMetricsCount == 0 on purpose -- editor.cpp:2792
+        // sizes a vector from it -- so folding the increment into the write would
+        // answer that pass with 0 and the caller would conclude the range is empty
+        // and draw no selection at all.
+        if (metrics && produced < maxMetricsCount) {
+            const qreal xLo = line.cursorToX(lo);
+            const qreal xHi = line.cursorToX(hi);
+            tinta::HitTestMetrics& out = metrics[produced];
+            fillLineSpan(line, paragraphOffset, xLo, xHi, toCallerIndex(lo),
+                         toCallerIndex(hi) - toCallerIndex(lo), &out);
+            out.left += originX;
+            out.top += originY;
+        }
+        produced++;
+    }
+
+    if (actualMetricsCount) *actualMetricsCount = produced;
+
+    // False when the buffer could not take them all, mirroring the
+    // E_NOT_SUFFICIENT_BUFFER the Direct2D side turns into false, so the two
+    // backends agree on the two-pass PROTOCOL and not merely on the successful pass.
+    // An empty range is a SUCCESS with a count of 0: the caller has to be able to
+    // tell "nothing selected" from "ask again with a bigger buffer".
+    return produced <= maxMetricsCount;
+}
+
 // --- QtTextFactory ----------------------------------------------------------
 
 std::unique_ptr<tinta::TextFormat> QtTextFactory::CreateTextFormat(

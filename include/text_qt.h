@@ -2,6 +2,7 @@
 #define TINTA_TEXT_QT_H
 
 #include <memory>
+#include <vector>
 
 #include "text_api.h"
 
@@ -80,6 +81,13 @@ public:
     // paragraph offset this run computed.
     void draw(QPainter& painter, const QPointF& origin) const;
 
+    // Exposed for hit testing, which needs the laid-out lines themselves rather
+    // than the aggregate metrics. Note that layout().text() is not necessarily the
+    // string this run was constructed with -- trimming elides before layout -- so a
+    // caller mapping an offset in must clamp against THIS length, not the original.
+    const QTextLayout& layout() const { return layout_; }
+    qreal paragraphOffset() const { return paragraphOffset_; }
+
 private:
     QTextLayout layout_;
     tinta::TextMetrics metrics_{};
@@ -140,6 +148,17 @@ public:
 
     void GetMetrics(tinta::TextMetrics* metrics) const override;
 
+    bool HitTestPoint(float pointX, float pointY, bool* isTrailingHit,
+                      bool* isInside, tinta::HitTestMetrics* metrics) const override;
+    bool HitTestTextPosition(uint32_t textPosition, bool isTrailingHit,
+                             float* pointX, float* pointY,
+                             tinta::HitTestMetrics* metrics) const override;
+    bool HitTestTextRange(uint32_t textPosition, uint32_t textLength,
+                          float originX, float originY,
+                          tinta::HitTestMetrics* metrics,
+                          uint32_t maxMetricsCount,
+                          uint32_t* actualMetricsCount) const override;
+
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the
     // pen-versus-brush handling and the Clip translation, and the two copies would
@@ -153,6 +172,27 @@ private:
     // sites that set alignment, paragraph alignment, wrapping and trimming in a row.
     void ensureRun() const;
 
+    // THE PRICE OF text_api.h's OFFSET CONTRACT, AND IT IS PAID ONLY OFF WINDOWS.
+    //
+    // The contract is that every offset crossing the seam indexes the CALLER'S
+    // wchar_t buffer. text_ is a QString, which is UTF-16 internally. When wchar_t
+    // is 16 bits those are the same units and the map below is the identity, costs
+    // nothing, and is compiled out. When wchar_t is 32 bits one caller unit is one
+    // code point, which is ONE OR TWO QString units, so the two indexings diverge
+    // the moment a string contains anything outside the BMP.
+    //
+    // The map is derived from the QString rather than from the original wchar_t
+    // buffer, which is what keeps it a private detail instead of a signature change:
+    // a surrogate PAIR in text_ is exactly one caller unit and every other QChar is
+    // exactly one, so walking text_ reconstructs the caller's indexing without
+    // needing the caller's memory. callerToQt_[i] is the QString index at which
+    // caller unit i begins, with one extra entry for the one-past-the-end position
+    // -- which is a legal caret location and the reason the vector is size()+1 and
+    // not size().
+    void ensureIndexMap() const;
+    int toQtIndex(uint32_t callerIndex) const;
+    uint32_t toCallerIndex(int qtIndex) const;
+
     QString text_;
     QFont font_;
     float fontSize_;
@@ -160,6 +200,10 @@ private:
     float maxWidth_;
     float maxHeight_;
     mutable std::unique_ptr<QtTextRun> run_;
+    // Not invalidated by the setters, unlike run_: the map is a property of text_,
+    // which is fixed at construction. A layout's box and style change; its string
+    // never does, because the seam has no setter for it.
+    mutable std::vector<int> callerToQt_;
 };
 
 class QtTextFactory final : public tinta::TextFactory {
@@ -179,9 +223,16 @@ public:
 
 // Handles both wchar_t widths, which is the whole reason the seam can keep passing
 // wchar_t at all: 16-bit input is UTF-16 and 32-bit input is UTF-32, and
-// QString::fromWCharArray already dispatches on sizeof(wchar_t). text_api.h has
-// the argument for why a pointer-plus-length pair is safe across that difference
-// and an integer offset into text would not be.
+// QString::fromWCharArray already dispatches on sizeof(wchar_t).
+//
+// text_api.h used to say a pointer-plus-length pair is safe across that difference
+// "and an integer offset into text would not be". The second half is now out of
+// date, and deliberately so: hit-testing moves integer offsets across the seam in
+// both directions, and text_api.h's TextLayout defines what they mean rather than
+// leaving it to whichever backend the reader happens to be in. This backend pays for
+// that definition in QtTextLayout::ensureIndexMap, which is where the difference
+// between a caller unit and a QString unit is reconciled. An offset is safe now
+// because something converts it, not because nothing carries one.
 QString toQt(const wchar_t* string, uint32_t length);
 
 #endif  // TINTA_TEXT_QT_H

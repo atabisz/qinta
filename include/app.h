@@ -25,12 +25,12 @@
 // the native members are incomplete pointers that cannot be created or used, and
 // every .cpp that drives them still fails on its own Win32 calls. That failing is
 // now the MEASUREMENT, which is the entire point.
+// The Win32 value types -- real ones on Windows, stand-ins off it. Extracted to
+// its own header once five sibling headers turned out to need the same three of
+// them; win32_types.h explains why one definition rather than six.
+#include "win32_types.h"
+
 #ifdef _WIN32
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 #include <d2d1.h>
 #include <d2d1_1.h>
 #include <dwrite.h>
@@ -54,40 +54,6 @@ struct IDWriteTypography;
 struct IDWriteFontFallback;
 struct IDWriteTextAnalyzer;
 struct IWICImagingFactory;
-
-// The Win32 types this header uses BY VALUE, which forward declarations cannot
-// cover. The list is short and is the compiler's, not a pattern's -- an earlier
-// hand-written alternation reported three of these and missed WM_APP entirely,
-// because an alternation can only find categories its author already thought of.
-struct HWND__;
-typedef struct HWND__* HWND;
-struct FILETIME {
-    unsigned long dwLowDateTime;
-    unsigned long dwHighDateTime;
-};
-struct RECT {
-    long left, top, right, bottom;
-};
-struct POINT {
-    long x, y;
-};
-// Field-for-field with the SDK's, because App stores one by value and zen mode
-// round-trips it through settings.ini. The layout matters if a Windows-built and
-// a portable-built object file ever meet, which is exactly the ODR trap
-// render_api.h documents for DrawText, so the shape is copied rather than
-// approximated.
-struct WINDOWPLACEMENT {
-    unsigned int length;
-    unsigned int flags;
-    unsigned int showCmd;
-    POINT ptMinPosition;
-    POINT ptMaxPosition;
-    RECT rcNormalPosition;
-};
-// 0x8000, the Windows value, so the WM_APP_* ids below keep the numbers they have
-// on Windows. They are only ever compared against each other, but matching the
-// real base keeps a debugger session on either platform reading the same.
-#define WM_APP 0x8000
 #endif
 
 #include <string>

@@ -3,7 +3,10 @@
 
 #include "app.h"
 #include "mermaid_ext.h"
-#include <windows.h>
+// Real windows.h here, stand-ins for its value types off Windows. This header
+// names HWND/WPARAM/LPARAM by value and nothing else from Win32 -- no COM
+// interfaces, no API calls -- so that swap is the whole of its port cost.
+#include "win32_types.h"
 #include <string>
 
 // "Export as..." (#export_as): a save dialog whose file-type filter picks

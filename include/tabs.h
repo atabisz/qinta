@@ -2,7 +2,10 @@
 #define TINTA_TABS_H
 
 #include "app.h"
-#include <windows.h>
+// Real windows.h here, stand-ins for its value types off Windows. This header
+// names HWND/WPARAM/LPARAM by value and nothing else from Win32 -- no COM
+// interfaces, no API calls -- so that swap is the whole of its port cost.
+#include "win32_types.h"
 
 // Tabbed interface: Win11 Notepad-style tabs living in the custom title
 // bar. Single-file windows stay tabless (the strip shows the title text);

@@ -382,7 +382,7 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
         docY >= app.tableAddRowRect.top && docY <= app.tableAddRowRect.bottom) {
         tableEditCommit(app);
         insertTableRow(app, app.tableAddSrc);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
     if (app.tableAddColRect.right > app.tableAddColRect.left &&
@@ -390,7 +390,7 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
         docY >= app.tableAddColRect.top && docY <= app.tableAddColRect.bottom) {
         tableEditCommit(app);
         insertTableColumn(app, app.tableAddSrc);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
 
@@ -405,7 +405,7 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
     }
     if (cell) {
         openCellEditor(app, cell->tableSrc, cell->row, cell->col);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
     return false;
@@ -418,11 +418,11 @@ bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
     switch (key) {
         case VK_ESCAPE:
             tableEditCancel(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         case VK_RETURN:
             tableEditCommit(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         case VK_TAB: {
             bool back = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -450,40 +450,40 @@ bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
                 }
             }
             openCellEditor(app, tableSrc, row, col);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         }
         case VK_BACK:
             if (app.tableEditCaret > 0) {
                 app.tableEditText.erase(--app.tableEditCaret, 1);
                 resetCursorBlink(app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return true;
         case VK_DELETE:
             if (app.tableEditCaret < app.tableEditText.size()) {
                 app.tableEditText.erase(app.tableEditCaret, 1);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return true;
         case VK_LEFT:
             if (app.tableEditCaret > 0) app.tableEditCaret--;
             resetCursorBlink(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         case VK_RIGHT:
             if (app.tableEditCaret < app.tableEditText.size())
                 app.tableEditCaret++;
             resetCursorBlink(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         case VK_HOME:
             app.tableEditCaret = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         case VK_END:
             app.tableEditCaret = app.tableEditText.size();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         default:
             return true;  // the open cell owns the keyboard
@@ -495,7 +495,7 @@ bool tableEditChar(App& app, wchar_t ch) {
     if (ch < 0x20 || ch == 127) return true;  // controls handled as keys
     app.tableEditText.insert(app.tableEditCaret++, 1, ch);
     resetCursorBlink(app);
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
     return true;
 }
 

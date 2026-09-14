@@ -167,7 +167,7 @@ void renderEditRail(App& app) {
     // Slide-in: advance toward 1 and keep painting until it lands
     if (app.editRailAnim < 1.0f) {
         app.editRailAnim = std::min(1.0f, app.editRailAnim + 0.25f);
-        InvalidateRect(app.hwnd, nullptr, FALSE);
+        requestRepaint(app.hwnd);
     }
 
     const D2DTheme& th = app.theme;
@@ -364,7 +364,7 @@ bool editRailMouseMove(App& app, HWND hwnd, int x, int y) {
                   : 0;
     if (hit != app.editRailHover) {
         app.editRailHover = hit;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
     return (float)x < editRailWidth(app);
 }
@@ -424,7 +424,7 @@ void openEditCtxMenu(App& app, HWND hwnd, float x, float y) {
     app.editCtxSubHover = 0;
     app.editCtxGridC = 3;
     app.editCtxGridR = 4;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // The rail's table / diagram buttons open the insert menu's submenu
@@ -451,7 +451,7 @@ void openEditRailFlyout(App& app, HWND hwnd, int sub) {
     app.editCtxSubHover = 0;
     app.editCtxGridC = 3;
     app.editCtxGridR = 4;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void closeEditCtxMenu(App& app) {
@@ -459,7 +459,7 @@ void closeEditCtxMenu(App& app) {
     app.editCtxOpen = false;
     app.editCtxRailOnly = false;
     app.editCtxSub = 0;
-    InvalidateRect(app.hwnd, nullptr, FALSE);
+    requestRepaint(app.hwnd);
 }
 
 void renderEditCtxMenu(App& app) {
@@ -815,8 +815,8 @@ bool editCtxMouseDown(App& app, HWND hwnd, int x, int y) {
             case 100: editorClipboardCut(app, hwnd); break;
             case 101: editorClipboardCopy(app, hwnd); break;
             case 102: editorClipboardPaste(app, hwnd); break;
-            case 110: app.editCtxSub = 1; InvalidateRect(hwnd, nullptr, FALSE); return true;
-            case 111: app.editCtxSub = 2; InvalidateRect(hwnd, nullptr, FALSE); return true;
+            case 110: app.editCtxSub = 1; requestRepaint(hwnd); return true;
+            case 111: app.editCtxSub = 2; requestRepaint(hwnd); return true;
             case 112: editRailInvoke(app, hwnd, 22); break;
             case 113:
                 editorInsertSnippetPublic(app, hwnd, L"```\n\n```\n", 4);
@@ -869,9 +869,9 @@ bool editCtxMouseMove(App& app, int x, int y) {
     if (hover != app.editCtxHover || subHover != app.editCtxSubHover) {
         app.editCtxHover = hover;
         app.editCtxSubHover = subHover;
-        InvalidateRect(app.hwnd, nullptr, FALSE);
+        requestRepaint(app.hwnd);
     } else if (subHover == 140) {
-        InvalidateRect(app.hwnd, nullptr, FALSE);  // live grid highlight
+        requestRepaint(app.hwnd);  // live grid highlight
     }
     return true;
 }

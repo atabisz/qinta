@@ -22,8 +22,14 @@
 //
 // So it is not ported and it is not stubbed. A no-op #else here would compile and
 // then never detect an external file change off Windows, which is the failure mode
-// this tree keeps writing down. Failing to compile is the accurate report: this
-// function has no portable implementation until FILETIME does.
+// this tree keeps writing down. Failing to compile is the accurate report.
+//
+// Note precisely what is missing, because it is not the type: win32_types.h DOES
+// stand FILETIME in off Windows, field for field. What has no portable meaning is
+// its CONTENTS -- a count of 100-nanosecond intervals since 1601 -- and the stood-in
+// type is exactly what makes the packing trap above both available and wrong. What
+// blocks this function is GetFileTime and the start page's conversion of the result
+// for display, not the declaration of the struct they pass around.
 void updateFileWriteTime(App& app) {
     if (app.currentFile.empty()) return;
     std::wstring widePath = toWide(app.currentFile);

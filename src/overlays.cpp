@@ -28,7 +28,7 @@ void renderSearchOverlay(App& app) {
         float prev = app.searchAnimation;
         app.searchAnimation = std::min(1.0f, app.searchAnimation + 0.2f);
         if (app.searchAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.searchAnimation;
 
@@ -401,7 +401,7 @@ void renderFolderBrowser(App& app) {
         float prev = app.folderBrowserAnimation;
         app.folderBrowserAnimation = std::min(1.0f, app.folderBrowserAnimation + 0.15f);
         if (app.folderBrowserAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.folderBrowserAnimation;
 
@@ -962,7 +962,7 @@ void renderToc(App& app) {
         float prev = app.tocAnimation;
         app.tocAnimation = std::min(1.0f, app.tocAnimation + 0.15f);
         if (app.tocAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.tocAnimation;
 
@@ -1473,7 +1473,7 @@ void renderThemeChooser(App& app) {
         float prev = app.themeChooserAnimation;
         app.themeChooserAnimation = std::min(1.0f, app.themeChooserAnimation + 0.15f);
         if (app.themeChooserAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.themeChooserAnimation;
 
@@ -1942,7 +1942,7 @@ void renderHelpOverlay(App& app) {
         float prev = app.helpAnimation;
         app.helpAnimation = std::min(1.0f, app.helpAnimation + 0.15f);
         if (app.helpAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.helpAnimation;
 
@@ -2199,7 +2199,7 @@ void renderContextMenu(App& app) {
         float prev = app.contextMenuAnimation;
         app.contextMenuAnimation = std::min(1.0f, app.contextMenuAnimation + 0.25f);
         if (app.contextMenuAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.contextMenuAnimation;
 
@@ -2730,7 +2730,7 @@ void renderSettingsOverlay(App& app) {
     if (app.settingsAnimation < 1.0f) {
         float prev = app.settingsAnimation;
         app.settingsAnimation = std::min(1.0f, app.settingsAnimation + 0.2f);
-        if (app.settingsAnimation != prev) InvalidateRect(app.hwnd, nullptr, FALSE);
+        if (app.settingsAnimation != prev) requestRepaint(app.hwnd);
     }
     float anim = app.settingsAnimation;
     app.settingsHits.clear();

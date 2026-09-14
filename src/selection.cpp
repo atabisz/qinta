@@ -19,10 +19,10 @@ const App::LayoutTextRun* runFor(const App& app, const App::TextRect& tr) {
 // Caret offset for a document-space point inside (or near) one rect.
 size_t offsetInRect(const App& app, const App::TextRect& tr, float docX, float docY) {
     if (const App::LayoutTextRun* run = runFor(app, tr)) {
-        BOOL trailing = FALSE, inside = FALSE;
-        DWRITE_HIT_TEST_METRICS m{};
-        if (SUCCEEDED(run->layout->HitTestPoint(docX - run->pos.x, docY - run->pos.y,
-                                                &trailing, &inside, &m))) {
+        bool trailing = false, inside = false;
+        tinta::HitTestMetrics m{};
+        if (run->layout->HitTestPoint(docX - run->pos.x, docY - run->pos.y,
+                                      &trailing, &inside, &m)) {
             // Caret goes after the cluster on a trailing hit — this is the
             // glyph-boundary snapping the geometric model lacked (#83)
             size_t off = run->docStart + m.textPosition + (trailing ? m.length : 0);
@@ -149,27 +149,27 @@ void selectionHighlightRects(const App& app, size_t start, size_t end,
         size_t hi = std::min(end, run.docStart + run.docLength);
         if (lo >= hi) continue;
 
-        DWRITE_HIT_TEST_METRICS metrics{};
-        UINT32 metricCount = 0;
-        HRESULT hr = run.layout->HitTestTextRange(
-            (UINT32)(lo - run.docStart), (UINT32)(hi - lo),
+        tinta::HitTestMetrics metrics{};
+        uint32_t metricCount = 0;
+        const bool ok = run.layout->HitTestTextRange(
+            (uint32_t)(lo - run.docStart), (uint32_t)(hi - lo),
             run.pos.x, run.pos.y, &metrics, 1, &metricCount);
-        if (SUCCEEDED(hr) && metricCount == 1 && metrics.width > 0.0f) {
+        if (ok && metricCount == 1 && metrics.width > 0.0f) {
             out.push_back(tinta::rectF(
                 metrics.left, run.bounds.top,
                 metrics.left + metrics.width, run.bounds.bottom));
             continue;
         }
 
-        // These runs are normally single-line layouts. If DirectWrite
+        // These runs are normally single-line layouts. If the backend
         // returns no single range metric, caret positions still give an
         // exact boundary without falling back to the whole line.
-        FLOAT x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
-        DWRITE_HIT_TEST_METRICS edge{};
-        if (SUCCEEDED(run.layout->HitTestTextPosition(
-                (UINT32)(lo - run.docStart), FALSE, &x0, &y0, &edge)) &&
-            SUCCEEDED(run.layout->HitTestTextPosition(
-                (UINT32)(hi - run.docStart), FALSE, &x1, &y1, &edge))) {
+        float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+        tinta::HitTestMetrics edge{};
+        if (run.layout->HitTestTextPosition(
+                (uint32_t)(lo - run.docStart), false, &x0, &y0, &edge) &&
+            run.layout->HitTestTextPosition(
+                (uint32_t)(hi - run.docStart), false, &x1, &y1, &edge)) {
             float left = run.pos.x + std::min(x0, x1);
             float right = run.pos.x + std::max(x0, x1);
             if (right > left) {
@@ -209,11 +209,11 @@ bool selectionRangeRect(const App& app, const App::TextRect& tr,
     size_t hi = std::min(end, tr.docStart + tr.docLength);
     if (lo >= hi) return false;
     if (const App::LayoutTextRun* run = runFor(app, tr)) {
-        DWRITE_HIT_TEST_METRICS m{};
-        UINT32 count = 0;
-        if (SUCCEEDED(run->layout->HitTestTextRange(
-                (UINT32)(lo - run->docStart), (UINT32)(hi - lo),
-                run->pos.x, run->pos.y, &m, 1, &count)) && count == 1) {
+        tinta::HitTestMetrics m{};
+        uint32_t count = 0;
+        if (run->layout->HitTestTextRange(
+                (uint32_t)(lo - run->docStart), (uint32_t)(hi - lo),
+                run->pos.x, run->pos.y, &m, 1, &count) && count == 1) {
             out = tinta::rectF(m.left, tr.rect.top, m.left + m.width, tr.rect.bottom);
             return true;
         }

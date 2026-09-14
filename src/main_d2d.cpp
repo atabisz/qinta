@@ -577,10 +577,17 @@ render_document:
         app.brush->SetColor(run.color);
         tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
         if (app.deviceContext) {
-            app.deviceContext->DrawTextLayout(drawPos, run.layout, app.nativeBrush,
-                D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            // Stays native, deliberately. app.deviceContext is the colour-emoji path
+            // and has no seam equivalent (see its declaration in app.h), so this is
+            // the one call that needs the layout back as an IDWriteTextLayout*.
+            app.deviceContext->DrawTextLayout(drawPos, nativeTextLayout(run.layout.get()),
+                app.nativeBrush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
         } else {
-            app.nativeRenderTarget->DrawTextLayout(drawPos, run.layout, app.nativeBrush);
+            // Onto the seam, which is one of the 26 DrawTextLayout sites render_api.h
+            // was sized for. It could not move before this commit: the layout was a
+            // native pointer, and passing it here would have needed a wrapper built
+            // per frame per run.
+            app.renderTarget->DrawTextLayout(drawPos, run.layout.get(), app.brush);
         }
         app.drawCalls++;
     }

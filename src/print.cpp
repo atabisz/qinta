@@ -403,8 +403,11 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(run.bounds.top, run.bounds.bottom)) continue;
         bool banded = applyBand(run.bounds.top, run.bounds.bottom);
         brush->SetColor(run.color);
+        // Native, because `dc` here is a print-specific ID2D1DeviceContext this
+        // function is handed, not app.renderTarget -- the seam has no print target
+        // and will not until this file moves to QPrinter.
         dc->DrawTextLayout(tinta::pointF(run.pos.x + dx, run.pos.y + dy),
-                           run.layout, brush);
+                           nativeTextLayout(run.layout.get()), brush);
         resetBand(banded);
     }
 }

@@ -124,7 +124,16 @@ static void addTextRun(App& app, LayoutInfo&& info, const tinta::PointF& pos,
     if (!info.layout) return;
 
     App::LayoutTextRun run;
-    run.layout = info.layout;
+    // Wrapping the native rather than creating through app.textFactory, and it is a
+    // transitional step with a definite end. This file is Windows-only for reasons
+    // that have nothing to do with text -- urlmon.h, d2d1_3.h, direct ID2D1 calls --
+    // and createLayout above needs SetTypography and the IDWriteTextLayout2 QI for
+    // SetFontFallback, neither of which is a portable concept (text_api.h says why).
+    // D2DTextLayout's constructor OWNS what it is handed, which is exactly the
+    // transfer that used to be implicit in assigning the raw pointer here. When
+    // createLayout eventually moves onto the seam it returns a unique_ptr that
+    // converts to this shared_ptr for free, so the member does not change again.
+    run.layout = std::make_shared<D2DTextLayout>(info.layout);
     run.pos = pos;
     run.bounds = bounds;
     run.color = color;
@@ -160,11 +169,9 @@ static LayoutSnapshot takeSnapshot(App& app) {
 }
 
 static void rollbackTo(App& app, const LayoutSnapshot& s) {
-    for (size_t i = s.textRuns; i < app.layoutTextRuns.size(); i++) {
-        if (app.layoutTextRuns[i].layout) {
-            app.layoutTextRuns[i].layout->Release();
-        }
-    }
+    // The text-run release loop that used to be here is gone: run.layout is a
+    // shared_ptr, so the resize() below is the release. The shape loop stays because
+    // `geometry` is still a raw ID2D1PathGeometry*.
     for (size_t i = s.shapes; i < app.layoutShapes.size(); i++) {
         if (app.layoutShapes[i].geometry) {
             app.layoutShapes[i].geometry->Release();

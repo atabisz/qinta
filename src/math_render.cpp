@@ -749,9 +749,15 @@ void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
     if (!box) return;
     for (const auto& run : box->runs) {
         if (!run.layout) continue;
+        // The AddRef stays, and it is what this whole slice's ownership decision came
+        // from: this MathBox belongs to g_mathCache and outlives the frame, while the
+        // run being pushed is released by the next clearLayoutCache. Two owners of one
+        // native layout, on purpose. The AddRef now pairs with the wrapper's
+        // destructor rather than with an explicit Release, so the reference the frame
+        // holds is the wrapper's and the one the cache holds is MathBox's.
         run.layout->AddRef();
         App::LayoutTextRun r;
-        r.layout = run.layout;
+        r.layout = std::make_shared<D2DTextLayout>(run.layout);
         r.pos = tinta::pointF(x + run.x, y + run.y);
         // Whole-box bounds keep viewport culling conservative and correct
         r.bounds = tinta::rectF(x, y, x + box->width, y + box->height);

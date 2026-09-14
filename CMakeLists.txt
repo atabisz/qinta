@@ -234,6 +234,38 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME platform_paths COMMAND platform_paths_tests)
 
+    # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
+    #
+    # src/selection.cpp is the first file to become acceptable to a non-Windows
+    # compiler without becoming TESTABLE by one, and the two are different facts.
+    # It compiles: measured, a real .o with -Iinclude and nothing else, no Qt at
+    # all. It cannot LINK into a test, because its one non-libc undefined symbol is
+    # isWordBoundary, which lives in src/utils.cpp, which still fails on windows.h
+    # -- and because no portable target can construct an App at all: App's inline
+    # destructor calls releaseNative on native pointers that app.h deliberately
+    # leaves incomplete off Windows, so instantiating it is the loud failure that
+    # header was designed to produce.
+    #
+    # So an OBJECT library, which compiles and stops. Without it the green has
+    # nowhere durable to live: this repo has no CI, so the only record would be a
+    # scratch script on one machine, with hand-written flags that can drift from
+    # the ones the build actually uses. This target reads the file with the
+    # project's own include paths, and the probe sees the /src/selection.cpp.o
+    # compile line in the build log exactly as it sees every other object -- which
+    # is what lets tests/portable-sources.txt list it honestly.
+    #
+    # What this does NOT prove, stated because a target that compiles is easy to
+    # mistake for a target that passes: no assertion in this repo executes a line
+    # of selection.cpp off Windows. Its hit-testing goes through
+    # tinta::TextLayout, whose two backends ARE asserted against each other, so
+    # the seam under it is tested -- this file's own logic is not, on either
+    # platform, and was not before this commit either.
+    add_library(portable_compile_only OBJECT src/selection.cpp)
+    target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
+    if(WIN32)
+        target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
+    endif()
+
     if(WIN32)
     # Exercise the real input handlers and editor with a message-only test
     # window, including layout-dependent character sequences (#195).

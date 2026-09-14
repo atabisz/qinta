@@ -1036,7 +1036,22 @@ struct App {
 
     // Layout cache (document coordinates)
     struct LayoutTextRun {
-        IDWriteTextLayout* layout = nullptr;
+        // SHARED, and the sharing is real rather than defensive.
+        //
+        // This was an owning `IDWriteTextLayout*` with explicit AddRef/Release, and
+        // the plan of record was to retype it to `unique_ptr<tinta::TextLayout>` to
+        // match what tinta::TextFactory::CreateTextLayout returns. Reading the
+        // producers refuted that. math_render.cpp's mathBoxRetain AddRefs a layout
+        // owned by a MathBox that g_mathCache keeps alive ACROSS FRAMES, then pushes
+        // the same object into this vector, which releases it on the next
+        // clearLayoutCache. Two owners, one object, deliberately -- reshaping a math
+        // box per frame is exactly what that cache exists to avoid.
+        //
+        // So `unique_ptr` here would have been a false claim about lifetime that
+        // compiles. shared_ptr is the exact translation of the refcount this member
+        // already had, and unique_ptr converts to it implicitly, so the producers
+        // that eventually move onto app.textFactory need no second spelling.
+        std::shared_ptr<tinta::TextLayout> layout;
         tinta::PointF pos{};
         tinta::RectF bounds{};
         tinta::Color color{};
@@ -1320,9 +1335,10 @@ struct App {
     ~App() { shutdown(); }
 
     void clearLayoutCache() {
-        for (auto& run : layoutTextRuns) {
-            releaseNative(run.layout);
-        }
+        // No loop over layoutTextRuns any more: run.layout is a shared_ptr, so the
+        // clear() below is the release. layoutShapes still needs one, because
+        // `geometry` is still a raw ID2D1PathGeometry* -- the asymmetry is the
+        // measurement of how far this slice got, not an oversight.
         for (auto& shape : layoutShapes) {
             releaseNative(shape.geometry);
         }

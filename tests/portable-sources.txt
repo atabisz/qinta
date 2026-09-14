@@ -63,6 +63,17 @@ render_qt.cpp
 # src/render_d2d.cpp.
 text_qt.cpp
 
+# --- Compiled off Windows, but NOT linked or run ------------------------------
+#
+# selection.cpp is here because the build compiles it (the
+# portable_compile_only OBJECT library in CMakeLists.txt), which is exactly what
+# every other line here claims and no more. It is the one entry whose file no
+# test EXECUTES off Windows, and the distinction is worth keeping in view: it
+# cannot link, because isWordBoundary lives in utils.cpp and no portable target
+# can construct an App. See that target's comment for why compiling and stopping
+# is still worth a line rather than nothing.
+selection.cpp
+
 # --- Portable application logic ----------------------------------------------
 i18n.cpp
 keymap.cpp

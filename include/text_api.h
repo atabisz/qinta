@@ -180,6 +180,18 @@ struct Trimming {
     uint32_t delimiterCount;
 };
 
+// Field-for-field DWRITE_TEXT_RANGE, and bound by the OFFSET CONTRACT documented
+// on TextLayout below: startPosition and length are indices into the CALLER's
+// wchar_t buffer, the same units CreateTextLayout's stringLength already means.
+// A backend whose internal representation differs owes the conversion.
+//
+// Defaulted to the empty range at 0 so that a `TextRange r{}` styles nothing
+// rather than silently styling the first character.
+struct TextRange {
+    uint32_t startPosition = 0;
+    uint32_t length = 0;
+};
+
 // Field-for-field DWRITE_TEXT_METRICS, same names in the same order. Call sites
 // read five of the nine -- width 55, height 37, widthIncludingTrailingWhitespace
 // 12, left 4, lineCount 2 -- and the other four are carried anyway so that a site
@@ -424,6 +436,42 @@ public:
     virtual bool GetClusterMetrics(ClusterMetrics* clusterMetrics,
                                    uint32_t maxClusterCount,
                                    uint32_t* actualClusterCount) const = 0;
+
+    // RANGED STYLING -- three methods, sized by a census rather than by the
+    // phrase "add ranged styling".
+    //
+    // The whole per-range styling population in this tree is EIGHT calls, and it
+    // splits cleanly in two. SIX are simple value setters and are what these
+    // three methods cover:
+    //
+    //   editrail.cpp  SetStrikethrough(TRUE, {0, len})        whole text
+    //   overlays.cpp  SetFontWeight(SEMI_BOLD, {0, len})  x2  whole text
+    //   render.cpp    SetFontSize(size, {0, len})             whole text
+    //   render.cpp    SetFontWeight(SEMI_BOLD, {0, len})      whole text
+    //   signals.cpp   SetFontWeight(SEMI_BOLD, {emph})        A REAL SUB-RANGE
+    //
+    // The other TWO are not value setters and deliberately stay native, each
+    // documented at its site: render.cpp's SetTypography takes an
+    // IDWriteTypography COM object, and startpage.cpp's SetCharacterSpacing
+    // needs an IDWriteTextLayout1 obtained by QueryInterface. Neither is a
+    // portable concept yet, and pretending otherwise would put a COM type or a
+    // COM version negotiation on this header.
+    //
+    // The signatures are RANGED-ONLY even though five of the six callers style
+    // the whole text. A whole-layout overload would save those five a `{0, len}`
+    // they already write today, at the cost of two spellings per property and a
+    // second thing for a backend to implement -- and signals.cpp needs the
+    // ranged form regardless, so the ranged form is not optional. The offset
+    // machinery a range needs already exists here for hit testing.
+    //
+    // CONTRACT: the range is in caller-buffer units (see TextRange and the
+    // OFFSET CONTRACT above). An empty range styles nothing. A range extending
+    // past the end of the text has no observable effect beyond the text -- both
+    // backends are asserted on that, because it is the one part of this contract
+    // a caller can trip over by arithmetic rather than by intent.
+    virtual void SetFontWeight(FontWeight weight, TextRange range) = 0;
+    virtual void SetFontSize(float fontSize, TextRange range) = 0;
+    virtual void SetStrikethrough(bool strikethrough, TextRange range) = 0;
 };
 
 // Object creation, which render_api.h deliberately left out of the drawing seam

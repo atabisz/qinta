@@ -128,8 +128,13 @@ void QtRenderTarget::DrawText(const wchar_t* string, uint32_t stringLength,
     if (!qtFormat) return;
 
     const QRectF box = toQt(layoutRect);
+    // No ranged formats, and that is a property of the seam rather than an omission
+    // here: ranged styling lives on TextLayout, and this path takes a TextFormat --
+    // a template with no text to have styled ranges of. Passed explicitly instead of
+    // through a default argument so the reasoning has somewhere to sit.
     const QtTextRun run(toQt(string, stringLength), qtFormat->font(), qtFormat->style(),
-                        static_cast<float>(box.width()), static_cast<float>(box.height()));
+                        static_cast<float>(box.width()), static_cast<float>(box.height()),
+                        {});
 
     drawRun(run, box.topLeft(), brush, options);
 }

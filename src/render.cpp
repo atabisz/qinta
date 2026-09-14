@@ -631,7 +631,16 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 if (!rubyText.empty()) {
                     rubyInfo = createLayout(app, rubyText, baseFormat, rubyLineHeight, app.bodyTypography);
                     if (rubyInfo.layout) {
-                        // Set smaller font size on the ruby layout
+                        // Set smaller font size on the ruby layout.
+                        //
+                        // STILL NATIVE, AND NOT FOR WANT OF A SEAM METHOD:
+                        // text_api.h has SetFontSize(float, TextRange) now. What
+                        // gates this site is createLayout, which returns a LayoutInfo
+                        // holding a native IDWriteTextLayout* and applies
+                        // app.bodyTypography to it -- and SetTypography takes an
+                        // IDWriteTypography COM object, so it is one of the two calls
+                        // in the census that stay native by design. Converting this
+                        // needs the typography question answered first.
                         DWRITE_TEXT_RANGE range = {0, (UINT32)rubyText.length()};
                         rubyInfo.layout->SetFontSize(rubyFontSize, range);
                         DWRITE_TEXT_METRICS metrics{};
@@ -2263,6 +2272,9 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
         std::wstring title = style.title;
         LayoutInfo info = createLayout(app, title, app.textFormat, 24.0f, app.bodyTypography);
         if (info.layout) {
+            // Native for the same reason the ruby site above is: createLayout owns
+            // the typography reach-through, so the layout it returns cannot be a
+            // tinta::TextLayout until that is resolved.
             DWRITE_TEXT_RANGE range = {0, (UINT32)title.length()};
             info.layout->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);
         }

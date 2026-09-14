@@ -210,6 +210,14 @@ IDWriteTextLayout* chipTextLayout(App& app, const App::SignalChip& chip,
                                         nativeTextFormat(fmt), maxW, maxH,
                                         &layout);
     if (layout && !chip.emph.empty()) {
+        // STILL NATIVE, AND THE SEAM METHOD EXISTS -- what blocks it is this
+        // function's RETURN TYPE, not the styling. text_api.h now has
+        // SetFontWeight(FontWeight, TextRange), and this is the tree's only genuine
+        // SUB-RANGE caller, which is why the seam's signature is ranged rather than
+        // whole-layout. Calling it needs a tinta::TextLayout, which means the layout
+        // this function hands back must become one, which means its callers and their
+        // Release() calls move too. That is a conversion slice with its own
+        // ownership question, not a line change here.
         DWRITE_TEXT_RANGE range{(UINT32)chip.text.size(),
                                 (UINT32)chip.emph.size()};
         layout->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);

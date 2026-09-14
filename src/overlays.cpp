@@ -19,6 +19,7 @@ static float promptKeycap(App& app, const wchar_t* label, float rightX,
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <utility>
 
 void renderSearchOverlay(App& app) {
@@ -3328,7 +3329,11 @@ static float promptKeycap(App& app, const wchar_t* label, float rightX,
 
 void renderConfirmExitDialog(App& app) {
     tinta::TextFormat* fmt = app.folderBrowserFormat;
-    if (!fmt) return;
+    // app.textFactory joins the guard because the title block below now creates a
+    // layout through it. It is not a like-for-like swap of an existing risk: the
+    // block used to dereference app.dwriteFactory with no guard at all, and the
+    // native factory being alive says nothing about whether the seam was seated.
+    if (!fmt || !app.textFactory) return;
     app.confirmExitHits.clear();
     const D2DTheme& base = app.theme;
     tinta::Color warn = signalSeverityHue(app, SIG_WARN);
@@ -3418,24 +3423,28 @@ void renderConfirmExitDialog(App& app) {
     kx -= promptKeycap(app, L"N", kx, row1cy);
     kx -= promptKeycap(app, L"Y", kx, row1cy);
 
-    IDWriteTextLayout* tl = nullptr;
-    app.dwriteFactory->CreateTextLayout(
-        title.c_str(), (UINT32)title.size(), nativeTextFormat(fmt),
-        kx - ib.right - dpi(app, 12.0f), iconBox, &tl);
+    // Converted with the ranged-styling seam rather than for its own sake: the
+    // SetFontWeight below was one of the six per-range sites, and there is no way
+    // to call the seam's version of it on a native layout. Note what came with the
+    // layout -- the DRAW. This site reached for app.nativeRenderTarget and
+    // app.nativeBrush only because a native layout cannot be handed to the seam's
+    // DrawTextLayout, so converting the creation converts the paint too.
+    std::unique_ptr<tinta::TextLayout> tl = app.textFactory->CreateTextLayout(
+        title.c_str(), (uint32_t)title.size(), fmt,
+        kx - ib.right - dpi(app, 12.0f), iconBox);
     if (tl) {
-        tl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        DWRITE_TRIMMING trimOpt{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-        tl->SetTrimming(&trimOpt, nullptr);
-        tl->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                          {0, (UINT32)title.size()});
-        DWRITE_TEXT_METRICS m{};
+        tl->SetWordWrapping(tinta::WordWrapping::NoWrap);
+        tinta::Trimming trimOpt{tinta::TrimmingGranularity::Character, 0, 0};
+        tl->SetTrimming(trimOpt, nullptr);
+        tl->SetFontWeight(tinta::FontWeight::SemiBold,
+                          tinta::TextRange{0, (uint32_t)title.size()});
+        tinta::TextMetrics m{};
         tl->GetMetrics(&m);
         tinta::Color c = base.text; c.a = 0.95f;
         app.brush->SetColor(c);
-        app.nativeRenderTarget->DrawTextLayout(
+        app.renderTarget->DrawTextLayout(
             tinta::pointF(ib.right + dpi(app, 9.0f), row1cy - m.height * 0.5f),
-            tl, app.nativeBrush);
-        tl->Release();
+            tl.get(), app.brush);
     }
 
     // Row 2: Save & exit (filled), Discard (danger outline), the stays hint
@@ -3485,7 +3494,11 @@ void renderConfirmExitDialog(App& app) {
 // resolved target path.
 void renderCreateRefDialog(App& app) {
     tinta::TextFormat* fmt = app.folderBrowserFormat;
-    if (!fmt) return;
+    // Same addition as renderConfirmExitDialog, and BOTH were converted in one pass
+    // deliberately: span 29b's defect was a sweep that matched one guard's exact
+    // indentation and silently left its twin, so the two spellings of this pattern
+    // are edited together and then counted.
+    if (!fmt || !app.textFactory) return;
     app.createRefHits.clear();
     const D2DTheme& base = app.theme;
     tinta::Color hue = base.accent;
@@ -3567,25 +3580,26 @@ void renderCreateRefDialog(App& app) {
     kx -= promptKeycap(app, L"Enter", kx, row1cy);
 
     {
-        IDWriteTextLayout* tl = nullptr;
-        app.dwriteFactory->CreateTextLayout(
-            title.c_str(), (UINT32)title.size(), nativeTextFormat(fmt),
-            kx - ib.right - dpi(app, 12.0f), iconBox, &tl);
+        // The same conversion as the block above, for the same reason: the ranged
+        // SetFontWeight needs a seam layout, and the native draw was a consequence
+        // of the native layout rather than a choice.
+        std::unique_ptr<tinta::TextLayout> tl = app.textFactory->CreateTextLayout(
+            title.c_str(), (uint32_t)title.size(), fmt,
+            kx - ib.right - dpi(app, 12.0f), iconBox);
         if (tl) {
-            tl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            DWRITE_TRIMMING trimOpt{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-            tl->SetTrimming(&trimOpt, nullptr);
-            tl->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD,
-                              {0, (UINT32)title.size()});
-            DWRITE_TEXT_METRICS m{};
+            tl->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            tinta::Trimming trimOpt{tinta::TrimmingGranularity::Character, 0, 0};
+            tl->SetTrimming(trimOpt, nullptr);
+            tl->SetFontWeight(tinta::FontWeight::SemiBold,
+                              tinta::TextRange{0, (uint32_t)title.size()});
+            tinta::TextMetrics m{};
             tl->GetMetrics(&m);
             tinta::Color c = base.text; c.a = 0.95f;
             app.brush->SetColor(c);
-            app.nativeRenderTarget->DrawTextLayout(
+            app.renderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               row1cy - m.height * 0.5f),
-                tl, app.nativeBrush);
-            tl->Release();
+                tl.get(), app.brush);
         }
     }
 

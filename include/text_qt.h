@@ -69,8 +69,15 @@ struct QtTextStyle {
 // in the same place as the horizontal one.
 class QtTextRun {
 public:
+    // `formats` carries ranged styling in QTextLayout's OWN indices, already
+    // mapped out of caller units by whoever built the list -- QtTextLayout, which
+    // is the only thing that owns the map. What this constructor still owes them
+    // is the CLAMP: it may elide `text` before laying it out, so a range that was
+    // in bounds when the caller set it can be out of bounds by the time it is
+    // applied.
     QtTextRun(const QString& text, const QFont& font, const QtTextStyle& style,
-              float maxWidth, float maxHeight);
+              float maxWidth, float maxHeight,
+              const std::vector<QTextLayout::FormatRange>& formats);
 
     QtTextRun(const QtTextRun&) = delete;
     QtTextRun& operator=(const QtTextRun&) = delete;
@@ -171,6 +178,10 @@ public:
                            uint32_t maxClusterCount,
                            uint32_t* actualClusterCount) const override;
 
+    void SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) override;
+    void SetFontSize(float fontSize, tinta::TextRange range) override;
+    void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
+
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the
     // pen-versus-brush handling and the Clip translation, and the two copies would
@@ -205,6 +216,10 @@ private:
     int toQtIndex(uint32_t callerIndex) const;
     uint32_t toCallerIndex(int qtIndex) const;
 
+    // The one place the three ranged setters share: map the range out of caller
+    // units, drop it if it is empty or entirely past the end, append it.
+    void addRangedFormat(const QTextCharFormat& format, tinta::TextRange range);
+
     QString text_;
     QFont font_;
     float fontSize_;
@@ -212,6 +227,21 @@ private:
     float maxWidth_;
     float maxHeight_;
     mutable std::unique_ptr<QtTextRun> run_;
+    // RANGED STYLING, AND WHY IT IS A LIST RATHER THAN A RESOLVED PER-CHARACTER
+    // STATE.
+    //
+    // Indices here are QTextLayout's, mapped at set time -- the map is a property
+    // of text_, which never changes, so converting once per setter call is cheaper
+    // than converting on every rebuild and cannot go stale.
+    //
+    // The list is ORDERED AND APPEND-ONLY because that is what reproduces
+    // DirectWrite's semantics. DirectWrite resolves overlapping ranged attributes
+    // by call order, last writer winning per character per property, and Qt's text
+    // engine merges FormatRanges in list order with exactly the same rule
+    // (QTextEngine::format merges each matching range over the previous). So
+    // appending in call order is not a shortcut around a merge -- it IS the merge,
+    // performed by the engine that will render it.
+    std::vector<QTextLayout::FormatRange> formats_;
     // Not invalidated by the setters, unlike run_: the map is a property of text_,
     // which is fixed at construction. A layout's box and style change; its string
     // never does, because the seam has no setter for it.

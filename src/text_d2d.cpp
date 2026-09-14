@@ -154,6 +154,16 @@ TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, granularity);
 TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, delimiter);
 TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, delimiterCount);
 
+// tinta::TextRange has default member initializers and DWRITE_TEXT_RANGE does not,
+// which costs it trivial default construction but NOT standard layout -- so both
+// halves of the macro are still well-defined on it. Worth stating, because "I added
+// `= 0` to two fields" is exactly the kind of change that looks like it might have
+// invalidated an offsetof and quietly did not.
+static_assert(sizeof(tinta::TextRange) == sizeof(DWRITE_TEXT_RANGE),
+              "tinta::TextRange must match DWRITE_TEXT_RANGE");
+TINTA_ASSERT_FIELD(tinta::TextRange, DWRITE_TEXT_RANGE, startPosition);
+TINTA_ASSERT_FIELD(tinta::TextRange, DWRITE_TEXT_RANGE, length);
+
 #undef TINTA_ASSERT_FIELD
 
 namespace {
@@ -467,6 +477,37 @@ bool D2DTextLayout::GetClusterMetrics(tinta::ClusterMetrics* clusterMetrics,
         &nativeCount);
     if (actualClusterCount) *actualClusterCount = nativeCount;
     return SUCCEEDED(hr);
+}
+
+// --- D2DTextLayout ranged styling -------------------------------------------
+//
+// Passthrough, and the range needs no conversion for the reason the hit-test
+// section gives at length: the offset contract is an identity on this backend.
+// The struct assertions above mean the cast is a checked one, but it is still
+// written field by field rather than as a reinterpret_cast -- two fields is not
+// worth an aliasing argument.
+//
+// All three ignore their HRESULT, which is the right shape here rather than a
+// shortcut: the seam signature is void because none of the six call sites in the
+// tree checks the result today, and DirectWrite's only documented failure for
+// these is E_INVALIDARG, which a valid range cannot produce.
+
+void D2DTextLayout::SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) {
+    if (!layout_) return;
+    const DWRITE_TEXT_RANGE native{range.startPosition, range.length};
+    layout_->SetFontWeight(static_cast<DWRITE_FONT_WEIGHT>(weight), native);
+}
+
+void D2DTextLayout::SetFontSize(float fontSize, tinta::TextRange range) {
+    if (!layout_) return;
+    const DWRITE_TEXT_RANGE native{range.startPosition, range.length};
+    layout_->SetFontSize(fontSize, native);
+}
+
+void D2DTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range) {
+    if (!layout_) return;
+    const DWRITE_TEXT_RANGE native{range.startPosition, range.length};
+    layout_->SetStrikethrough(strikethrough ? TRUE : FALSE, native);
 }
 
 // --- D2DTextFactory ---------------------------------------------------------

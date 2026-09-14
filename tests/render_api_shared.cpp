@@ -1689,6 +1689,285 @@ int runRenderApiAssertions(RenderHarness& h) {
         }
     }
 
+    // --- RANGED STYLING: are the RANGE'S BOUNDS read, not just the value? --------
+    //
+    // Three methods, and the assertions are built around the one failure mode a
+    // value-only test cannot see: a backend that applies the style to the WHOLE
+    // layout and ignores the range would pass "styled is wider than unstyled" on
+    // every single call. So each of the three compares a SUB-RANGE against a
+    // WHOLE-RANGE application of the same value, and it is that inequality --
+    // sub-range strictly between unstyled and whole-range -- that makes the range
+    // argument falsifiable.
+    //
+    // Everything is relational for the reason the weight family above gives: the
+    // harness picks the font, so no width here has a value this file may name. The
+    // one exception is the size RATIO, and it is named because it catches a real
+    // and otherwise-invisible unit bug -- see below.
+    //
+    // A local helper rather than makeFormat, because these need a fresh LAYOUT per
+    // arm: the whole point is that styling mutates the layout, so two arms cannot
+    // share one.
+    {
+        auto freshLayout = [&h]() -> std::unique_ptr<tinta::TextLayout> {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+            if (!format) return nullptr;
+            // A box far wider and taller than the text so nothing wraps: every width
+            // difference below is then the styling's doing and not the box's.
+            return h.textFactory().CreateTextLayout(kLongText, kLongLength, format.get(),
+                                                    10000.0f, 1000.0f);
+        };
+        const tinta::TextRange kWhole{0, kLongLength};
+        const tinta::TextRange kFirstHalf{0, kLongLength / 2};
+
+        auto widthOf = [](tinta::TextLayout* layout) -> float {
+            if (!layout) return 0.0f;
+            tinta::TextMetrics m{};
+            layout->GetMetrics(&m);
+            return m.width;
+        };
+        auto heightOf = [](tinta::TextLayout* layout) -> float {
+            if (!layout) return 0.0f;
+            tinta::TextMetrics m{};
+            layout->GetMetrics(&m);
+            return m.height;
+        };
+
+        // --- SetFontWeight ---------------------------------------------------
+        {
+            std::unique_ptr<tinta::TextLayout> plain = freshLayout();
+            std::unique_ptr<tinta::TextLayout> whole = freshLayout();
+            std::unique_ptr<tinta::TextLayout> half = freshLayout();
+            check(plain && whole && half,
+                  "CONTROL: three identical layouts exist, so the only difference "
+                  "between the arms below is the ranged styling applied to them");
+            if (plain && whole && half) {
+                // Bold and not SemiBold, for the reason the weight family above
+                // states: a family with no semibold face falls back to something, and
+                // an assertion that reads equal-and-passes is unfalsifiable.
+                whole->SetFontWeight(tinta::FontWeight::Bold, kWhole);
+                half->SetFontWeight(tinta::FontWeight::Bold, kFirstHalf);
+
+                const float wPlain = widthOf(plain.get());
+                const float wWhole = widthOf(whole.get());
+                const float wHalf = widthOf(half.get());
+
+                check(wPlain > 0.0f,
+                      "CONTROL: the unstyled layout has a real width, so the three "
+                      "comparisons below are between measurements and not zeros");
+                check(wWhole > wPlain,
+                      "SetFontWeight over the whole range measures WIDER -- the ranged "
+                      "setter is plumbed to the layout at all");
+                check(wHalf > wPlain,
+                      "and over half the range it still measures wider than unstyled, so "
+                      "a sub-range application is not silently dropped");
+                check(wHalf < wWhole,
+                      "THE RANGE'S BOUNDS ARE READ: emboldening half the text is "
+                      "NARROWER than emboldening all of it. This is the only assertion "
+                      "in the family that fails for a backend which honours the value "
+                      "and applies it to the whole layout regardless of the range -- "
+                      "every other comparison here passes for such a backend");
+                check(heightOf(whole.get()) == heightOf(plain.get()),
+                      "CONTROL: emboldening changes width and not line height, so the "
+                      "widths above are reading the weight rather than two unrelated "
+                      "layouts");
+            }
+        }
+
+        // --- SetFontSize -----------------------------------------------------
+        {
+            std::unique_ptr<tinta::TextLayout> plain = freshLayout();
+            std::unique_ptr<tinta::TextLayout> whole = freshLayout();
+            std::unique_ptr<tinta::TextLayout> half = freshLayout();
+            check(plain && whole && half,
+                  "CONTROL: three more identical layouts for the size arm");
+            if (plain && whole && half) {
+                // Exactly double makeFormat's 16 DIP, which is what licenses the ratio
+                // assertion below.
+                whole->SetFontSize(32.0f, kWhole);
+                half->SetFontSize(32.0f, kFirstHalf);
+
+                const float wPlain = widthOf(plain.get());
+                const float wWhole = widthOf(whole.get());
+                const float wHalf = widthOf(half.get());
+
+                check(wPlain > 0.0f,
+                      "CONTROL: the unstyled layout at 16 DIP has a real width");
+                check(wWhole > wPlain, "SetFontSize over the whole range measures wider");
+                check(wHalf > wPlain && wHalf < wWhole,
+                      "THE RANGE'S BOUNDS ARE READ for size too: enlarging half the text "
+                      "lands strictly between unstyled and enlarging all of it");
+                check(heightOf(whole.get()) > heightOf(plain.get()),
+                      "a larger font size costs real vertical space, so this is a font "
+                      "change and not a horizontal-only artefact");
+
+                // THE ONE NAMED NUMBER IN THIS FAMILY, AND WHAT IT CATCHES.
+                //
+                // The seam's size unit is DIPs and QFont's is points, so the Qt
+                // backend owes dipToPoints on this path exactly as it does on the base
+                // font. Forgetting it is invisible to every assertion above: 32 points
+                // where 24 were meant is still bigger than 16 DIP, still wider than
+                // half-styled, still taller. It shows up only in the RATIO -- advance
+                // width scales linearly with size for a given face, so doubling the
+                // size doubles the width, while a missed unit conversion gives
+                // 32/12 = 2.67x. The window excludes that with room to spare on both
+                // sides for hinting and rounding.
+                const float ratio = wPlain > 0.0f ? wWhole / wPlain : 0.0f;
+                check(ratio > 1.8f && ratio < 2.2f,
+                      "DOUBLING the ranged font size roughly DOUBLES the width -- the "
+                      "assertion that catches a DIP-to-point conversion missing on this "
+                      "path, which would read 2.67x and pass every other check here");
+            }
+        }
+
+        // --- The contract: out of bounds and empty ranges do nothing ---------
+        //
+        // text_api.h promises that styling past the end of the text has no
+        // observable effect, and that an empty range styles nothing. Both are
+        // asserted because both are reachable by ARITHMETIC rather than by intent --
+        // a caller computing `{pos, len}` from a document offset can produce either
+        // without meaning to, and neither backend's native call complains.
+        {
+            std::unique_ptr<tinta::TextLayout> plain = freshLayout();
+            std::unique_ptr<tinta::TextLayout> past = freshLayout();
+            std::unique_ptr<tinta::TextLayout> empty = freshLayout();
+            std::unique_ptr<tinta::TextLayout> huge = freshLayout();
+            std::unique_ptr<tinta::TextLayout> control = freshLayout();
+            check(plain && past && empty && huge && control,
+                  "CONTROL: five identical layouts for the boundary arm");
+            if (plain && past && empty && huge && control) {
+                past->SetFontWeight(tinta::FontWeight::Bold,
+                                    tinta::TextRange{kLongLength, 10});
+                empty->SetFontWeight(tinta::FontWeight::Bold, tinta::TextRange{0, 0});
+                // "To the end", spelled the way DirectWrite permits. This is the arm
+                // that fails if a backend computes startPosition + length in 32 bits
+                // and wraps to a position before the start.
+                huge->SetFontWeight(tinta::FontWeight::Bold,
+                                    tinta::TextRange{0, 0xFFFFFFFFu});
+                control->SetFontWeight(tinta::FontWeight::Bold, kWhole);
+
+                const float wPlain = widthOf(plain.get());
+                check(wPlain > 0.0f, "CONTROL: the unstyled reference has a real width");
+                check(widthOf(control.get()) > wPlain,
+                      "CONTROL: the SAME value over an IN-BOUNDS range does change the "
+                      "width, so the three no-ops below are the ranges being rejected "
+                      "and not the setter being dead");
+                check(widthOf(past.get()) == wPlain,
+                      "a range starting past the end of the text has NO observable "
+                      "effect, which is the promise text_api.h makes and the clamp in "
+                      "the Qt run keeps");
+                check(widthOf(empty.get()) == wPlain,
+                      "an empty range styles nothing -- so a defaulted TextRange{} "
+                      "cannot silently embolden the first character");
+                check(widthOf(huge.get()) == widthOf(control.get()),
+                      "a length of 0xFFFFFFFF means TO THE END and is equivalent to the "
+                      "exact whole-text range, rather than wrapping to an empty or "
+                      "inverted range");
+            }
+        }
+
+        // --- Two properties over one range MERGE, per property ---------------
+        //
+        // This asserts a decision rather than a mapping, which is why it is here at
+        // all. The Qt backend carries ranged styling as an ordered list of
+        // QTextCharFormats and Qt merges them in list order, so a format carrying
+        // TWO properties would impose both on its range -- and a later SetFontSize
+        // would reset an earlier SetFontWeight to the default it never asked for.
+        // One property per entry is what makes the merge per-property, matching
+        // DirectWrite, where the attributes are stored independently and this is
+        // free. A cross-backend suite is what turns "free on one side" into a
+        // checked claim on the other.
+        {
+            std::unique_ptr<tinta::TextLayout> sizeOnly = freshLayout();
+            std::unique_ptr<tinta::TextLayout> both = freshLayout();
+            check(sizeOnly && both, "CONTROL: two identical layouts for the merge arm");
+            if (sizeOnly && both) {
+                sizeOnly->SetFontSize(32.0f, kWhole);
+                // Weight FIRST, then size over the same range -- so the later call is
+                // the one that would clobber if the formats were not per-property.
+                both->SetFontWeight(tinta::FontWeight::Bold, kWhole);
+                both->SetFontSize(32.0f, kWhole);
+
+                const float wSizeOnly = widthOf(sizeOnly.get());
+                const float wBoth = widthOf(both.get());
+                check(wSizeOnly > 0.0f,
+                      "CONTROL: the size-only layout has a real width to compare against");
+                check(wBoth > wSizeOnly,
+                      "a LATER ranged property MERGES with an earlier one over the same "
+                      "range instead of replacing it -- bold-then-32 is wider than 32 "
+                      "alone, so the weight survived the size call");
+            }
+        }
+
+        // --- SetStrikethrough: the one with no metric, asserted in PIXELS ----
+        //
+        // Strikethrough changes no TextMetrics field at all -- same advance, same
+        // height -- so a metric assertion for it would be unfalsifiable, and the
+        // 29a lesson was that an unfalsifiable assertion beside real ones reads as
+        // coverage. It has to be pixels, and pixels are what the harness can read.
+        //
+        // Painted-pixel COUNTS rather than a probe at one coordinate: the strike
+        // line's y depends on the font's strikeout position, which is a property of
+        // whichever family the harness chose, and this file may not name it.
+        {
+            static const wchar_t kShort[] = L"Hello world";
+            static const uint32_t kShortLen = 11;
+            const tinta::TextRange kShortWhole{0, kShortLen};
+            const tinta::TextRange kShortHalf{0, 5};  // "Hello"
+
+            auto paintedWith = [&h, &red](tinta::TextRange range, bool strike) -> int {
+                std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+                if (!format) return -1;
+                std::unique_ptr<tinta::TextLayout> layout =
+                    h.textFactory().CreateTextLayout(kShort, kShortLen, format.get(),
+                                                     190.0f, 100.0f);
+                if (!layout) return -1;
+                if (strike) layout->SetStrikethrough(true, range);
+                whiteSurface(h);
+                std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                h.begin().DrawTextLayout(tinta::pointF(5, 5), layout.get(), brush.get());
+                h.end();
+                return countNonWhite(h);
+            };
+
+            const int nPlain = paintedWith(kShortWhole, false);
+            const int nWhole = paintedWith(kShortWhole, true);
+            const int nHalf = paintedWith(kShortHalf, true);
+            const int nOff = [&]() {
+                // SetStrikethrough(FALSE) over the whole range, on a layout that was
+                // never struck. The last-writer-wins rule means this must be a
+                // no-op, and it is the arm that would fail if a backend treated any
+                // call to the setter as "turn it on".
+                std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+                if (!format) return -1;
+                std::unique_ptr<tinta::TextLayout> layout =
+                    h.textFactory().CreateTextLayout(kShort, kShortLen, format.get(),
+                                                     190.0f, 100.0f);
+                if (!layout) return -1;
+                layout->SetStrikethrough(false, kShortWhole);
+                whiteSurface(h);
+                std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                h.begin().DrawTextLayout(tinta::pointF(5, 5), layout.get(), brush.get());
+                h.end();
+                return countNonWhite(h);
+            }();
+
+            check(nPlain > 0,
+                  "CONTROL: the unstruck string painted pixels, so the three counts "
+                  "below are differences between real draws");
+            check(nWhole > nPlain,
+                  "a struck layout paints MORE pixels than an unstruck one -- the only "
+                  "evidence available for a property with no metric consequence");
+            check(nHalf > nPlain && nHalf < nWhole,
+                  "THE RANGE'S BOUNDS ARE READ for strikethrough: striking \"Hello\" "
+                  "paints more than nothing and strictly less than striking \"Hello "
+                  "world\"");
+            check(nOff == nPlain,
+                  "CONTROL: SetStrikethrough(false) paints exactly the unstruck count, "
+                  "so the setter reads its BOOL and does not merely react to being "
+                  "called");
+        }
+    }
+
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",
                 failures == 0 ? "all " : "", checks, failures, h.name());
     return failures;

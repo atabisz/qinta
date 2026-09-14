@@ -76,17 +76,16 @@ static void railGlyph(App& app, const std::wstring& text, float sizeDip,
         railLayout(app, text, sizeDip, weight, family, style);
     if (!l) return;
     if (strike) {
-        // THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE, and it is honest
-        // about what it is: per-range styling has no seam method. Counting the
-        // whole population rather than trusting the note that called it "7
-        // per-range sites", it is SIX -- and five of the six pass {0, size},
-        // the whole text, exactly as this one does. Only signals.cpp's chip
-        // emphasis wants a real sub-range. So the eventual seam method is a
-        // whole-layout one for five sites plus a ranged one for a single
-        // caller, a much smaller design than "add ranged styling" -- and it is
-        // not this slice's to make.
-        DWRITE_TEXT_RANGE all{0, (UINT32)text.size()};
-        nativeTextLayout(l.get())->SetStrikethrough(TRUE, all);
+        // This was this file's last native reach-through, on the grounds that
+        // per-range styling had no seam method. It has one now, and this is the
+        // site that paid for it: the census done to justify leaving it native is
+        // what sized the seam, and it corrected its own first answer -- the
+        // population of per-range styling calls in the tree is EIGHT, of which
+        // SIX are simple value setters like this one and two (SetTypography,
+        // SetCharacterSpacing) are not, and stay native by design. The earlier
+        // note here said "SIX" of "the whole population", which was the right
+        // number for the wrong set.
+        l->SetStrikethrough(true, tinta::TextRange{0, (uint32_t)text.size()});
     }
     tinta::TextMetrics m{};
     l->GetMetrics(&m);

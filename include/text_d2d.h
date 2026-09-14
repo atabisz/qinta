@@ -137,6 +137,10 @@ public:
                            uint32_t maxClusterCount,
                            uint32_t* actualClusterCount) const override;
 
+    void SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) override;
+    void SetFontSize(float fontSize, tinta::TextRange range) override;
+    void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
+
     IDWriteTextLayout* native() const { return layout_; }
 
 private:

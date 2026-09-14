@@ -5,6 +5,7 @@
 
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QTextCharFormat>
 #include <QTextLine>
 #include <QTextOption>
 
@@ -114,7 +115,8 @@ QString toQt(const wchar_t* string, uint32_t length) {
 // --- QtTextRun --------------------------------------------------------------
 
 QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& style,
-                     float maxWidth, float maxHeight) {
+                     float maxWidth, float maxHeight,
+                     const std::vector<QTextLayout::FormatRange>& formats) {
     const bool noWrap = style.wordWrapping == tinta::WordWrapping::NoWrap;
     const qreal boxWidth = static_cast<qreal>(maxWidth);
     const qreal boxHeight = static_cast<qreal>(maxHeight);
@@ -177,6 +179,53 @@ QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& 
     QTextOption option;
     option.setWrapMode(toQtWrapMode(style.wordWrapping));
     layout_.setTextOption(option);
+
+    // RANGED STYLING, CLAMPED, AND BEFORE beginLayout().
+    //
+    // Both halves of that matter. Qt reads the formats while it shapes, so a
+    // setFormats() after beginLayout() is not late-applied. This comment used to
+    // claim it was silently ignored; a mutation that moved the call below
+    // beginLayout() was run to check that, and it SEGFAULTS -- Qt 6.4.2, the whole
+    // render_api binary, 0.54s in. So the ordering is not a preference and not a
+    // subtle metric divergence: get it wrong and there is no binary to measure.
+    // Recorded as measured rather than as reasoned, because the reasoned version
+    // was wrong in the direction that flatters the tests -- it credited the metric
+    // assertions below with catching something that any test at all would catch.
+    // What they do catch is the other two mutations: a backend that honours the
+    // value and ignores the RANGE, and a missing DIP-to-point conversion. Both of
+    // those build and run clean.
+    //
+    // The clamp is against `content`, not against `text`: the trimming above may
+    // have shortened the string, so a range the caller set legitimately can now
+    // run past the end. Qt's behaviour on an out-of-bounds FormatRange is not
+    // something to find out at a user's expense, and text_api.h promises that
+    // styling past the end has no observable effect -- which makes this the line
+    // that keeps that promise.
+    //
+    // ONE HONEST LIMIT, STATED RATHER THAN HIDDEN: the elide above measures with
+    // the BASE font, so if a layout were both trimmed and ranged-styled to a
+    // larger size, the elide point would be computed for the unstyled text. That
+    // combination does not occur -- the trimming sites are labels and list rows,
+    // the ranged sites are the six in text_api.h's census, and the two sets are
+    // disjoint -- so this is a documented non-case, not a fixed one. It would
+    // become real the moment someone styled a trimmed label.
+    if (!formats.empty()) {
+        QList<QTextLayout::FormatRange> applied;
+        for (const QTextLayout::FormatRange& r : formats) {
+            if (r.length <= 0 || r.start >= content.size()) continue;
+            QTextLayout::FormatRange clamped = r;
+            if (clamped.start < 0) clamped.start = 0;
+            // FormatRange's fields are `int` and QString::size() is qsizetype, so the
+            // min is explicitly widened and then narrowed rather than left to deduce.
+            // Written this way because g++ REFUSED to deduce it -- the two candidates
+            // are int and long long -- which is the small, useful kind of thing only
+            // the second backend's compiler can say, since MSVC never sees this file.
+            clamped.length = static_cast<int>(
+                std::min<qsizetype>(clamped.length, content.size() - clamped.start));
+            applied.append(clamped);
+        }
+        if (!applied.isEmpty()) layout_.setFormats(applied);
+    }
 
     // NoWrap means "one line however wide it is", so the line is given effectively
     // unbounded width rather than the box width. Handing it boxWidth with
@@ -329,9 +378,88 @@ void QtTextLayout::SetLineSpacing(tinta::LineSpacingMethod method, float lineSpa
     run_.reset();
 }
 
+// --- QtTextLayout ranged styling --------------------------------------------
+//
+// Each setter builds a QTextCharFormat carrying EXACTLY ONE property and appends
+// it. That is deliberate rather than lazy: a format carrying two properties would
+// impose both on every character in its range, so a later SetFontSize over a
+// sub-range of an earlier SetFontWeight would silently reset the weight. One
+// property per entry makes the engine's merge per-property, which is DirectWrite's
+// rule.
+
+void QtTextLayout::addRangedFormat(const QTextCharFormat& format,
+                                   tinta::TextRange range) {
+    if (range.length == 0) return;
+
+    // Mapped out of caller units here, once, because text_ never changes. The
+    // conversion is the identity where wchar_t is 16 bits and real where it is 32.
+    ensureIndexMap();
+
+    // CLAMPED IN CALLER UNITS, BEFORE THE CONVERSION, AND BOTH HALVES OF THAT
+    // ORDERING ARE LOAD-BEARING.
+    //
+    // The end position is startPosition + length, and that addition is done in 64
+    // bits because `{0, UINT32_MAX}` is a legal DirectWrite way to say "to the end
+    // of the text": in 32 bits it wraps to a position BEFORE the start, which
+    // neither throws nor warns and just drops the style.
+    //
+    // It is then clamped against the caller-unit length, and that has to happen
+    // BEFORE toQtIndex rather than after. toQtIndex clamps on the 32-bit-wchar_t
+    // path and is the bare identity on the 16-bit one -- so a huge caller index
+    // comes back out of it unchanged, and `int` is signed, so the very sizes this
+    // is guarding against arrive as NEGATIVE Qt indices. Clamping afterwards would
+    // have worked on Linux and been wrong on Windows, which is the one asymmetry
+    // this backend's own tests cannot see.
+    //
+    // toCallerIndex(text_.size()) is the caller-unit length on both paths, which is
+    // why there is no second spelling of it here.
+    const uint32_t callerLength = toCallerIndex(text_.size());
+    const uint64_t rawEnd =
+        static_cast<uint64_t>(range.startPosition) + static_cast<uint64_t>(range.length);
+    const uint32_t callerEnd =
+        static_cast<uint32_t>(std::min<uint64_t>(rawEnd, callerLength));
+    if (range.startPosition >= callerEnd) return;
+
+    const int start = toQtIndex(range.startPosition);
+    const int end = toQtIndex(callerEnd);
+    if (end <= start) return;
+
+    QTextLayout::FormatRange entry;
+    entry.start = start;
+    entry.length = end - start;
+    entry.format = format;
+    formats_.push_back(entry);
+    run_.reset();
+}
+
+void QtTextLayout::SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) {
+    QTextCharFormat format;
+    // The straight cast text_qt.h documents and this file static_asserts, not a
+    // second opinion about the numbering.
+    format.setFontWeight(static_cast<int>(weight));
+    addRangedFormat(format, range);
+}
+
+void QtTextLayout::SetFontSize(float fontSize, tinta::TextRange range) {
+    QTextCharFormat format;
+    // DIPs in, points out -- the same conversion CreateTextFormat applies to the
+    // base font. A ranged size that skipped it would be 33% too small and would
+    // still look plausible, which is why the assertion for this one compares a
+    // styled width against an unstyled one rather than eyeballing a number.
+    format.setFontPointSize(dipToPoints(fontSize));
+    addRangedFormat(format, range);
+}
+
+void QtTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range) {
+    QTextCharFormat format;
+    format.setFontStrikeOut(strikethrough);
+    addRangedFormat(format, range);
+}
+
 void QtTextLayout::ensureRun() const {
     if (!run_) {
-        run_ = std::make_unique<QtTextRun>(text_, font_, style_, maxWidth_, maxHeight_);
+        run_ = std::make_unique<QtTextRun>(text_, font_, style_, maxWidth_, maxHeight_,
+                                          formats_);
     }
 }
 

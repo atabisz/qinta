@@ -6,7 +6,15 @@
 
 namespace {
 int failures = 0;
+// Counted, and printed at the end, because this test says nothing at all on
+// success. That was survivable while it ran on one platform and someone could
+// reason about which binary had been built; it is not survivable now that it runs
+// on two, where a target silently dropped from one of them would leave an exit
+// code of 0 and no output to distinguish it from a pass. The number is the
+// evidence that assertions ran.
+int checks = 0;
 void check(bool value, const char* message) {
+    ++checks;
     if (!value) { std::cerr << "FAIL: " << message << '\n'; ++failures; }
 }
 }
@@ -97,5 +105,10 @@ int main() {
     }
     closeContextMenu(app);
     check(!app.showContextMenu && app.hoveredContextMenuItem == -1, "dismissal clears menu selection");
-    return failures ? 1 : 0;
+    if (failures == 0) {
+        std::cout << "context menu: all " << checks << " assertions passed\n";
+        return 0;
+    }
+    std::cerr << failures << " of " << checks << " context menu assertion(s) failed\n";
+    return 1;
 }

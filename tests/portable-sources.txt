@@ -65,7 +65,7 @@ text_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# ONE ENTRY, down from two. selection.cpp used to head this section and has moved
+# FOUR ENTRIES. selection.cpp used to head this section and has moved
 # to its own heading below: it is now linked and RUN off Windows by
 # selection_tests. The blocker that kept it here -- App holding the Direct2D
 # backend wrappers BY VALUE, so linking anything that instantiates an App wanted
@@ -92,6 +92,30 @@ text_qt.cpp
 # the sections above.
 editrail.cpp
 
+# The three that arrived together, found by a census rather than by porting work:
+# g++ -fsyntax-only over every file NOT listed in this manifest, which turned up six
+# at zero errors. Two of the six had passing tests gated to Windows and are now in
+# tested sections below; one is staying out deliberately (src/settings_app.cpp says
+# why in its own header); these three had nowhere to record the reading.
+#
+# syntax.cpp is the one that most deserves to leave this section. It is 392 lines of
+# pure logic -- keyword sets and the code-block highlighter -- with no App, no seam
+# and no test on EITHER platform. Its own header already describes fixing 9 errors
+# that only a non-Windows compiler surfaced, which means it was made portable and
+# then left where nothing would notice if it stopped being so. That is exactly the
+# hole this section exists to stop, and asserting it is the obvious next slice.
+#
+# search.cpp compiles but cannot link: it includes render.h and reaches into the
+# layout, and src/render.cpp is 128 Direct2D/DirectWrite mentions deep, so a running
+# target for it is a long way off.
+#
+# i18n_app.cpp is one function. It was split off i18n.cpp so that 1500 lines of
+# string data could compile off Windows, and the half left behind turned out to
+# compile too once App stopped naming a backend.
+i18n_app.cpp
+search.cpp
+syntax.cpp
+
 # --- The first file that takes an App& and is asserted off Windows -------------
 #
 # selection.cpp. Compiled, linked AND run by selection_tests on both platforms,
@@ -114,6 +138,23 @@ editrail.cpp
 # be made to reach: the caret-pair fallback in selectionHighlightRects, for one,
 # which had never executed and turns out to agree with the primary path exactly.
 selection.cpp
+
+# --- Two files whose tests already existed and were gated to Windows anyway ----
+#
+# Neither needed a line changed. context_menu_tests and inline_style_tests sat inside
+# `if(WIN32)` because they linked src/render_d2d.cpp and src/text_d2d.cpp, and their
+# comments said why: App held the backend wrappers BY VALUE, so any target that
+# instantiated an App wanted those vtables. That stopped being true when App's
+# storage moved to pointers to the abstract seam -- the same unlock selection.cpp
+# got -- and the comment was updated on selection_tests and left standing on four
+# other targets. Nothing failed. The gate kept working, the tests kept passing on
+# Windows, and the number of tests running off Windows was just lower than it had to
+# be. A stale reason for a gate is silent in a way a stale reason in code is not.
+#
+# Measured before being written: both link and RUN off Windows with the two backend
+# sources dropped, zero undefined symbols, zero FAIL lines.
+context_menu.cpp
+inline_style.cpp
 
 # --- Portable application logic ----------------------------------------------
 i18n.cpp

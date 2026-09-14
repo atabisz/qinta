@@ -334,12 +334,105 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME selection_layout COMMAND selection_layout_tests)
 
+    # --- TWO TESTS THAT WERE ALREADY PORTABLE AND GATED TO WINDOWS ANYWAY --------
+    #
+    # Both of these existed, passed, and ran only on Windows. Neither needed a line
+    # of code changed to run off it: they were inside `if(WIN32)` because they linked
+    # src/render_d2d.cpp and src/text_d2d.cpp, and their own comments said why --
+    # "App holds wrappers BY VALUE, so any target that instantiates App needs their
+    # vtables." That is a true statement about the App of ten spans ago. App now owns
+    # pointers to the abstract seam types (include/seated.h), so an App that is never
+    # drawn needs no backend vtable at all, and the two backend sources came off the
+    # link line with nothing to replace them.
+    #
+    # THE PART WORTH RECORDING is not the migration, it is how it was found. When
+    # selection_tests left the compile-only library, the comment there was updated to
+    # say "THAT COMMENT'S BLOCKER IS GONE" -- and the identical blocker comment on
+    # four other targets was left standing. Nothing failed. A stale reason for a gate
+    # is invisible: the gate keeps working, the tests keep passing on the platform
+    # they are allowed to run on, and the count of tests off Windows is simply lower
+    # than it could be. It took a census -- g++ -fsyntax-only over every src/ file
+    # not in tests/portable-sources.txt -- to notice, and the census was run for an
+    # unrelated reason.
+    #
+    # MEASURED BEFORE BEING WRITTEN, by linking and running both off Windows with the
+    # backend sources dropped: link_exit=0, run_exit=0, zero FAIL lines, and
+    # inline_style_tests printing its own "All inline style tests passed". No
+    # undefined symbols appeared, which is worth stating plainly because the
+    # equivalent prediction for selection_tests was wrong three times running.
+    #
+    # NOT EVERY GATED TARGET IS A STALE GATE, and two of the four carrying that
+    # comment are staying exactly where they are. tests/config_path_tests.cpp
+    # includes <windows.h> deliberately, to check how configFilePathForShell copes
+    # with MSIX filesystem virtualization. tests/bitmap_seam_tests.cpp asserts on
+    # D2DBitmap, the Direct2D wrapper itself. Both are Windows-only by subject rather
+    # than by accident, and moving them would be a worse mistake than leaving the
+    # other two behind was.
+    add_executable(context_menu_tests tests/context_menu_tests.cpp src/context_menu.cpp
+        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
+    target_include_directories(context_menu_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
+    target_link_libraries(context_menu_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(context_menu_tests PRIVATE shell32)
+        target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME context_menu COMMAND context_menu_tests)
+
+    # The sentinel format handles in this one are never dereferenced -- emphasisFormat
+    # and inlineCodeFormat only ever get compared -- so it needed no DirectWrite even
+    # on Windows, and the windowscodecs/d2d1/dwrite libraries it used to link were
+    # there purely for the two backend sources.
+    add_executable(inline_style_tests
+        tests/inline_style_tests.cpp
+        src/inline_style.cpp
+        src/markdown.cpp
+        src/themes.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(inline_style_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(inline_style_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(inline_style_tests PRIVATE shell32)
+        target_compile_definitions(inline_style_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME inline_styles COMMAND inline_style_tests)
+
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
-    # src/editrail.cpp is now the only file here. It reached zero errors when its
-    # two CRT calls (swprintf_s, _countof) moved to portable_str.h and std::size,
-    # and it compiles with include/ and md4c only, no Qt at all -- measured, not
-    # assumed.
+    # FOUR FILES, up from one. src/editrail.cpp reached zero errors when its two CRT
+    # calls (swprintf_s, _countof) moved to portable_str.h and std::size, and it
+    # compiles with include/ and md4c only, no Qt at all -- measured, not assumed.
+    #
+    # The other three arrived together, and how they were found matters more than
+    # that they were added. A census -- g++ -fsyntax-only over every src/ file NOT in
+    # tests/portable-sources.txt, with the project's own include paths -- found six
+    # files at zero errors. Two of them (context_menu.cpp, inline_style.cpp) already
+    # had passing tests, gated to Windows, and have moved to real targets above. One
+    # (settings_app.cpp) is staying out on purpose and says why in its own header.
+    # These three had no test to un-gate and nowhere to record the reading:
+    #
+    #   src/syntax.cpp    392 lines. Keyword sets and the code-block highlighter. Its
+    #                     own header already describes fixing 9 errors that only a
+    #                     non-Windows compiler surfaced -- so it was MADE portable and
+    #                     then never added anywhere that would notice if it stopped
+    #                     being so.
+    #   src/search.cpp    299 lines. In-document and folder search. Compiles here; it
+    #                     would not LINK, because it includes render.h and reaches
+    #                     into the layout, and render.cpp is 128 native Direct2D and
+    #                     DirectWrite mentions deep.
+    #   src/i18n_app.cpp   18 lines. One function, tr(const App&, const char*). It was
+    #                     split off i18n.cpp precisely so 1500 lines of string data
+    #                     could compile off Windows, and then the half that got left
+    #                     behind turned out to compile too.
+    #
+    # NONE OF THE THREE IS EXECUTED BY ANYTHING, on either platform. syntax.cpp is
+    # the one that most deserves assertions -- pure logic, no App, no seam, and not a
+    # single test on any platform today -- and this target is not that. It is the
+    # cheapest honest way to stop the reading from rotting in the meantime.
     #
     # WHY AN OBJECT LIBRARY rather than a test: nothing executes it off Windows.
     # Without this target the green has nowhere durable to live -- this repo has no
@@ -360,7 +453,12 @@ if(BUILD_TESTING)
     # portable probe asserts the manifest against what the build compiled, and
     # selection_tests above compiles it with the same include paths, so it is still
     # seen -- now with a linked, running binary behind it.
-    add_library(portable_compile_only OBJECT src/editrail.cpp)
+    add_library(portable_compile_only OBJECT
+        src/editrail.cpp
+        src/syntax.cpp
+        src/search.cpp
+        src/i18n_app.cpp
+    )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
@@ -408,18 +506,17 @@ if(BUILD_TESTING)
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-test-$<CONFIG>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
 
-    add_executable(context_menu_tests tests/context_menu_tests.cpp src/context_menu.cpp
-        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
-        src/render_d2d.cpp src/text_d2d.cpp)
-    target_include_directories(context_menu_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(context_menu_tests PRIVATE md4c shell32 d2d1 dwrite)
-    target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME context_menu COMMAND context_menu_tests)
-
     # Needs no display and no render target: D2DBitmap borrows, so the assertions
-    # use fake addresses they never dereference. It links the two backend sources
-    # for the same reason context_menu_tests does -- App holds wrappers BY VALUE,
-    # so any target that instantiates App needs their vtables.
+    # use fake addresses they never dereference.
+    #
+    # IT STAYS HERE, and not for the reason it used to give. The old comment said it
+    # linked the two backend sources "for the same reason context_menu_tests does --
+    # App holds wrappers BY VALUE, so any target that instantiates App needs their
+    # vtables", and that reason expired when App's storage moved to pointers to the
+    # abstract seam. context_menu_tests has moved out above on the strength of that.
+    # This one is Windows-only by SUBJECT: it asserts on D2DBitmap, the Direct2D
+    # wrapper itself, and reseat-on-read is a property of that wrapper. Its Qt
+    # counterpart would be a different set of assertions, not this set run elsewhere.
     add_executable(bitmap_seam_tests tests/bitmap_seam_tests.cpp
         src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
         src/render_d2d.cpp src/text_d2d.cpp)
@@ -713,25 +810,18 @@ if(BUILD_TESTING)
     # hard requirement for the non-Windows build, which is what choosing it means.
 
     # --- Windows-only targets: these link Direct2D/DirectWrite/shell32.
+    #
+    # inline_style_tests used to head this section and has moved out: it linked the
+    # two Direct2D backend sources only for App's vtables, which App no longer needs.
+    # config_path_tests below is Windows-only for a reason that has not expired --
+    # see its own comment.
     if(WIN32)
-    add_executable(inline_style_tests
-        tests/inline_style_tests.cpp
-        src/inline_style.cpp
-        src/render_d2d.cpp
-        src/text_d2d.cpp
-        src/markdown.cpp
-        src/themes.cpp
-        src/config_dir.cpp
-        ${PLATFORM_PATHS_SOURCE}
-    )
-    target_include_directories(inline_style_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${md4c_SOURCE_DIR}/src
-    )
-    target_link_libraries(inline_style_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32)
-    target_compile_definitions(inline_style_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME inline_styles COMMAND inline_style_tests)
-
+    # WINDOWS-ONLY BY SUBJECT, not by leftover link dependency. It checks how
+    # configFilePathForShell copes with MSIX filesystem virtualization, and
+    # tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and
+    # GetTickCount64 to do it. src/config_dir.cpp is in the portable manifest and is
+    # compiled off Windows by other targets, so this gate costs no portable coverage
+    # of the file -- only of the MSIX behaviour, which has no non-Windows meaning.
     add_executable(config_path_tests
         tests/config_path_tests.cpp
         src/config_dir.cpp

@@ -12,12 +12,19 @@
 // this header covers what needs a LAYOUT, which is the larger and more interesting
 // half.
 //
-// ONE CONSUMER TODAY: tests/selection_layout_tests.cpp. Said plainly because a
-// fixture header with one caller looks like speculative generality and this one is
-// a deliberate bet -- the remaining App&-taking files (overlays.cpp,
-// math_render.cpp, annotations.cpp) all read the same four members, so the next
-// test to want this should reuse it rather than rebuild it. If that stops being
-// true, delete the header rather than keeping it out of politeness.
+// TWO CONSUMERS, AND THE SPLIT BETWEEN THEM IS THE USEFUL PART.
+// tests/selection_layout_tests.cpp uses all of this header. tests/search_tests.cpp
+// uses addLine() with withLayout=false and never constructs a FakeTextLayout at all,
+// because search.cpp reads docText and textRects and nothing else. So the bet this
+// header made has paid off for the STATE-BUILDING half -- that half now has two
+// callers -- and the fake layout still has exactly one. Worth stating precisely
+// rather than counting two and moving on: a second consumer of addLine() is evidence
+// the helper generalises, and says nothing about the fake.
+//
+// The remaining App&-taking files (overlays.cpp, math_render.cpp, annotations.cpp)
+// read the same four members, so the next test to want this should reuse it rather
+// than rebuild it. If that stops being true, delete the header rather than keeping
+// it out of politeness.
 //
 // WHAT THE FAKE LAYOUT IS AND IS NOT. FakeTextLayout implements tinta::TextLayout
 // as an exact monospace grid: every character is charWidth wide, one line tall.

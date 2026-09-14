@@ -373,6 +373,47 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME selection_layout COMMAND selection_layout_tests)
 
+    # --- In-document search, moved out of portable_compile_only ------------------
+    #
+    # src/search.cpp was compile-only on both platforms: nothing executed a line of
+    # it. The object library below says why that is the weakest thing this repo can
+    # claim about a file, and search.cpp is the first file to leave it for a running
+    # target rather than for a new backend.
+    #
+    # THE BLOCKER WAS ONE SYMBOL, not the file's shape. search.cpp includes render.h
+    # and the comment on portable_compile_only asserted it "would not LINK". A real
+    # link named ten undefined symbols; nine resolve from the four portable sources
+    # listed here, and the tenth is ensureLayoutComplete, still in render.cpp.
+    # search_tests.cpp defines it as a stub and says so at its top, because the
+    # fixture builds the layout state that function exists to guarantee. That is a
+    # real limit on this target: it asserts everything downstream of the
+    # precondition and nothing about the precondition itself.
+    #
+    # SOURCES ARE THE SAME FOUR as selection_layout_tests plus search.cpp. Arrived at
+    # by attempting the link and reading the errors, not by reasoning -- an earlier
+    # filtered `nm -u` under-reported the debt as eight symbols because the filter
+    # excluded anything mentioning std::, which ate extractText's signature.
+    add_executable(search_tests
+        tests/search_tests.cpp
+        src/search.cpp
+        src/themes.cpp
+        src/text_utils.cpp
+        src/markdown.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(search_tests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(search_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(search_tests PRIVATE shell32)
+        target_compile_definitions(search_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME search COMMAND search_tests)
+
     # --- TWO TESTS THAT WERE ALREADY PORTABLE AND GATED TO WINDOWS ANYWAY --------
     #
     # Both of these existed, passed, and ran only on Windows. Neither needed a line
@@ -522,7 +563,7 @@ if(BUILD_TESTING)
 
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
-    # THREE FILES, down from four: src/syntax.cpp has left for syntax_tests above,
+    # TWO FILES, down from four: src/syntax.cpp has left for syntax_tests above,
     # which is what this comment used to ask for. src/editrail.cpp reached zero
     # errors when its two CRT calls (swprintf_s, _countof) moved to portable_str.h
     # and std::size, and it compiles with include/ and md4c only, no Qt at all --
@@ -536,10 +577,6 @@ if(BUILD_TESTING)
     # (settings_app.cpp) is staying out on purpose and says why in its own header.
     # These had no test to un-gate and nowhere to record the reading:
     #
-    #   src/search.cpp    299 lines. In-document and folder search. Compiles here; it
-    #                     would not LINK, because it includes render.h and reaches
-    #                     into the layout, and render.cpp is 128 native Direct2D and
-    #                     DirectWrite mentions deep.
     #   src/i18n_app.cpp   18 lines. One function, tr(const App&, const char*). It was
     #                     split off i18n.cpp precisely so 1500 lines of string data
     #                     could compile off Windows, and then the half that got left
@@ -567,9 +604,21 @@ if(BUILD_TESTING)
     # portable probe asserts the manifest against what the build compiled, and
     # selection_tests above compiles it with the same include paths, so it is still
     # seen -- now with a linked, running binary behind it.
+    #
+    # src/search.cpp HAS LEFT TOO, for search_tests above, and the entry this comment
+    # used to carry for it was wrong in two ways worth recording rather than deleting.
+    # It said search.cpp "would not LINK" and that render.cpp was "128 native Direct2D
+    # and DirectWrite mentions deep". The second figure is stale -- the same census
+    # reads 93 mentions today, 75 of them outside comments, after render.cpp's text
+    # path moved onto the seam. The first was true but overstated, and a written claim
+    # of impossibility is the least-tested kind: a real link found exactly ten
+    # undefined symbols, nine of them in translation units already on this manifest
+    # (themes.cpp, text_utils.cpp, markdown.cpp, platform_paths_posix.cpp). Only
+    # ensureLayoutComplete is genuinely stuck in render.cpp, search.cpp calls it at one
+    # site as a documented precondition, and search_tests supplies that precondition
+    # from the layout fixture instead. Cost of finding that out: one link attempt.
     add_library(portable_compile_only OBJECT
         src/editrail.cpp
-        src/search.cpp
         src/i18n_app.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)

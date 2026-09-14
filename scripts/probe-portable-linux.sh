@@ -280,6 +280,24 @@ else
     check 1 "tests/typography_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# tests/search_tests.cpp is a DIFFERENT case from the three above, and the
+# difference is worth stating rather than copying the reasoning. src/search.cpp IS on
+# the manifest, and search_tests is now its only portable consumer, so simply
+# dropping the target would show up as a MISSING file in the comparison above. This
+# check is not belt-and-braces for that.
+#
+# It is here for the revert shape, which the manifest CANNOT see: put src/search.cpp
+# back into portable_compile_only and drop search_tests, and the manifest is green
+# again -- the file still compiles, still appears in the build log, still matches its
+# line above -- while 40 assertions and the only execution of that file on any
+# platform are gone. That is one plausible edit, not a contrived one: it is exactly
+# what undoing this slice looks like. The object line tells the two apart.
+if grep -qE "search_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/search_tests.cpp was compiled by $CXX_BIN, so src/search.cpp is asserted off Windows and not merely compiled"
+else
+    check 1 "tests/search_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

@@ -103,14 +103,40 @@ editrail.cpp
 # used to say it was "the one that most deserves to leave", and that is now done
 # rather than pending, which is the only reason a line moves out of here.
 #
-# search.cpp compiles but cannot link: it includes render.h and reaches into the
-# layout, and src/render.cpp is 128 Direct2D/DirectWrite mentions deep, so a running
-# target for it is a long way off.
+# search.cpp HAS LEFT THIS SECTION -- see its own heading below. The note that used
+# to sit here said it "compiles but cannot link" because "src/render.cpp is 128
+# Direct2D/DirectWrite mentions deep, so a running target for it is a long way off".
+# Recorded rather than deleted because both halves were wrong in instructive ways:
+# the census reads 93 mentions today (75 outside comments), and the link debt was
+# never render.cpp's depth -- it was one symbol.
 #
 # i18n_app.cpp is one function. It was split off i18n.cpp so that 1500 lines of
 # string data could compile off Windows, and the half left behind turned out to
 # compile too once App stopped naming a backend.
 i18n_app.cpp
+
+# --- In-document search, compiled AND run off Windows --------------------------
+#
+# search.cpp. 299 lines: in-document find, the mapping of matches onto laid-out
+# text rects, the scroll-to-match arithmetic, and the folder-wide scan. It sat in
+# the compile-only section above and nothing executed a line of it on EITHER
+# platform; tests/search_tests.cpp asserts all four of the externally reachable
+# functions off Windows.
+#
+# WHAT UNBLOCKED IT was one symbol, not a seam. The old note here blamed
+# render.cpp's depth. A real link named ten undefined symbols, nine resolving from
+# files already on this manifest (themes.cpp, text_utils.cpp, markdown.cpp,
+# platform_paths_posix.cpp) and one -- ensureLayoutComplete -- still in render.cpp.
+# search.cpp calls it at a single site as a stated precondition, so the test defines
+# a stub and builds the same state from tests/app_fixture.h. THE LIMIT THAT BUYS:
+# everything downstream of the precondition is asserted, and the precondition itself
+# is not. Said here as well as in the test, because this file is where someone reads
+# what a listed line does and does not claim.
+#
+# TWO FUNCTIONS ARE NOT REACHABLE from another translation unit and are left
+# honestly uncovered: startFolderSearchScan detaches a std::thread over the
+# filesystem, and completeFolderSearch takes a void* that must point at a type in
+# search.cpp's anonymous namespace.
 search.cpp
 
 # --- The highlighter, compiled AND run off Windows -----------------------------

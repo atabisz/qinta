@@ -379,7 +379,7 @@ same session.
 
 | Area | State |
 |---|---|
-| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting, OpenType typography | Compile *and* assert off Windows — 18 test targets |
+| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting, OpenType typography, in-document search | Compile *and* assert off Windows — 19 test targets |
 | Text seam (`text_api.h`) + Qt backend | Done, tested headless |
 | Render seam (`render_api.h`) + Qt backend | Done, tested headless |
 | Win32 scalar + call seams | Done — 5 scalars admitted from an error census (`UINT32`, `FLOAT`, `BOOL`, `TRUE`, `FALSE`), 6 more refused for appearing in no error at all, and `HRESULT`/`SUCCEEDED` withheld deliberately so COM-shaped code cannot quietly compile off Windows |
@@ -388,8 +388,9 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **20 run on Linux, 18 of them shared with the 28 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 30 distinct test targets in total |
+| Tests running off Windows | **21 run on Linux, 19 of them shared with the 29 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 31 distinct test targets in total |
 | Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
+| In-document search asserted off Windows | Done — `search.cpp` was compile-only on both platforms and now has 53 assertions running on each. The blocker was never its shape: a real link found ten undefined symbols, nine already in portable files and one (`ensureLayoutComplete`) still in `render.cpp`, which the test stubs. Honest limit: **that stub means the precondition itself is untested**, and two folder-scan functions are unreachable from another translation unit and left uncovered |
 
 **To do — 24 files, 30,122 lines**
 
@@ -445,19 +446,19 @@ basis below is measured — Windows and Linux each built and tested in the same 
 |---|---|---|
 | A. Source lines free of the Windows stack | 20,439 / 57,253 | **35.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 33 / 57 | 57.9% |
-| C. Files a *running* test links | 30 / 57 | 52.6% |
-| D. Windows tests that also run off Windows | 18 / 28 | 64.3% |
-| E. All test targets, run off Windows | 20 / 30 | 66.7% |
+| C. Files a *running* test links | 31 / 57 | 54.4% |
+| D. Windows tests that also run off Windows | 19 / 29 | 65.5% |
+| E. All test targets, run off Windows | 21 / 31 | 67.7% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 
 **Basis A, 35.7%, is the headline** — it is the figure the probe itself prints on every
 run, so it is the one comparable across time. Three honest caveats on it.
 
 It *understates* progress, because its denominator includes headers that the manifest
-never credits even when they are portable. It *overstates* readiness, because three of the
-33 compiling files (`search.cpp`, `editrail.cpp`, `i18n_app.cpp`) are compile-only:
-nothing executes them on either platform, so they are proof that a compiler accepts them
-and nothing more.
+never credits even when they are portable. It *overstates* readiness, because two of the
+33 compiling files (`editrail.cpp`, `i18n_app.cpp`) are compile-only: nothing executes
+them on either platform, so they are proof that a compiler accepts them and nothing more.
+That was three until `search.cpp` got a running test.
 
 And it just moved the *wrong way* on a commit that was real progress: 35.8% → 35.7%, while
 `render.cpp` lost 40 live DirectWrite text mentions and gained a working seam. The reason
@@ -467,6 +468,13 @@ compiles — and the explanatory comments that came with the change made the den
 bigger. A metric that can fall on a good commit is worth keeping anyway, because it is
 honest about what it measures, but it is not the metric to read for whether the port is
 progressing. The `render.cpp` row in the table above is.
+
+The commit after that made the same point from the other side: giving `search.cpp` a
+running test with 53 assertions on both platforms moved basis A by **exactly zero**,
+because the file was already counted as portable. So basis A cannot see the difference
+between a file a compiler merely accepts and a file with a test behind it — which is
+what basis C is for, and why the two are listed separately rather than blended into one
+number.
 
 A basis was **removed** rather than updated when the goal changed. There used to be a
 line reading "same, excluding the five never-move files — 36.6%", and it measured

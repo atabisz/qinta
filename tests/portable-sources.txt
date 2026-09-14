@@ -65,14 +65,27 @@ text_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# selection.cpp is here because the build compiles it (the
-# portable_compile_only OBJECT library in CMakeLists.txt), which is exactly what
-# every other line here claims and no more. It is the one entry whose file no
-# test EXECUTES off Windows, and the distinction is worth keeping in view: it
-# cannot link, because isWordBoundary lives in utils.cpp and no portable target
-# can construct an App. See that target's comment for why compiling and stopping
-# is still worth a line rather than nothing.
+# These are here because the build compiles them (the portable_compile_only
+# OBJECT library in CMakeLists.txt), which is exactly what every other line here
+# claims and no more. They are the entries whose files no test EXECUTES off
+# Windows, and the distinction is worth keeping in view: they cannot link, because
+# isWordBoundary lives in utils.cpp and no portable target can construct an App.
+# See that target's comment for why compiling and stopping is still worth a line
+# rather than nothing.
+#
+# READ THE COUNT OF THIS SECTION, NOT THE COUNT OF THE FILE. Every other line in
+# this manifest is compiled AND linked AND run, so a reader totalling the lines
+# and calling them tested files will be wrong by exactly the number of entries
+# below. That is why they sit under their own heading instead of being sprinkled
+# into the sections above.
 selection.cpp
+# editrail.cpp reached zero errors when its two CRT calls (swprintf_s, _countof)
+# moved to portable_str.h and std::size. It compiles with include/ and md4c only,
+# no Qt at all -- measured, not assumed. Same caveat as selection.cpp: nothing
+# executes it off Windows, and its drawing code goes through the render and text
+# seams, which ARE asserted against each other, so the layer beneath it is tested
+# and its own logic is not.
+editrail.cpp
 
 # --- Portable application logic ----------------------------------------------
 i18n.cpp

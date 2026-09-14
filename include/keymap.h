@@ -15,11 +15,19 @@
 // fallbacks against the same literals. Neither build alone proves the fallbacks
 // match Windows; run together they do.
 //
-// WARNING: only the Windows half currently runs anywhere. The CI job that built
-// the other half was removed on 2026-09-10, so a fallback below can now drift
-// from the SDK and every build in use will still pass. Until a non-Windows build
-// is running again, treat these values as unverified after any edit and check
-// them against WinUser.h by hand.
+// BOTH HALVES RUN AGAIN, so these asserts are live. An earlier version of this
+// comment warned that only the Windows half executed anywhere, because the CI job
+// that built the other one was removed on 2026-09-10. That is no longer true: the
+// portable Linux build compiles keymap.cpp (it is listed in
+// tests/portable-sources.txt, whose manifest check verifies in both directions),
+// so every assert below is evaluated with _WIN32 undefined on each of those runs.
+//
+// The warning is corrected rather than deleted because it failed in the dangerous
+// direction: telling a reader that a guard is dead invites removing it. If the
+// portable build is ever dropped again, restore the warning -- and note that no
+// single-platform build can prove these values, since the Windows half checks the
+// literals against the SDK and the other half checks the fallbacks against the
+// same literals. Only the two together close the loop.
 #ifdef _WIN32
 #include <windows.h>
 #else

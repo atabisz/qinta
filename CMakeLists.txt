@@ -260,7 +260,7 @@ if(BUILD_TESTING)
     # tinta::TextLayout, whose two backends ARE asserted against each other, so
     # the seam under it is tested -- this file's own logic is not, on either
     # platform, and was not before this commit either.
-    add_library(portable_compile_only OBJECT src/selection.cpp)
+    add_library(portable_compile_only OBJECT src/selection.cpp src/editrail.cpp)
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
@@ -470,6 +470,31 @@ if(BUILD_TESTING)
         -DTEST_BINARY=$<TARGET_FILE:theme_data_tests>
         -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-data-test-$<CONFIG>
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
+
+    # portable_str.h -- the case-insensitive compare and the bounded wide
+    # formatting, on both backends. This header had NO test at all until now, which
+    # is why the target exists: tinta::strnicmp had been shipped and adopted with
+    # its contract unasserted on either platform.
+    #
+    # Header-only, so the target compiles nothing but the test itself, and it needs
+    # no run_portable_test.cmake isolation because the assertions touch no file and
+    # no config home. The reason it must run on BOTH platforms is the seam's only
+    # real claim -- that the Windows and POSIX spellings behave alike -- which a
+    # single-platform green cannot support.
+    #
+    # Truncation is deliberately absent from the assertions: it fail-fasts on
+    # Windows (0xC0000409) and abort()s off it by design, so it would end the run
+    # rather than test it. It is probed with a standalone executable per platform.
+    add_executable(portable_str_tests
+        tests/portable_str_tests.cpp
+    )
+    target_include_directories(portable_str_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_compile_definitions(portable_str_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME portable_str COMMAND portable_str_tests)
 
     # Qt 6 text layout -- the contract the DirectWrite text code has to be ported
     # onto, measured before any of that port is written. OPT-IN: find_package is

@@ -10,8 +10,10 @@
 #include "pandoc.h"
 #include "startpage.h"
 #include "tabs.h"
+#include "portable_str.h"
 
 #include <algorithm>
+#include <iterator>
 #include <memory>
 #include <string>
 
@@ -766,9 +768,9 @@ void renderEditCtxMenu(App& app) {
             }
         }
         wchar_t sizeLabel[48];
-        swprintf_s(sizeLabel, _countof(sizeLabel), L"%d \u00D7 %d %ls",
-                   app.editCtxGridC, app.editCtxGridR,
-                   tr(app, "ectx.table_word"));
+        tinta::swprintf(sizeLabel, std::size(sizeLabel), L"%d \u00D7 %d %ls",
+                        app.editCtxGridC, app.editCtxGridR,
+                        tr(app, "ectx.table_word"));
         std::unique_ptr<tinta::TextLayout> sl =
             railLayout(app, sizeLabel, 12.0f, tinta::FontWeight::Normal);
         if (sl) {

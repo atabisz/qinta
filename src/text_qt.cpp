@@ -123,6 +123,38 @@ QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& 
 
     QString content = text;
 
+    // NEWLINES, WHICH QT DOES NOT SEE AND DIRECTWRITE BREAKS ON.
+    //
+    // Measured, DejaVu Sans, QTextLayout with the same createLine() loop below:
+    // "ab\ncd" lays out as ONE line of textLength 5 whose naturalTextWidth is
+    // 38.91 -- byte-identical to "abcd" -- so '\n' is neither a break nor a
+    // glyph to Qt. "ab\ncd\nef" is also one line. DirectWrite gives the first two
+    // lines, the first with length 3 and newlineLength 1. That divergence is not
+    // hypothetical: mermaid.cpp decodes a literal \n in a node label into a real
+    // newline and export_html.cpp lays those labels out.
+    //
+    // Qt DOES break at U+2028 LINE SEPARATOR, and the resulting line model
+    // matches DirectWrite's where it counts -- measured, "ab<U+2028>cd" gives two
+    // lines with the first reporting textLength 3, i.e. INCLUDING the separator,
+    // which is exactly DirectWrite's length-includes-newlineLength contract. So
+    // the whole fix is a substitution, not a layout per paragraph.
+    //
+    // Three details that are all measured rather than assumed:
+    //   - U+2029 PARAGRAPH SEPARATOR does NOT break in Qt. Only U+2028 does, so
+    //     this is a property of the specific code point.
+    //   - The substitution is 1:1, so the caller-index map below is untouched. A
+    //     CRLF collapse would not be, and would need the map to absorb it.
+    //   - '\r' is left alone deliberately, and that is what makes CRLF correct
+    //     for free: '\r' is invisible and non-breaking to Qt (measured, "ab\r\ncd"
+    //     is one line of width 38.91), so "ab\r\ncd" becomes one break whose line
+    //     reports textLength 4 -- newlineLength 2, which is DirectWrite's answer
+    //     for CRLF. A LONE '\r' therefore does not break here where DirectWrite
+    //     would; that is a known divergence, left unasserted rather than papered
+    //     over, because nothing in the tree produces one.
+    for (int i = 0; i < content.size(); i++) {
+        if (content[i] == QLatin1Char('\n')) content[i] = QChar(QChar::LineSeparator);
+    }
+
     // Trimming. Qt elides at draw/measure time rather than owning an object for it,
     // so the mapping is to shorten the string before laying it out. Only the
     // single-line case is handled, which is the entire population: all 7
@@ -130,9 +162,12 @@ QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& 
     if (style.trimming.granularity != tinta::TrimmingGranularity::None && noWrap &&
         boxWidth > 0.0) {
         if (fm.horizontalAdvance(content) > boxWidth) {
-            content = fm.elidedText(content,
-                                    style.hasTrimmingSign ? Qt::ElideRight : Qt::ElideNone,
-                                    boxWidth);
+            const QString elided =
+                fm.elidedText(content,
+                              style.hasTrimmingSign ? Qt::ElideRight : Qt::ElideNone,
+                              boxWidth);
+            trimmed_ = elided != content;
+            content = elided;
         }
     }
 
@@ -616,6 +651,135 @@ bool QtTextLayout::HitTestTextRange(uint32_t textPosition, uint32_t textLength,
     // An empty range is a SUCCESS with a count of 0: the caller has to be able to
     // tell "nothing selected" from "ask again with a bigger buffer".
     return produced <= maxMetricsCount;
+}
+
+bool QtTextLayout::GetLineMetrics(tinta::LineMetrics* lineMetrics,
+                                 uint32_t maxLineCount,
+                                 uint32_t* actualLineCount) const {
+    if (actualLineCount) *actualLineCount = 0;
+
+    ensureRun();
+    const QTextLayout& layout = run_->layout();
+    const QString& laid = layout.text();
+    const uint32_t lineCount = static_cast<uint32_t>(std::max(0, layout.lineCount()));
+    if (actualLineCount) *actualLineCount = lineCount;
+
+    // Same two-pass protocol as HitTestTextRange, same reason: the count has to be
+    // answerable without a buffer, because export_html.cpp sizes its vector from
+    // the probe pass before it ever allocates one.
+    if (!lineMetrics || lineCount > maxLineCount) return lineCount <= maxLineCount;
+
+    for (uint32_t i = 0; i < lineCount; i++) {
+        const QTextLine line = layout.lineAt(static_cast<int>(i));
+        const int start = line.textStart();
+        const int end = start + line.textLength();
+
+        tinta::LineMetrics& out = lineMetrics[i];
+        out = tinta::LineMetrics{};
+
+        // Every length below goes through toCallerIndex, per text_api.h's offset
+        // contract. It is the identity on Windows and for the newline characters
+        // themselves -- they are all BMP -- but computing it rather than assuming
+        // it is what keeps a non-BMP line correct off Windows.
+        out.length = toCallerIndex(end) - toCallerIndex(start);
+
+        // newlineLength counts the characters that ENDED this line, and the
+        // constructor's substitution is what makes this readable at all: '\n'
+        // became U+2028, '\r' was left as-is, so a CRLF-terminated line ends with
+        // "\r<U+2028>" and reports 2 -- DirectWrite's answer. Nothing else in the
+        // string can be U+2028, because the substitution is the only writer of it.
+        int nlStart = end;
+        if (end > start && end <= laid.size() &&
+            laid[end - 1] == QChar(QChar::LineSeparator)) {
+            nlStart = end - 1;
+            if (nlStart > start && laid[nlStart - 1] == QLatin1Char('\r')) nlStart--;
+        }
+        out.newlineLength = toCallerIndex(end) - toCallerIndex(nlStart);
+
+        // DirectWrite counts the newline sequence as trailing whitespace, so this
+        // walks back from the newline rather than from the end of the line.
+        int wsStart = nlStart;
+        while (wsStart > start && laid[wsStart - 1].isSpace()) wsStart--;
+        out.trailingWhitespaceLength = toCallerIndex(end) - toCallerIndex(wsStart);
+
+        out.height = static_cast<float>(line.height());
+        // Qt's ascent IS the baseline distance from the line's top, which is what
+        // DirectWrite's `baseline` means. The three sites that read this use it as
+        // an ascent (math_render.cpp assigns it to m.ascent and derives descent as
+        // height - baseline), so the two names describe the same number.
+        out.baseline = static_cast<float>(line.ascent());
+        out.isTrimmed = run_->trimmed() ? 1 : 0;
+    }
+
+    return true;
+}
+
+bool QtTextLayout::GetClusterMetrics(tinta::ClusterMetrics* clusterMetrics,
+                                     uint32_t maxClusterCount,
+                                     uint32_t* actualClusterCount) const {
+    if (actualClusterCount) *actualClusterCount = 0;
+
+    ensureRun();
+    const QTextLayout& layout = run_->layout();
+    const QString& laid = layout.text();
+
+    // Qt has no cluster API, so clusters are the CURSOR POSITIONS -- which is not
+    // a substitute for one but the same thing under a different name:
+    // nextCursorPosition is grapheme-aware, so it steps over a surrogate pair or a
+    // combining sequence exactly where DirectWrite would put a cluster boundary.
+    // The walk is per line rather than over the whole string because cursorToX is
+    // a QTextLine method, and a cluster never straddles a line.
+    uint32_t produced = 0;
+
+    for (int li = 0; li < layout.lineCount(); li++) {
+        const QTextLine line = layout.lineAt(li);
+        const int start = line.textStart();
+        const int end = start + line.textLength();
+
+        int p = start;
+        while (p < end) {
+            int next = layout.nextCursorPosition(p);
+            // Clamp to the line: a cursor step must not carry the walk past the
+            // line's own end, or two lines would report overlapping clusters and
+            // the lengths would stop summing to the text length.
+            if (next <= p) next = p + 1;
+            if (next > end) next = end;
+
+            if (clusterMetrics && produced < maxClusterCount) {
+                tinta::ClusterMetrics& out = clusterMetrics[produced];
+                out = tinta::ClusterMetrics{};
+                out.width =
+                    static_cast<float>(line.cursorToX(next) - line.cursorToX(p));
+                out.length = static_cast<uint16_t>(toCallerIndex(next) -
+                                                   toCallerIndex(p));
+
+                // Only the two flags that are properties of the CHARACTER are
+                // filled. canWrapLineAfter, isSoftHyphen and isRightToLeft are
+                // properties of the shaping and bidi run structure, which Qt does
+                // not expose here, and no call site reads any of the five -- so a
+                // derived-looking value for those three would be an unasserted
+                // semantic dressed up as a feature. These two are filled because
+                // they are cheap AND honest, and because isWhitespace is the one
+                // runtime check the Direct2D side's bit-field cast has.
+                const QChar ch = (p < laid.size()) ? laid[p] : QChar();
+                out.isNewline = (ch == QChar(QChar::LineSeparator) ||
+                                 ch == QLatin1Char('\r')) ? 1u : 0u;
+                out.isWhitespace = ch.isSpace() ? 1u : 0u;
+            }
+            // Incremented outside the buffer check, for the same reason
+            // HitTestTextRange's `produced` is: the count-probe pass arrives with
+            // maxClusterCount == 0 and render.cpp sizes its vector from the answer.
+            produced++;
+            p = next;
+        }
+    }
+
+    if (actualClusterCount) *actualClusterCount = produced;
+    // False when the buffer could not take them all, INCLUDING the probe pass,
+    // which is what DirectWrite's E_NOT_SUFFICIENT_BUFFER turns into on the other
+    // side. Returning true for the probe would make the two backends disagree on
+    // the protocol while agreeing on every value it produced.
+    return produced <= maxClusterCount;
 }
 
 // --- QtTextFactory ----------------------------------------------------------

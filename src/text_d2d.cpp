@@ -68,60 +68,93 @@ TINTA_ASSERT_ENUM(tinta::LineSpacingMethod::Uniform, DWRITE_LINE_SPACING_METHOD_
 // a future SDK reorders DWRITE_TEXT_METRICS or widens a field, the field-by-field
 // copies stay correct and nothing anywhere would report the change. These turn it
 // into a build failure instead.
+//
+// AND THE OFFSETS ALONE DO NOT COVER "WIDENS A FIELD". MEASURED, NOT REASONED.
+//
+// This block was offsetof-only, and its own comments claimed that was what stopped
+// someone tidying a 4-byte BOOL mirror into a 1-byte `bool`. It is not. Every field
+// of these four structs is 4 bytes with 4-byte alignment, so narrowing ANY SINGLE
+// one of them moves nothing at all: the successor realigns up to where it already
+// was, and a trailing field's loss comes straight back as trailing padding.
+// Mutating LineMetrics::isTrimmed to `bool` produced zero diagnostics against the
+// old block. A standalone probe then showed the same for a MIDDLE field and for the
+// second-to-last, so this was never specific to the trailing position -- three
+// controls in that probe are what make the reading discriminating rather than a
+// probe that sees nothing: narrowing TWO adjacent fields does move offsets
+// (sizeof 36 -> 32), and a swapped width/height pair is caught. So the old block
+// was live and correctly scoped to REORDERING; it simply had no opinion on width.
+//
+// Hence the macro: one line per field asserting the offset AND the width, with the
+// struct and field named in both messages so a mutation says which field it was.
+// Applied to all four mirrors rather than to the one field the mutation happened to
+// hit, because the blind spot belongs to the guard, not to isTrimmed.
+#define TINTA_ASSERT_FIELD(tintaStruct, nativeStruct, field)                       \
+    static_assert(offsetof(tintaStruct, field) == offsetof(nativeStruct, field),    \
+                  #tintaStruct "::" #field " is at a different offset than "        \
+                  #nativeStruct "::" #field);                                      \
+    static_assert(sizeof(tintaStruct::field) == sizeof(nativeStruct::field),        \
+                  #tintaStruct "::" #field " is a different width than "            \
+                  #nativeStruct "::" #field)
 
 static_assert(sizeof(tinta::TextMetrics) == sizeof(DWRITE_TEXT_METRICS),
               "tinta::TextMetrics must match DWRITE_TEXT_METRICS");
-static_assert(offsetof(tinta::TextMetrics, left) == offsetof(DWRITE_TEXT_METRICS, left), "left");
-static_assert(offsetof(tinta::TextMetrics, top) == offsetof(DWRITE_TEXT_METRICS, top), "top");
-static_assert(offsetof(tinta::TextMetrics, width) == offsetof(DWRITE_TEXT_METRICS, width), "width");
-static_assert(offsetof(tinta::TextMetrics, widthIncludingTrailingWhitespace) ==
-                  offsetof(DWRITE_TEXT_METRICS, widthIncludingTrailingWhitespace),
-              "widthIncludingTrailingWhitespace");
-static_assert(offsetof(tinta::TextMetrics, height) == offsetof(DWRITE_TEXT_METRICS, height), "height");
-static_assert(offsetof(tinta::TextMetrics, layoutWidth) ==
-                  offsetof(DWRITE_TEXT_METRICS, layoutWidth), "layoutWidth");
-static_assert(offsetof(tinta::TextMetrics, layoutHeight) ==
-                  offsetof(DWRITE_TEXT_METRICS, layoutHeight), "layoutHeight");
-static_assert(offsetof(tinta::TextMetrics, maxBidiReorderingDepth) ==
-                  offsetof(DWRITE_TEXT_METRICS, maxBidiReorderingDepth), "maxBidiReorderingDepth");
-static_assert(offsetof(tinta::TextMetrics, lineCount) ==
-                  offsetof(DWRITE_TEXT_METRICS, lineCount), "lineCount");
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, left);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, top);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, width);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, widthIncludingTrailingWhitespace);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, height);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, layoutWidth);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, layoutHeight);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, maxBidiReorderingDepth);
+TINTA_ASSERT_FIELD(tinta::TextMetrics, DWRITE_TEXT_METRICS, lineCount);
 
 // Same drift alarm for the hit-test struct, and here it is doing more work than
 // the TextMetrics one: DWRITE_HIT_TEST_METRICS mixes UINT32, FLOAT and BOOL, so a
-// portable struct that spelled the two BOOLs as `bool` would be 6 bytes short and
-// every field from `bidiLevel` on would silently read the wrong memory. These
-// assertions are what make `int32_t` in text_api.h a checked decision rather than
-// a hopeful one.
+// portable struct that spelled the two BOOLs as `bool` would be short by up to 6
+// bytes. These assertions are what make `int32_t` in text_api.h a checked decision
+// rather than a hopeful one -- and it is the width half of the macro that checks
+// it, since neither BOOL sits where narrowing it alone would move an offset.
 static_assert(sizeof(tinta::HitTestMetrics) == sizeof(DWRITE_HIT_TEST_METRICS),
               "tinta::HitTestMetrics must match DWRITE_HIT_TEST_METRICS");
-static_assert(offsetof(tinta::HitTestMetrics, textPosition) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, textPosition), "textPosition");
-static_assert(offsetof(tinta::HitTestMetrics, length) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, length), "length");
-static_assert(offsetof(tinta::HitTestMetrics, left) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, left), "left");
-static_assert(offsetof(tinta::HitTestMetrics, top) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, top), "top");
-static_assert(offsetof(tinta::HitTestMetrics, width) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, width), "width");
-static_assert(offsetof(tinta::HitTestMetrics, height) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, height), "height");
-static_assert(offsetof(tinta::HitTestMetrics, bidiLevel) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, bidiLevel), "bidiLevel");
-static_assert(offsetof(tinta::HitTestMetrics, isText) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, isText), "isText");
-static_assert(offsetof(tinta::HitTestMetrics, isTrimmed) ==
-                  offsetof(DWRITE_HIT_TEST_METRICS, isTrimmed), "isTrimmed");
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, textPosition);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, length);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, left);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, top);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, width);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, height);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, bidiLevel);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, isText);
+TINTA_ASSERT_FIELD(tinta::HitTestMetrics, DWRITE_HIT_TEST_METRICS, isTrimmed);
+
+static_assert(sizeof(tinta::LineMetrics) == sizeof(DWRITE_LINE_METRICS),
+              "tinta::LineMetrics must match DWRITE_LINE_METRICS");
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, length);
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, trailingWhitespaceLength);
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, newlineLength);
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, height);
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, baseline);
+TINTA_ASSERT_FIELD(tinta::LineMetrics, DWRITE_LINE_METRICS, isTrimmed);
+
+// DWRITE_CLUSTER_METRICS gets sizeof plus TWO fields and not six, because five of
+// its members are bit fields and BOTH halves of the macro are ill-formed on one --
+// MSVC rejects offsetof with `error C2618: illegal member designator in offsetof`,
+// and sizeof on a bit field is ill-formed in the same way. text_api.h carries the
+// argument for why that is sufficient rather than a gap: the copy below is by NAME,
+// so a bit moving within the bit field cannot corrupt it, and the two things that
+// could -- sizeof of the whole struct and the two non-bitfield members -- are
+// asserted here.
+static_assert(sizeof(tinta::ClusterMetrics) == sizeof(DWRITE_CLUSTER_METRICS),
+              "tinta::ClusterMetrics must match DWRITE_CLUSTER_METRICS");
+TINTA_ASSERT_FIELD(tinta::ClusterMetrics, DWRITE_CLUSTER_METRICS, width);
+TINTA_ASSERT_FIELD(tinta::ClusterMetrics, DWRITE_CLUSTER_METRICS, length);
 
 static_assert(sizeof(tinta::Trimming) == sizeof(DWRITE_TRIMMING),
               "tinta::Trimming must match DWRITE_TRIMMING");
-static_assert(offsetof(tinta::Trimming, granularity) ==
-                  offsetof(DWRITE_TRIMMING, granularity), "granularity");
-static_assert(offsetof(tinta::Trimming, delimiter) ==
-                  offsetof(DWRITE_TRIMMING, delimiter), "delimiter");
-static_assert(offsetof(tinta::Trimming, delimiterCount) ==
-                  offsetof(DWRITE_TRIMMING, delimiterCount), "delimiterCount");
+TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, granularity);
+TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, delimiter);
+TINTA_ASSERT_FIELD(tinta::Trimming, DWRITE_TRIMMING, delimiterCount);
+
+#undef TINTA_ASSERT_FIELD
 
 namespace {
 
@@ -380,6 +413,59 @@ bool D2DTextLayout::HitTestTextRange(uint32_t textPosition, uint32_t textLength,
         reinterpret_cast<DWRITE_HIT_TEST_METRICS*>(metrics), maxMetricsCount,
         &nativeCount);
     if (actualMetricsCount) *actualMetricsCount = nativeCount;
+    return SUCCEEDED(hr);
+}
+
+bool D2DTextLayout::GetLineMetrics(tinta::LineMetrics* lineMetrics,
+                                  uint32_t maxLineCount,
+                                  uint32_t* actualLineCount) const {
+    // Same two-pass contract as HitTestTextRange and for the same measured
+    // reason: export_html.cpp calls with (nullptr, 0) to size a vector, so the
+    // count has to be forwarded even when the HRESULT reports an insufficient
+    // buffer. Returning false with the count left at 0 would make that site
+    // conclude the layout has no lines and emit no <text> rows at all.
+    if (actualLineCount) *actualLineCount = 0;
+    if (!layout_) return false;
+
+    // The cast is licensed by the seven assertions at the top of this file --
+    // sizeof plus all six offsets -- exactly as HitTestTextRange's is by its ten.
+    // The parameter is an array the caller sized, so the alternative is a heap
+    // temporary of unknown length in a method that otherwise allocates nothing.
+    UINT32 nativeCount = 0;
+    const HRESULT hr = const_cast<IDWriteTextLayout*>(layout_)->GetLineMetrics(
+        reinterpret_cast<DWRITE_LINE_METRICS*>(lineMetrics), maxLineCount,
+        &nativeCount);
+    if (actualLineCount) *actualLineCount = nativeCount;
+    return SUCCEEDED(hr);
+}
+
+bool D2DTextLayout::GetClusterMetrics(tinta::ClusterMetrics* clusterMetrics,
+                                      uint32_t maxClusterCount,
+                                      uint32_t* actualClusterCount) const {
+    if (actualClusterCount) *actualClusterCount = 0;
+    if (!layout_) return false;
+
+    // THIS CAST IS LICENSED DIFFERENTLY FROM THE THREE ABOVE IT, and the
+    // difference is worth naming because the usual argument does not reach.
+    //
+    // The other casts rest on offsetof assertions covering every field. Here
+    // only sizeof and two of the eight members can be asserted at all --
+    // offsetof on a bit field is ill-formed, measured, `error C2618`. What
+    // licenses the remaining five is that tinta::ClusterMetrics declares the same
+    // bit fields, of the same underlying type, in the same order, and both
+    // structs are compiled by ONE implementation in this translation unit. Bit
+    // field allocation is implementation-defined but not arbitrary: identical
+    // declarations under one implementation get identical layout.
+    //
+    // That argument is weaker than an assertion, so it is not left to stand
+    // alone. The shared cross-backend suite checks isWhitespace on the cluster
+    // covering a space, which is a live runtime read THROUGH this cast -- a
+    // mismatched bit layout shows up as a wrong flag rather than as nothing.
+    UINT32 nativeCount = 0;
+    const HRESULT hr = const_cast<IDWriteTextLayout*>(layout_)->GetClusterMetrics(
+        reinterpret_cast<DWRITE_CLUSTER_METRICS*>(clusterMetrics), maxClusterCount,
+        &nativeCount);
+    if (actualClusterCount) *actualClusterCount = nativeCount;
     return SUCCEEDED(hr);
 }
 

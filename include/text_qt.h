@@ -88,10 +88,17 @@ public:
     const QTextLayout& layout() const { return layout_; }
     qreal paragraphOffset() const { return paragraphOffset_; }
 
+    // Whether the constructor actually shortened the string, as opposed to merely
+    // having been asked to. Tracked rather than reported as false, because
+    // LineMetrics::isTrimmed is a field no call site reads -- and a field nothing
+    // reads is exactly where a convenient zero survives being wrong.
+    bool trimmed() const { return trimmed_; }
+
 private:
     QTextLayout layout_;
     tinta::TextMetrics metrics_{};
     qreal paragraphOffset_ = 0.0;
+    bool trimmed_ = false;
 };
 
 class QtInlineObject final : public tinta::InlineObject {
@@ -158,6 +165,11 @@ public:
                           tinta::HitTestMetrics* metrics,
                           uint32_t maxMetricsCount,
                           uint32_t* actualMetricsCount) const override;
+    bool GetLineMetrics(tinta::LineMetrics* lineMetrics, uint32_t maxLineCount,
+                        uint32_t* actualLineCount) const override;
+    bool GetClusterMetrics(tinta::ClusterMetrics* clusterMetrics,
+                           uint32_t maxClusterCount,
+                           uint32_t* actualClusterCount) const override;
 
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the

@@ -1369,6 +1369,259 @@ int runRenderApiAssertions(RenderHarness& h) {
         }
     }
 
+    // --- NEWLINES: a line is newline-delimited, not wrapped-only -----------------
+    //
+    // This family is named apart from the two below on purpose. It is asserted
+    // entirely through GetMetrics, which SHIPPED five spans ago, because the
+    // divergence it catches was in shipped code and not in the methods added
+    // beside it -- Qt's QTextLayout does not break on '\n' at all, giving "ab\ncd"
+    // one line whose natural width equals "abcd"'s. 155 assertions never caught it
+    // because not one of them contained a newline. Keeping it on GetMetrics is what
+    // makes a red here mean "the line model is wrong" rather than "the new struct
+    // is wrong".
+    //
+    // The strings are real: mermaid.cpp decodes a literal \n in a node label into a
+    // newline, and export_html.cpp lays those labels out to place SVG <text> rows.
+    {
+        static const wchar_t kOneLine[] = L"ab cd";
+        static const wchar_t kTwoLines[] = L"ab\ncd";
+        static const wchar_t kThreeLines[] = L"a\nb\nc";
+        // The newline REMOVED rather than replaced. This is the discriminator, and
+        // it exists because the obvious comparison is not one: a first version of
+        // this block asserted width("ab\ncd") < width("ab cd") and called that the
+        // test for a real break. The M1 mutation -- deleting the newline
+        // substitution outright -- left it GREEN, because a swallowed newline
+        // measures width("abcd"), which is narrower than a string containing a
+        // space whether or not any line broke. Against "abcd" the two outcomes are
+        // distinguishable: a broken layout is as wide as its widest HALF, while a
+        // swallowed newline is exactly as wide as the whole.
+        static const wchar_t kNoBreak[] = L"abcd";
+
+        std::unique_ptr<tinta::TextFormat> f1 = makeFormat(h);
+        std::unique_ptr<tinta::TextFormat> f2 = makeFormat(h);
+        std::unique_ptr<tinta::TextFormat> f3 = makeFormat(h);
+        std::unique_ptr<tinta::TextFormat> f4 = makeFormat(h);
+        // Boxes wide enough that nothing can wrap, so every extra line below is a
+        // newline's doing and not the box's.
+        std::unique_ptr<tinta::TextLayout> one =
+            f1 ? h.textFactory().CreateTextLayout(kOneLine, 5, f1.get(), 1000.0f, 400.0f)
+               : nullptr;
+        std::unique_ptr<tinta::TextLayout> two =
+            f2 ? h.textFactory().CreateTextLayout(kTwoLines, 5, f2.get(), 1000.0f, 400.0f)
+               : nullptr;
+        std::unique_ptr<tinta::TextLayout> three =
+            f3 ? h.textFactory().CreateTextLayout(kThreeLines, 5, f3.get(), 1000.0f, 400.0f)
+               : nullptr;
+        std::unique_ptr<tinta::TextLayout> noBreak =
+            f4 ? h.textFactory().CreateTextLayout(kNoBreak, 4, f4.get(), 1000.0f, 400.0f)
+               : nullptr;
+        check(one && two && three && noBreak,
+              "CONTROL: four layouts exist -- differing only in how many newlines they "
+              "contain, and one with the newline removed rather than replaced");
+
+        if (one && two && three && noBreak) {
+            tinta::TextMetrics m1{}, m2{}, m3{}, mNoBreak{};
+            one->GetMetrics(&m1);
+            two->GetMetrics(&m2);
+            three->GetMetrics(&m3);
+            noBreak->GetMetrics(&mNoBreak);
+
+            check(m1.lineCount == 1,
+                  "CONTROL: the newline-free string of the same length is ONE line, so a "
+                  "count above 1 below is a newline breaking and not the box wrapping");
+            check(m2.lineCount == 2,
+                  "an embedded newline BREAKS A LINE -- the same five characters with one "
+                  "\\n in them lay out as two lines");
+            check(m3.lineCount == 3,
+                  "two embedded newlines break two lines, so the break is per-newline and "
+                  "not a one-shot");
+            check(m2.height > m1.height,
+                  "a newline costs real vertical space: two lines are taller than one, "
+                  "which is what export_html.cpp's baselines are spaced by");
+            check(m3.height > m2.height,
+                  "three lines are taller than two, so height tracks the newline count "
+                  "rather than saturating");
+            check(mNoBreak.width > 0.0f && mNoBreak.lineCount == 1,
+                  "CONTROL: \"abcd\" with the newline REMOVED is one line of real width, "
+                  "so the comparison below is against a measured whole-string width");
+            check(m2.width < mNoBreak.width,
+                  "the widest line of \"ab\\ncd\" is NARROWER than all of \"abcd\" on one "
+                  "line -- the assertion that distinguishes a real break from a newline "
+                  "SWALLOWED as a zero-width glyph, since a swallowed one measures "
+                  "exactly the whole string. Comparing against \"ab cd\" instead does "
+                  "NOT distinguish them, measured: the M1 mutation left that version "
+                  "green");
+        }
+    }
+
+    // --- GetLineMetrics: per-line lengths, and what `newlineLength` subtracts -----
+    //
+    // The consumer that makes this load-bearing is export_html.cpp, which computes
+    // `visible = length - newlineLength` and slices the ORIGINAL string by it to
+    // emit one SVG <text> row per line. So the assertions are about the arithmetic
+    // that site does, not about any pixel: the lengths partition the string, and
+    // newlineLength is what has to come off to get the visible text.
+    {
+        static const wchar_t kTwoLines[] = L"ab\ncd";
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        std::unique_ptr<tinta::TextLayout> layout =
+            format ? h.textFactory().CreateTextLayout(kTwoLines, 5, format.get(),
+                                                      1000.0f, 400.0f)
+                   : nullptr;
+        check(layout != nullptr, "CONTROL: a two-line layout exists to measure");
+
+        if (layout) {
+            uint32_t probeCount = 0;
+            const bool probe = layout->GetLineMetrics(nullptr, 0, &probeCount);
+            check(probeCount == 2,
+                  "CONTROL: the count-probe pass reports 2 lines, so a zero in the fill "
+                  "pass below would be a refusal rather than an empty layout");
+            check(!probe,
+                  "GetLineMetrics's count-probe pass reports FAILURE while yielding the "
+                  "count, the same protocol HitTestTextRange uses and export_html.cpp "
+                  "depends on to size its vector");
+
+            tinta::LineMetrics lines[8]{};
+            const bool filled = layout->GetLineMetrics(lines, 8, &probeCount);
+            check(filled && probeCount == 2,
+                  "the fill pass succeeds and reports the same count the probe did");
+
+            if (filled && probeCount == 2) {
+                check(lines[0].length + lines[1].length == 5,
+                      "the per-line lengths PARTITION the string -- they sum to its "
+                      "length, which is what lets export_html.cpp walk `pos` through it "
+                      "line by line without losing a character");
+                check(lines[0].newlineLength == 1,
+                      "the first line's newlineLength is 1: it was ended by one newline "
+                      "character");
+                check(lines[1].newlineLength == 0,
+                      "the last line was ended by the end of the string, not a newline, "
+                      "so nothing comes off it");
+                check(lines[0].length - lines[0].newlineLength == 2,
+                      "length minus newlineLength is the VISIBLE text of the line -- "
+                      "\"ab\" -- which is the exact expression export_html.cpp substrings "
+                      "with");
+                check(lines[0].length > lines[0].newlineLength,
+                      "length INCLUDES the newline rather than excluding it, so the "
+                      "subtraction above cannot underflow a uint32_t");
+                check(lines[0].baseline > 0.0f && lines[0].baseline <= lines[0].height,
+                      "the baseline sits inside the line box -- positive, and no lower "
+                      "than its height");
+                check(lines[0].height > 0.0f && lines[1].height > 0.0f,
+                      "both lines have real height, so the second is a laid-out line and "
+                      "not a zeroed struct");
+                check(lines[0].trailingWhitespaceLength >= lines[0].newlineLength,
+                      "the newline sequence counts as trailing whitespace, as DirectWrite "
+                      "defines it, so this can never be the smaller of the two");
+            }
+
+            // The astral case, because span 27's closing lesson was that an ASCII
+            // corpus makes the offset conversion the numeric identity and leaves it
+            // untested while the suite reads green.
+            const wchar_t kNonBmp[] = L"a\U0001F600b";
+            const uint32_t kNonBmpLen =
+                (uint32_t)(sizeof(kNonBmp) / sizeof(wchar_t)) - 1;
+            const uint32_t kNonBmpUnits = (sizeof(wchar_t) == 2) ? 2u : 1u;
+            check(kNonBmpLen == 1u + kNonBmpUnits + 1u,
+                  "CONTROL: the non-BMP literal has the element count this platform's "
+                  "wchar_t implies, so the length below is the caller's real one and not "
+                  "a coincidence of encoding");
+
+            std::unique_ptr<tinta::TextFormat> aFormat = makeFormat(h);
+            std::unique_ptr<tinta::TextLayout> aLayout =
+                aFormat ? h.textFactory().CreateTextLayout(kNonBmp, kNonBmpLen,
+                                                           aFormat.get(), 1000.0f, 400.0f)
+                        : nullptr;
+            check(aLayout != nullptr,
+                  "CONTROL: a layout over non-BMP text exists, so the length below is a "
+                  "converted offset and not an ASCII identity");
+            if (aLayout) {
+                uint32_t aCount = 0;
+                tinta::LineMetrics aLines[4]{};
+                const bool aFilled = aLayout->GetLineMetrics(aLines, 4, &aCount);
+                check(aFilled && aCount == 1,
+                      "CONTROL: the non-BMP string is one line, so its single length is "
+                      "the whole string");
+                if (aFilled && aCount == 1) {
+                    check(aLines[0].length == kNonBmpLen,
+                          "a line's length is in the CALLER's wchar_t units -- it equals "
+                          "the stringLength handed to CreateTextLayout, which is the only "
+                          "assertion here that a backend with 32-bit wchar_t can fail");
+                }
+            }
+        }
+    }
+
+    // --- GetClusterMetrics: the two properties its one consumer depends on --------
+    //
+    // render.cpp builds a cumulative-width prefix table from these -- `cumW[cpos]`
+    // keyed by accumulating `length` and `width` -- so what has to hold is
+    // relational and not absolute: the lengths must partition the string, and the
+    // widths must sum to the advance the layout reports. Anything else would be a
+    // statement about Segoe UI versus DejaVu Sans.
+    {
+        static const wchar_t kSpaced[] = L"ab cd";
+        std::unique_ptr<tinta::TextFormat> format = makeFormat(h);
+        std::unique_ptr<tinta::TextLayout> layout =
+            format ? h.textFactory().CreateTextLayout(kSpaced, 5, format.get(),
+                                                      1000.0f, 400.0f)
+                   : nullptr;
+        check(layout != nullptr, "CONTROL: a layout exists to take cluster metrics from");
+
+        if (layout) {
+            uint32_t probeCount = 0;
+            const bool probe = layout->GetClusterMetrics(nullptr, 0, &probeCount);
+            check(probeCount == 5,
+                  "CONTROL: the probe pass counts one cluster per character for plain "
+                  "Latin text, so the sums below are over five real clusters");
+            check(!probe,
+                  "GetClusterMetrics's count-probe pass reports FAILURE while yielding "
+                  "the count, matching GetLineMetrics and HitTestTextRange -- the two "
+                  "backends reach it by different routes and must still agree");
+
+            tinta::ClusterMetrics clusters[16]{};
+            const bool filled = layout->GetClusterMetrics(clusters, 16, &probeCount);
+            check(filled && probeCount == 5,
+                  "the fill pass succeeds and reports the same count the probe did");
+
+            if (filled && probeCount == 5) {
+                uint32_t lengthSum = 0;
+                float widthSum = 0.0f;
+                for (uint32_t i = 0; i < probeCount; i++) {
+                    lengthSum += clusters[i].length;
+                    widthSum += clusters[i].width;
+                }
+                tinta::TextMetrics tm{};
+                layout->GetMetrics(&tm);
+
+                check(lengthSum == 5,
+                      "the cluster lengths PARTITION the string -- render.cpp's `cpos` "
+                      "walks to the end by accumulating them, and a short sum leaves the "
+                      "tail of its prefix table filled with a stale width");
+                check(tm.widthIncludingTrailingWhitespace > 0.0f,
+                      "CONTROL: the layout reports a real advance, so the comparison "
+                      "below is against a measured width and not zero");
+                check(std::fabs(widthSum - tm.widthIncludingTrailingWhitespace) < 0.75f,
+                      "the cluster widths SUM to the layout's advance including trailing "
+                      "whitespace, which is the property that makes cumW[b] - cumW[a] a "
+                      "substring width");
+                for (uint32_t i = 0; i < probeCount; i++)
+                    check(clusters[i].width >= 0.0f,
+                          "no cluster has negative width, so the prefix table is "
+                          "monotonic and widthOf(a,b) is never negative");
+                check(clusters[2].isWhitespace == 1,
+                      "the cluster over the space is flagged whitespace -- a live read "
+                      "THROUGH the Direct2D side's bit-field cast, which is the only "
+                      "runtime check that cast has, since offsetof cannot assert a bit "
+                      "field");
+                check(clusters[0].isWhitespace == 0 && clusters[1].isWhitespace == 0,
+                      "CONTROL: the letter clusters are NOT flagged whitespace, so the "
+                      "assertion above is reading a real flag and not a struct filled "
+                      "with ones");
+            }
+        }
+    }
+
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",
                 failures == 0 ? "all " : "", checks, failures, h.name());
     return failures;

@@ -206,9 +206,19 @@ struct TextMetrics {
 //
 // isText and isTrimmed are int32_t and not bool. They are BOOL in DirectWrite,
 // which is 4 bytes, and the layout claim in the Windows backend is the only thing
-// checking that this struct still matches the SDK's -- a 1-byte bool would break
-// exactly the assertion that exists to catch a widened field. Same reason
+// checking that this struct still matches the SDK's. Same reason
 // Trimming::delimiter stays uint32_t rather than wchar_t.
+//
+// This comment used to end "-- a 1-byte bool would break exactly the assertion
+// that exists to catch a widened field". That was false, and measurement is what
+// showed it. Every field here is 4 bytes with 4-byte alignment, so narrowing any
+// single one moves NO offset and leaves sizeof at 36: the successor realigns up to
+// where it already was, and the last member's loss returns as trailing padding.
+// Narrowing isTrimmed, isText, or a middle field are all invisible to an
+// offsetof-only guard -- confirmed by mutating the same shape in LineMetrics,
+// which produced zero diagnostics. What the offsets do catch is REORDERING. The
+// backend's assertions now check each field's width alongside its offset, and that
+// is what makes int32_t a checked decision.
 struct HitTestMetrics {
     uint32_t textPosition;
     uint32_t length;
@@ -219,6 +229,68 @@ struct HitTestMetrics {
     uint32_t bidiLevel;
     int32_t isText;
     int32_t isTrimmed;
+};
+
+// Field-for-field DWRITE_LINE_METRICS, same names in the same order, carried
+// whole for the reason TextMetrics is. Counting SITES, not occurrences, call sites
+// read four of the six -- baseline 3 (d2d_init, math_render, render), height 2,
+// length 1, newlineLength 1 -- and trailingWhitespaceLength and isTrimmed are read
+// nowhere. This said "length 2" first time round: the second match was
+// render.cpp's `clusters[ci].length`, which is a CLUSTER length and belongs to the
+// struct below. A field census taken by pattern rather than by site will pull in
+// any struct that happens to share a field name. They are carried
+// anyway because the layout assertion in the Windows backend is what makes an
+// SDK change loud, and a field omitted from the mirror is a field whose offset
+// nothing checks.
+//
+// isTrimmed is int32_t and not bool, for exactly the reason
+// HitTestMetrics::isTrimmed is: BOOL is 4 bytes. This is the field the mutation
+// was actually run on -- see the note above for why an offsetof-only guard could
+// not see it, and why the backend now asserts widths too.
+struct LineMetrics {
+    uint32_t length;
+    uint32_t trailingWhitespaceLength;
+    uint32_t newlineLength;
+    float height;
+    float baseline;
+    int32_t isTrimmed;
+};
+
+// Field-for-field DWRITE_CLUSTER_METRICS -- and the one struct in this header
+// whose layout claim is WEAKER IN KIND than its neighbours', for a reason worth
+// stating rather than discovering later.
+//
+// Five of the eight members are bit fields, and offsetof on a bit field is
+// ill-formed in C++. Measured, not assumed: MSVC rejects
+// offsetof(DWRITE_CLUSTER_METRICS, isWhitespace) with
+// `error C2618: illegal member designator in offsetof`, while offsetof on width
+// and length in the same translation unit compiles. So the Windows backend can
+// assert sizeof plus the offsets of width and length, and nothing more.
+//
+// That is not a gap waiting to be closed. The copy across this seam is
+// field-by-field BY NAME, never a memcpy, so a future SDK moving a bit WITHIN
+// the bit field cannot corrupt it. What could corrupt it is a change to sizeof
+// or to the two byte-offset members, and those are exactly what is asserted.
+//
+// The bit fields are mirrored AS bit fields rather than widened to bytes, to
+// hold sizeof at 8. That matters: render.cpp allocates one of these per cluster
+// for a whole text run, so widening them would double a per-character
+// allocation to buy an assertion the paragraph above shows is unnecessary.
+//
+// Call sites read two of the eight -- width 1, length 1 -- and all five flags
+// are read nowhere. A backend with no cluster concept of its own should leave a
+// flag it cannot answer honestly at zero rather than derive something
+// plausible; nothing reads them, so a fabricated canWrapLineAfter would be an
+// unasserted semantic dressed up as a feature.
+struct ClusterMetrics {
+    float width;
+    uint16_t length;
+    uint16_t canWrapLineAfter : 1;
+    uint16_t isWhitespace : 1;
+    uint16_t isNewline : 1;
+    uint16_t isSoftHyphen : 1;
+    uint16_t isRightToLeft : 1;
+    uint16_t padding : 11;
 };
 
 // An opaque handle, for the same reason StrokeStyle is one: a trimming sign is
@@ -313,6 +385,45 @@ public:
                                   HitTestMetrics* metrics,
                                   uint32_t maxMetricsCount,
                                   uint32_t* actualMetricsCount) const = 0;
+
+    // MEASUREMENT, AND WHAT A "LINE" HAS TO MEAN
+    //
+    // Both follow DirectWrite's two-pass shape (metrics=nullptr, max=0 to learn
+    // the count first), because both consumers use it: export_html.cpp sizes a
+    // vector that way and render.cpp does the same for clusters. Both return
+    // bool for the reason the hit-test three do -- the sites branch on
+    // SUCCEEDED(), so `SUCCEEDED(x)` becomes `x`.
+    //
+    // `length`, `trailingWhitespaceLength` and `newlineLength` are bound by the
+    // OFFSET CONTRACT above, and this is not a technicality. export_html.cpp
+    // computes `visible = lm[i].length - lm[i].newlineLength` and adds
+    // `lm[i].length` to a position that indexes a std::wstring; render.cpp adds
+    // ClusterMetrics::length to a position compared against text.length(). Both
+    // are caller-buffer wchar_t indices, and both are the identity on Windows --
+    // which is precisely why a backend converting wrongly is silently wrong.
+    //
+    // A LINE IS A NEWLINE-DELIMITED LINE, NOT A WRAPPED ROW ONLY. DirectWrite
+    // breaks a line at an embedded newline as well as at a wrap, and `length`
+    // INCLUDES the newline characters that ended it -- which is what makes
+    // `length - newlineLength` the visible text. A backend whose layout engine
+    // does not break on newlines owes that break. Qt's does not: measured,
+    // QTextLayout gives "ab\ncd" ONE line of length 5 with the same natural
+    // width as "abcd", so the newline is neither a break nor a glyph there. That
+    // divergence is invisible to every other method on this class except through
+    // GetMetrics().lineCount and .height, which is how it survived 155
+    // cross-backend assertions unnoticed -- no test had ever contained a
+    // newline.
+    virtual bool GetLineMetrics(LineMetrics* lineMetrics, uint32_t maxLineCount,
+                               uint32_t* actualLineCount) const = 0;
+
+    // Clusters are in text order across the whole layout, spanning lines. The
+    // two properties the one consumer actually depends on (render.cpp builds a
+    // cumulative-width prefix table from them) are relational, and they are what
+    // the shared assertions check rather than any absolute width: the lengths
+    // sum to the text length, and the widths sum to the layout's advance.
+    virtual bool GetClusterMetrics(ClusterMetrics* clusterMetrics,
+                                   uint32_t maxClusterCount,
+                                   uint32_t* actualClusterCount) const = 0;
 };
 
 // Object creation, which render_api.h deliberately left out of the drawing seam

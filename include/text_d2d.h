@@ -131,6 +131,11 @@ public:
                           tinta::HitTestMetrics* metrics,
                           uint32_t maxMetricsCount,
                           uint32_t* actualMetricsCount) const override;
+    bool GetLineMetrics(tinta::LineMetrics* lineMetrics, uint32_t maxLineCount,
+                        uint32_t* actualLineCount) const override;
+    bool GetClusterMetrics(tinta::ClusterMetrics* clusterMetrics,
+                           uint32_t maxClusterCount,
+                           uint32_t* actualClusterCount) const override;
 
     IDWriteTextLayout* native() const { return layout_; }
 

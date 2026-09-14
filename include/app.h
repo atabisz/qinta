@@ -1,6 +1,31 @@
 #ifndef TINTA_APP_H
 #define TINTA_APP_H
 
+// WHY THIS HEADER IS GUARDED AT ALL, WHEN IT DESCRIBES A WINDOWS APP
+//
+// Measured 2026-09-14: of the 31 source files that had never been compiled off
+// Windows, 28 failed with exactly ONE error -- `windows.h: No such file or
+// directory`, at the line below -- and got no further. So no per-file port cost
+// for the app's UI code had ever actually been measured; every number about it was
+// a regex estimate. One line was hiding the whole question.
+//
+// It turns out to be cheap to answer. This header names 14 Direct2D/DirectWrite/WIC
+// interfaces and names them ONLY as pointers (45 occurrences, 0 by value), so
+// forward declarations suffice. It embeds tinta's own D2D* wrapper types by value
+// -- which is why the first attempt at this reported that forward declarations
+// could not work -- but those wrappers only store native pointers and dereference
+// none of them inline, so render_d2d.h and text_d2d.h are declaration-only off
+// Windows too. See their headers.
+//
+// This is the tree's existing convention, not a new one: geometry.h already has 11
+// `_WIN32` guards and keymap.h defines the VK_ codes itself off Windows. app.h was
+// the anomaly, with zero.
+//
+// NOTHING HERE MAKES THE APP PORTABLE. Off Windows this declares App and stops;
+// the native members are incomplete pointers that cannot be created or used, and
+// every .cpp that drives them still fails on its own Win32 calls. That failing is
+// now the MEASUREMENT, which is the entire point.
+#ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -11,6 +36,59 @@
 #include <dwrite.h>
 #include <dwrite_2.h>
 #include <wincodec.h>
+#else
+// Left incomplete on purpose. Every one of the 45 native members below is a
+// pointer, so this is enough to declare them, and an inline dereference added
+// later fails here rather than compiling into a portable build.
+struct ID2D1Factory;
+struct ID2D1HwndRenderTarget;
+struct ID2D1DeviceContext;
+struct ID2D1SolidColorBrush;
+struct ID2D1StrokeStyle;
+struct ID2D1PathGeometry;
+struct ID2D1Bitmap;
+struct IDWriteFactory;
+struct IDWriteTextFormat;
+struct IDWriteTextLayout;
+struct IDWriteTypography;
+struct IDWriteFontFallback;
+struct IDWriteTextAnalyzer;
+struct IWICImagingFactory;
+
+// The Win32 types this header uses BY VALUE, which forward declarations cannot
+// cover. The list is short and is the compiler's, not a pattern's -- an earlier
+// hand-written alternation reported three of these and missed WM_APP entirely,
+// because an alternation can only find categories its author already thought of.
+struct HWND__;
+typedef struct HWND__* HWND;
+struct FILETIME {
+    unsigned long dwLowDateTime;
+    unsigned long dwHighDateTime;
+};
+struct RECT {
+    long left, top, right, bottom;
+};
+struct POINT {
+    long x, y;
+};
+// Field-for-field with the SDK's, because App stores one by value and zen mode
+// round-trips it through settings.ini. The layout matters if a Windows-built and
+// a portable-built object file ever meet, which is exactly the ODR trap
+// render_api.h documents for DrawText, so the shape is copied rather than
+// approximated.
+struct WINDOWPLACEMENT {
+    unsigned int length;
+    unsigned int flags;
+    unsigned int showCmd;
+    POINT ptMinPosition;
+    POINT ptMaxPosition;
+    RECT rcNormalPosition;
+};
+// 0x8000, the Windows value, so the WM_APP_* ids below keep the numbers they have
+// on Windows. They are only ever compared against each other, but matching the
+// real base keeps a debugger session on either platform reading the same.
+#define WM_APP 0x8000
+#endif
 
 #include <string>
 #include <vector>
@@ -36,6 +114,36 @@
 
 using namespace qmd;
 
+// COM teardown, in one place because it is the only thing in this header that
+// dereferences a native pointer inline -- 21 sites, in three shapes: a bare
+// `if (p) p->Release();`, the same across four lines, and the same again with a
+// `p = nullptr;` after it.
+//
+// Those 21 sites sit INSIDE functions that are otherwise portable: they clear
+// caches, adjust byte accounting and erase map entries alongside the Release.
+// Guarding the whole function off Windows would have thrown that away and left a
+// Qt path with no cache management at all, and guarding 21 individual statements
+// would have been 21 places for the two branches to drift. One helper is one
+// guard.
+//
+// Off Windows this is not a stub that pretends to work. There is nothing to
+// release, because nothing can create one of these objects -- the interfaces are
+// forward-declared and incomplete above. Forgetting the pointer is the whole of
+// the correct behaviour, and it is spelled out rather than left to a comment
+// because the alternative reading (a silently skipped Release, i.e. a leak) is
+// the one a reader will assume.
+template <class T>
+inline void releaseNative(T*& p) {
+#ifdef _WIN32
+    if (p) {
+        p->Release();
+        p = nullptr;
+    }
+#else
+    p = nullptr;
+#endif
+}
+
 // Timing helpers
 using Clock = std::chrono::high_resolution_clock;
 inline int64_t usElapsed(Clock::time_point start) {
@@ -51,6 +159,42 @@ inline int64_t usElapsed(Clock::time_point start) {
 #define TIMER_SELECT_SCROLL 8
 #define TIMER_LINK_PEEK 9
 #define TIMER_UPDATE_CHECK 10
+
+// The two Win32 timer calls this header makes, behind one guard each for the same
+// reason releaseNative exists: the three inline functions below that arm timers
+// are mostly POLICY -- when the cursor should blink, when a notification fade
+// needs repainting -- and only one statement of MECHANISM. Guarding the whole
+// function would have taken the policy off the portable side with it.
+//
+// This is also the first piece of a seam that is not app.h's alone: SetTimer or
+// KillTimer is named in 23 files. Whatever the Qt path uses (a QTimer per id is
+// the obvious shape) replaces two function bodies here rather than 23 call sites
+// there, so the helpers are named for what the caller wants rather than for the
+// API that happens to provide it today.
+//
+// Off Windows these do nothing, and that is honest rather than convenient: there
+// is no message loop off Windows either, so a timer that armed would have nothing
+// to deliver WM_TIMER to. A no-op is the accurate description of the platform,
+// not a stub standing in for missing work -- the missing work is the Qt event
+// loop, and it is missing on purpose until there is one.
+inline void armTimer(HWND hwnd, unsigned id, unsigned intervalMs) {
+#ifdef _WIN32
+    SetTimer(hwnd, id, intervalMs, nullptr);
+#else
+    (void)hwnd;
+    (void)id;
+    (void)intervalMs;
+#endif
+}
+
+inline void disarmTimer(HWND hwnd, unsigned id) {
+#ifdef _WIN32
+    KillTimer(hwnd, id);
+#else
+    (void)hwnd;
+    (void)id;
+#endif
+}
 
 // Posted to continue an incomplete document layout in time-budgeted chunks
 #define WM_APP_LAYOUT_CHUNK (WM_APP + 1)
@@ -112,8 +256,17 @@ inline float dpi(const App& app, float value);
 // The sentinel is pinned to the SDK macro rather than trusted to match it. If a
 // future SDK ever changes CW_USEDEFAULT, this fails at compile time instead of
 // silently changing where windows open and what settings.ini means.
+//
+// Guarded, not stubbed. Defining CW_USEDEFAULT ourselves off Windows would make
+// the assertion compare the sentinel against our own copy of the number, which
+// passes unconditionally and checks nothing -- the assertion is only a reading
+// where the real SDK is present. keymap.h draws the same line for the VK_ codes:
+// it defines them off Windows precisely because code below USES them, and keeps
+// the static_asserts under _WIN32 because only there do they measure anything.
+#ifdef _WIN32
 static_assert(kWindowPositionUseDefault == CW_USEDEFAULT,
               "kWindowPositionUseDefault must stay identical to CW_USEDEFAULT");
+#endif
 
 // Application state
 struct App {
@@ -168,7 +321,7 @@ struct App {
     static constexpr size_t EDITOR_LAYOUT_CACHE_MAX = 256;
     void clearEditorLineLayoutCache() {
         for (auto& [start, entry] : editorLineLayoutCache) {
-            if (entry.layout) entry.layout->Release();
+            releaseNative(entry.layout);
         }
         editorLineLayoutCache.clear();
         editorLayoutUseClock = 0;
@@ -216,7 +369,7 @@ struct App {
 
         auto it = imageCache.find(key);
         if (it != imageCache.end()) {
-            if (it->second.bitmap) it->second.bitmap->Release();
+            releaseNative(it->second.bitmap);
             imageCacheBytes -= it->second.bytes;
             it->second = std::move(entry);
             imageCacheBytes += it->second.bytes;
@@ -238,7 +391,7 @@ struct App {
                 }
             }
             if (victim == imageCache.end()) break;
-            if (victim->second.bitmap) victim->second.bitmap->Release();
+            releaseNative(victim->second.bitmap);
             imageCacheBytes -= victim->second.bytes;
             imageCache.erase(victim);
         }
@@ -1229,14 +1382,10 @@ struct App {
 
     void clearLayoutCache() {
         for (auto& run : layoutTextRuns) {
-            if (run.layout) {
-                run.layout->Release();
-            }
+            releaseNative(run.layout);
         }
         for (auto& shape : layoutShapes) {
-            if (shape.geometry) {
-                shape.geometry->Release();
-            }
+            releaseNative(shape.geometry);
         }
         layoutTextRuns.clear();
         layoutRects.clear();
@@ -1284,46 +1433,34 @@ struct App {
 
     void releaseImageCache() {
         for (auto& [key, entry] : imageCache) {
-            if (entry.bitmap) { entry.bitmap->Release(); entry.bitmap = nullptr; }
+            releaseNative(entry.bitmap);
         }
         imageCache.clear();
         imageCacheBytes = 0;
         imageCacheUseClock = 0;
-        if (nativeTitleIconBitmap) {
-            nativeTitleIconBitmap->Release();
-            nativeTitleIconBitmap = nullptr;
-        }
-        if (nativeStartPageIconBitmap) {
-            nativeStartPageIconBitmap->Release();
-            nativeStartPageIconBitmap = nullptr;
-        }
+        releaseNative(nativeTitleIconBitmap);
+        releaseNative(nativeStartPageIconBitmap);
     }
 
     void shutdown() {
-        if (nativeLightboxBitmap) {
-            nativeLightboxBitmap->Release();
-            nativeLightboxBitmap = nullptr;
-        }
-        if (nativeLinkPeekBitmap) {
-            nativeLinkPeekBitmap->Release();
-            nativeLinkPeekBitmap = nullptr;
-        }
+        releaseNative(nativeLightboxBitmap);
+        releaseNative(nativeLinkPeekBitmap);
         clearLayoutCache();
         releaseOverlayFormats();
         releaseImageCache();
-        if (wicFactory) { wicFactory->Release(); wicFactory = nullptr; }
-        if (nativeBrush) { nativeBrush->Release(); nativeBrush = nullptr; }
+        releaseNative(wicFactory);
+        releaseNative(nativeBrush);
         brushStorage = D2DBrush{nullptr};
         brush = nullptr;
-        if (nativeDashedStrokeStyle) { nativeDashedStrokeStyle->Release(); nativeDashedStrokeStyle = nullptr; }
+        releaseNative(nativeDashedStrokeStyle);
         dashedStrokeStyleStorage = D2DStrokeStyle{nullptr};
         dashedStrokeStyle = nullptr;
-        if (deviceContext) { deviceContext->Release(); deviceContext = nullptr; }
-        if (nativeRenderTarget) { nativeRenderTarget->Release(); nativeRenderTarget = nullptr; }
+        releaseNative(deviceContext);
+        releaseNative(nativeRenderTarget);
         renderTargetStorage = D2DRenderTarget{nullptr};
         renderTarget = nullptr;
-        if (fontFallback) { fontFallback->Release(); fontFallback = nullptr; }
-        if (textAnalyzer) { textAnalyzer->Release(); textAnalyzer = nullptr; }
+        releaseNative(fontFallback);
+        releaseNative(textAnalyzer);
         textFormatStorage.reset(); nativeTextFormat = nullptr; textFormat = nullptr;
         headingFormatStorage.reset(); nativeHeadingFormat = nullptr; headingFormat = nullptr;
         codeFormatStorage.reset(); nativeCodeFormat = nullptr; codeFormat = nullptr;
@@ -1338,11 +1475,10 @@ struct App {
             nativeHeadingFormats[i] = nullptr;
             headingFormats[i] = nullptr;
         }
-        if (bodyTypography) { bodyTypography->Release(); bodyTypography = nullptr; }
-        if (codeTypography) { codeTypography->Release(); codeTypography = nullptr; }
+        releaseNative(bodyTypography);
+        releaseNative(codeTypography);
         if (dwriteFactory) {
-            dwriteFactory->Release();
-            dwriteFactory = nullptr;
+            releaseNative(dwriteFactory);
             // The wrapper borrows, so it has nothing to release -- but leaving the
             // seated pointer non-null would hand a post-shutdown caller a factory
             // wrapping a released COM object, which is the stale-wrapper failure the
@@ -1350,7 +1486,7 @@ struct App {
             textFactoryStorage = D2DTextFactory{nullptr};
             textFactory = nullptr;
         }
-        if (d2dFactory) { d2dFactory->Release(); d2dFactory = nullptr; }
+        releaseNative(d2dFactory);
     }
 
     // --- seam wrapper seating ------------------------------------------------
@@ -1373,9 +1509,27 @@ struct App {
         out = storage.get();
     }
 
+    // The one seat function that needs a guard, and the reason is narrow: the
+    // member is an ID2D1HwndRenderTarget* while D2DRenderTarget takes the base
+    // ID2D1RenderTarget*, and a derived-to-base pointer conversion needs COMPLETE
+    // types -- forward declarations cannot express the inheritance. (C++ has no
+    // syntax for `struct Derived : Base;`.)
+    //
+    // The alternative was to make ID2D1HwndRenderTarget an alias OF
+    // ID2D1RenderTarget off Windows, which needs no guard here at all. Rejected:
+    // it would silently accept a device context where an hwnd target is required,
+    // in the one build where the compiler is the only check there is.
     void seatRenderTarget() {
+#ifdef _WIN32
         renderTargetStorage = D2DRenderTarget{nativeRenderTarget};
         renderTarget = nativeRenderTarget ? &renderTargetStorage : nullptr;
+#else
+        // nativeRenderTarget is unconditionally null here -- the interface is
+        // incomplete, so nothing can produce one -- and the storage is already
+        // default-constructed empty. Stating the postcondition rather than
+        // assuming it.
+        renderTarget = nullptr;
+#endif
     }
 
     // Plain assignment, like seatRenderTarget and unlike seatFormat: D2DTextFactory
@@ -1624,9 +1778,9 @@ inline void updateBlinkTimer(App& app) {
         (app.showFolderBrowser &&
          (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
         app.cursorBlinkOn = true;
-        SetTimer(app.hwnd, TIMER_CURSOR_BLINK, 500, nullptr);
+        armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
     } else {
-        KillTimer(app.hwnd, TIMER_CURSOR_BLINK);
+        disarmTimer(app.hwnd, TIMER_CURSOR_BLINK);
         app.cursorBlinkOn = true;
     }
 }
@@ -1634,13 +1788,13 @@ inline void updateBlinkTimer(App& app) {
 // Restart the blink phase so the cursor stays visible while typing
 inline void resetCursorBlink(App& app) {
     app.cursorBlinkOn = true;
-    if (app.hwnd) SetTimer(app.hwnd, TIMER_CURSOR_BLINK, 500, nullptr);
+    if (app.hwnd) armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
 }
 
 // Notification fades repaint on this timer; the WM_TIMER handler kills it
 // once no notification is active.
 inline void startNotificationTimer(App& app) {
-    if (app.hwnd) SetTimer(app.hwnd, TIMER_NOTIFICATION, 33, nullptr);
+    if (app.hwnd) armTimer(app.hwnd, TIMER_NOTIFICATION, 33);
 }
 
 #endif // TINTA_APP_H

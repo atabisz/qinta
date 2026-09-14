@@ -1,3 +1,8 @@
+// Moved here from text_d2d.h -- see render_d2d.cpp's copy for the reasoning.
+#ifndef _WIN32
+#error "text_d2d.cpp is the Windows backend; off Windows build text_qt.cpp."
+#endif
+
 #include "text_d2d.h"
 
 #include <cassert>

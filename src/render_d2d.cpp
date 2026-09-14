@@ -1,3 +1,12 @@
+// The guard that used to sit in render_d2d.h. It is here rather than there
+// because this is the file that cannot exist off Windows: the header only
+// declares wrappers around forward-declared interfaces, while every line below
+// calls Direct2D. tests/portable-sources.txt asserts this file is never in the
+// portable build; this makes the same statement to the compiler.
+#ifndef _WIN32
+#error "render_d2d.cpp is the Windows backend; off Windows build render_qt.cpp."
+#endif
+
 #include "render_d2d.h"
 
 #include <cassert>

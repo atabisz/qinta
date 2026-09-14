@@ -1,20 +1,44 @@
 #ifndef TINTA_RENDER_D2D_H
 #define TINTA_RENDER_D2D_H
 
-#ifndef _WIN32
-#error "render_d2d.h is the Windows backend; off Windows use render_qt.h."
-#endif
-
+// THIS HEADER IS DECLARATION-ONLY OFF WINDOWS, AND THE GUARD MOVED TO THE .CPP
+// TO SAY SO PRECISELY.
+//
+// It used to `#error` here, on the grounds that off Windows you want
+// render_qt.h. That was aimed at the right mistake but caught the wrong event:
+// app.h embeds D2DRenderTarget, D2DBrush, D2DStrokeStyle and D2DBitmap BY VALUE,
+// so a non-Windows compiler cannot even declare App without this header, and the
+// guard was gating a *declaration* rather than a *use*.
+//
+// Nothing here can be used off Windows, and that is a measured property rather
+// than a promise: every wrapper in this file only STORES a native pointer, and
+// there are ZERO inline dereferences of one -- every method that touches Direct2D
+// is out-of-line in render_d2d.cpp, which is where the #error now lives. So off
+// Windows the classes below declare cleanly against forward declarations and the
+// first attempt to actually build the backend still fails loudly.
+#ifdef _WIN32
 // Before render_api.h, not for tidiness: that header hard-errors without the
 // DrawText macro in scope, because a TU that declares RenderTarget::DrawText while
 // its neighbours declare RenderTarget::DrawTextW has an ODR violation the linker
 // need not diagnose. render_api.h explains it at length.
 #include <windows.h>
+#endif
 
 #include "render_api.h"
 #include "text_d2d.h"
 
+#ifdef _WIN32
 #include <d2d1.h>
+#else
+// The four Direct2D interfaces this header names, and it names them ONLY as
+// pointers -- measured, 12 occurrences, 0 by value. A forward declaration is
+// therefore sufficient, and deliberately leaves them incomplete so that any
+// inline use added later fails here instead of compiling into a portable build.
+struct ID2D1RenderTarget;
+struct ID2D1SolidColorBrush;
+struct ID2D1StrokeStyle;
+struct ID2D1Bitmap;
+#endif
 
 // The Direct2D backend for the drawing seam.
 //

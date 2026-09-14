@@ -1,15 +1,25 @@
 #ifndef TINTA_TEXT_D2D_H
 #define TINTA_TEXT_D2D_H
 
-#ifndef _WIN32
-#error "text_d2d.h is the Windows backend; off Windows use text_qt.h."
-#endif
-
+// Declaration-only off Windows, with the #error moved to text_d2d.cpp. The
+// reasoning is render_d2d.h's, in full there and not repeated: app.h holds 26
+// D2DTextFormat and 3 D2DTextFactory members by value, so App cannot be declared
+// at all without this header, and no method here touches DirectWrite inline --
+// measured, 19 pointer occurrences and 0 by value.
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 #include "text_api.h"
 
+#ifdef _WIN32
 #include <dwrite.h>
+#else
+struct IDWriteFactory;
+struct IDWriteTextFormat;
+struct IDWriteTextLayout;
+struct IDWriteInlineObject;
+#endif
 
 // The DirectWrite backend for the text seam.
 //

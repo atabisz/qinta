@@ -42,6 +42,41 @@ else()
     set(PLATFORM_PATHS_SOURCE src/platform_paths_posix.cpp)
 endif()
 
+# The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
+# on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
+# DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
+# QSettings) or src/platform_paths_win32.cpp (becomes QStandardPaths).
+#
+# The option DEFAULTS ON because turning it off today does not produce a Qt
+# Windows build, it produces no Windows build at all: the app still calls Direct2D
+# through the seam and nothing else implements it. So its job right now is not to
+# be flipped -- it is to make the deprecation visible in the configure output, to
+# make the eventual removal a flag flip instead of a port, and to be a MEASURING
+# INSTRUMENT: configure with -DTINTA_LEGACY_D2D=OFF and the link errors are an
+# exact inventory of what still depends on the stack being replaced.
+#
+# Flipping the default requires Qt on Windows, which is not installed here. That
+# is a decision and an install, not a CMake change, so this file does not pretend
+# otherwise.
+option(TINTA_LEGACY_D2D
+    "Build the transitional Direct2D/DirectWrite backends (DEPRECATED -- to be deleted once Qt covers Windows)"
+    ON)
+
+if(TINTA_LEGACY_D2D)
+    set(LEGACY_D2D_SOURCES src/render_d2d.cpp src/text_d2d.cpp)
+    if(WIN32)
+        message(STATUS
+            "TINTA_LEGACY_D2D=ON -- building the transitional Direct2D/DirectWrite backends. "
+            "These are scheduled for deletion; the target stack is Qt 6 on all three platforms.")
+    endif()
+else()
+    set(LEGACY_D2D_SOURCES)
+    message(STATUS
+        "TINTA_LEGACY_D2D=OFF -- the Direct2D/DirectWrite backends are excluded. On Windows the "
+        "app will COMPILE and fail to LINK, and those link errors are the point: they inventory "
+        "what still depends on the stack being replaced.")
+endif()
+
 # Source files
 set(SOURCES
     src/main_d2d.cpp
@@ -68,8 +103,12 @@ set(SOURCES
     # the drawing sites go through the seam, so leaving them out of this list
     # produces a clean COMPILE and 25 unresolved externals at link: the reason
     # the app target needs them is exactly the reason the rewire is real.
-    src/render_d2d.cpp
-    src/text_d2d.cpp
+    #
+    # Now behind TINTA_LEGACY_D2D (see the option above). They are listed through
+    # a variable rather than removed from this list conditionally, so the "clean
+    # compile, unresolved at link" shape above stays exactly what OFF produces --
+    # that shape is the inventory the flag exists to print.
+    ${LEGACY_D2D_SOURCES}
     src/syntax.cpp
     src/utils.cpp
     # The text helpers out of utils.cpp that never needed Windows. Split off so a
@@ -547,6 +586,17 @@ if(BUILD_TESTING)
     # This one is Windows-only by SUBJECT: it asserts on D2DBitmap, the Direct2D
     # wrapper itself, and reseat-on-read is a property of that wrapper. Its Qt
     # counterpart would be a different set of assertions, not this set run elsewhere.
+    # The next two are gated on TINTA_LEGACY_D2D because their SUBJECT is the
+    # Direct2D backend -- D2DBitmap's reseat-on-read, and the DirectWrite factory
+    # wrapper. When the backends are deleted these two are deleted with them; their
+    # Qt counterparts are a different set of assertions, not this set run elsewhere.
+    #
+    # The distinction matters and is deliberate. Targets that link the backends only
+    # INCIDENTALLY -- math_layout_tests, and everything built from INPUT_TEST_SOURCES
+    # -- are NOT gated. Their subjects survive the stack change, so under
+    # TINTA_LEGACY_D2D=OFF they are supposed to fail to link, and those failures are
+    # the inventory the flag exists to print. Gating them would hide it.
+    if(TINTA_LEGACY_D2D)
     add_executable(bitmap_seam_tests tests/bitmap_seam_tests.cpp
         src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
         src/render_d2d.cpp src/text_d2d.cpp)
@@ -565,6 +615,7 @@ if(BUILD_TESTING)
     target_link_libraries(text_factory_tests PRIVATE md4c shell32 d2d1 dwrite)
     target_compile_definitions(text_factory_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME text_factory COMMAND text_factory_tests)
+    endif()  # TINTA_LEGACY_D2D
     endif()  # WIN32
 
     add_executable(math_parser_tests tests/math_parser_tests.cpp src/math_parser.cpp src/math_macros.cpp)
@@ -572,9 +623,19 @@ if(BUILD_TESTING)
     add_test(NAME math_parser COMMAND math_parser_tests)
 
     if(WIN32)
+    # Through ${LEGACY_D2D_SOURCES}, not the literal file names, and that was a
+    # correction: naming them literally left TINTA_LEGACY_D2D=OFF still COMPILING
+    # both backends through this one target, so the option did not mean what its own
+    # help string said. Found by grepping the OFF build log for the compile lines
+    # rather than by trusting the failing-link list, which looked right.
+    #
+    # It is NOT gated on the flag, unlike bitmap_seam_tests and render_d2d_tests: the
+    # subject here is math layout, which survives the stack change. So under OFF this
+    # target is SUPPOSED to fail at link, and that failure is inventory rather than
+    # noise.
     add_executable(math_layout_tests tests/math_layout_tests.cpp
         src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
-        src/render_d2d.cpp src/text_d2d.cpp)
+        ${LEGACY_D2D_SOURCES})
     target_include_directories(math_layout_tests PRIVATE include src ${md4c_SOURCE_DIR}/src)
     target_link_libraries(math_layout_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32 ole32)
     target_compile_definitions(math_layout_tests PRIVATE UNICODE _UNICODE
@@ -875,6 +936,10 @@ if(BUILD_TESTING)
     # NOT in tests/portable-sources.txt, deliberately: src/render_d2d.cpp is
     # Windows-only by design, so it must never appear in a non-Windows build's object
     # set. The manifest lists what the PORTABLE build compiles.
+    # Gated on TINTA_LEGACY_D2D for the same reason as bitmap_seam_tests: the
+    # subject IS the backend. render_api_tests runs these same assertions against
+    # the Qt backend, so what this target proves survives its own deletion.
+    if(TINTA_LEGACY_D2D)
     add_executable(render_d2d_tests
         tests/render_d2d_tests.cpp
         tests/render_api_shared.cpp
@@ -891,6 +956,7 @@ if(BUILD_TESTING)
     target_link_libraries(render_d2d_tests PRIVATE d2d1 dwrite windowscodecs ole32)
     target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME render_d2d COMMAND render_d2d_tests)
+    endif()  # TINTA_LEGACY_D2D
     endif()  # WIN32
 endif()
 

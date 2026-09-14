@@ -178,6 +178,10 @@ cmake --build . --config Release
 
 The executable will be at `build/Release/tinta.exe`.
 
+This is the Direct2D and DirectWrite build, and it is the one that works today. It is
+also the one being replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag)
+for what that means and how to measure what still depends on it.
+
 ## Cross-platform port (Windows / macOS / Linux)
 
 > Work in progress in this fork. The Windows build documented above still works today
@@ -305,6 +309,45 @@ manifest does *not* list (the portable surface grew without anyone saying so). I
 prints the portable share, computed from the manifest on every run rather than quoted
 from anywhere. Run it after any change that touches which files build off Windows.
 
+### The deprecated-backend flag
+
+`TINTA_LEGACY_D2D` marks the Direct2D and DirectWrite backends as transitional in the
+build itself, so that "scheduled for deletion" is a CMake option rather than a sentence in
+a README. It **defaults `ON`**, and with the default nothing changes: Windows builds and
+tests exactly as before.
+
+```bash
+cmake -S . -B build-nod2d -DTINTA_LEGACY_D2D=OFF
+cmake --build build-nod2d --config Release   # expected to FAIL, and that is the point
+```
+
+Turning it off does not produce a Qt build of Windows — it produces no Windows build at
+all, because the app still reaches Direct2D through the seam and nothing else implements
+it yet. So the flag's job today is not to be flipped. It is to be a **measuring
+instrument**: the build failure it produces is an exact inventory of what still depends on
+the stack being replaced. Measured on 2026-09-15:
+
+| Reading | Value |
+|---|---|
+| Compile errors (`error C`) | **0** — nothing outside the two backend files *names* Direct2D |
+| Targets failing to link | 7 |
+| Unresolved externals | 46 (16 for `math_layout_tests`, which links less) |
+| Classes they belong to | `D2DTextLayout`, `D2DTextFormat`, `D2DRenderTarget`, `D2DBitmap`, `D2DTextFactory`, `D2DBrush` |
+
+Zero compile errors is the useful half of that. It means the seam rewiring is real and
+complete at the call sites: the remaining Windows debt is six wrapper *implementations*,
+not Direct2D calls scattered through the app — and it is the same six a Qt backend already
+provides on Linux.
+
+Three test targets are gated on the flag and disappear when it is off, because their
+subject *is* the backend: `render_d2d_tests`, `bitmap_seam_tests`, `text_factory_tests`.
+Everything else that links the backends incidentally is deliberately **not** gated. Those
+targets' subjects survive the stack change, so under `OFF` they are *supposed* to fail to
+link — gating them would hide the very inventory the flag exists to print.
+
+Flipping the default requires Qt on Windows, which is not installed on the machine this is
+developed on. That is an install and a decision, not a CMake change.
+
 ### Status
 
 Measured on 2026-09-15 at this commit, Windows and Linux both built and tested in the
@@ -329,7 +372,7 @@ same session.
 
 | Area | Size | Note |
 |---|---|---|
-| `render.cpp` | 3,448 | **The blocker.** 128 native Direct2D/DirectWrite mentions across five seams that do not exist yet: WIC image decoding, `ID2D1SvgDocument`, path-geometry arcs, `IDWriteTextAnalysisSource` line breaking, and the `IDWriteTextLayout2` font-fallback query. All 18 `createLayout` sites call `CreateTextLayout` directly, so today not one paragraph can be laid out off Windows |
+| `render.cpp` | 3,448 | **The blocker.** 128 native Direct2D/DirectWrite mentions across five seams that do not exist yet: WIC image decoding, `ID2D1SvgDocument`, path-geometry arcs, `IDWriteTextAnalysisSource` line breaking, and the `IDWriteTextLayout2` font-fallback query. Text layout is narrower than the total suggests: the 19 call sites go through **three** local helpers (`createLayout`, `createWrappedLayout`, `createDiagramTextLayout`), and `dwriteFactory` is named at exactly **4** places in the file. No paragraph can be laid out off Windows today, but the reason is three functions, not nineteen |
 | Window and message loop | 4,348 + 2,273 | `input.cpp`, `main_d2d.cpp` — Win32 message pump → Qt event handling |
 | Editor | 3,138 | `editor.cpp`, including IME input via `imm.h` → Qt input methods |
 | Overlays, annotations, math, table edit | 4,109 + 1,194 + 848 + 616 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction |
@@ -391,10 +434,9 @@ meaning anything is worse than no percentage, so it is gone rather than adjusted
 Basis F is the one to keep in view, and the change of goal made it stricter: it used to
 ask whether a non-Windows binary existed, and now asks how many of the three platforms
 run Tinta on Qt. **The answer is none.** Windows runs, on the stack being replaced.
-`render.cpp` — 3,448 lines and 128 native Direct2D and DirectWrite mentions, with all 18
-`createLayout` sites calling `CreateTextLayout` directly — is the single file standing
-between "the library compiles and is tested" and "it runs anywhere on Qt", and it is the
-same blocker under either goal. That is the one piece of good news in this section: going
+`render.cpp` — 3,448 lines and 128 native Direct2D and DirectWrite mentions — is the
+single file standing between "the library compiles and is tested" and "it runs anywhere on
+Qt", and it is the same blocker under either goal. That is the one piece of good news in this section: going
 single-stack did not add a blocker, it removed the obligation to maintain two.
 
 Call it roughly a third of the way through by volume, with the hardest single file still

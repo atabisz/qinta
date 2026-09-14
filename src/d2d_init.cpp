@@ -414,6 +414,20 @@ void updateOverlayFormats(App& app) {
         app.nativeEditorTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
         // Measure actual monospace character width and the font's natural
         // line metrics (before uniform spacing overrides them below)
+        //
+        // THIS MEASUREMENT STAYS NATIVE, and the reason is ORDERING rather than
+        // taste. app.editorTextFormat is seated by seatTextFormats(), whose calls in
+        // this file are at 323, 466 and 490. Line 323 runs before line 412 creates
+        // the native format, and seatFormat explicitly nulls its output when handed
+        // a null native -- so at THIS line app.editorTextFormat is null, and the
+        // next seat is 40-odd lines below. A seam call here would compile, read
+        // null, and measure nothing, which is exactly the failure that already
+        // happened twice in this file with a pre-seating null guard silently
+        // configuring nothing. Seating early to fix that is possible (seatFormat is
+        // idempotent) but buys nothing: this whole function is DirectWrite creation
+        // and configuration by construction and can never be in the portable
+        // manifest, so the standing rule applies unchanged -- creation and config
+        // read app.native*, drawing and measurement THROUGH the seam read the seam.
         float naturalHeight = 0.0f, naturalBaseline = 0.0f;
         IDWriteTextLayout* measureLayout = nullptr;
         app.dwriteFactory->CreateTextLayout(L"M", 1, app.nativeEditorTextFormat,

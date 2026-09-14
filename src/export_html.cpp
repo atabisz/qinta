@@ -18,6 +18,7 @@
 #include <commdlg.h>
 #include <cmath>
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 using namespace qmd;
@@ -164,35 +165,46 @@ struct WrappedLines {
 WrappedLines wrapLines(App& app, const std::wstring& text, float wrapWidth,
                        const mermaidext::TextStyle& style, float scale) {
     WrappedLines out;
-    if (text.empty() || !app.dwriteFactory) return out;
+    // The gate here is now the SEAM's factory, not dwriteFactory. Both are seated
+    // in the same init pass, so this is not a widening of the guard -- but it is
+    // the honest one: dwriteFactory being alive says nothing about whether the
+    // wrapper this function actually calls through was seated.
+    if (text.empty() || !app.textFactory) return out;
     constexpr float kHuge = 100000.0f;
-    IDWriteTextFormat* format = nullptr;
-    app.dwriteFactory->CreateTextFormat(
-        style.mono ? app.theme.codeFontFamily : app.theme.fontFamily, nullptr,
-        style.bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-        style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, diagramFontSize(style, scale), L"en-us",
-        &format);
+    // FIRST production caller of the seam's CreateTextFormat. Both backends have
+    // implemented it since the text slice and 26 shared assertions exercised it,
+    // but until now every one of the tree's 37 format creations went straight to
+    // DirectWrite -- an unwired half of an otherwise wired factory, which is the
+    // same shape CreateTextLayout was in before the wiring slice. The fontCollection
+    // argument disappears (the seam has no notion of one, and every site passed
+    // nullptr), and the two Release calls below disappear with it: the factory
+    // returns unique_ptr, which is the whole reason a create-measure-release site
+    // with no escaping layout is cheap to move and a cached one is not.
+    std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
+        style.mono ? app.theme.codeFontFamily : app.theme.fontFamily,
+        style.bold ? tinta::FontWeight::SemiBold : tinta::FontWeight::Normal,
+        style.italic ? tinta::FontStyle::Italic : tinta::FontStyle::Normal,
+        tinta::FontStretch::Normal, diagramFontSize(style, scale), L"en-us");
     if (!format) return out;
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(
-        text.c_str(), (UINT32)text.size(), format,
-        wrapWidth > 0.0f ? wrapWidth : kHuge, kHuge, &layout);
-    format->Release();
+    std::unique_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+        text.c_str(), (uint32_t)text.size(), format.get(),
+        wrapWidth > 0.0f ? wrapWidth : kHuge, kHuge);
     if (!layout) return out;
-    layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-    DWRITE_TEXT_METRICS metrics{};
+    // Set on the LAYOUT after creation, exactly as before -- SetWordWrapping is a
+    // TextFormat method and TextLayout derives from TextFormat, so the call lands
+    // in the same order on the same object it used to.
+    layout->SetWordWrapping(tinta::WordWrapping::Wrap);
+    tinta::TextMetrics metrics{};
     layout->GetMetrics(&metrics);
     out.width = metrics.widthIncludingTrailingWhitespace;
     out.height = metrics.height;
-    UINT32 lineCount = 0;
+    uint32_t lineCount = 0;
     layout->GetLineMetrics(nullptr, 0, &lineCount);
-    std::vector<DWRITE_LINE_METRICS> lm(lineCount);
+    std::vector<tinta::LineMetrics> lm(lineCount);
     if (lineCount) layout->GetLineMetrics(lm.data(), lineCount, &lineCount);
-    layout->Release();
     float top = 0.0f;
     size_t pos = 0;
-    for (UINT32 i = 0; i < lineCount && pos <= text.size(); i++) {
+    for (uint32_t i = 0; i < lineCount && pos <= text.size(); i++) {
         size_t visible = lm[i].length - lm[i].newlineLength;
         std::wstring line = text.substr(pos, visible);
         pos += lm[i].length;

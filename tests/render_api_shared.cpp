@@ -136,6 +136,25 @@ std::unique_ptr<tinta::TextFormat> makeFormat(RenderHarness& h, float size = 16.
                                             tinta::FontStretch::Normal, size, L"en-us");
 }
 
+// Every format in this suite was a Normal-weight one until now, and makeFormat is
+// why: it hardcodes the weight, so 193 assertions passed FontWeight::Normal and
+// nothing ever passed anything else. That was found by mutation -- replacing the
+// D2D backend's weight argument with a hardcoded DWRITE_FONT_WEIGHT_NORMAL left
+// all 193 green. Note what it does NOT mean: the enum VALUES are asserted from
+// both sides at compile time (text_d2d.cpp against DWRITE_, text_qt.cpp against
+// QFont::), thoroughly and correctly. The unasserted claim was the other one --
+// that CreateTextFormat hands its weight argument to anything at all. A pairing
+// assertion and a plumbing assertion are different claims, and a block of six
+// static_asserts reads like coverage of the parameter while having no opinion on
+// whether the parameter is used.
+std::unique_ptr<tinta::TextFormat> makeWeightedFormat(RenderHarness& h,
+                                                      tinta::FontWeight weight,
+                                                      float size = 16.0f) {
+    return h.textFactory().CreateTextFormat(h.fontFamily(), weight,
+                                            tinta::FontStyle::Normal,
+                                            tinta::FontStretch::Normal, size, L"en-us");
+}
+
 }  // namespace
 
 int runRenderApiAssertions(RenderHarness& h) {
@@ -1618,6 +1637,54 @@ int runRenderApiAssertions(RenderHarness& h) {
                       "CONTROL: the letter clusters are NOT flagged whitespace, so the "
                       "assertion above is reading a real flag and not a struct filled "
                       "with ones");
+            }
+        }
+    }
+
+    // --- WEIGHT IS ACTUALLY PLUMBED --------------------------------------------
+    //
+    // Relational and not absolute, for the reason every measurement family here is:
+    // the harness picks the font family, so no width has a value this file can name.
+    // Bold rather than SemiBold on purpose -- a family with no semibold face gets
+    // whatever the backend falls back to, which may be the Normal face at an
+    // identical width, and an assertion that reads equal-and-passes is unfalsifiable.
+    // Synthetic embolden is universal, so "bold is wider" holds without knowing
+    // which family the harness chose.
+    {
+        std::unique_ptr<tinta::TextFormat> normalWeight =
+            makeWeightedFormat(h, tinta::FontWeight::Normal);
+        std::unique_ptr<tinta::TextFormat> boldWeight =
+            makeWeightedFormat(h, tinta::FontWeight::Bold);
+        check(normalWeight != nullptr && boldWeight != nullptr,
+              "the factory creates a format at each of two weights");
+        if (normalWeight && boldWeight) {
+            std::unique_ptr<tinta::TextLayout> normalLayout =
+                h.textFactory().CreateTextLayout(kLongText, kLongLength,
+                                                 normalWeight.get(), 10000.0f, 1000.0f);
+            std::unique_ptr<tinta::TextLayout> boldLayout =
+                h.textFactory().CreateTextLayout(kLongText, kLongLength,
+                                                 boldWeight.get(), 10000.0f, 1000.0f);
+            check(normalLayout != nullptr && boldLayout != nullptr,
+                  "both weighted formats produce a layout");
+            if (normalLayout && boldLayout) {
+                tinta::TextMetrics normalMetrics{};
+                tinta::TextMetrics boldMetrics{};
+                normalLayout->GetMetrics(&normalMetrics);
+                boldLayout->GetMetrics(&boldMetrics);
+                check(normalMetrics.width > 0.0f,
+                      "CONTROL: the Normal-weight layout has a nonzero width, so the "
+                      "comparison below is between two real measurements and not two "
+                      "empty surfaces");
+                check(boldMetrics.width > normalMetrics.width,
+                      "a Bold format measures WIDER than a Normal one at the same "
+                      "family and size -- the only assertion in this file that fails "
+                      "if a backend accepts the weight argument and ignores it, which "
+                      "the Direct2D backend did silently under mutation while all of "
+                      "the enum-pairing static_asserts stayed green");
+                check(boldMetrics.height == normalMetrics.height,
+                      "CONTROL: emboldening changes the WIDTH and not the line height, "
+                      "so the assertion above is reading the weight and not some "
+                      "wholesale difference between two unrelated layouts");
             }
         }
     }

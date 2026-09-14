@@ -464,13 +464,14 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         mathBoxes[i] = mathParse(app, toWide(run.elem->text), size, false);
         if (!mathBoxes[i]) continue;
         float baseline = size * 0.8f;
-        IDWriteTextLayout* probe = nullptr;
-        if (SUCCEEDED(app.dwriteFactory->CreateTextLayout(
-                L"Ag", 2, nativeTextFormat(format), 1000, 1000, &probe))) {
-            DWRITE_LINE_METRICS metrics{};
-            UINT32 count = 1;
-            if (SUCCEEDED(probe->GetLineMetrics(&metrics, 1, &count))) baseline = metrics.baseline;
-            probe->Release();
+        // The cheapest site in the whole text surface to move: `format` was ALREADY
+        // a tinta::TextFormat* two lines up, so nativeTextFormat() here was an
+        // adapter call that existed only to feed a native factory. Wiring it makes
+        // the adapter disappear rather than move.
+        if (auto probe = app.textFactory->CreateTextLayout(L"Ag", 2, format, 1000, 1000)) {
+            tinta::LineMetrics metrics{};
+            uint32_t count = 1;
+            if (probe->GetLineMetrics(&metrics, 1, &count)) baseline = metrics.baseline;
         }
         mathBaselines[i] = baseline;
         mathExpandLine(mathBoxes[i], baseline + run.style.drawYOffset, normalLineHeight, mathTextOffset, mathBelow);

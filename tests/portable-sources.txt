@@ -68,10 +68,16 @@ text_qt.cpp
 # These are here because the build compiles them (the portable_compile_only
 # OBJECT library in CMakeLists.txt), which is exactly what every other line here
 # claims and no more. They are the entries whose files no test EXECUTES off
-# Windows, and the distinction is worth keeping in view: they cannot link, because
-# isWordBoundary lives in utils.cpp and no portable target can construct an App.
-# See that target's comment for why compiling and stopping is still worth a line
-# rather than nothing.
+# Windows.
+#
+# WHY they cannot link -- corrected, because the reason given here was wrong
+# twice over. It said isWordBoundary lives in utils.cpp (it moved to
+# text_utils.cpp, which builds off Windows) and that no portable target can
+# construct an App (measured false: a stack `App app;` compiles with zero
+# errors). The real reason is that App holds the Direct2D backend wrappers BY
+# VALUE, so linking one wants vtables out of the two Windows-only backend
+# sources. The full measurement is in that target's comment in CMakeLists.txt,
+# which also says what would have to change.
 #
 # READ THE COUNT OF THIS SECTION, NOT THE COUNT OF THE FILE. Every other line in
 # this manifest is compiled AND linked AND run, so a reader totalling the lines
@@ -91,6 +97,11 @@ editrail.cpp
 i18n.cpp
 keymap.cpp
 settings.cpp
+# The text helpers split out of utils.cpp: toWide, toLower, isWordBoundary,
+# slugifyHeading, extractText. Compiled AND run off Windows by
+# text_utils_tests, so this line sits here and not in the compile-only section
+# above. utils.cpp keeps the Windows feature half and must never appear here.
+text_utils.cpp
 themes.cpp
 
 # --- The document model and markdown parser ----------------------------------

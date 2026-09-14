@@ -8,9 +8,10 @@
 #include <shellapi.h>
 #include <algorithm>
 
-std::wstring toWide(const std::string& str) {
-    return platform::fromUtf8(str);
-}
+// What is left in this file is the Windows FEATURE half: the window title, the
+// shell handoffs, the clipboard and path canonicalisation. The text helpers that
+// never needed any of that moved to src/text_utils.cpp, where a non-Windows
+// compiler builds them and tests/text_utils_tests.cpp executes them.
 
 // The seam overload is now the IMPLEMENTATION rather than an adapter that unwrapped
 // its argument and called the native one. It builds and measures its layout entirely
@@ -42,24 +43,6 @@ float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format)
     layout->GetMetrics(&metrics);
     layout->Release();
     return metrics.widthIncludingTrailingWhitespace;
-}
-
-std::wstring toLower(const std::wstring& str) {
-    std::wstring result = str;
-    for (auto& c : result) {
-        c = towlower(c);
-    }
-    return result;
-}
-
-bool isWordBoundary(wchar_t c) {
-    return c == L' ' || c == L'\t' || c == L'\n' || c == L'\r' ||
-           c == L'.' || c == L',' || c == L';' || c == L':' ||
-           c == L'!' || c == L'?' || c == L'"' || c == L'\'' ||
-           c == L'(' || c == L')' || c == L'[' || c == L']' ||
-           c == L'{' || c == L'}' || c == L'<' || c == L'>' ||
-           c == L'/' || c == L'\\' || c == L'-' || c == L'=' ||
-           c == L'+' || c == L'*' || c == L'&' || c == L'|';
 }
 
 static const App::LineBucket* findLineBucketAt(const App& app, float y) {
@@ -137,41 +120,6 @@ void openUrl(const std::string& url) {
     }
 }
 
-std::string slugifyHeading(const std::wstring& text) {
-    std::wstring filtered;
-    filtered.reserve(text.size());
-    auto isWidePunct = [](wchar_t c) {
-        // Punctuation is stripped from slugs in any script (GitHub rule):
-        // general punctuation (— …), CJK symbols/punctuation (、。「」【】),
-        // vertical/compat forms, and fullwidth ASCII punctuation variants
-        return (c >= 0x2000 && c <= 0x206F) ||
-               (c >= 0x3000 && c <= 0x303F) ||
-               (c >= 0xFE30 && c <= 0xFE4F) ||
-               (c >= 0xFF00 && c <= 0xFF0F) ||
-               (c >= 0xFF1A && c <= 0xFF20) ||
-               (c >= 0xFF3B && c <= 0xFF40) ||
-               (c >= 0xFF5B && c <= 0xFF65);
-    };
-    for (wchar_t c : text) {
-        if (c >= 0x80) {
-            // GitHub keeps non-ASCII letters in slugs (CJK headings form
-            // valid anchors) but still strips punctuation; iswalnum() is
-            // unreliable for both under the default C locale
-            if (!isWidePunct(c)) filtered += c;
-        } else if (iswalnum(c)) {
-            filtered += towlower(c);
-        } else if (c == L' ') {
-            filtered += L'-';
-        } else if (c == L'-' || c == L'_') {
-            filtered += c;
-        }
-        // else: drop ASCII punctuation, matching GitHub's slug rules
-    }
-    if (filtered.empty()) return {};
-
-    return platform::toUtf8(filtered);
-}
-
 void scrollToHeadingY(App& app, float headingY) {
     // The title-bar tab strip draws over the document's top band, so the
     // landing margin must clear it or the heading arrives half-hidden
@@ -247,55 +195,4 @@ std::wstring absoluteFilePath(const std::string& path) {
 void copyFilePath(App& app, HWND hwnd, const std::string& path) {
     if (copyToClipboard(hwnd, absoluteFilePath(path)))
         signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
-}
-
-void extractText(const ElementPtr& elem, std::wstring& out) {
-    if (!elem) return;
-
-    switch (elem->type) {
-        case ElementType::Text:
-            out += toWide(elem->text);
-            break;
-        case ElementType::SoftBreak:
-            out += L" ";
-            break;
-        case ElementType::HardBreak:
-            out += L"\n";
-            break;
-        case ElementType::Paragraph:
-        case ElementType::Heading:
-        case ElementType::ListItem:
-            for (const auto& child : elem->children) {
-                extractText(child, out);
-            }
-            out += L"\n\n";
-            break;
-        case ElementType::CodeBlock: {
-            out += L"\n";
-            for (const auto& child : elem->children) {
-                if (child->type == ElementType::Text) {
-                    out += toWide(child->text);
-                }
-            }
-            out += L"\n\n";
-            break;
-        }
-        case ElementType::MermaidDiagram:
-            out += toWide(elem->text);
-            if (!out.empty() && out.back() != L'\n') out += L"\n";
-            break;
-        case ElementType::Ruby:
-            // Include base text but skip RubyText (annotation)
-            for (const auto& child : elem->children) {
-                if (child->type != ElementType::RubyText) {
-                    extractText(child, out);
-                }
-            }
-            break;
-        default:
-            for (const auto& child : elem->children) {
-                extractText(child, out);
-            }
-            break;
-    }
 }

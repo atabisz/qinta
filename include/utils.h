@@ -2,6 +2,9 @@
 #define TINTA_UTILS_H
 
 #include "app.h"
+// The text helpers that never needed Windows now live here. Included rather
+// than re-declared so every existing call site keeps working unchanged.
+#include "text_utils.h"
 #include <string>
 #include <string_view>
 
@@ -14,17 +17,12 @@ struct InlineSpan {
     bool underline;
 };
 
-std::wstring toWide(const std::string& str);
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format);
 // Seam-handle overload. The plumbing below carries tinta::TextFormat* now, and
 // unwrapping once here beats unwrapping at every measure site.
 float measureText(App& app, const std::wstring& text, tinta::TextFormat* format);
-std::wstring toLower(const std::wstring& str);
 std::wstring_view textViewForRect(const App& app, const App::TextRect& tr);
 
-// Word/line boundary helpers (offset-based word/line selection lives in
-// selection.h)
-bool isWordBoundary(wchar_t c);
 const App::TextRect* findTextRectAt(const App& app, int x, int y);
 
 void updateWindowTitle(App& app);
@@ -35,9 +33,7 @@ bool copyToClipboard(HWND hwnd, const std::wstring& text);
 // Resolve UTF-8 document paths without a MAX_PATH-sized buffer (#203).
 std::wstring absoluteFilePath(const std::string& path);
 void copyFilePath(App& app, HWND hwnd, const std::string& path);
-void extractText(const ElementPtr& elem, std::wstring& out);
 
-std::string slugifyHeading(const std::wstring& text);
 void scrollToHeadingY(App& app, float headingY);
 bool scrollToHeadingId(App& app, const std::string& id);
 void handleLinkClick(App& app);

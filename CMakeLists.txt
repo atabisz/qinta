@@ -72,6 +72,11 @@ set(SOURCES
     src/text_d2d.cpp
     src/syntax.cpp
     src/utils.cpp
+    # The text helpers out of utils.cpp that never needed Windows. Split off so a
+    # non-Windows compiler can build them and text_utils_tests can run them; the
+    # Windows feature half (title bar, shell handoff, clipboard, path
+    # canonicalisation) stayed in utils.cpp.
+    src/text_utils.cpp
     src/search.cpp
     src/render.cpp
     src/file_utils.cpp
@@ -125,6 +130,7 @@ set(HEADERS
     include/d2d_init.h
     include/syntax.h
     include/utils.h
+    include/text_utils.h
     include/search.h
     include/render.h
     include/file_utils.h
@@ -239,12 +245,34 @@ if(BUILD_TESTING)
     # src/selection.cpp is the first file to become acceptable to a non-Windows
     # compiler without becoming TESTABLE by one, and the two are different facts.
     # It compiles: measured, a real .o with -Iinclude and nothing else, no Qt at
-    # all. It cannot LINK into a test, because its one non-libc undefined symbol is
-    # isWordBoundary, which lives in src/utils.cpp, which still fails on windows.h
-    # -- and because no portable target can construct an App at all: App's inline
-    # destructor calls releaseNative on native pointers that app.h deliberately
-    # leaves incomplete off Windows, so instantiating it is the loud failure that
-    # header was designed to produce.
+    # all.
+    #
+    # WHY IT STILL CANNOT LINK -- CORRECTED, because the previous version of this
+    # comment was wrong in both of its two reasons and wrong in the direction that
+    # discourages checking.
+    #
+    # It said the blocking symbol was isWordBoundary. That was true and is no
+    # longer: isWordBoundary now lives in src/text_utils.cpp, which builds off
+    # Windows. It was also never the only one.
+    #
+    # It said "no portable target can construct an App at all", because ~App()
+    # calls releaseNative on incomplete native pointers. MEASURED AND FALSE: a
+    # stack `App app;` compiles clean with g++ 13 and -Iinclude, zero errors.
+    # releaseNative is #ifdef _WIN32 (include/app.h line 105) and its non-Windows
+    # arm just forgets the pointer, so nothing ever dereferences an incomplete
+    # type. The header does not produce the loud failure that comment credited it
+    # with.
+    #
+    # The REAL blocker is at link, and it is App's storage rather than its
+    # destructor: App holds the Direct2D backends BY VALUE --
+    # renderTargetStorage, brushStorage, bitmapStorage, textFactoryStorage and the
+    # *FormatStorage members. So a portable target that instantiates an App wants
+    # vtables for D2DRenderTarget, D2DBrush, D2DBitmap and D2DTextFactory plus
+    # D2DTextFormat::~D2DTextFormat, all of which are in src/render_d2d.cpp and
+    # src/text_d2d.cpp, both Windows-only by design. The seam is abstract at the
+    # call sites and concrete at the storage, and THAT is what has to change
+    # before anything taking an App& can be asserted off Windows -- the same
+    # by-value fact the bitmap_seam_tests comment below notes for Windows.
     #
     # So an OBJECT library, which compiles and stops. Without it the green has
     # nowhere durable to live: this repo has no CI, so the only record would be a
@@ -495,6 +523,33 @@ if(BUILD_TESTING)
         target_compile_definitions(portable_str_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME portable_str COMMAND portable_str_tests)
+
+    # src/text_utils.cpp -- the text helpers lifted out of src/utils.cpp, built
+    # and RUN off Windows. Until this target they were portable logic (the GitHub
+    # slug rules, the word-boundary predicate, the element-tree flattener) that
+    # no non-Windows compiler had ever seen, because utils.cpp includes
+    # <windows.h> and they happened to live in it.
+    #
+    # It links the platform path seam because toWide and slugifyHeading convert
+    # through platform::fromUtf8/toUtf8. It does NOT link src/markdown.cpp:
+    # qmd::Element's constructor is inline in the header, so the assertions build
+    # their element trees with nothing but <memory>.
+    #
+    # No run_portable_test.cmake isolation: nothing here touches a file or a
+    # config home.
+    add_executable(text_utils_tests
+        tests/text_utils_tests.cpp
+        src/text_utils.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(text_utils_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_link_libraries(text_utils_tests PRIVATE shell32)
+        target_compile_definitions(text_utils_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME text_utils COMMAND text_utils_tests)
 
     # Qt 6 text layout -- the contract the DirectWrite text code has to be ported
     # onto, measured before any of that port is written. OPT-IN: find_package is

@@ -293,4 +293,16 @@ bool documentPathsEqual(const std::string& a, const std::string& b) {
     return a == b;
 }
 
+bool isHiddenEntry(const std::wstring& fullPath, const std::wstring& name) {
+    // No attribute to consult -- the name IS the convention, on Linux and macOS
+    // alike. (macOS additionally has a UF_HIDDEN flag, honoured by Finder and
+    // almost nothing else; a leading dot is what actually governs there too, and
+    // adding a stat() for the flag would hide a handful of system files the user
+    // has no reason to be browsing for markdown in anyway.)
+    (void)fullPath;
+    // "." and ".." never reach here -- the caller filters them before asking,
+    // because they are navigation entries rather than hidden ones.
+    return !name.empty() && name.front() == L'.';
+}
+
 } // namespace platform

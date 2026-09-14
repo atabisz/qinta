@@ -1,5 +1,18 @@
 #include "syntax.h"
 
+// The wide-character classification functions this file leans on throughout.
+// It never included this and MSVC never complained, because something in this
+// file's include graph supplies the names there transitively -- I have not
+// established which, and that is rather the point: the file depended on an
+// arrangement it never stated. Off Windows nothing supplied them, and 9 of this
+// file's 9 errors were that single omission. A latent bug the portable build
+// surfaced, not a cost of porting.
+//
+// The 12 calls are std::-qualified because <cwctype> only promises the std:: names;
+// the global ones are a courtesy every implementation here happens to extend, which
+// is the same kind of luck this include exists to stop relying on.
+#include <cwctype>
+
 const std::unordered_set<std::wstring> CPP_KEYWORDS = {
     L"if", L"else", L"for", L"while", L"do", L"switch", L"case", L"break", L"continue",
     L"return", L"goto", L"default", L"void", L"int", L"char", L"float", L"double", L"bool",
@@ -133,7 +146,7 @@ const std::unordered_set<std::wstring> CSHARP_TYPES = {
 
 int detectLanguage(const std::wstring& lang) {
     std::wstring lower = lang;
-    for (auto& c : lower) c = towlower(c);
+    for (auto& c : lower) c = std::towlower(c);
     if (lower == L"cpp" || lower == L"c++" || lower == L"c" || lower == L"h" || lower == L"hpp" || lower == L"cxx")
         return 1;  // C/C++
     if (lower == L"python" || lower == L"py")
@@ -191,9 +204,9 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
         wchar_t c = line[i];
 
         // Skip whitespace
-        if (iswspace(c)) {
+        if (std::iswspace(c)) {
             size_t start = i;
-            while (i < line.length() && iswspace(line[i])) i++;
+            while (i < line.length() && std::iswspace(line[i])) i++;
             tokens.push_back({std::wstring_view(line.data() + start, i - start),
                               SyntaxTokenType::Plain});
             continue;
@@ -295,13 +308,13 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
         }
 
         // Numbers (including hex)
-        if (iswdigit(c) || (c == L'.' && i + 1 < line.length() && iswdigit(line[i+1]))) {
+        if (std::iswdigit(c) || (c == L'.' && i + 1 < line.length() && std::iswdigit(line[i+1]))) {
             size_t start = i;
             if (c == L'0' && i + 1 < line.length() && (line[i+1] == L'x' || line[i+1] == L'X')) {
                 i += 2;
-                while (i < line.length() && iswxdigit(line[i])) i++;
+                while (i < line.length() && std::iswxdigit(line[i])) i++;
             } else {
-                while (i < line.length() && (iswdigit(line[i]) || line[i] == L'.' ||
+                while (i < line.length() && (std::iswdigit(line[i]) || line[i] == L'.' ||
                        line[i] == L'e' || line[i] == L'E' || line[i] == L'f' || line[i] == L'L')) i++;
             }
             tokens.push_back({std::wstring_view(line.data() + start, i - start),
@@ -310,15 +323,15 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
         }
 
         // Identifiers and keywords
-        if (iswalpha(c) || c == L'_') {
+        if (std::iswalpha(c) || c == L'_') {
             size_t start = i;
-            while (i < line.length() && (iswalnum(line[i]) || line[i] == L'_')) i++;
+            while (i < line.length() && (std::iswalnum(line[i]) || line[i] == L'_')) i++;
             std::wstring word = line.substr(start, i - start);
             std::wstring_view view(line.data() + start, i - start);
 
             // Check if it's a function call (followed by parenthesis)
             size_t next = i;
-            while (next < line.length() && iswspace(line[next])) next++;
+            while (next < line.length() && std::iswspace(line[next])) next++;
             bool isFunction = (next < line.length() && line[next] == L'(');
 
             // Check if keyword (C# separates control flow from other keywords)
@@ -332,7 +345,7 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
                 tokens.push_back({view, SyntaxTokenType::TypeName});
             } else if (isFunction) {
                 tokens.push_back({view, SyntaxTokenType::Function});
-            } else if (language == 7 && iswupper(word[0]) && word.length() > 1) {
+            } else if (language == 7 && std::iswupper(word[0]) && word.length() > 1) {
                 // C# PascalCase heuristic: uppercase-starting identifiers are likely types
                 tokens.push_back({view, SyntaxTokenType::TypeName});
             } else {
@@ -345,7 +358,7 @@ std::vector<SyntaxToken> tokenizeLine(const std::wstring& line, int language, bo
         if ((language == 1 || language == 7) && c == L'#') {
             size_t start = i;
             i++;
-            while (i < line.length() && (iswalnum(line[i]) || line[i] == L'_')) i++;
+            while (i < line.length() && (std::iswalnum(line[i]) || line[i] == L'_')) i++;
             std::wstring directive = line.substr(start, i - start);
             std::wstring_view view(line.data() + start, i - start);
             if (keywords && keywords->count(directive)) {

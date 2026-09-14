@@ -27,7 +27,7 @@ void clearFolderSearch(App& app) {
     app.folderSearchGeneration++;   // orphan any scan in flight
     app.folderResults.clear();
     app.folderResultHits.clear();
-    if (app.hwnd) KillTimer(app.hwnd, TIMER_FOLDER_SEARCH);
+    if (app.hwnd) disarmTimer(app.hwnd, TIMER_FOLDER_SEARCH);
 }
 
 void startFolderSearchScan(App& app) {
@@ -39,10 +39,13 @@ void startFolderSearchScan(App& app) {
     std::wstring queryLower = toLower(app.searchQuery);
     std::filesystem::path current(toWide(app.currentFile));
     std::filesystem::path dir = current.parent_path();
-    std::wstring currentName = current.filename().wstring();
+    // UTF-8 rather than wide, and converted here rather than in the loop, because
+    // the only thing it is used for is platform::documentPathsEqual below, which
+    // takes UTF-8. Once per scan instead of once per candidate file.
+    std::string currentNameUtf8 = platform::toUtf8(current.filename().wstring());
     HWND hwnd = app.hwnd;
 
-    std::thread([generation, queryLower, dir, currentName, hwnd] {
+    std::thread([generation, queryLower, dir, currentNameUtf8, hwnd] {
         auto* msg = new FolderScanMsg{generation, {}};
         std::error_code ec;
         int scanned = 0;
@@ -52,7 +55,27 @@ void startFolderSearchScan(App& app) {
             std::wstring ext = entry.path().extension().wstring();
             for (auto& c : ext) c = (wchar_t)std::towlower(c);
             if (ext != L".md" && ext != L".markdown") continue;
-            if (_wcsicmp(entry.path().filename().c_str(), currentName.c_str()) == 0) continue;
+            // Skip the document you are already searching. This replaces _wcsicmp,
+            // an MSVC extension with no POSIX spelling, and it is deliberately the
+            // platform:: SEAM rather than a local fold: these are filesystem names,
+            // so "Notes.md" and "notes.md" are one file on Windows and two on Linux
+            // and BOTH answers are right. themes.cpp reasons its way to the opposite
+            // conclusion for theme names, and the contrast is the useful part --
+            // platform_paths.h carries the full argument for both.
+            //
+            // Comparing bare filenames rather than full paths is sound here because
+            // the iteration is over `dir`, which IS the current file's parent: inside
+            // one directory a filename identifies a file.
+            //
+            // No Windows behaviour changes. _wcsicmp folded per code unit under
+            // LC_CTYPE and the Windows seam folds UTF-8 bytes under the same, and
+            // tinta never calls setlocale, so both run in the "C" locale and fold
+            // ASCII and nothing else. Off Windows the comparison is exact, which is
+            // the seam's whole point rather than a regression.
+            if (platform::documentPathsEqual(
+                    platform::toUtf8(entry.path().filename().wstring()), currentNameUtf8)) {
+                continue;
+            }
             if (entry.file_size(ec) > 1024 * 1024) continue;
             scanned++;
 
@@ -92,7 +115,11 @@ void startFolderSearchScan(App& app) {
                 msg->files.push_back(std::move(result));
             }
         }
-        if (!PostMessageW(hwnd, WM_APP_FOLDER_SEARCH, 0, (LPARAM)msg)) delete msg;
+        // The `delete` on failure is why postWindowMessage returns bool and returns
+        // false off Windows: ownership of `msg` transfers to the handler only if the
+        // post is accepted, so an off-Windows no-op that claimed success would leak
+        // it. This line is already the correct off-Windows behaviour, unchanged.
+        if (!postWindowMessage(hwnd, WM_APP_FOLDER_SEARCH, 0, (LPARAM)msg)) delete msg;
     }).detach();
 }
 
@@ -107,7 +134,7 @@ void completeFolderSearch(App& app, void* results) {
     app.folderResults = std::move(msg->files);
     app.folderResultHits.clear();
     delete msg;
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 void performSearch(App& app) {
@@ -121,7 +148,7 @@ void performSearch(App& app) {
         if (app.searchQuery.empty()) {
             clearFolderSearch(app);
         } else if (!app.currentFile.empty()) {
-            SetTimer(app.hwnd, TIMER_FOLDER_SEARCH, 250, nullptr);
+            armTimer(app.hwnd, TIMER_FOLDER_SEARCH, 250);
         }
     }
 

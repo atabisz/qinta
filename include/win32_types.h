@@ -29,8 +29,11 @@
 // It is not a compatibility layer and it is not the beginning of one. There are no
 // functions here, and there will not be: a stand-in for `SetTimer` that silently
 // did nothing while looking like it worked is the exact failure this tree keeps
-// cataloguing. app.h's armTimer/disarmTimer are the pattern for API calls --
-// explicit no-ops at a named seam, guarded where the caller can see them.
+// cataloguing. Function seams live one layer up in win32_api.h, which includes this
+// header and states its own rule -- nothing there pretends to work, and where a
+// caller already handles failure the off-Windows path fails rather than no-ops.
+// Keeping the two apart is what makes that rule enforceable: a reviewer can accept
+// this file on sizeof/offsetof evidence alone, and has to think about that one.
 //
 // Adding a type here is a claim that some tinta header uses it BY VALUE. If a
 // pointer would do, forward-declare it at the point of use instead, so that an

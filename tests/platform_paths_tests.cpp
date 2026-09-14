@@ -14,6 +14,15 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+// Only to ARRANGE the isHiddenEntry test: marking a file hidden has no portable
+// spelling, which is the entire reason that seam exists, so setting one up needs
+// the platform API directly. This does not weaken the claim in the comment above --
+// that claim is that config_dir.cpp's own translation unit builds without
+// windows.h, and this is a different translation unit.
+#include <windows.h>
+#endif
+
 namespace {
 
 int failures = 0;
@@ -186,6 +195,56 @@ int main() {
     unsetenv("LANGUAGE");
 #endif
     std::cout << "preferred UI languages: " << tags.size() << '\n';
+
+    // --- isHiddenEntry ------------------------------------------------------
+    //
+    // The seam exists because the two platforms disagree about what "hidden"
+    // means, so the assertions below deliberately disagree too. Asserting the same
+    // answer on both would mean one of the implementations was wrong.
+    {
+        const fs::path plain = probeDir / L"visible.md";
+        const fs::path dotted = probeDir / L".dotted.md";
+        { std::ofstream out(plain, std::ios::binary); out << "x"; }
+        { std::ofstream out(dotted, std::ios::binary); out << "x"; }
+
+        check(fs::exists(plain) && fs::exists(dotted),
+              "CONTROL: both isHiddenEntry probe files were actually created");
+
+        // Agreed on by both platforms: an ordinary name with no attribute set.
+        check(!platform::isHiddenEntry(plain.wstring(), L"visible.md"),
+              "an ordinary file is not hidden on any platform");
+
+#ifdef _WIN32
+        // The name means nothing here; only the attribute does. ".gitignore" is a
+        // visible file on Windows and Explorer shows it.
+        check(!platform::isHiddenEntry(dotted.wstring(), L".dotted.md"),
+              "a dot-name is NOT hidden on Windows -- the attribute governs");
+
+        check(SetFileAttributesW(dotted.c_str(), FILE_ATTRIBUTE_HIDDEN) != 0,
+              "CONTROL: the hidden attribute could be set at all");
+        check(platform::isHiddenEntry(dotted.wstring(), L".dotted.md"),
+              "a file with FILE_ATTRIBUTE_HIDDEN is hidden on Windows");
+        // Clear it again so remove_all does not trip over it.
+        SetFileAttributesW(dotted.c_str(), FILE_ATTRIBUTE_NORMAL);
+
+        // An unreadable or absent entry reports NOT hidden, so a listing shows an
+        // entry the user may fail to open rather than silently omitting it.
+        check(!platform::isHiddenEntry((probeDir / L"no-such-file.md").wstring(),
+                                       L"no-such-file.md"),
+              "an entry that cannot be queried is reported as not hidden");
+#else
+        // No attribute exists to consult, so the name is the whole rule.
+        check(platform::isHiddenEntry(dotted.wstring(), L".dotted.md"),
+              "a dot-name IS hidden off Windows -- the name is the convention");
+
+        // CONTROL: the POSIX implementation never looks at the path, only the final
+        // component, so a dot in a PARENT directory must not hide a visible file.
+        // Without this the test would pass on an implementation that searched the
+        // whole path for a dot, which would hide everything under any dotdir.
+        check(!platform::isHiddenEntry(L"/home/u/.config/visible.md", L"visible.md"),
+              "CONTROL: a dot in a parent directory does not hide the entry");
+#endif
+    }
 
     // --- config_dir.cpp links and behaves ----------------------------------
     check(configFilePathForShell(L"").empty(), "empty shell path stays empty");

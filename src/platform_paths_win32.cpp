@@ -129,4 +129,18 @@ bool documentPathsEqual(const std::string& a, const std::string& b) {
     return true;
 }
 
+bool isHiddenEntry(const std::wstring& fullPath, const std::wstring& name) {
+    // The attribute is authoritative on Windows and the spelling is irrelevant:
+    // ".gitignore" is a perfectly ordinary visible file here, and Explorer shows
+    // it. This is exactly the FILE_ATTRIBUTE_HIDDEN test file_utils.cpp used to
+    // make inline against WIN32_FIND_DATAW, so Windows behaviour is unchanged.
+    (void)name;
+    const DWORD attrs = GetFileAttributesW(fullPath.c_str());
+    // Unreadable entry. "Not hidden" is the better failure: showing an entry the
+    // user then cannot open is a visible, explicable error, whereas silently
+    // omitting it makes a file that exists look like it does not.
+    if (attrs == INVALID_FILE_ATTRIBUTES) return false;
+    return (attrs & FILE_ATTRIBUTE_HIDDEN) != 0;
+}
+
 } // namespace platform

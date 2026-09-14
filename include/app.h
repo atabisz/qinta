@@ -25,10 +25,13 @@
 // the native members are incomplete pointers that cannot be created or used, and
 // every .cpp that drives them still fails on its own Win32 calls. That failing is
 // now the MEASUREMENT, which is the entire point.
-// The Win32 value types -- real ones on Windows, stand-ins off it. Extracted to
-// its own header once five sibling headers turned out to need the same three of
-// them; win32_types.h explains why one definition rather than six.
-#include "win32_types.h"
+
+// The Win32 value types (real ones on Windows, stand-ins off it) and the Win32 API
+// calls tinta makes, in two layers. win32_types.h was extracted first, once five
+// sibling headers turned out to need the same three types and ODR ruled out six
+// local copies; win32_api.h sits on top of it and holds the calls, because a type
+// can have a genuine stand-in off Windows and a CALL cannot. Each explains itself.
+#include "win32_api.h"
 
 #ifdef _WIN32
 #include <d2d1.h>
@@ -126,41 +129,11 @@ inline int64_t usElapsed(Clock::time_point start) {
 #define TIMER_LINK_PEEK 9
 #define TIMER_UPDATE_CHECK 10
 
-// The two Win32 timer calls this header makes, behind one guard each for the same
-// reason releaseNative exists: the three inline functions below that arm timers
-// are mostly POLICY -- when the cursor should blink, when a notification fade
-// needs repainting -- and only one statement of MECHANISM. Guarding the whole
-// function would have taken the policy off the portable side with it.
-//
-// This is also the first piece of a seam that is not app.h's alone: SetTimer or
-// KillTimer is named in 23 files. Whatever the Qt path uses (a QTimer per id is
-// the obvious shape) replaces two function bodies here rather than 23 call sites
-// there, so the helpers are named for what the caller wants rather than for the
-// API that happens to provide it today.
-//
-// Off Windows these do nothing, and that is honest rather than convenient: there
-// is no message loop off Windows either, so a timer that armed would have nothing
-// to deliver WM_TIMER to. A no-op is the accurate description of the platform,
-// not a stub standing in for missing work -- the missing work is the Qt event
-// loop, and it is missing on purpose until there is one.
-inline void armTimer(HWND hwnd, unsigned id, unsigned intervalMs) {
-#ifdef _WIN32
-    SetTimer(hwnd, id, intervalMs, nullptr);
-#else
-    (void)hwnd;
-    (void)id;
-    (void)intervalMs;
-#endif
-}
-
-inline void disarmTimer(HWND hwnd, unsigned id) {
-#ifdef _WIN32
-    KillTimer(hwnd, id);
-#else
-    (void)hwnd;
-    (void)id;
-#endif
-}
+// armTimer and disarmTimer used to be defined here. They moved to win32_api.h,
+// which app.h includes, once it was clear they were not app.h's to own: SetTimer or
+// KillTimer is named in 23 files, so a seam this header happened to discover while
+// being ported belongs one layer down with the other API calls. The IDs above stay
+// here, because who owns which timer IS app state.
 
 // Posted to continue an incomplete document layout in time-budgeted chunks
 #define WM_APP_LAYOUT_CHUNK (WM_APP + 1)

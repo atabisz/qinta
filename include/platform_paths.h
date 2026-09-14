@@ -91,6 +91,21 @@ void openInDefaultApplication(const std::wstring& path);
 // has -- see the note there about why that holds and what would break it.
 bool documentPathsEqual(const std::string& a, const std::string& b);
 
+// Should this directory entry be omitted from a file listing the user browses?
+//
+// A seam for the same reason documentPathsEqual is one: the convention genuinely
+// differs and both answers are correct on their own platform. Windows stores it as
+// a filesystem ATTRIBUTE the user toggles in Explorer, and the name means nothing;
+// POSIX has no such attribute and the convention is entirely a leading dot in the
+// NAME. Neither rule can be applied on the other platform -- consulting an
+// attribute that does not exist would hide nothing at all on Linux, and hiding
+// dot-names on Windows would hide files Explorer shows.
+//
+// Both arguments are supplied because each implementation needs a different one,
+// and passing both keeps the caller from having to know which. `fullPath` must be
+// openable as given; `name` is the final component only.
+bool isHiddenEntry(const std::wstring& fullPath, const std::wstring& name);
+
 } // namespace platform
 
 #endif // TINTA_PLATFORM_PATHS_H

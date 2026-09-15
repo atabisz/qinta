@@ -358,6 +358,34 @@ else
     check 1 "src/keyboard_qt.cpp is linked into keyboard_tests (not on the link line -- did the platform selection pick the win32 file?)"
 fi
 
+# tests/image_tests.cpp, for the same structural reason as every test object above:
+# include/image_api.h is a header, so the manifest cannot see it, and image_tests is
+# its ONLY consumer on either platform.
+#
+# This one has a second failure mode the others do not. Its CMake guard is
+# `WIN32 OR (Qt6_FOUND AND Qt6Svg_FOUND AND Qt6Network_FOUND)`, so a Qt install
+# missing Svg or Network deletes the target while leaving Core and Gui -- and every
+# other Qt target -- perfectly green. src/image_qt.cpp being in the manifest catches
+# that too, but only via a MISSING line that reads like "Qt is gone"; this check says
+# which target actually vanished.
+if grep -qE "image_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/image_tests.cpp was compiled by $CXX_BIN, so include/image_api.h is asserted off Windows"
+else
+    check 1 "tests/image_tests.cpp was compiled by $CXX_BIN (no object line found -- is Qt Svg or Qt Network missing?)"
+fi
+
+# And the Qt backend on the link line, the keyboard argument transplanted: the
+# manifest reads src/image_qt.cpp as compiled whether portable_compile_only or
+# image_tests produced the object, so naming it here is what says WHICH backend the
+# 56 assertions measured. The reverse edit is the one worth guarding -- image_tests
+# linking src/image_win32.cpp off Windows would fail at <urlmon.h> rather than
+# silently, but the manifest would attribute it to nothing in particular.
+if grep -E -- '-o image_tests( |$)' "$BUILD_DIR.build.log" | grep -q "image_qt\.cpp\.o"; then
+    check 0 "src/image_qt.cpp is LINKED INTO image_tests, so the Qt backend is the one asserted off Windows"
+else
+    check 1 "src/image_qt.cpp is linked into image_tests (not on the link line -- did the platform selection pick the win32 file?)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

@@ -77,6 +77,29 @@ text_qt.cpp
 # src/keyboard_win32.cpp, must never appear here.
 keyboard_qt.cpp
 
+# The Qt side of the IMAGE seam (include/image_api.h): remote fetch, raster decode,
+# SVG rasterization. LINKED AND RUN off Windows by image_tests, like keyboard_qt.cpp
+# and unlike render_qt.cpp and text_qt.cpp.
+#
+# It is the first line here whose target needs a Qt module beyond Core and Gui -- Svg
+# and Network -- and that changes what a MISSING reading from this line means. For the
+# three Qt files above, listed-but-not-compiled says "Qt is gone". For this one it can
+# also say "Qt is present but Svg or Network is not", because CMakeLists.txt asks for
+# those two as OPTIONAL_COMPONENTS on purpose: making them required would have set
+# Qt6_FOUND false on a partial install and silently deleted qt_text_tests,
+# render_api_tests and every other target in that block. So the failure is loud here
+# and the older targets are unaffected -- which is the trade, stated rather than
+# discovered later.
+#
+# What it claims is unusually strong for this manifest: image_tests asserts the
+# artifact both backends promise -- tightly packed premultiplied BGRA -- against a PNG
+# the test emits byte by byte, so this is one of the few lines where the Qt file and
+# its Windows counterpart are held to the SAME numbers rather than to each other's
+# absence. Its counterpart, src/image_win32.cpp, must never appear here: it includes
+# <urlmon.h>, <shlwapi.h> and <d2d1_3.h>, which are the three unguarded headers that
+# made src/render.cpp fatal off Windows for six spans.
+image_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
 # THREE ENTRIES. selection.cpp used to head this section and has moved

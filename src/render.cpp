@@ -16,12 +16,16 @@
 #include <string_view>
 #include <filesystem>
 #include <fstream>
-#include <urlmon.h>
 #include <thread>
-#include <d2d1_3.h>
-#include <shlwapi.h>
-#pragma comment(lib, "urlmon.lib")
-#pragma comment(lib, "shlwapi.lib")
+
+// urlmon.h, d2d1_3.h and shlwapi.h used to sit here, unguarded, and they were what
+// made this file FATAL off Windows -- so nothing past them was ever measured, and
+// six spans read `errors=1, fatal=1` at urlmon.h:19 as if it were a fact about the
+// file. All three are now behind include/image_api.h; the census that found them
+// confined to two functions is in that header. The two `#pragma comment(lib, ...)`
+// lines went with them and were redundant besides: CMakeLists.txt:236,242 already
+// links urlmon and shlwapi.
+#include "image_api.h"
 
 // Fit-to-width override lookup for a table/diagram ordinal key
 static bool fitBlockEnabled(const App& app, unsigned key) {
@@ -67,8 +71,9 @@ struct LayoutInfo {
 //
 // nativeTextLayout() asserts the handle really came from the DirectWrite backend, so
 // a Qt layout arriving here trips rather than silently skipping. That is the right
-// failure: this file includes urlmon.h and calls ID2D1 directly, and does not pretend
-// to be portable.
+// failure: this file calls ID2D1 and IDWriteTextLayout2 directly, and does not pretend
+// to be portable. (It no longer includes urlmon.h -- that moved to the image seam --
+// so the reason stands on the native calls alone, which is where it always belonged.)
 static void applyEmojiFallback(App& app, tinta::TextLayout* layout) {
     if (!layout || !app.fontFallback) return;
     IDWriteTextLayout* native = nativeTextLayout(layout);
@@ -2483,188 +2488,70 @@ struct AsyncImageResult {
 // COM apartment and WIC factory; only plain pixel bytes cross the thread
 // boundary.
 static void asyncImageWorker(HWND hwnd, std::string src) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     auto* result = new AsyncImageResult();
     result->src = src;
 
-    wchar_t tempPath[MAX_PATH] = {};
-    std::wstring wideSrc = toWide(src);
-    if (SUCCEEDED(URLDownloadToCacheFileW(nullptr, wideSrc.c_str(), tempPath, MAX_PATH, 0, nullptr))) {
-        IWICImagingFactory* wic = nullptr;
-        if (SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                       IID_PPV_ARGS(&wic))) && wic) {
-            IWICBitmapDecoder* decoder = nullptr;
-            if (SUCCEEDED(wic->CreateDecoderFromFilename(tempPath, nullptr, GENERIC_READ,
-                                                         WICDecodeMetadataCacheOnDemand, &decoder)) && decoder) {
-                IWICBitmapFrameDecode* frame = nullptr;
-                if (SUCCEEDED(decoder->GetFrame(0, &frame)) && frame) {
-                    IWICFormatConverter* converter = nullptr;
-                    if (SUCCEEDED(wic->CreateFormatConverter(&converter)) && converter) {
-                        if (SUCCEEDED(converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
-                                WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
-                            UINT w = 0, h = 0;
-                            converter->GetSize(&w, &h);
-                            if (w > 0 && h > 0 && w < 16384 && h < 16384) {
-                                result->pixels.resize((size_t)w * h * 4);
-                                if (SUCCEEDED(converter->CopyPixels(nullptr, w * 4,
-                                        (UINT)result->pixels.size(), result->pixels.data()))) {
-                                    result->width = w;
-                                    result->height = h;
-                                    result->ok = true;
-                                }
-                            }
-                        }
-                        converter->Release();
-                    }
-                    frame->Release();
-                }
-                decoder->Release();
-            }
-            wic->Release();
+    // Download and decode are two seam calls rather than one, because the decode half
+    // is assertable in a test and the fetch half is not -- see image_api.h. The 16384
+    // dimension bound and the download-to-cache-file mechanism both moved with the
+    // code and are unchanged; the COM apartment this function used to open around its
+    // whole body now lives in the Windows backend, which is the only half that needs
+    // one.
+    const std::wstring tempPath = tinta::fetchToTempFile(src);
+    if (!tempPath.empty()) {
+        tinta::DecodedImage decoded = tinta::decodeImageFile(tempPath);
+        if (decoded.ok) {
+            result->width = decoded.width;
+            result->height = decoded.height;
+            result->pixels = std::move(decoded.pixels);
+            result->ok = true;
         }
     }
 
     if (!PostMessageW(hwnd, WM_APP_IMAGE_READY, 0, (LPARAM)result)) {
         delete result;  // window already gone
     }
-    CoUninitialize();
 }
 
-// SVG images rasterize at 2x through the Direct2D SVG renderer
-// (ID2D1DeviceContext5, Windows 10 1703+). Shapes, paths, and gradients
-// render; <text> elements are not supported by D2D's SVG subset.
+// SVG rasterizes at 2x through the image seam -- Direct2D's SVG document renderer on
+// Windows, QSvgRenderer on Qt. Both were 128 lines of device-context and memory-stream
+// plumbing in this file, and both are now one call.
+//
+// The 192-dpi bitmap properties are load-bearing and are the reason this function
+// still exists at all rather than folding into the seam. entry.width/height carry the
+// document's INTRINSIC size in DIPs while the bitmap holds 2x that many pixels, and
+// declaring the bitmap at twice the default 96 dpi is what keeps those consistent:
+// Direct2D then reports the bitmap's logical size as the intrinsic size, so every
+// draw and hit-test downstream sees one coherent number. Passing 96 here would draw
+// every SVG in the document at double size, and nothing else would look wrong.
+static const float kSvgRasterScale = 2.0f;
+
 static bool loadSvgBitmap(App& app, const std::wstring& path,
                           App::ImageEntry& entry) {
+    // All three checks are the original's, kept even though the seam now owns its own
+    // D2D and WIC factories: the app having failed to create either is a state where
+    // rendering an image is not going to work regardless of who holds the factory.
     if (!app.d2dFactory || !app.wicFactory || !app.renderTarget) return false;
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return false;
-    std::string bytes((std::istreambuf_iterator<char>(file)),
-                      std::istreambuf_iterator<char>());
-    if (bytes.empty()) return false;
 
-    auto makeDc5 = [&](UINT w, UINT h, IWICBitmap** wicOut,
-                       ID2D1DeviceContext5** dcOut) -> bool {
-        *wicOut = nullptr;
-        *dcOut = nullptr;
-        if (FAILED(app.wicFactory->CreateBitmap(
-                w, h, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnDemand,
-                wicOut))) {
-            return false;
-        }
-        D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                              D2D1_ALPHA_MODE_PREMULTIPLIED),
-            96.0f, 96.0f);
-        ID2D1RenderTarget* rt = nullptr;
-        if (FAILED(app.d2dFactory->CreateWicBitmapRenderTarget(*wicOut, props,
-                                                               &rt))) {
-            (*wicOut)->Release();
-            *wicOut = nullptr;
-            return false;
-        }
-        HRESULT hr = rt->QueryInterface(IID_PPV_ARGS(dcOut));
-        rt->Release();
-        if (FAILED(hr) || !*dcOut) {
-            // Pre-1703 Windows: no Direct2D SVG; the alt text shows instead
-            (*wicOut)->Release();
-            *wicOut = nullptr;
-            return false;
-        }
-        return true;
-    };
-    auto makeStream = [&]() -> IStream* {
-        return SHCreateMemStream((const BYTE*)bytes.data(),
-                                 (UINT)bytes.size());
-    };
-
-    // Pass 1: parse only, to learn the intrinsic size
     float svgW = 0.0f, svgH = 0.0f;
-    {
-        IWICBitmap* tmp = nullptr;
-        ID2D1DeviceContext5* dc = nullptr;
-        if (!makeDc5(4, 4, &tmp, &dc)) return false;
-        IStream* stream = makeStream();
-        ID2D1SvgDocument* doc = nullptr;
-        if (stream &&
-            SUCCEEDED(dc->CreateSvgDocument(stream, tinta::sizeF(512, 512),
-                                            &doc)) &&
-            doc) {
-            ID2D1SvgElement* root = nullptr;
-            doc->GetRoot(&root);
-            if (root) {
-                FLOAT w = 0, h = 0;
-                if (SUCCEEDED(root->GetAttributeValue(L"width", &w)) &&
-                    SUCCEEDED(root->GetAttributeValue(L"height", &h)) &&
-                    w > 0 && h > 0) {
-                    svgW = w;
-                    svgH = h;
-                } else {
-                    D2D1_SVG_VIEWBOX vb{};
-                    if (SUCCEEDED(root->GetAttributeValue(
-                            L"viewBox", D2D1_SVG_ATTRIBUTE_POD_TYPE_VIEWBOX,
-                            &vb, sizeof(vb))) &&
-                        vb.width > 0 && vb.height > 0) {
-                        svgW = vb.width;
-                        svgH = vb.height;
-                    }
-                }
-                root->Release();
-            }
-            doc->Release();
-        }
-        if (stream) stream->Release();
-        dc->Release();
-        tmp->Release();
-    }
-    if (svgW <= 0.0f || svgH <= 0.0f) {
-        svgW = 300.0f;  // the SVG spec's replaced-element default
-        svgH = 150.0f;
-    }
-    svgW = std::min(svgW, 4096.0f);
-    svgH = std::min(svgH, 4096.0f);
+    tinta::DecodedImage raster =
+        tinta::rasterizeSvgFile(path, kSvgRasterScale, svgW, svgH);
+    if (!raster.ok) return false;
 
-    // Pass 2: rasterize at 2x for crisp zooming
-    UINT pxW = (UINT)std::ceil(svgW * 2.0f);
-    UINT pxH = (UINT)std::ceil(svgH * 2.0f);
-    IWICBitmap* wicBitmap = nullptr;
-    ID2D1DeviceContext5* dc = nullptr;
-    if (!makeDc5(pxW, pxH, &wicBitmap, &dc)) return false;
-    bool drawn = false;
-    {
-        IStream* stream = makeStream();
-        ID2D1SvgDocument* doc = nullptr;
-        if (stream &&
-            SUCCEEDED(dc->CreateSvgDocument(stream, tinta::sizeF(svgW, svgH),
-                                            &doc)) &&
-            doc) {
-            dc->BeginDraw();
-            dc->Clear(tinta::colorF(0, 0, 0, 0));
-            dc->SetTransform(D2D1::Matrix3x2F::Scale(2.0f, 2.0f));
-            dc->DrawSvgDocument(doc);
-            drawn = SUCCEEDED(dc->EndDraw());
-            doc->Release();
-        }
-        if (stream) stream->Release();
+    D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
+                          D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f * kSvgRasterScale, 96.0f * kSvgRasterScale);
+    ID2D1Bitmap* bitmap = nullptr;
+    if (SUCCEEDED(app.nativeRenderTarget->CreateBitmap(
+            D2D1::SizeU(raster.width, raster.height), raster.pixels.data(),
+            raster.width * 4, bp, &bitmap)) &&
+        bitmap) {
+        entry.bitmap = bitmap;
+        entry.width = (int)svgW;
+        entry.height = (int)svgH;
+        entry.failed = false;
     }
-    dc->Release();
-
-    if (drawn) {
-        D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                              D2D1_ALPHA_MODE_PREMULTIPLIED),
-            192.0f, 192.0f);
-        ID2D1Bitmap* bitmap = nullptr;
-        if (SUCCEEDED(app.nativeRenderTarget->CreateBitmapFromWicBitmap(
-                wicBitmap, &bp, &bitmap)) &&
-            bitmap) {
-            entry.bitmap = bitmap;
-            entry.width = (int)svgW;
-            entry.height = (int)svgH;
-            entry.failed = false;
-        }
-    }
-    wicBitmap->Release();
     return !entry.failed;
 }
 

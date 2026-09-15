@@ -58,6 +58,22 @@ else()
     set(PLATFORM_KEYBOARD_SOURCE src/keyboard_qt.cpp)
 endif()
 
+# The image seam (include/image_api.h): remote fetch, raster decode, SVG rasterization.
+# Selected the same way, and the reason it exists is narrower than the others. This is
+# the seam that removed render.cpp's three UNGUARDED Windows includes -- urlmon.h,
+# shlwapi.h and d2d1_3.h. app.h already puts d2d1.h, dwrite.h and wincodec.h behind
+# `#ifdef _WIN32`, so every other native mention in that file is an ordinary error;
+# those three were FATAL, which meant a 3,498-line file reported `errors=1` and had
+# never been measured at all.
+#
+# The Qt half needs Svg and Network on top of Core and Gui, which is the first time
+# this port has needed a Qt module beyond the two.
+if(WIN32)
+    set(PLATFORM_IMAGE_SOURCE src/image_win32.cpp)
+else()
+    set(PLATFORM_IMAGE_SOURCE src/image_qt.cpp)
+endif()
+
 # The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
 # on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
@@ -111,6 +127,7 @@ set(SOURCES
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
     ${PLATFORM_KEYBOARD_SOURCE}
+    ${PLATFORM_IMAGE_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -1002,7 +1019,16 @@ if(BUILD_TESTING)
     # default xcb plugin cannot reach a display. The test itself refuses to run
     # unless a font database exists, so this variable going missing fails loudly
     # rather than silently measuring nothing.
-    find_package(Qt6 QUIET COMPONENTS Core Gui)
+    # Svg and Network are OPTIONAL_COMPONENTS, deliberately, and not appended to the
+    # required list. The image seam (src/image_qt.cpp) is the first thing in this port
+    # to need a Qt module beyond Core and Gui, and adding them as required components
+    # would make Qt6_FOUND false on a machine missing either -- which would silently
+    # delete qt_text_tests, render_api_tests and every other target in the Qt6_FOUND
+    # block below. A green ctest run with a smaller test set is the one failure this
+    # tree has caught itself in twice, so the new dependency is not allowed to gate
+    # the old targets. Qt6Svg_FOUND / Qt6Network_FOUND carry the answer for the one
+    # target that needs it.
+    find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS Svg Network)
 
     # --- The modifier-key seam, tested on BOTH backends -----------------------
     #
@@ -1036,6 +1062,54 @@ if(BUILD_TESTING)
             # targets disagreeing about their environment is a trap for whoever changes
             # one of them next.
             set_tests_properties(keyboard PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        endif()
+    endif()
+
+    # --- The image seam, tested on BOTH backends ------------------------------
+    #
+    # Same both-backends shape as keyboard above, and for the same reason: two real
+    # implementations, so asserting only one would make this indirection rather than
+    # abstraction. ${PLATFORM_IMAGE_SOURCE} resolves to image_win32.cpp or
+    # image_qt.cpp, and the assertions are on the artifact both produce -- tightly
+    # packed premultiplied BGRA -- not on either backend's API.
+    #
+    # The guard is narrower than keyboard's on purpose. Off Windows this needs Qt Svg
+    # AND Network on top of Core and Gui, so a machine with a partial Qt gets no image
+    # target rather than a configure error. That is a hole the manifest cannot see, and
+    # it is why the test prints its assertion count: a silently absent target and a
+    # passing one are otherwise indistinguishable.
+    if(WIN32 OR (Qt6_FOUND AND Qt6Svg_FOUND AND Qt6Network_FOUND))
+        add_executable(image_tests tests/image_tests.cpp ${PLATFORM_IMAGE_SOURCE})
+        target_include_directories(image_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        if(WIN32)
+            target_compile_definitions(image_tests PRIVATE UNICODE _UNICODE)
+            # text_utils.cpp and the path seam are a WINDOWS-ONLY dependency here, and
+            # listing them per-branch rather than in the target's own source list is
+            # the honest spelling: image_win32.cpp calls toWide to widen a UTF-8 URL,
+            # which reaches platform::fromUtf8, while image_qt.cpp converts through
+            # QString and needs neither. shell32 is what platform_paths_win32.cpp
+            # wants, the same line text_utils_tests carries.
+            target_sources(image_tests PRIVATE
+                src/text_utils.cpp ${PLATFORM_PATHS_SOURCE})
+            # windowscodecs for WIC, d2d1 for the SVG device context, shlwapi for
+            # SHCreateMemStream, urlmon for the fetch, ole32 for CoInitializeEx.
+            # These are the libs render.cpp's image code needed; they moved with it.
+            target_link_libraries(image_tests PRIVATE
+                windowscodecs d2d1 shlwapi urlmon ole32 shell32)
+        else()
+            target_link_libraries(image_tests PRIVATE
+                Qt6::Core Qt6::Gui Qt6::Svg Qt6::Network)
+        endif()
+        add_test(NAME image COMMAND image_tests)
+        if(NOT WIN32)
+            # QImage and QSvgRenderer both work headless, but QPainter on a QImage is
+            # raster-backed and the offscreen plugin is what keeps a Qt binary from
+            # aborting in WSL where no display exists. Set for the same reason as
+            # keyboard's: two Qt-linked targets disagreeing about their environment is
+            # a trap for whoever edits one of them next.
+            set_tests_properties(image PROPERTIES
                 ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
         endif()
     endif()

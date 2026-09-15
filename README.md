@@ -403,18 +403,26 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **22 run on Linux, 20 of them shared with the 30 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 32 distinct test targets in total |
+| Tests running off Windows | **23 run on Linux, 21 of them shared with the 31 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 33 distinct test targets in total |
 | Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
 | In-document search asserted off Windows | Done — `search.cpp` was compile-only on both platforms and now has 53 assertions running on each. The blocker was never its shape: a real link found ten undefined symbols, nine already in portable files and one (`ensureLayoutComplete`) still in `render.cpp`, which the test stubs. Honest limit: **that stub means the precondition itself is untested**, and two folder-scan functions are unreachable from another translation unit and left uncovered |
 | The App overload of `tr()` asserted off Windows | Done — `i18n_app.cpp` is one forwarding line and was the second of the two compile-only files. It now runs 42 assertions inside the existing `i18n` test, on both platforms, taking that test from 40 to 82. Worth doing for the failure mode rather than the size: its whole job is to read `app.currentLanguageIndex`, and a version that forwards a constant leaves the app **silently monolingual** — no error, no crash, every string still drawn. A planted constant fails 34 of the 42. Honest limit: this adds **no new test target**, so the revert is invisible to the manifest, the ctest count *and* the pass rate — the only instrument is a new check on the link line |
 | Modifier-key seam (`keyboard.h`) + both backends | Done — and the interesting part is what made it *testable*. The seam's own two calls can only be asserted to return false, because no key is held while a test binary runs, and a stub that never reads the keyboard passes that too. So the decision every call site actually depends on was split out as a pure predicate: `modifierHeld(short)` is `(state & 0x8000) != 0`, and the realistic bug is reading the neighbouring low bit instead, which is the sticky Caps-Lock-style toggle — that would make Shift+Tab depend on whether Caps Lock was on. Being pure, it is asserted over its **entire 65,536-value domain** on both platforms, and against an independent characterisation (bit 15 set ⇔ the `short` is negative) rather than against its own expression, so a restatement could not pass — a wrong-bit implementation disagrees on exactly half the domain. 65,545 assertions, identical on both platforms because every one of them is arithmetic. It is also the Windows backend's *own* decode step, so those are a Linux run asserting the expression Windows depends on. What stays unprovable without a human holding a key is now just the syscall, not the seam. `QGuiApplication::keyboardModifiers()` and *not* `queryKeyboardModifiers()`: all 17 sites read event-time state, and the wrong one of those compiles, runs, and is wrong only while keys are moving |
 | `tableedit.cpp` off Windows | Compiles — 621 lines, 12 g++ errors to 0, and **every one of the 12 was a keyboard error**: 10 missing `VK_` codes and the 2 `GetKeyState` calls. Nothing else in the file names a Windows API. Honest limit, and it is the whole reason this is a separate row from the one above: **nothing executes it on either platform.** It is the second file in that state |
+| Image seam (`image_api.h`) + both backends | Done — remote fetch, raster decode and SVG rasterization, `urlmon`/WIC/`d2d1_3` on one side and `QNetworkAccessManager`/`QImage`/`QSvgRenderer` on the other. It is what took `render.cpp`'s three unguarded headers, so it is the reason that file can be measured off Windows at all. **56 assertions, the same 56 on both platforms**, against a 2×2 PNG the test emits byte by byte — table-less CRC32, hand-rolled adler32, one stored deflate block, so no zlib and every expected value hand-computable. The pixels are chosen as discriminators rather than as data: an opaque red separates BGRA from RGBA, and a **white pixel at alpha 0** separates premultiplied from straight alpha, because 255 × 0 is 0 while a straight decode leaves 255,255,255 sitting there. Ten planted controls, five per backend, each with its failure count predicted before the run and each matching exactly. Honest limits, all three stated at their own sites: **no test makes a real HTTP request**, so only the fetch's failure path is asserted; the fixture cannot separate row *padding* from tight packing, because at 32bpp a `QImage` scanline is already 4-byte aligned, so `image_qt.cpp`'s row-by-row copy rests on an unasserted argument; and **nobody has looked at the running viewer** |
+| The segfault this seam caused, and why it is a row | Fixed — and worth recording because it passed every assertion before it crashed. The seam first cached its WIC and D2D factories in process-lifetime statics, on the reasonable-sounding argument that a factory should outlive one call. But the COM apartment here is entered and left **per call**, so the first call created a factory, used it, and then `CoUninitialize` tore down the apartment that factory belonged to; the second call found a non-null pointer to a dead object and the Windows binary died at exit 139. Linux was green at 56/56 the whole time, so **cross-platform agreement is not a defect detector** — both backends passed, and only one then died. The mechanism was isolated with a one-line diagnostic and a prediction written before the run, rather than fixed on a hypothesis, and the fix is not an invention: `git show` of the pass base proves the original code already created WIC *inside* the apartment and released it before closing. Fixing it surfaced a second latent bug from the same split — `fetchToTempFile` had silently lost its apartment, a failure indistinguishable from an unreachable host, which is exactly the one endpoint no test covers. The lesson that generalises: the crash needed the seam called **twice**, and a test calling each function once would have passed |
 
-**To do — 24 files, 29,529 lines**
+**To do — 25 files, 29,762 lines**
+
+The file count went *up* by one and the line count up by 233, on a pass that did real work.
+Both are the image seam's Windows backend: `image_win32.cpp` is 346 new lines that exist to
+be deleted later, and `render.cpp` shrank by 113 handing them over. That is the same
+bookkeeping as `keyboard_win32.cpp` below, and it is why this table is counted rather than
+estimated.
 
 | Area | Size | Note |
 |---|---|---|
-| `render.cpp` | 3,498 | **Still the blocker, but no longer for text.** Native mentions went 128 → 93, and live ones — excluding comments — 115 → 75; the *text* subset fell 56 → 16. Every layout now goes through `app.textFactory` and `dwriteFactory` is named at zero live sites, so paragraphs, wrapped labels and diagram text all lay out off Windows. What remains is four other seams: path-geometry arcs (22 live mentions), WIC image decoding (10), line breaking via `IDWriteTextAnalysisSource`/`Sink` (6), `ID2D1SvgDocument` (3), plus the `IDWriteTextLayout2` font-fallback query (2), which is deliberately *not* pushed into the backend — see the note below the table. The residual `ID2D1`/`D2D1_` count is unchanged at 16/33, because drawing is a different seam and this work did not touch it |
+| `render.cpp` | 3,385 | **Still the blocker, and now measurable off Windows for the first time.** Three *unguarded* Windows headers — `urlmon.h`, `shlwapi.h`, `d2d1_3.h` — used to stop `g++` at the first one, reporting `errors=1, fatal=1`, which means not-measured rather than one-error-away. The image seam took all three, and the file now reads **`fatal=0`, `errors=97`**. Native mentions, under the pattern given in the completeness section, went **100 → 75, and 85 → 60 live**; the *text* subset is 19. Every layout goes through `app.textFactory` and `dwriteFactory` is named at zero live sites, so paragraphs, wrapped labels and diagram text all lay out off Windows — but **all 18 `createLayout` sites still call `dwriteFactory->CreateTextLayout` directly**, so nothing can actually be laid out off Windows yet. That is the next slice. What else remains: path-geometry arcs (22 live), line breaking via `IDWriteTextAnalysisSource`/`Sink` and friends (11), WIC decoding for the local-raster path (6, deliberately left — routing it through the seam would add a full-image memcpy to every local image), and the `IDWriteTextLayout2` font-fallback query (2), which is deliberately *not* pushed into the backend — see the note below the table. `ID2D1SvgDocument` is now **zero**: SVG rasterization left the file entirely. Residual drawing counts are `ID2D1` 9 and `D2D1_` 20, because drawing is a different seam and this work did not touch it. Honest limit, unchanged and important: **no test links `render.cpp`**, so all of these are compiler readings |
 | Window and message loop | 4,348 + 2,273 | `input.cpp`, `main_d2d.cpp` — Win32 message pump → Qt event handling |
 | Editor | 3,138 | `editor.cpp`, including IME input via `imm.h` → Qt input methods |
 | Overlays, annotations, math | 4,109 + 1,194 + 852 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction. `tableedit.cpp` used to be the fourth entry here and has left — it compiles off Windows now |
@@ -426,7 +434,7 @@ same session.
 | Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired: those files report `errors=1, fatal=1`, which means not-measured rather than one-error-away |
 | Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
-| The Windows backends themselves | 219 + 635 + 212 + 146 + 65 + 23 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp` — **deleted or replaced, not ported.** Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `keyboard_win32.cpp` is new here and is the honest bookkeeping on building a seam: its Qt half is progress, and its Windows half is 23 more lines that eventually get deleted |
+| The Windows backends themselves | 219 + 635 + 212 + 146 + 65 + 23 + 346 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 1,646 lines. Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 346 lines, of which a good share is the post-mortem for a segfault it caused (see below). `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
 
 The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
 it is worth a note because the reasoning is not visible from the code. Folding
@@ -476,11 +484,11 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 21,096 / 57,461 | **36.7%** |
-| B. `src/*.cpp` files compiling without Windows headers | 35 / 59 | 59.3% |
-| C. Files a *running* test links | 33 / 59 | 55.9% |
-| D. Windows tests that also run off Windows | 20 / 30 | 66.7% |
-| E. All test targets, run off Windows | 22 / 32 | 68.8% |
+| A. Source lines free of the Windows stack | 21,287 / 58,026 | **36.7%** |
+| B. `src/*.cpp` files compiling without Windows headers | 36 / 61 | 59.0% |
+| C. Files a *running* test links | 34 / 61 | 55.7% |
+| D. Windows tests that also run off Windows | 21 / 31 | 67.7% |
+| E. All test targets, run off Windows | 23 / 33 | 69.7% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 
 **Basis A, 36.7%, is the headline** — it is the figure the probe itself prints on every
@@ -492,34 +500,40 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 50,625 lines of the 57,461,
-**basis A's ceiling is 88.1%, not 100%**, and 36.7% should be read against that.
+can never enter the numerator. With `src/*.cpp` totalling 51,049 lines of the 58,026,
+**basis A's ceiling is 88.0%, not 100%**, and 36.7% should be read against that.
 
-That has a small edge worth admitting, because this pass walked into it. The denominator
-moved 57,445 → 57,461 *during* the pass, and all 16 lines are `include/keyboard.h` growing
-when the comment recording a deleted predicate replaced the predicate itself. Writing down
-why a function went away costs a fraction of a point on the headline. It is the same
-honest bookkeeping as `keyboard_win32.cpp`'s 23 lines being counted as work still to
-delete — and it is the one figure in this section that the checker could not catch on its
-own, because the probe's output is passed to it as a witnessed reading rather than
-re-derived.
+That has a small edge worth admitting, because this pass walked into it too. The
+denominator moved 57,997 → 58,026 *during* the pass: 29 lines, all of them
+`src/image_win32.cpp` growing when the post-mortem for a segfault went in as a comment
+above the class that fixed it. Writing down why the obvious design was wrong costs a
+fraction of a point on the headline, and it is worth it. It is the same honest bookkeeping
+as `keyboard_win32.cpp`'s 23 lines being counted as work still to delete — and it is the
+one figure in this section that the checker could not catch on its own, because the probe's
+output is passed to it as a witnessed reading rather than re-derived. The 29 lines are also
+why an independent line count disagreed with the probe by exactly 29 until the probe was
+re-run at the final tree state; two instruments agreeing at 58,026 is the reading, and one
+of them being stale was the reason to re-run rather than reconcile on paper.
 
-Basis A just posted its largest single move on record, 35.7% → 36.7%, and **94.5% of that
-gain is a file nothing executes.** The numerator rose by 657 lines: 621 of them are
-`tableedit.cpp`, which compiles off Windows now and has no test on either platform, and 36
-are `keyboard_qt.cpp`, which does. So the headline moved a full point on the strength of a
-file whose only claim is that a second compiler accepts it. Two of the 35 compiling files
-are now in that state (`editrail.cpp` and `tableedit.cpp`) — it was one, and before
-`search.cpp` and `i18n_app.cpp` got running tests it was three.
+**This pass, the headline did not move at all — and three of the six bases went *down*.**
+Basis A is 36.7% before and after. B fell 59.3% → 59.0% and C fell 55.9% → 55.7%, and the
+ceiling fell 88.1% → 88.0%, on a pass that added a working seam, two backends and 56 new
+assertions. The arithmetic is not subtle: the image seam added **two** files to `src/*.cpp`
+and only one of them can ever be portable. `image_qt.cpp` enters both numerator and
+denominator; `image_win32.cpp` enters the denominator only, permanently, because it is the
+Windows backend and its whole purpose is to be deleted later. So B went 35/59 → 36/61 and C
+went 33/59 → 34/61 — both numerators up by one, both denominators up by two, both
+percentages down.
 
-The same pass shows the honest counterpart in the two bases beside it: **B rose by two
-files and C by one**, and the file accounting for the difference is exactly
-`tableedit.cpp`. That gap is the whole reason the two bases are listed separately rather
-than blended — basis A and basis B cannot tell a compiler's acceptance from a test's, and
-basis C is the one that can.
+That is the honest shape of splitting a seam, and it is worth stating rather than smoothing
+over: every seam this port creates will do the same thing to these three figures. A basis
+that falls when you do the right thing is not a broken basis, but it is a basis you have to
+read with the commit in front of you.
 
-This is the third consecutive pass where the headline was the wrong place to look, and the
-first where it misled in the *flattering* direction. Before this, giving `search.cpp` a
+This is the fourth consecutive pass where the headline was the wrong place to look, and the
+second where it misled in the *flattering* direction — last pass it jumped a full point on
+`tableedit.cpp`, a file nothing executes, and this pass it stood still while the port
+gained its first tested image seam. Before that, giving `search.cpp` a
 running test with 53 assertions moved basis A by **exactly zero** (the file was already
 counted as portable), and `i18n_app.cpp` then added 42 assertions for another zero. Before
 *that* it moved the wrong way outright, 35.8% → 35.7%, on a commit where `render.cpp` lost
@@ -538,13 +552,35 @@ meaning anything is worse than no percentage, so it is gone rather than adjusted
 Basis F is the one to keep in view, and the change of goal made it stricter: it used to
 ask whether a non-Windows binary existed, and now asks how many of the three platforms
 run Tinta on Qt. **The answer is none.** Windows runs, on the stack being replaced.
-`render.cpp` — 3,498 lines and 93 native Direct2D and DirectWrite mentions, 75 of them
-live — is the single file standing between "the library compiles and is tested" and "it
-runs anywhere on Qt", and it is the same blocker under either goal. It is a *smaller*
-blocker than it was: text layout came off DirectWrite entirely, and the four seams left in
-it are drawing and decoding rather than typesetting. That is the good news in this section,
-together with the fact that going single-stack did not add a blocker — it removed the
-obligation to maintain two.
+`render.cpp` is the single file standing between "the library compiles and is tested" and
+"it runs anywhere on Qt", and it is the same blocker under either goal. **It is now 3,385
+lines, and for the first time it can be measured off Windows at all.** Until this pass it
+had three *unguarded* Windows headers in it — `urlmon.h`, `shlwapi.h` and `d2d1_3.h` — so
+`g++` stopped at the first one and reported `errors=1, fatal=1`. That reading means NOT
+MEASURED, never "one header away", and it stood for six passes. With the image seam taking
+all three, the file now reads **`fatal=0`, `errors=97`**, and the first error is an ordinary
+undeclared type rather than a wall. 97 is the first number anyone has that sizes the
+remainder of the hardest file in the port.
+
+Native-mention counts here are quoted **with the pattern that produced them**, because this
+section previously carried "93 mentions, 75 of them live" from a measurement whose pattern
+was never recorded, and a separate pass measured "128" under a different definition. Two
+numbers with no definitions is worse than one number with one. Counting occurrences of
+`\b(ID2D1|IDWrite|IWIC|D2D1_|DWRITE_|WIC[A-Z])[A-Za-z0-9_]*` plus `D2D1::`, `render.cpp`
+went **100 → 75 mentions, and 85 → 60 excluding whole-line comments**, measured at both the
+pass base and the final tree rather than recalled. Note the trap: the new total, 75, is the
+same numeral as the old "75 live" under the old pattern, and the two are not comparable —
+read the pattern, not the digits. "Live" here excludes whole-line `//` comments only; it
+does not strip trailing comments or block comments, and saying so is cheaper than implying a
+precision it does not have.
+
+It is a *smaller* blocker than it was: text layout came off DirectWrite entirely, image
+loading came off Windows entirely this pass, and what is left is drawing, geometry and line
+breaking rather than typesetting or I/O. The largest remaining piece is named and sized: all
+18 `createLayout` sites still call `dwriteFactory->CreateTextLayout` directly, so not one
+paragraph — not even plain text — can be laid out off Windows yet. That is the next slice,
+and it was deliberately deferred rather than half-done, because reconnaissance found three
+fatal headers where the plan assumed one.
 
 Call it roughly a third of the way through by volume, with the hardest single file still
 ahead — and note that the finish line moved out, not in: 1,300 lines of Windows backend

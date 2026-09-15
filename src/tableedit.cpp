@@ -1,6 +1,11 @@
 #include "tableedit.h"
 #include "editor.h"
 #include "utils.h"
+// The modifier-key seam. This file was the last src/ file whose ONLY off-Windows
+// errors were keyboard ones: 12 g++ errors, 10 missing VK_ codes that
+// include/keymap.h now supplies off Windows, and the 2 GetKeyState calls this
+// header replaces. Nothing else in 616 lines names a Windows API.
+#include "keyboard.h"
 
 #include <algorithm>
 #include <string>
@@ -414,7 +419,7 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
 bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
     if (!app.tableEditActive) return false;
     // Ctrl chords pass through (save commits the open cell first)
-    if (GetKeyState(VK_CONTROL) & 0x8000) return false;
+    if (platform::isCtrlDown()) return false;
     switch (key) {
         case VK_ESCAPE:
             tableEditCancel(app);
@@ -425,7 +430,7 @@ bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
             requestRepaint(hwnd);
             return true;
         case VK_TAB: {
-            bool back = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            bool back = platform::isShiftDown();
             size_t tableSrc = app.tableEditSrc;
             int row = app.tableEditRow, col = app.tableEditCol;
             tableEditCommit(app);

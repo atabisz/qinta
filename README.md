@@ -257,6 +257,7 @@ the "target" column is where every platform ends up:
 | `include/win32_types.h` | Win32 scalar types (`UINT32`, `BOOL`, `FLOAT`, …) | real `<windows.h>` types | stand-in typedefs, each pinned to the SDK's by `static_assert` — and eventually neither, once no code names them |
 | `include/win32_api.h` | Win32 and CRT *calls* (`swprintf_s`, `PostMessage`, …) | native | portable spellings |
 | `include/platform_paths.h` | Config and data directory lookup | `src/platform_paths_win32.cpp` | `src/platform_paths_posix.cpp`, then `QStandardPaths` |
+| `include/keyboard.h` | "is a modifier held" (`GetKeyState`) | `src/keyboard_win32.cpp` | `src/keyboard_qt.cpp` |
 | `include/seated.h` | How `App` *stores* a backend object | — | `Seated<Seam, Native>` |
 
 The seams themselves are **not** transitional, even though a single-stack app does not
@@ -287,13 +288,18 @@ cmake --build build-linux -j"$(nproc)"
 ```
 
 Qt is currently **opt-in**: CMake looks for it with
-`find_package(Qt6 QUIET COMPONENTS Core Gui)` and simply skips the `qt_text` and
-`render_api` targets when it is absent, which is what happens on Windows today. That is
-transitional too — under one stack Qt becomes a hard requirement on Windows as well, and
-making it one is a step that has not been taken because no Qt is installed on the Windows
-machine this is developed on. Those two tests run headless and set
-`QT_QPA_PLATFORM=offscreen` themselves — it is not interchangeable with `minimal`, and
-running with no platform plugin at all aborts under WSL.
+`find_package(Qt6 QUIET COMPONENTS Core Gui)` and skips the targets that need it when it is
+absent, which is what happens on Windows today. That is transitional too — under one stack
+Qt becomes a hard requirement on Windows as well, and making it one is a step that has not
+been taken because no Qt is installed on the Windows machine this is developed on. The
+targets concerned run headless and set `QT_QPA_PLATFORM=offscreen` themselves — it is not
+interchangeable with `minimal`, and running with no platform plugin at all aborts under WSL.
+
+`qt_text` and `render_api` exist *only* where Qt does. `keyboard` is the exception and
+deliberately so: it is configured under `if(WIN32 OR Qt6_FOUND)`, because the seam has two
+backends and a seam whose Windows half is never asserted is precisely the shape this repo
+has criticised elsewhere. Off Windows it links `keyboard_qt.cpp` and Qt; on Windows it links
+`keyboard_win32.cpp` and no Qt at all.
 
 There is **no CI**, so nothing is green unless somebody ran it. The regression guard is
 a probe that compares what the build actually compiled against a manifest of what it is
@@ -330,9 +336,18 @@ the stack being replaced. Measured on 2026-09-15:
 | Reading | Value |
 |---|---|
 | Compile errors (`error C`) | **0** — nothing outside the two backend files *names* Direct2D |
-| Targets failing to link | 7 |
-| Unresolved externals | 46 (16 for `math_layout_tests`, which links less) |
+| Targets failing to link | 7 (`tinta`, `blockquote_layout`, `code_block_layout`, `file_path`, `input`, `math_layout`, `theme`) |
+| Unresolved externals | 47 (17 for `math_layout_tests`, which links less) |
 | Classes they belong to | `D2DTextLayout`, `D2DTextFormat`, `D2DRenderTarget`, `D2DBitmap`, `D2DTextFactory`, `D2DBrush` |
+
+That external count read **46** here for two commits, and correcting it is worth a sentence
+because of *how* it went wrong. The table carries a measurement date, and the date was
+refreshed on a commit that did not re-run the measurement — so a stale number sat under a
+current date, which is worse than sitting under an old one. The 47th symbol is
+`D2DTextLayout::SetTypography`, added when typography moved onto the text seam; the seam
+grew a method, so excluding the backend leaves one more thing unresolved. Re-run the two
+commands above rather than trusting this table, and if you refresh the date, refresh the
+numbers in the same pass.
 
 Zero compile errors is the useful half of that. It means the seam rewiring is real and
 complete at the call sites: the remaining Windows debt is six wrapper *implementations*,
@@ -379,7 +394,7 @@ same session.
 
 | Area | State |
 |---|---|
-| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting, OpenType typography, in-document search | Compile *and* assert off Windows — 19 test targets |
+| Markdown parsing, Mermaid parsing (13 files), themes, i18n, geometry, math parsing, selection and selection layout, context menus, inline styles, settings round-trip, keymap, platform paths, portable strings, syntax highlighting, OpenType typography, in-document search, the modifier-key predicate | Compile *and* assert off Windows — 20 test targets |
 | Text seam (`text_api.h`) + Qt backend | Done, tested headless |
 | Render seam (`render_api.h`) + Qt backend | Done, tested headless |
 | Win32 scalar + call seams | Done — 5 scalars admitted from an error census (`UINT32`, `FLOAT`, `BOOL`, `TRUE`, `FALSE`), 6 more refused for appearing in no error at all, and `HRESULT`/`SUCCEEDED` withheld deliberately so COM-shaped code cannot quietly compile off Windows |
@@ -388,28 +403,30 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **21 run on Linux, 19 of them shared with the 29 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 31 distinct test targets in total |
+| Tests running off Windows | **22 run on Linux, 20 of them shared with the 30 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 32 distinct test targets in total |
 | Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
 | In-document search asserted off Windows | Done — `search.cpp` was compile-only on both platforms and now has 53 assertions running on each. The blocker was never its shape: a real link found ten undefined symbols, nine already in portable files and one (`ensureLayoutComplete`) still in `render.cpp`, which the test stubs. Honest limit: **that stub means the precondition itself is untested**, and two folder-scan functions are unreachable from another translation unit and left uncovered |
 | The App overload of `tr()` asserted off Windows | Done — `i18n_app.cpp` is one forwarding line and was the second of the two compile-only files. It now runs 42 assertions inside the existing `i18n` test, on both platforms, taking that test from 40 to 82. Worth doing for the failure mode rather than the size: its whole job is to read `app.currentLanguageIndex`, and a version that forwards a constant leaves the app **silently monolingual** — no error, no crash, every string still drawn. A planted constant fails 34 of the 42. Honest limit: this adds **no new test target**, so the revert is invisible to the manifest, the ctest count *and* the pass rate — the only instrument is a new check on the link line |
+| Modifier-key seam (`keyboard.h`) + both backends | Done — and the interesting part is what made it *testable*. The seam's own two calls can only be asserted to return false, because no key is held while a test binary runs, and a stub that never reads the keyboard passes that too. So the decision every call site actually depends on was split out as a pure predicate: `modifierHeld(short)` is `(state & 0x8000) != 0`, and the realistic bug is reading the neighbouring low bit instead, which is the sticky Caps-Lock-style toggle — that would make Shift+Tab depend on whether Caps Lock was on. Being pure, it is asserted over its **entire 65,536-value domain** on both platforms, and against an independent characterisation (bit 15 set ⇔ the `short` is negative) rather than against its own expression, so a restatement could not pass — a wrong-bit implementation disagrees on exactly half the domain. 65,545 assertions, identical on both platforms because every one of them is arithmetic. It is also the Windows backend's *own* decode step, so those are a Linux run asserting the expression Windows depends on. What stays unprovable without a human holding a key is now just the syscall, not the seam. `QGuiApplication::keyboardModifiers()` and *not* `queryKeyboardModifiers()`: all 17 sites read event-time state, and the wrong one of those compiles, runs, and is wrong only while keys are moving |
+| `tableedit.cpp` off Windows | Compiles — 621 lines, 12 g++ errors to 0, and **every one of the 12 was a keyboard error**: 10 missing `VK_` codes and the 2 `GetKeyState` calls. Nothing else in the file names a Windows API. Honest limit, and it is the whole reason this is a separate row from the one above: **nothing executes it on either platform.** It is the second file in that state |
 
-**To do — 24 files, 30,122 lines**
+**To do — 24 files, 29,529 lines**
 
 | Area | Size | Note |
 |---|---|---|
 | `render.cpp` | 3,498 | **Still the blocker, but no longer for text.** Native mentions went 128 → 93, and live ones — excluding comments — 115 → 75; the *text* subset fell 56 → 16. Every layout now goes through `app.textFactory` and `dwriteFactory` is named at zero live sites, so paragraphs, wrapped labels and diagram text all lay out off Windows. What remains is four other seams: path-geometry arcs (22 live mentions), WIC image decoding (10), line breaking via `IDWriteTextAnalysisSource`/`Sink` (6), `ID2D1SvgDocument` (3), plus the `IDWriteTextLayout2` font-fallback query (2), which is deliberately *not* pushed into the backend — see the note below the table. The residual `ID2D1`/`D2D1_` count is unchanged at 16/33, because drawing is a different seam and this work did not touch it |
 | Window and message loop | 4,348 + 2,273 | `input.cpp`, `main_d2d.cpp` — Win32 message pump → Qt event handling |
 | Editor | 3,138 | `editor.cpp`, including IME input via `imm.h` → Qt input methods |
-| Overlays, annotations, math, table edit | 4,109 + 1,194 + 848 + 616 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction |
+| Overlays, annotations, math | 4,109 + 1,194 + 852 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction. `tableedit.cpp` used to be the fourth entry here and has left — it compiles off Windows now |
 | Exports and printing | 1,547 + 1,500 + 998 + 228 | `commdlg.h` → `QFileDialog`, and printing → `QPrinter` |
 | Shell integration | 1,719 + 836 + 160 | `shellapi.h` → `QDesktopServices` |
 | Clipboard, paths, misc | 198 + 158 | `utils.cpp` → `QClipboard` and `std::filesystem` |
 | Startpage | 792 | `dwrite_1.h`; also uses `SetCharacterSpacing`, which stays native |
-| Device and factory creation | 674 | `d2d_init.cpp` — `objbase.h`, COM initialisation and the Direct2D device; becomes Qt paint-device setup |
-| Keyboard seam | — | Designed, not built: 17 `GetKeyState` sites, two keys, one predicate → `QGuiApplication::keyboardModifiers()` |
+| Device and factory creation | 681 | `d2d_init.cpp` — `objbase.h`, COM initialisation and the Direct2D device; becomes Qt paint-device setup |
+| Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired: those files report `errors=1, fatal=1`, which means not-measured rather than one-error-away |
 | Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
-| The Windows backends themselves | 219 + 596 + 212 + 146 + 65 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp` — **deleted or replaced, not ported.** Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the two backends go once Qt covers what they do |
+| The Windows backends themselves | 219 + 635 + 212 + 146 + 65 + 23 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp` — **deleted or replaced, not ported.** Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `keyboard_win32.cpp` is new here and is the honest bookkeeping on building a seam: its Qt half is progress, and its Windows half is 23 more lines that eventually get deleted |
 
 The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
 it is worth a note because the reasoning is not visible from the code. Folding
@@ -421,10 +438,24 @@ text, so giving them a fallback would move measured widths and therefore layout.
 in `render.cpp` as one named helper, which also makes it the single line to delete if that
 answer ever changes.
 
-That last row is the change of goal made arithmetic. These five files used to be listed
+That last row is the change of goal made arithmetic. These files used to be listed
 separately as "will never move", excluded from the count on the grounds that they were
 the Windows half of a permanent pair. Under one stack there is no permanent Windows half,
-so they are work — 1,238 lines of it — and they are counted.
+so they are work — 1,300 lines of it — and they are counted.
+
+The file count above did **not** move, and it is worth saying why rather than letting it
+look like a quiet month: `tableedit.cpp` left this list by compiling off Windows, and
+`keyboard_win32.cpp` arrived on it by being written. 24 either way. The line total fell by
+593, which is the real direction of travel and the number to read — and it reconciles
+exactly: 616 lines left with `tableedit.cpp`, 23 arrived with `keyboard_win32.cpp`. The
+to-do set is derived mechanically — every `src/*.cpp` that `tests/portable-sources.txt`
+does not list — so it cannot drift out of step with the manifest the probe checks.
+
+Three of the *row* figures above were stale by a combined 50 lines when this pass started
+(`math_render.cpp` 848→852, `d2d_init.cpp` 674→681, `text_d2d.cpp` 596→635), while the
+**total was right**. That is the inversion worth noticing: the total is computed from the
+files on every pass, and the rows are typed by hand, so the derived figure stayed correct
+and the hand-carried ones rotted. Where a number can be derived, derive it.
 
 Ten test targets still run only on Windows. Under the previous goal four of them always
 would, being Windows-only by *subject*: `render_d2d` and `text_factory` assert on the
@@ -445,39 +476,58 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 20,439 / 57,253 | **35.7%** |
-| B. `src/*.cpp` files compiling without Windows headers | 33 / 57 | 57.9% |
-| C. Files a *running* test links | 32 / 57 | 56.1% |
-| D. Windows tests that also run off Windows | 19 / 29 | 65.5% |
-| E. All test targets, run off Windows | 21 / 31 | 67.7% |
+| A. Source lines free of the Windows stack | 21,096 / 57,461 | **36.7%** |
+| B. `src/*.cpp` files compiling without Windows headers | 35 / 59 | 59.3% |
+| C. Files a *running* test links | 33 / 59 | 55.9% |
+| D. Windows tests that also run off Windows | 20 / 30 | 66.7% |
+| E. All test targets, run off Windows | 22 / 32 | 68.8% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 
-**Basis A, 35.7%, is the headline** — it is the figure the probe itself prints on every
-run, so it is the one comparable across time. Three honest caveats on it.
+**Basis A, 36.7%, is the headline** — it is the figure the probe itself prints on every
+run, so it is the one comparable across time. It *understates* progress, because its
+denominator includes headers the manifest never credits even when they are portable. And
+it *overstates* readiness, for a reason this pass demonstrated about as sharply as it can
+be demonstrated.
 
-It *understates* progress, because its denominator includes headers that the manifest
-never credits even when they are portable. It *overstates* readiness, because one of the
-33 compiling files (`editrail.cpp`) is compile-only: nothing executes it on either
-platform, so it is proof that a compiler accepts it and nothing more. That was three
-before `search.cpp` and then `i18n_app.cpp` got running tests.
+The understatement is now measured rather than asserted. The probe's numerator sums only
+the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
+`.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
+can never enter the numerator. With `src/*.cpp` totalling 50,625 lines of the 57,461,
+**basis A's ceiling is 88.1%, not 100%**, and 36.7% should be read against that.
 
-And it just moved the *wrong way* on a commit that was real progress: 35.8% → 35.7%, while
-`render.cpp` lost 40 live DirectWrite text mentions and gained a working seam. The reason
-is arithmetic, not regression. Basis A counts lines in portable *files*, so putting a
-not-yet-portable file's text path on the seam credits nothing until the whole file
-compiles — and the explanatory comments that came with the change made the denominator
-bigger. A metric that can fall on a good commit is worth keeping anyway, because it is
-honest about what it measures, but it is not the metric to read for whether the port is
-progressing. The `render.cpp` row in the table above is.
+That has a small edge worth admitting, because this pass walked into it. The denominator
+moved 57,445 → 57,461 *during* the pass, and all 16 lines are `include/keyboard.h` growing
+when the comment recording a deleted predicate replaced the predicate itself. Writing down
+why a function went away costs a fraction of a point on the headline. It is the same
+honest bookkeeping as `keyboard_win32.cpp`'s 23 lines being counted as work still to
+delete — and it is the one figure in this section that the checker could not catch on its
+own, because the probe's output is passed to it as a witnessed reading rather than
+re-derived.
 
-The commit after that made the same point from the other side: giving `search.cpp` a
-running test with 53 assertions on both platforms moved basis A by **exactly zero**,
-because the file was already counted as portable. So basis A cannot see the difference
-between a file a compiler merely accepts and a file with a test behind it — which is
-what basis C is for, and why the two are listed separately rather than blended into one
-number. `i18n_app.cpp` then did it a second time: 42 new assertions, basis A unchanged
-at 35.7%, basis C up one file. Two commits in a row where the headline was the wrong
-place to look is enough to stop treating the pattern as a coincidence.
+Basis A just posted its largest single move on record, 35.7% → 36.7%, and **94.5% of that
+gain is a file nothing executes.** The numerator rose by 657 lines: 621 of them are
+`tableedit.cpp`, which compiles off Windows now and has no test on either platform, and 36
+are `keyboard_qt.cpp`, which does. So the headline moved a full point on the strength of a
+file whose only claim is that a second compiler accepts it. Two of the 35 compiling files
+are now in that state (`editrail.cpp` and `tableedit.cpp`) — it was one, and before
+`search.cpp` and `i18n_app.cpp` got running tests it was three.
+
+The same pass shows the honest counterpart in the two bases beside it: **B rose by two
+files and C by one**, and the file accounting for the difference is exactly
+`tableedit.cpp`. That gap is the whole reason the two bases are listed separately rather
+than blended — basis A and basis B cannot tell a compiler's acceptance from a test's, and
+basis C is the one that can.
+
+This is the third consecutive pass where the headline was the wrong place to look, and the
+first where it misled in the *flattering* direction. Before this, giving `search.cpp` a
+running test with 53 assertions moved basis A by **exactly zero** (the file was already
+counted as portable), and `i18n_app.cpp` then added 42 assertions for another zero. Before
+*that* it moved the wrong way outright, 35.8% → 35.7%, on a commit where `render.cpp` lost
+40 live DirectWrite text mentions and gained a working seam — real progress that credits
+nothing until the whole file compiles, while the comments explaining it enlarged the
+denominator. A metric that can fall on a good commit and jump on an untested one is worth
+keeping, because it is honest about what it measures. It is just not the metric to read for
+whether the port is progressing. The `render.cpp` row and basis C are.
 
 A basis was **removed** rather than updated when the goal changed. There used to be a
 line reading "same, excluding the five never-move files — 36.6%", and it measured
@@ -497,7 +547,7 @@ together with the fact that going single-stack did not add a blocker — it remo
 obligation to maintain two.
 
 Call it roughly a third of the way through by volume, with the hardest single file still
-ahead — and note that the finish line moved out, not in: 1,238 lines of Windows backend
+ahead — and note that the finish line moved out, not in: 1,300 lines of Windows backend
 became work, and re-verifying Windows on a new stack is effort that appears in no line
 count here.
 

@@ -63,6 +63,20 @@ render_qt.cpp
 # src/render_d2d.cpp.
 text_qt.cpp
 
+# The Qt side of the MODIFIER-KEY seam (include/keyboard.h), and the first Qt file
+# here that is not a rendering or text backend. Listed for the same both-directions
+# reason as the two above: off Windows it is the only implementation of
+# platform::isShiftDown and isCtrlDown, so a missing Qt fails as
+# listed-but-not-compiled rather than quietly dropping a test.
+#
+# Unlike render_qt.cpp and text_qt.cpp, this one is LINKED AND RUN off Windows, by
+# keyboard_tests. Read the section it is in for what that does and does not prove:
+# the assertions with weight are on the pure predicate in the header, which is shared
+# by both backends, while the two platform calls can only be asserted to return false
+# with nothing held -- a result a stub also produces. Its Windows counterpart,
+# src/keyboard_win32.cpp, must never appear here.
+keyboard_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
 # THREE ENTRIES. selection.cpp used to head this section and has moved
@@ -92,6 +106,31 @@ text_qt.cpp
 # the sections above.
 editrail.cpp
 
+# tableedit.cpp joins this section on 2026-09-15, and it is the first line to ARRIVE
+# here in a long while rather than leave -- so the trade is stated plainly instead of
+# being absorbed into a rising percentage.
+#
+# 616 lines. It reached zero errors off Windows when the keyboard seam took its two
+# GetKeyState calls and include/keymap.h supplied the ten VK_ codes it names: 12 g++
+# errors, all keyboard, nothing else in the file touching a Windows API. That is a
+# genuine gain in the port's own terms and the reason the line is here.
+#
+# IT IS ALSO A REGRESSION IN THE MEASURE THIS SECTION EXISTS TO TRACK. The note below
+# said this section was one file; it is two again. Compiling is not testing, and the
+# previous two commits were specifically about moving files OUT of here, so growing it
+# needs a reason rather than a shrug.
+#
+# The reason it is not RUN is a measured link debt, not a guess: tableedit.cpp
+# references editorMarkDirtyAndReparse, editorPreviewVisible and
+# editorReplaceRangeExternal, all defined in src/editor.cpp -- which dies off Windows
+# at a fatal <imm.h> and reads `errors=1, fatal=1`, meaning NOT MEASURED rather than
+# one error away. So a running target needs either editor.cpp ported or those three
+# stubbed in the test, and stubbing is a claim about behaviour that no other target
+# here makes. Note what is being left on the table: tsvLooksLikeTable and
+# tsvToMarkdownTable are pure std::wstring functions with no App and no HWND, and they
+# are the Excel-paste path. They are assertable the moment that link debt is settled.
+tableedit.cpp
+
 # The two that are left of the three that arrived together, found by a census rather
 # than by porting work: g++ -fsyntax-only over every file NOT listed in this
 # manifest, which turned up six at zero errors. Two of the six had passing tests
@@ -118,8 +157,11 @@ editrail.cpp
 # asserting. Its whole job is to read a member, and dropping that read makes the app
 # silently monolingual with no error anywhere.
 #
-# THIS SECTION IS NOW ONE FILE. editrail.cpp above is the only entry in the manifest
-# that nothing executes, on either platform.
+# THIS SECTION IS TWO FILES AGAIN -- editrail.cpp and tableedit.cpp. It read "NOW ONE
+# FILE" for exactly two commits, which is corrected here rather than reworded, because
+# the direction of travel is the thing this note is for: three, then one, now two. The
+# arrival is explained in tableedit.cpp's own block above, including the three symbols
+# that stand between it and a running test.
 
 # --- In-document search, compiled AND run off Windows --------------------------
 #

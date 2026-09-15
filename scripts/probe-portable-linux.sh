@@ -325,6 +325,39 @@ else
     check 1 "src/i18n_app.cpp is linked into i18n_tests (not found on the link line -- has it gone back to portable_compile_only?)"
 fi
 
+# include/keyboard.h -- the modifier-key seam -- has exactly ONE consumer,
+# tests/keyboard_tests.cpp, so it needs an object-line guard for the same reason
+# geometry.h, render_api.h, syntax.h and app_fixture.h do: a header appears in no
+# object list, so the manifest comparison above is structurally blind to it.
+#
+# src/keyboard_qt.cpp IS in the manifest, so the Qt BACKEND is watched in both
+# directions. What is not watched is the assertions, and here that gap is unusually
+# wide: the backend is two forwarding calls, while the pure predicate in the header
+# is the thing carrying every assertion with any weight -- 131,086 of them, an
+# exhaustive sweep of modifierHeld and keyToggled over all 65,536 short values.
+# Dropping the target would leave keyboard_qt.cpp still listed, still compiled, still
+# matching the manifest, with nothing at all checking the bit test that all 17
+# rewired call sites depend on.
+if grep -qE "keyboard_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/keyboard_tests.cpp was compiled by $CXX_BIN, so include/keyboard.h is asserted off Windows"
+else
+    check 1 "tests/keyboard_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
+# And the BACKEND has to be on the link line, which is a different question from the
+# object line above and from the manifest. src/keyboard_qt.cpp could be compiled by
+# portable_compile_only, satisfy the manifest, and never reach keyboard_tests -- in
+# which case the target would fail to link, loudly. The reason to assert it anyway is
+# the reverse edit: keyboard_tests linking src/keyboard_win32.cpp off Windows would be
+# a configuration error that the manifest reads as UNEXPECTED but which no check here
+# would attribute to the seam. Naming the file that must be there says which backend
+# the 2 platform assertions actually exercised, which is the only thing they prove.
+if grep -E -- '-o keyboard_tests( |$)' "$BUILD_DIR.build.log" | grep -q "keyboard_qt\.cpp\.o"; then
+    check 0 "src/keyboard_qt.cpp is LINKED INTO keyboard_tests, so the Qt backend is the one asserted off Windows"
+else
+    check 1 "src/keyboard_qt.cpp is linked into keyboard_tests (not on the link line -- did the platform selection pick the win32 file?)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

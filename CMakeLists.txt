@@ -42,6 +42,22 @@ else()
     set(PLATFORM_PATHS_SOURCE src/platform_paths_posix.cpp)
 endif()
 
+# The modifier-key seam (include/keyboard.h), selected the same way and for the same
+# reason. Note the second file is _qt and not _posix: there is no POSIX answer to
+# "is Shift held", because that is a question for a window system rather than for an
+# operating system. This is the first seam whose non-Windows half is Qt, which is
+# what the target stack being Qt 6 actually looks like at the file level.
+#
+# GetKeyState did NOT go into win32_api.h, whose preamble reserves it for calls that
+# become honest no-ops or failures off Windows. This one has a real counterpart in
+# QGuiApplication::keyboardModifiers(), so it belongs with the seams that have two
+# working implementations, not with the ones that admit to having one.
+if(WIN32)
+    set(PLATFORM_KEYBOARD_SOURCE src/keyboard_win32.cpp)
+else()
+    set(PLATFORM_KEYBOARD_SOURCE src/keyboard_qt.cpp)
+endif()
+
 # The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
 # on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
@@ -94,6 +110,7 @@ set(SOURCES
     src/keymap.cpp
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
+    ${PLATFORM_KEYBOARD_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -617,8 +634,22 @@ if(BUILD_TESTING)
     # ensureLayoutComplete is genuinely stuck in render.cpp, search.cpp calls it at one
     # site as a documented precondition, and search_tests supplies that precondition
     # from the layout fixture instead. Cost of finding that out: one link attempt.
+    #
+    # src/tableedit.cpp ARRIVES here on 2026-09-15, which makes this the first commit
+    # in three to grow this target rather than shrink it. Worth naming as a cost: the
+    # file went from 12 g++ errors to 0 off Windows because the keyboard seam took its
+    # two GetKeyState calls and keymap.h gained the ten VK_ codes it uses, so it
+    # genuinely compiles now -- and compiling is not testing, which is this target's
+    # entire reason for existing separately.
+    #
+    # What stands between it and a running test was measured, not assumed: it calls
+    # editorMarkDirtyAndReparse, editorPreviewVisible and editorReplaceRangeExternal,
+    # all in src/editor.cpp, which does not compile off Windows at all (fatal <imm.h>).
+    # Its two pure functions, tsvLooksLikeTable and tsvToMarkdownTable, need no App and
+    # no HWND and are assertable the moment that is settled.
     add_library(portable_compile_only OBJECT
         src/editrail.cpp
+        src/tableedit.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
@@ -972,6 +1003,43 @@ if(BUILD_TESTING)
     # unless a font database exists, so this variable going missing fails loudly
     # rather than silently measuring nothing.
     find_package(Qt6 QUIET COMPONENTS Core Gui)
+
+    # --- The modifier-key seam, tested on BOTH backends -----------------------
+    #
+    # It sits here, after find_package, purely because the non-Windows half links Qt.
+    # It is not part of the Qt6_FOUND block below, because the Windows half needs no
+    # Qt at all and must still be tested: a seam with two implementations where only
+    # one is ever asserted is the shape include/render_api.h was explicitly criticised
+    # for ("an interface with one implementation -- which is indirection, not
+    # abstraction").
+    #
+    # ${PLATFORM_KEYBOARD_SOURCE} resolves to keyboard_win32.cpp or keyboard_qt.cpp,
+    # so this single target runs the same assertions against whichever backend the
+    # platform selected -- and the assertions that carry the weight are on the pure
+    # predicate in the header, which is identical either way. See the test's own
+    # opening comment for what it can and cannot prove; the honest answer is mixed.
+    #
+    # No user32 line on Windows: GetKeyState is in user32, which CMake's default MSVC
+    # libraries already include. Measured by building, not assumed.
+    if(WIN32 OR Qt6_FOUND)
+        add_executable(keyboard_tests tests/keyboard_tests.cpp ${PLATFORM_KEYBOARD_SOURCE})
+        target_include_directories(keyboard_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        if(NOT WIN32)
+            target_link_libraries(keyboard_tests PRIVATE Qt6::Core Qt6::Gui)
+        endif()
+        add_test(NAME keyboard COMMAND keyboard_tests)
+        if(NOT WIN32)
+            # Same reasoning as qt_text: a Qt binary with no QT_QPA_PLATFORM ABORTS in
+            # WSL trying to reach a display. This test constructs no QGuiApplication,
+            # so it would very likely survive without the variable -- it is set anyway,
+            # because "very likely" is not a reading and because the two Qt-linked test
+            # targets disagreeing about their environment is a trap for whoever changes
+            # one of them next.
+            set_tests_properties(keyboard PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+        endif()
+    endif()
+
     if(Qt6_FOUND)
         add_executable(qt_text_tests tests/qt_text_tests.cpp)
         target_link_libraries(qt_text_tests PRIVATE Qt6::Core Qt6::Gui)

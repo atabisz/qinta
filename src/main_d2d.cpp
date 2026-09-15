@@ -68,7 +68,7 @@ static void startGpuWarmup() {
         if (ctx) ctx->Release();
         if (device && g_app && g_app->hwnd) {
             g_warmupDevice = device;
-            PostMessageW(g_app->hwnd, WM_APP_GPU_READY, 0, 0);
+            postWindowMessage(g_app->hwnd, WM_APP_GPU_READY, 0, 0);
         } else if (device) {
             device->Release();
         }
@@ -131,14 +131,14 @@ void render(App& app) {
             // entering edit mode no longer blocks on a full layout (#77)
             layoutDocumentViewportFirst(app);
             if (!app.layoutComplete) {
-                PostMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+                postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
             }
         } else {
             // Lay out the visible region first so this frame presents
             // immediately; the rest continues in WM_APP_LAYOUT_CHUNK slices
             layoutDocumentViewportFirst(app);
             if (!app.layoutComplete) {
-                PostMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+                postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
             }
         }
     }
@@ -1184,7 +1184,7 @@ static void updateCheckWorker(HWND hwnd) {
         WinHttpCloseHandle(session);
     }
     auto* result = new std::string(std::move(version));
-    if (!PostMessageW(hwnd, WM_APP_UPDATE_CHECK, 0, (LPARAM)result)) {
+    if (!postWindowMessage(hwnd, WM_APP_UPDATE_CHECK, 0, (LPARAM)result)) {
         delete result;
     }
 }
@@ -1249,7 +1249,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             int hover = captionHitTest(*app, (float)pt.x, (float)pt.y);
             if (hover != app->captionButtonHover) {
                 app->captionButtonHover = hover;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             TRACKMOUSEEVENT track = {sizeof(track), TME_NONCLIENT | TME_LEAVE,
                                      hwnd, 0};
@@ -1261,28 +1261,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (app && (app->captionButtonHover || app->captionButtonPressed)) {
                 app->captionButtonHover = 0;
                 app->captionButtonPressed = 0;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             break;
 
         case WM_KILLFOCUS:
             if (app && app->showContextMenu) {
                 closeContextMenu(*app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             break;
 
         case WM_NCLBUTTONDOWN:
             if (app && app->showContextMenu) {
                 closeContextMenu(*app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             if (app && !app->zenMode &&
                 (wParam == HTMINBUTTON || wParam == HTMAXBUTTON ||
                  wParam == HTCLOSE)) {
                 app->captionButtonPressed =
                     wParam == HTMINBUTTON ? 1 : wParam == HTMAXBUTTON ? 2 : 3;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return 0;  // consume: no legacy button painting
             }
             break;
@@ -1294,16 +1294,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 int released = captionHitTest(*app, (float)pt.x, (float)pt.y);
                 int pressed = app->captionButtonPressed;
                 app->captionButtonPressed = 0;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 if (released == pressed) {
                     if (pressed == 1) {
-                        PostMessageW(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
+                        postWindowMessage(hwnd, WM_SYSCOMMAND, SC_MINIMIZE, 0);
                     } else if (pressed == 2) {
-                        PostMessageW(hwnd, WM_SYSCOMMAND,
-                                     IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE,
-                                     0);
+                        postWindowMessage(hwnd, WM_SYSCOMMAND,
+                                          IsZoomed(hwnd) ? SC_RESTORE : SC_MAXIMIZE,
+                                          0);
                     } else {
-                        PostMessageW(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
+                        postWindowMessage(hwnd, WM_SYSCOMMAND, SC_CLOSE, 0);
                     }
                 }
                 return 0;
@@ -1324,7 +1324,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                         menu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                         GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), 0, hwnd,
                         nullptr);
-                    if (cmd) PostMessageW(hwnd, WM_SYSCOMMAND, cmd, 0);
+                    if (cmd) postWindowMessage(hwnd, WM_SYSCOMMAND, cmd, 0);
                 }
                 return 0;
             }
@@ -1362,7 +1362,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     app->pendingWindowClose = true;
                     app->confirmExitPending = true;
                     app->confirmExitOpenedAt = std::chrono::steady_clock::now();
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                     return 0;
                 }
             }
@@ -1405,7 +1405,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     createRenderTarget(*app);
                 }
                 app->layoutDirty = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return 0;
 
@@ -1438,7 +1438,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 // Recreate text formats and render target for new DPI
                 updateTextFormats(*app);
                 createRenderTarget(*app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return 0;
 
@@ -1559,24 +1559,24 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam == 2 && app) editorReparse(*app); // TIMER_EDITOR_REPARSE
             if (wParam == TIMER_CURSOR_BLINK && app) {
                 app->cursorBlinkOn = !app->cursorBlinkOn;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             if (wParam == TIMER_NOTIFICATION && app) {
                 // Only draining chips need repaints; prompts are static
                 // until answered
                 bool fading = signalsNeedTicks(*app);
                 if (fading) {
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 } else {
-                    KillTimer(hwnd, TIMER_NOTIFICATION);
+                    disarmTimer(hwnd, TIMER_NOTIFICATION);
                 }
             }
             if (wParam == TIMER_FOLDER_SEARCH && app) {
-                KillTimer(hwnd, TIMER_FOLDER_SEARCH);
+                disarmTimer(hwnd, TIMER_FOLDER_SEARCH);
                 startFolderSearchScan(*app);
             }
             if (wParam == TIMER_UPDATE_CHECK && app) {
-                KillTimer(hwnd, TIMER_UPDATE_CHECK);
+                disarmTimer(hwnd, TIMER_UPDATE_CHECK);
                 std::thread(updateCheckWorker, hwnd).detach();
             }
             if (wParam == TIMER_DRAFT_SAVE && app) {
@@ -1587,17 +1587,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             }
             if (wParam == TIMER_IMAGE_REFLOW && app) {
                 // One relayout for however many images arrived since armed
-                KillTimer(hwnd, TIMER_IMAGE_REFLOW);
+                disarmTimer(hwnd, TIMER_IMAGE_REFLOW);
                 app->layoutDirty = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             if (wParam == TIMER_ZOOM_APPLY && app) {
                 if (app->zoomFactor != app->appliedZoomFactor) {
                     // More zoom ticks arrived since the last apply
                     updateTextFormats(*app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 } else {
-                    KillTimer(hwnd, TIMER_ZOOM_APPLY);
+                    disarmTimer(hwnd, TIMER_ZOOM_APPLY);
                     app->zoomApplyPending = false;
                 }
             }
@@ -1635,7 +1635,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     signalPush(*app, SIG_INFO, SIGI_UPDATE, label, L"",
                                L"v" + toWide(*version), SIGA_OPEN_RELEASE,
                                SIGC_DISMISS_UPDATE, false);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
             }
             delete version;
@@ -1652,7 +1652,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                     signalPushKey(*app, SIG_ERROR, SIGI_WARNING,
                                   "toast.pandoc_fail");
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return 0;
 
@@ -1664,7 +1664,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 app->useHardwareRT = true;
                 createRenderTarget(*app);
                 app->layoutDirty = true;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             if (g_warmupDevice) {
                 g_warmupDevice->Release();
@@ -1677,18 +1677,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // to input between slices
             if (app && !app->layoutDirty && !app->layoutComplete) {
                 bool done = layoutDocumentContinue(*app, 10000);
-                InvalidateRect(hwnd, nullptr, FALSE);  // scrollbar grows as layout fills in
-                if (!done) PostMessage(hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+                requestRepaint(hwnd);  // scrollbar grows as layout fills in
+                if (!done) postWindowMessage(hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
             }
             return 0;
 
         case WM_DESTROY:
-            KillTimer(hwnd, TIMER_FILE_WATCH);
-            KillTimer(hwnd, 2); // TIMER_EDITOR_REPARSE
-            KillTimer(hwnd, TIMER_CURSOR_BLINK);
-            KillTimer(hwnd, TIMER_NOTIFICATION);
-            KillTimer(hwnd, TIMER_ZOOM_APPLY);
-            KillTimer(hwnd, TIMER_DRAFT_SAVE);
+            disarmTimer(hwnd, TIMER_FILE_WATCH);
+            disarmTimer(hwnd, 2); // TIMER_EDITOR_REPARSE
+            disarmTimer(hwnd, TIMER_CURSOR_BLINK);
+            disarmTimer(hwnd, TIMER_NOTIFICATION);
+            disarmTimer(hwnd, TIMER_ZOOM_APPLY);
+            disarmTimer(hwnd, TIMER_DRAFT_SAVE);
             // A graceful close resolved every dirty buffer through the
             // unsaved-changes flow; leftover drafts would resurrect
             // content the user already decided about
@@ -2174,7 +2174,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 
     // Start file watch timer and record initial write time
     updateFileWriteTime(app);
-    SetTimer(app.hwnd, TIMER_FILE_WATCH, 500, nullptr);
+    armTimer(app.hwnd, TIMER_FILE_WATCH, 500);
 
     // Show window (respect saved maximized state)
     t0 = Clock::now();
@@ -2190,12 +2190,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     // long after startup has finished (10 s timer arms a worker thread)
     if (app.updateCheckEnabled && !isStorePackaged() &&
         app.updateLastCheck != todayString()) {
-        SetTimer(app.hwnd, TIMER_UPDATE_CHECK, 10000, nullptr);
+        armTimer(app.hwnd, TIMER_UPDATE_CHECK, 10000);
     }
 
     // Draft autosave sweep (crash recovery), and the offer to restore
     // whatever a crashed instance left behind
-    SetTimer(app.hwnd, TIMER_DRAFT_SAVE, DRAFT_SAVE_INTERVAL_MS, nullptr);
+    armTimer(app.hwnd, TIMER_DRAFT_SAVE, DRAFT_SAVE_INTERVAL_MS);
     draftsScanForRecovery(app);
 
     app.metrics.totalStartupUs = usElapsed(startupStart);
@@ -2248,7 +2248,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
             populateFolderItems(app);
         }
         if (app.tocPinned || app.browserPinned) {
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
         }
     }
 

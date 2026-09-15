@@ -205,7 +205,7 @@ static void setSearchCursor(const App& app, float x, float y) {
 // TIMER_SELECT_SCROLL scrolls the document and drags the focus offset along
 void handleSelectScrollTimer(App& app, HWND hwnd) {
     if (!app.selecting || app.selAutoScrollVel == 0.0f || app.editMode) {
-        KillTimer(hwnd, TIMER_SELECT_SCROLL);
+        disarmTimer(hwnd, TIMER_SELECT_SCROLL);
         app.selAutoScrollVel = 0.0f;
         return;
     }
@@ -234,7 +234,7 @@ void handleSelectScrollTimer(App& app, HWND hwnd) {
     } else {
         app.selFocus = off;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // Loads a document into the viewer and resets per-document state.
@@ -332,7 +332,7 @@ static void startNewFileFlow(App& app, HWND hwnd) {
     app.folderBrowserScroll = 0.0f;
     updateBlinkTimer(app);
     resetCursorBlink(app);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // --- Folder browser path/name input (#52) ---
@@ -471,7 +471,7 @@ static void commitFolderBrowserNaming(App& app) {
     app.showFolderBrowser = false;
     app.folderBrowserAnimation = 0;
     launchDocumentWindow(fullPath);
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 // Ctrl+wheel zoom. The scroll anchor scales immediately, but text format
@@ -486,7 +486,7 @@ static void applyZoomDelta(App& app, float delta) {
     if (!app.zoomApplyPending) {
         updateTextFormats(app);
         app.zoomApplyPending = true;
-        SetTimer(app.hwnd, TIMER_ZOOM_APPLY, 80, nullptr);
+        armTimer(app.hwnd, TIMER_ZOOM_APPLY, 80);
     }
 }
 
@@ -565,7 +565,7 @@ static void openThemeEditor(App& app, bool editCurrent) {
     app.themeEditorFontScroll = 0.0f;
     app.showSettings = false;
     app.showThemeEditor = true;
-    InvalidateRect(app.hwnd, nullptr, FALSE);
+    requestRepaint(app.hwnd);
 }
 
 static void closeThemeEditor(App& app, bool backToSettings) {
@@ -574,7 +574,7 @@ static void closeThemeEditor(App& app, bool backToSettings) {
         app.showSettings = true;
         app.settingsAnimation = 1.0f;  // no re-animation on return
     }
-    InvalidateRect(app.hwnd, nullptr, FALSE);
+    requestRepaint(app.hwnd);
 }
 
 // Reading-width sliders: map a mouse X onto the stored track rect (#82)
@@ -587,7 +587,7 @@ static void settingsSliderApply(App& app, int which, float mx) {
     if (which == SET_SLIDER_ZEN) app.zenWidthPct = pct;
     else app.readingWidthPct = pct;
     app.layoutDirty = true;
-    InvalidateRect(app.hwnd, nullptr, FALSE);
+    requestRepaint(app.hwnd);
 }
 
 // Applies one settings-overlay action (id from app.settingsHits)
@@ -626,7 +626,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             applyKeymap(app, s);  // also mirrors into app.keyProfile
         }
         app.settingsKeysOpen = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
     // Language dropdown picks: 0 = Auto, then the registry languages
@@ -640,7 +640,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             app.currentLanguageIndex = pick - 1;
         }
         app.settingsLangOpen = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
     if (action != SET_LANG_DROPDOWN) app.settingsLangOpen = false;
@@ -693,7 +693,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             if (app.followSystemTheme) {
                 if (app.theme.isDark) app.darkThemeIndex = app.currentThemeIndex;
                 else app.lightThemeIndex = app.currentThemeIndex;
-                PostMessageW(hwnd, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+                postWindowMessage(hwnd, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
             }
             break;
         case SET_TOGGLE_WRAP:
@@ -739,7 +739,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             openLanguagesIniFile();
             break;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
@@ -749,7 +749,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         float factor = delta > 0 ? 1.15f : 1.0f / 1.15f;
         app.lightboxZoom =
             std::max(0.2f, std::min(app.lightboxZoom * factor, 10.0f));
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -757,7 +757,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // link peek so it cannot go stale
     if (app.linkPeekActive || !app.linkPeekUrl.empty()) {
         clearLinkPeek(app);
-        KillTimer(hwnd, TIMER_LINK_PEEK);
+        disarmTimer(hwnd, TIMER_LINK_PEEK);
     }
 
     // Theme editor: wheel scrolls the font list
@@ -768,7 +768,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.mouseY >= list.top && app.mouseY <= list.bottom) {
             app.themeEditorFontScroll -= delta * dpi(app, 78.0f);
             if (app.themeEditorFontScroll < 0) app.themeEditorFontScroll = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -795,7 +795,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showHelp) {
         app.helpScroll -= delta * dpi(app, 60.0f);
         if (app.helpScroll < 0) app.helpScroll = 0;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -808,7 +808,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             : static_cast<float>(app.width);
         if (ctrl && app.mouseX < sepX) {
             applyZoomDelta(app, delta);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         if (!ctrl) {
@@ -823,7 +823,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                                        editSheetRect(app).bottom);
                 app.scrollY = std::min(app.scrollY - delta * dpi(app, 60.0f), maxScroll);
                 app.targetScrollY = app.scrollY;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
             handleEditorMouseWheel(app, hwnd, delta);
@@ -846,7 +846,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 (app.folderBrowserNaming != 0 ? itemHeight : 0.0f);
             float maxScroll = std::max(0.0f, totalItemsHeight - listHeight);
             app.folderBrowserScroll = std::max(0.0f, std::min(app.folderBrowserScroll, maxScroll));
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
     }
@@ -863,7 +863,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             float totalItemsHeight = app.headings.size() * itemHeight;
             float maxScroll = std::max(0.0f, totalItemsHeight - listHeight);
             app.tocScroll = std::max(0.0f, std::min(app.tocScroll, maxScroll));
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
     }
@@ -886,7 +886,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         app.scrollY = app.targetScrollY;
     }
 
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleMouseHWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
@@ -899,7 +899,7 @@ void handleMouseHWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     app.targetScrollX = std::max(0.0f, std::min(app.targetScrollX, maxScrollX));
     app.scrollX = app.targetScrollX;
 
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
@@ -910,7 +910,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
     bool iconHover = appMenuButtonAt(app, (float)app.mouseX, (float)app.mouseY);
     if (iconHover != app.appMenuHover) {
         app.appMenuHover = iconHover;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
     if (iconHover && appMenuAvailable(app) && app.tabDragIndex < 0 &&
         !app.editorSelecting && !app.draggingSeparator && !app.selecting) {
@@ -931,7 +931,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             if (abs(dx) > 3 || abs(dy) > 3) app.lightboxDragMoved = true;
             app.lightboxPanX = app.lightboxDragPanX + (float)dx;
             app.lightboxPanY = app.lightboxDragPanY + (float)dy;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         tinta::RectF img = lightboxImageRect(app);
         bool over = (float)app.mouseX >= img.left &&
@@ -963,12 +963,12 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         }
         if (newHover != app.hoveredTab) {
             app.hoveredTab = newHover;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         if (app.captionButtonHover) {
             // The pointer is back in the client area
             app.captionButtonHover = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         if (app.showTabSwitcher) {
             int rowHover = -1;
@@ -981,7 +981,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             }
             if (rowHover != app.tabSwitcherHover) {
                 app.tabSwitcherHover = rowHover;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             SetCursor(rowHover >= 0 ? cursorHand : cursorArrow);
             return;
@@ -1012,7 +1012,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         int item = tabMenuItemAt(app, (float)app.mouseX, (float)app.mouseY);
         if (item != app.tabMenuHover) {
             app.tabMenuHover = item;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         SetCursor(item >= 0 ? cursorHand : cursorArrow);
         return;
@@ -1056,7 +1056,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             repaint = true;
         }
         SetCursor(contextMenuItemEnabled(app, item) ? cursorHand : cursorArrow);
-        if (repaint) InvalidateRect(hwnd, nullptr, FALSE);
+        if (repaint) requestRepaint(hwnd);
         return;
     }
 
@@ -1073,7 +1073,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             float scrollDelta = (trackHeight > 0) ? (deltaY / trackHeight) * maxScroll : 0;
             app.helpScroll = app.helpScrollbarDragStartScroll + scrollDelta;
             app.helpScroll = std::max(0.0f, std::min(app.helpScroll, maxScroll));
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -1104,7 +1104,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                       app.mouseX <= fbm.panelX + fbm.panelWidth;
         if (inside || !app.browserPinned) {
             setFolderBrowserCursor(app, (float)app.mouseX, (float)app.mouseY);
-            if (inside) InvalidateRect(hwnd, nullptr, FALSE);  // row hover
+            if (inside) requestRepaint(hwnd);  // row hover
             return;
         }
         // Pinned (#156): the document beside the panel keeps its hover
@@ -1115,7 +1115,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         bool inside = app.mouseX >= tocX && app.mouseX <= tocX + tocW;
         if (inside || !app.tocPinned) {
             setTocCursor(app, (float)app.mouseX, (float)app.mouseY);
-            if (inside) InvalidateRect(hwnd, nullptr, FALSE);  // row hover
+            if (inside) requestRepaint(hwnd);  // row hover
             return;
         }
     }
@@ -1133,11 +1133,11 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                 app.themeChooserPreviewBase = app.currentThemeIndex;
             }
             applyTheme(app, hoverTheme);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         } else if (hoverTheme < 0 && app.themeChooserPreviewBase >= 0) {
             applyTheme(app, app.themeChooserPreviewBase);
             app.themeChooserPreviewBase = -1;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -1186,7 +1186,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                         (float)app.mouseY <= r.bottom;
             if (over != app.quickNoteButtonHover) {
                 app.quickNoteButtonHover = over;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             if (over) {
                 SetCursor(cursorHand);
@@ -1216,9 +1216,9 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                 vel = ((float)app.mouseY - (app.height - band)) * 0.35f;
             }
             if (vel != 0.0f && app.selAutoScrollVel == 0.0f) {
-                SetTimer(hwnd, TIMER_SELECT_SCROLL, 16, nullptr);
+                armTimer(hwnd, TIMER_SELECT_SCROLL, 16);
             } else if (vel == 0.0f && app.selAutoScrollVel != 0.0f) {
-                KillTimer(hwnd, TIMER_SELECT_SCROLL);
+                disarmTimer(hwnd, TIMER_SELECT_SCROLL);
             }
             app.selAutoScrollVel = vel;
         }
@@ -1239,7 +1239,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         } else {
             app.selFocus = off;
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -1256,7 +1256,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.scrollY = app.scrollbarDragStartScroll + scrollDelta;
             app.scrollY = std::max(0.0f, std::min(app.scrollY, maxScroll));
             app.targetScrollY = app.scrollY;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -1275,7 +1275,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.scrollX = app.hScrollbarDragStartScroll + scrollDelta;
             app.scrollX = std::max(0.0f, std::min(app.scrollX, maxScroll));
             app.targetScrollX = app.scrollX;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -1324,7 +1324,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         int hit = startPageHitAt(app, (float)app.mouseX, (float)app.mouseY);
         if (hit != app.startPageHover) {
             app.startPageHover = hit;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
     } else if (app.startPageHover != 0) {
         app.startPageHover = 0;
@@ -1339,9 +1339,9 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         if (peekable) {
             app.linkPeekUrl = app.hoveredLink;
             app.linkPeekAnchorDoc = hoveredLinkBounds;
-            SetTimer(hwnd, TIMER_LINK_PEEK, 450, nullptr);
+            armTimer(hwnd, TIMER_LINK_PEEK, 450);
         } else {
-            KillTimer(hwnd, TIMER_LINK_PEEK);
+            disarmTimer(hwnd, TIMER_LINK_PEEK);
         }
     }
 
@@ -1396,7 +1396,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
     } else if (app.showToc) {
         float panelWidth = tocPanelWidth(app);
         float panelX = tocPanelX(app, panelWidth);
@@ -1408,7 +1408,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
     } else if (app.scrollbarHovered || app.scrollbarDragging ||
         app.hScrollbarHovered || app.hScrollbarDragging) {
         SetCursor(cursorArrow);
@@ -1464,7 +1464,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         prevHoveredCodeBlock != app.hoveredCodeBlock ||
         prevHoveredTable != app.hoveredTable ||
         prevHoveredAnnotation != app.hoveredAnnotation) {
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
 }
 
@@ -1528,7 +1528,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             saveFileAs(app, hwnd);
             break;
         case CTX_EXIT:
-            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            postWindowMessage(hwnd, WM_CLOSE, 0, 0);
             break;
         case CTX_NEW:
             closeSearchIfOpen(app);
@@ -1636,7 +1636,7 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
         int index = tabContextMenuIndexAt(app, (float)pt.x, (float)pt.y);
         if (index >= 0) {
             openTabMenu(app, index, (float)pt.x, (float)pt.y);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;  // strip right-clicks never reach the document menu
     }
@@ -1647,7 +1647,7 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
         !fromKeyboard && (float)pt.x >= editRailWidth(app) &&
         (float)pt.x < editorPaneWidth(app)) {
         openEditCtxMenu(app, hwnd, (float)pt.x, (float)pt.y);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -1679,7 +1679,7 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
         }
     }
     openContextMenu(app, (float)pt.x, (float)pt.y);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
@@ -1705,7 +1705,7 @@ static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
             app.hoveredContextMenuItem = nextContextMenuItem(app, -1, 1);
         }
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
@@ -1725,7 +1725,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         if (item >= 0 && contextMenuItemEnabled(app, item)) {
             invokeContextMenuAction(app, hwnd, item);
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -1783,7 +1783,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         } else {
             closeLightbox(app);
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -1829,7 +1829,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         } else if (!annotationEditorContains(app, mx, my)) {
             annotationEditorCancel(app);
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -1862,7 +1862,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                     app.helpScrollbarDragStartScroll = app.helpScroll;
                     app.helpScrollbarDragStartY = (float)clickY;
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
         }
         return;
@@ -1887,7 +1887,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                         case 3: editorReplaceCurrent(app, hwnd); break;
                         case 4: editorReplaceAll(app, hwnd); break;
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                     return;
                 }
             }
@@ -1920,7 +1920,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             if (app.tableEditActive) {
                 // A press anywhere else in the preview commits the cell
                 tableEditCommit(app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
         }
         // Fall through for preview pane clicks
@@ -1938,7 +1938,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             if (annotationCopyButtonHit(app, mx, my)) {
                 app.swallowNextMouseUp = true;
                 annotationsCopyForAgent(app, hwnd);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
             int railIdx = annotationRailHit(app, mx, my);
@@ -1958,7 +1958,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 } else {
                     annotationScrollTo(app, railIdx);
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
         }
@@ -1975,7 +1975,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             } else {
                 performSearch(app);  // re-arms the scan timer
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         for (const auto& hit : app.folderResultHits) {
@@ -1993,7 +1993,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                         scrollToCurrentMatch(app);
                     }
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
         }
@@ -2085,7 +2085,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.scrollbarDragStartScroll = app.scrollY;
             app.scrollbarDragStartY = (float)app.mouseY;
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
     // Check if clicking horizontal scrollbar
     else if (app.hScrollbarHovered &&
@@ -2115,7 +2115,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.hScrollbarDragStartScroll = app.scrollX;
             app.hScrollbarDragStartX = (float)app.mouseX;
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else {
         // Start page: clicks act on its controls, there is nothing to
         // select underneath. The capture from this press is let go up
@@ -2195,7 +2195,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.selAnchor = app.selFocus = selectionOffsetAtPoint(app, docX, docY);
             app.hasSelection = false;
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
 }
 
@@ -2327,7 +2327,7 @@ static void startPageInvoke(App& app, HWND hwnd, int id) {
     } else if (id >= 20 && id < 23) {
         startPageOpenEmbedded(app, hwnd, id - 20);
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // Create-missing-reference dialog outcome: 1 = create the file and start
@@ -2353,7 +2353,7 @@ static void createRefAction(App& app, HWND hwnd, int action) {
         }
     }
     app.createRefPath.clear();
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // Lands on entry.path with the least motion: the same document is scroll
@@ -2376,7 +2376,7 @@ static bool navOpenEntry(App& app, HWND hwnd, const App::NavEntry& entry) {
         }
     }
     app.pendingScrollRestore = entry.scrollY;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
     return true;
 }
 
@@ -2582,7 +2582,7 @@ static void toggleFitBlock(App& app, HWND hwnd, unsigned key) {
         app.fitBlocks.push_back(key);
     }
     app.layoutDirty = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
@@ -2607,7 +2607,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.lightboxDragging = false;
             if (GetCapture() == hwnd) ReleaseCapture();
             if (!app.lightboxDragMoved) closeLightbox(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -2660,7 +2660,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             } else {
                 app.shortcutEditorRow = hit.second;
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         // Click outside the rows: close back to settings
@@ -2668,7 +2668,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         app.shortcutEditorRow = -1;
         app.showSettings = true;
         app.settingsAnimation = 0;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -2725,7 +2725,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 closeThemeEditor(app, false);
                 return;
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         return;
@@ -2751,7 +2751,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         if (app.settingsLangOpen || app.settingsKeysOpen) {
             app.settingsLangOpen = false;  // click elsewhere collapses them
             app.settingsKeysOpen = false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -2788,7 +2788,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.helpScrollbarDragging) {
         app.helpScrollbarDragging = false;
         ReleaseCapture();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -2816,10 +2816,10 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 // snap to whatever the system mode wants
                 if (app.theme.isDark) app.darkThemeIndex = app.currentThemeIndex;
                 else app.lightThemeIndex = app.currentThemeIndex;
-                PostMessageW(hwnd, WM_SETTINGCHANGE, 0,
-                             (LPARAM)L"ImmersiveColorSet");
+                postWindowMessage(hwnd, WM_SETTINGCHANGE, 0,
+                                  (LPARAM)L"ImmersiveColorSet");
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         if (hit == -3) {
@@ -2828,7 +2828,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.showThemeChooser = false;
             app.themeChooserAnimation = 0;
             openThemeEditor(app, true);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         if (hit >= 0) {
@@ -2852,7 +2852,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.showThemeChooser = false;
             app.themeChooserAnimation = 0;
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -2875,7 +2875,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         app.hScrollbarDragging = false;
         app.mouseDown = false;
         app.selecting = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -2905,7 +2905,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 // Scroll document to heading
                 ensureLayoutComplete(app);
                 if (hit >= (int)app.headings.size()) {
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                     return;
                 }
                 scrollToHeadingY(app, app.headings[hit].y);
@@ -2922,7 +2922,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                     app.tocFilter.clear();
                 }
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         if (!app.tocPinned) {
@@ -2930,7 +2930,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.showToc = false;
             app.tocAnimation = 0;
             app.tocFilter.clear();
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         // Pinned (#156): the click belongs to the document - fall through
@@ -2962,7 +2962,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 } else {
                     closeFolderBrowserInput(app);
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
 
@@ -2970,7 +2970,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                                   app.folderPinRect)) {
                 // Pin toggle (#156)
                 app.browserPinned = !app.browserPinned;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
             if (inHeader && clickY >= g.btnY && clickY <= g.btnY + g.btnSize &&
@@ -2984,7 +2984,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 app.folderBrowserScroll = 0.0f;
                 updateBlinkTimer(app);
                 resetCursorBlink(app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
             if (inHeader) {
@@ -3017,7 +3017,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                         populateFolderItems(app);
                         app.folderBrowserScroll = 0.0f;
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                     return;
                 }
                 // Anywhere else on the row (the pencil included) becomes an
@@ -3029,7 +3029,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 app.folderBrowserInputError = false;
                 updateBlinkTimer(app);
                 resetCursorBlink(app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return;
             }
 
@@ -3075,7 +3075,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                     }
                 }
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         if (!app.browserPinned) {
@@ -3083,7 +3083,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             closeFolderBrowserInput(app);
             app.showFolderBrowser = false;
             app.folderBrowserAnimation = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         // Pinned (#156): the click belongs to the document - fall through
@@ -3092,10 +3092,10 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     if (app.scrollbarDragging) {
         app.scrollbarDragging = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (app.hScrollbarDragging) {
         app.hScrollbarDragging = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (codeCopyButtonAt(app, app.mouseX, app.mouseY)) {
         // Releasing anywhere else on a code block must NOT consume the
         // mouse-up: a drag selection ending on the block would never
@@ -3110,7 +3110,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         }
         app.hoveredCodeBlock = -1;
         app.selecting = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (diagramFitButtonAt(app, app.mouseX, app.mouseY)) {
         toggleFitBlock(app, hwnd,
                        app.codeBlocks[app.hoveredCodeBlock].fitKey);
@@ -3127,7 +3127,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         }
         app.hoveredCodeBlock = -1;
         app.selecting = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (tableFitButtonAt(app, app.mouseX, app.mouseY)) {
         toggleFitBlock(app, hwnd,
                        app.tableRects[app.hoveredTable].fitKey);
@@ -3144,11 +3144,11 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         }
         app.hoveredTable = -1;
         app.selecting = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (app.selecting) {
         // Edge auto-scroll ends with the drag
         if (app.selAutoScrollVel != 0.0f) {
-            KillTimer(hwnd, TIMER_SELECT_SCROLL);
+            disarmTimer(hwnd, TIMER_SELECT_SCROLL);
             app.selAutoScrollVel = 0.0f;
         }
         // Finalize selection based on mode
@@ -3206,7 +3206,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 app.hasSelection = false;
             }
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     } else if (!app.hoveredLink.empty()) {
         // Click on link
         if (app.hoveredLink.rfind("fileref-ok:", 0) == 0) {
@@ -3259,7 +3259,7 @@ static void toggleZenMode(App& app, HWND hwnd) {
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
     app.layoutDirty = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
@@ -3272,7 +3272,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         if (wParam == VK_ESCAPE || wParam == VK_RETURN ||
             wParam == VK_SPACE) {
             closeLightbox(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return false;
     }
@@ -3280,7 +3280,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // Annotation note editor owns the keyboard while open (#126)
     if (app.annotEditorOpen && !app.editMode) {
         annotationEditorKeyDown(app, hwnd, wParam, ctrl);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
 
@@ -3343,7 +3343,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                                     std::chrono::milliseconds(150);
             if (contextMenuItemEnabled(app, item)) invokeContextMenuAction(app, hwnd, item);
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
     // Shortcut editor: an armed row captures the next key; Esc cancels
@@ -3367,7 +3367,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             }
             if (key) shortcutAssign(app, {(unsigned)key, false});
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
     // Theme editor: Esc returns to settings; text arrives via WM_CHAR
@@ -3380,7 +3380,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         if (wParam == VK_ESCAPE || (ctrl && wParam == VK_OEM_COMMA)) {
             app.showSettings = false;
             app.settingsAnimation = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return false;
     }
@@ -3395,7 +3395,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             }
             app.showThemeChooser = false;
             app.showHelp = false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         } else if (app.showHelp) {
             float step = dpi(app, 60.0f);
@@ -3405,7 +3405,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             app.helpScroll = std::max(0.0f, std::min(app.helpScroll,
                 app.helpContentHeight - app.helpVisibleHeight));
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;  // punctuation Help bindings still need WM_CHAR
     }
     if (appMenuAvailable(app)) {
@@ -3421,7 +3421,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             closeSearchIfOpen(app);
             app.showSettings = true;
             app.settingsAnimation = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return false;
         }
     }
@@ -3463,7 +3463,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     }
     if (app.showTabSwitcher && wParam == VK_ESCAPE) {
         app.showTabSwitcher = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
     // Esc aborts a tab drag in flight (ghost vanishes, tab snaps home)
@@ -3475,7 +3475,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // the strip stays interactive while editing)
     if (app.showTabMenu && wParam == VK_ESCAPE) {
         closeTabMenu(app);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
 
@@ -3486,7 +3486,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         keyBindingMatches(app.keymap[KA_HELP], (unsigned)wParam, false)) {
         app.showHelp = true;
         app.helpAnimation = 0;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
 
@@ -3503,7 +3503,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             copyToClipboard(hwnd, selected);
             signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
             app.hasSelection = false;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return false;
         }
         handleEditorKeyDown(app, hwnd, wParam);
@@ -3548,7 +3548,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     break;
             }
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return false;
     }
 
@@ -3565,14 +3565,14 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 app.searchAnimation = 0;
                 clearFolderSearch(app);
                 updateBlinkTimer(app);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return false;
             case VK_RETURN:
                 // Cycle to next match
                 if (!app.searchMatches.empty()) {
                     app.searchCurrentIndex = (app.searchCurrentIndex + 1) % (int)app.searchMatches.size();
                     scrollToCurrentMatch(app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 return false;
             case VK_BACK:
@@ -3584,7 +3584,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     if (!app.searchMatches.empty()) {
                         scrollToCurrentMatch(app);
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 return false;
         }
@@ -3621,7 +3621,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchReplaceMode = true;
                     app.replaceFieldActive = false;
                     updateBlinkTimer(app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case 'N':
@@ -3641,7 +3641,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     enterQuickNoteMode(app);
                     app.tabs[app.activeTab].title = tr(app, "title.untitled");
                     updateWindowTitle(app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 } else {
                     app.swallowCharsUntil =
                         std::chrono::steady_clock::now() +
@@ -3682,7 +3682,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // Show "Copied!" notification
                 if (copied) {
                     signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             }
@@ -3692,7 +3692,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     closeSearchIfOpen(app);
                     app.showSettings = !app.showSettings;
                     app.settingsAnimation = 0;
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case 'F':
@@ -3708,7 +3708,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchJustOpened = true;
                     updateBlinkTimer(app);
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 break;
         }
     } else {
@@ -3718,7 +3718,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         if (app.showToc && !app.editMode && !app.tocPinned) {
             if (wParam == VK_BACK) {
                 if (!app.tocFilter.empty()) app.tocFilter.pop_back();
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return false;
             }
             if (wParam == VK_RETURN) {
@@ -3738,7 +3738,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                         break;
                     }
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 return false;
             }
             if ((wParam >= 'A' && wParam <= 'Z') ||
@@ -3778,7 +3778,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     else {
                         app.showHelp = true;
                         app.helpAnimation = 0;
-                        InvalidateRect(hwnd, nullptr, FALSE);
+                        requestRepaint(hwnd);
                     }
                     // The message loop skips TranslateMessage for this
                     // keystroke, so E cannot become the first edit (#195).
@@ -3874,7 +3874,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                             resetCursorBlink(app);
                         }
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case VK_TAB:
@@ -3889,7 +3889,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                         app.tocScroll = 0;
                         app.hoveredTocIndex = -1;
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case 'T':
@@ -3905,7 +3905,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                         app.themeChooserAnimation = 0;
                     }
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 break;
             case 'A':
                 // Annotate the current selection (#126); pinned panels
@@ -3921,7 +3921,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                             std::chrono::steady_clock::now() +
                             std::chrono::milliseconds(150);
                     }
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case 'F':
@@ -3935,7 +3935,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchCurrentIndex = 0;
                     app.searchJustOpened = true;
                     updateBlinkTimer(app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
                 break;
             case VK_UP:
@@ -3993,7 +3993,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
 
     app.targetScrollY = std::max(0.0f, std::min(app.targetScrollY, maxScroll));
     app.scrollY = app.targetScrollY;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
     return false;
 }
 
@@ -4005,7 +4005,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
     // Annotation note editor takes all typing (#126)
     if (app.annotEditorOpen && !app.editMode) {
         annotationEditorChar(app, wParam);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -4019,7 +4019,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
         if (app.shortcutEditorRow >= 0 && ch > 32 && ch < 127 &&
             !iswalnum(ch)) {
             shortcutAssign(app, {(unsigned)ch, true});
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;  // the editor swallows all other typing
     }
@@ -4046,7 +4046,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
                 *themeEditorSlot(app, f) = parsed;
             }
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -4055,7 +4055,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
         if (translateActionKey(app.keymap, (unsigned)wParam, true) == '?') {
             app.showHelp = false;
             app.helpAnimation = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -4075,7 +4075,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
         if (ch >= 0x20 && ch != 127) {
             app.tocFilter += ch;
             app.tocScroll = 0;
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -4101,7 +4101,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             if (app.showHelp) {
                 app.helpAnimation = 0;
             }
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
             return;
         }
         if (ch == L'F' && !app.showHelp && !app.editMode) {
@@ -4114,7 +4114,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             app.searchCurrentIndex = 0;
             app.searchJustOpened = false;
             updateBlinkTimer(app);
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
             return;
         }
     }
@@ -4135,7 +4135,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             app.folderBrowserInput += ch;
             app.folderBrowserInputError = false;
             resetCursorBlink(app);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
         return;
     }
@@ -4158,7 +4158,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchCurrentIndex = 0;
                     scrollToCurrentMatch(app);
                 }
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return;
         }
@@ -4171,7 +4171,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
                 app.searchCurrentIndex = 0;
                 scrollToCurrentMatch(app);
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         }
     }
 }
@@ -4194,12 +4194,12 @@ void handleDropFiles(App& app, HWND hwnd, WPARAM wParam) {
         tabOpenPath(app, hwnd, filepath, !activated);
         activated = true;
     }
-    if (activated) InvalidateRect(hwnd, nullptr, FALSE);
+    if (activated) requestRepaint(hwnd);
     DragFinish(hDrop);
 }
 
 void handleLinkPeekTimer(App& app, HWND hwnd) {
-    KillTimer(hwnd, TIMER_LINK_PEEK);
+    disarmTimer(hwnd, TIMER_LINK_PEEK);
     if (app.linkPeekUrl.empty() || app.hoveredLink != app.linkPeekUrl) return;
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -4256,7 +4256,7 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     app.nativeLinkPeekBitmap = bitmap;
     app.linkPeekTitle = target.filename().wstring();
     app.linkPeekActive = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void handleFileWatchTimer(App& app, HWND hwnd) {
@@ -4274,7 +4274,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
             missingChanged = true;
         }
     }
-    if (missingChanged) InvalidateRect(hwnd, nullptr, FALSE);
+    if (missingChanged) requestRepaint(hwnd);
 
     // External edits to a file that has unsaved changes in some tab surface
     // immediately: jump to that tab and raise the unsaved-changes dialog
@@ -4306,7 +4306,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
                 }
                 app.confirmExitPending = true;
                 app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
                 break;
             }
         }
@@ -4340,7 +4340,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
                     // Annotations re-derive from the fresh source (#126)
                     app.sourceText = buffer.str();
                     annotationsParseSource(app);
-                    InvalidateRect(hwnd, nullptr, FALSE);
+                    requestRepaint(hwnd);
                 }
             }
         }

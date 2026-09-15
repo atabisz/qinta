@@ -2430,7 +2430,7 @@ static void asyncImageWorker(HWND hwnd, std::string src) {
         }
     }
 
-    if (!PostMessageW(hwnd, WM_APP_IMAGE_READY, 0, (LPARAM)result)) {
+    if (!postWindowMessage(hwnd, WM_APP_IMAGE_READY, 0, (LPARAM)result)) {
         delete result;  // window already gone
     }
 }
@@ -3282,7 +3282,7 @@ void completeAsyncImage(App& app, void* asyncResult) {
     // Reflow with the real image dimensions — but coalesced: several images
     // finishing close together (the common case when a document loads) get
     // one relayout on the timer instead of a full document layout each
-    if (app.hwnd) SetTimer(app.hwnd, TIMER_IMAGE_REFLOW, 60, nullptr);
+    if (app.hwnd) armTimer(app.hwnd, TIMER_IMAGE_REFLOW, 60);
 }
 
 void ensureLayoutComplete(App& app) {

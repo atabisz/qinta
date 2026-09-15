@@ -284,7 +284,7 @@ void signalPush(App& app, int severity, int icon, std::wstring text,
     app.signalChips.push_back(std::move(chip));
     app.signalLastTick = nowSeconds();
     startNotificationTimer(app);
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 void signalPushKey(App& app, int severity, int icon, const char* trKey,
@@ -763,7 +763,7 @@ bool signalMouseMove(App& app, float mx, float my) {
     }
     if (prev != app.signalHoverChip && app.hwnd) {
         startNotificationTimer(app);
-        InvalidateRect(app.hwnd, nullptr, FALSE);
+        requestRepaint(app.hwnd);
     }
     return interactive;
 }
@@ -791,18 +791,18 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
                     }
                 }
             }
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return true;
         }
         app.signalTrayOpen = false;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         // fall through: the closing click may also hit a chip or the bell
     }
 
     if (app.signalBellRect.right > 0.0f && pointIn(mx, my, app.signalBellRect)) {
         app.signalTrayOpen = !app.signalTrayOpen;
         if (app.signalTrayOpen) app.signalUnseen = 0;
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
 
@@ -829,7 +829,7 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
         } else {
             c.pinned = true;  // a body click on a passive chip keeps it
         }
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return true;
     }
     return false;

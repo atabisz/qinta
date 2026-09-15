@@ -129,7 +129,7 @@ void scrollToHeadingY(App& app, float headingY) {
     app.targetScrollY = app.scrollY;
     // Not every click path repaints afterwards (a bare link click outside a
     // selection doesn't) — internal jumps must show immediately
-    InvalidateRect(app.hwnd, nullptr, FALSE);
+    requestRepaint(app.hwnd);
 }
 
 bool scrollToHeadingId(App& app, const std::string& id) {

@@ -1496,5 +1496,5 @@ void exportDocumentAs(App& app, HWND hwnd) {
     } else {
         signalPushKey(app, SIG_ERROR, SIGI_WARNING, "toast.save_failed");
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }

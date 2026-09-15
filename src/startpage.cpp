@@ -398,7 +398,7 @@ void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
     tabsInit(app);
     app.tabs[app.activeTab].title = tr(app, titleKey);
     updateWindowTitle(app);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // --- Rendering -----------------------------------------------------------

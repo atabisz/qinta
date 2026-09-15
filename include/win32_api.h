@@ -28,13 +28,22 @@
 // Ask the window to repaint everything at the next paint opportunity.
 //
 // This takes no rectangle and no erase flag, and that is a measurement rather than
-// a simplification. All 277 InvalidateRect call sites in the tree pass exactly
-// `nullptr, FALSE`: 244 spelled `InvalidateRect(hwnd, nullptr, FALSE)` and 33
-// `InvalidateRect(app.hwnd, nullptr, FALSE)`, differing only in how they name the
-// window. Not one passes a rectangle, and not one asks for a background erase. So
-// the seam has exactly the shape the tree actually uses, and a future site that
-// genuinely needs a partial invalidation will have to add a parameter here and
-// thereby say so.
+// a simplification. All 277 repaint sites in the tree passed exactly
+// `nullptr, FALSE`: 244 spelled `InvalidateRect(hwnd, ...)` and 33
+// `InvalidateRect(app.hwnd, ...)`, differing only in how they name the window. Not
+// one passed a rectangle, and not one asked for a background erase. So the seam has
+// exactly the shape the tree actually uses, and a future site that genuinely needs
+// a partial invalidation will have to add a parameter here and thereby say so.
+//
+// TENSE CORRECTED 2026-09-15: all 277 now call this seam, and no `InvalidateRect`
+// remains anywhere under src/. The 244/33 split survives verbatim as the seam's own
+// argument -- 244 `requestRepaint(hwnd)`, 33 `requestRepaint(app.hwnd)` -- so the
+// figures above are still live and were re-measured, not assumed. Worth recording
+// WHY they were nearly "fixed": a mid-pass census of the sites still spelling the
+// raw call read 227/20, and 227/20 looks like a correction to 244/33 while actually
+// measuring a different population -- the unrouted REMAINDER, the other 30 having
+// been routed in earlier spans. 227+17 = 244 and 20+13 = 33. A partial count and a
+// stale count are indistinguishable by shape; only the total, 277, separates them.
 //
 // Off Windows this does nothing, because there is no window and no paint message
 // to schedule. That is a gap, not a lie: the Qt path will implement it as
@@ -50,8 +59,13 @@ inline void requestRepaint(HWND hwnd) {
 // --- Timers -------------------------------------------------------------------
 //
 // Moved here from app.h, which was the wrong home for them: SetTimer or KillTimer
-// is named in 23 files, so this is a tree-wide seam that happened to be discovered
+// was named in 23 files, so this is a tree-wide seam that happened to be discovered
 // while porting one header.
+//
+// TENSE CORRECTED 2026-09-15: that 23 is now history. Every call site is routed --
+// 11 armTimer and 21 disarmTimer under src/, plus 3 and 1 in app.h's inline policy
+// helpers -- and the only remaining mentions of the raw names in the whole tree are
+// the two definitions below and three comments (this one, app.h's, win32_types.h's).
 //
 // The three inline functions in app.h that arm timers are mostly POLICY -- when the
 // cursor should blink, when a notification fade needs repainting -- and only one
@@ -82,8 +96,9 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // --- Posted messages ----------------------------------------------------------
 //
 // Post a message to a window's queue and return whether it was accepted. 19 sites
-// tree-wide (16 spelled PostMessageW, 3 relying on the PostMessage macro), and
-// unlike the repaint population they are NOT uniform: nine distinct message ids
+// tree-wide (before routing: 16 spelled PostMessageW, 3 relying on the PostMessage
+// macro; all 19 now call this seam), and unlike the repaint population they are NOT
+// uniform: nine distinct message ids
 // between them -- WM_CLOSE, WM_SETTINGCHANGE, WM_SYSCOMMAND and six WM_APP_* --
 // four different ways of naming the window, and four sites casting a pointer into
 // lParam. So this seam keeps the full four-argument shape.
@@ -93,7 +108,10 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // casts carry: three of those four sites hand OWNERSHIP of a `new` allocation to
 // the handler, so a pretend success leaks it and silently drops the work.
 //
-// Those three sites -- main_d2d.cpp:1179, render.cpp:2469, search.cpp:95 -- are
+// Those three sites -- main_d2d.cpp:1187, render.cpp:2433, search.cpp:122 (line
+// numbers re-measured 2026-09-15; the previous three had drifted and pointed at a
+// bare brace, a SizeU() argument and an rfind() -- the ROUTING added and removed no
+// lines, so they had been stale for some spans already) -- are
 // EXACTLY the three that already test the return value and `delete` on rejection,
 // because Windows can refuse a post when a queue is full or a window is gone. That
 // correspondence is measured, not assumed, and it is what makes false the right

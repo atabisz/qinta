@@ -84,9 +84,9 @@ void parkActiveEditBuffer(App& app) {
         app.searchQuery.clear();
         app.searchAnimation = 0;
     }
-    KillTimer(app.hwnd, TIMER_EDITOR_REPARSE_ID);
+    disarmTimer(app.hwnd, TIMER_EDITOR_REPARSE_ID);
     updateBlinkTimer(app);
-    SetTimer(app.hwnd, TIMER_FILE_WATCH_ID, 500, nullptr);
+    armTimer(app.hwnd, TIMER_FILE_WATCH_ID, 500);
 }
 
 }  // namespace
@@ -174,7 +174,7 @@ void tabActivate(App& app, HWND hwnd, int index) {
     }
     app.showTabSwitcher = false;
     updateWindowTitle(app);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
@@ -198,7 +198,7 @@ void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
     if (activate) {
         tabActivate(app, hwnd, (int)app.tabs.size() - 1);
     } else {
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
 }
 
@@ -217,7 +217,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         app.pendingTabClose = app.activeTab;
         app.confirmExitPending = true;
         app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
         return;
     }
 
@@ -228,7 +228,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         // The last tab closes into the start page instead of taking the
         // window with it; closing the start page itself closes the window
         if (startPageActive(app)) {
-            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            postWindowMessage(hwnd, WM_CLOSE, 0, 0);
         } else {
             tabBecomeStartPage(app, hwnd);
         }
@@ -253,7 +253,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         if (app.activeTab > index) app.activeTab--;
     }
     app.hoveredTab = -1;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void tabCycle(App& app, HWND hwnd, int direction) {
@@ -289,7 +289,7 @@ void tabBecomeStartPage(App& app, HWND hwnd) {
     app.startPageEmbeddedOpen = false;
     app.hoveredTab = -1;
     updateWindowTitle(app);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // Ctrl+T: a fresh empty viewer tab, which is the start page (the
@@ -315,7 +315,7 @@ void tabOpenStartPage(App& app, HWND hwnd) {
     app.startPageEmbeddedOpen = false;
     app.showTabSwitcher = false;
     updateWindowTitle(app);
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void tabOpenQuickNote(App& app, HWND hwnd) {
@@ -340,7 +340,7 @@ void tabOpenQuickNote(App& app, HWND hwnd) {
     }
     enterQuickNoteMode(app);
     app.showTabSwitcher = false;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 // --- geometry ---
@@ -1071,7 +1071,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             if (!middle) {
                 app.showTabSwitcher = !app.showTabSwitcher;
                 app.tabSwitcherHover = -1;
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return true;
         }
@@ -1083,7 +1083,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
                              app.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
                              0, 0, 0, 0,
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-                InvalidateRect(hwnd, nullptr, FALSE);
+                requestRepaint(hwnd);
             }
             return true;
         }
@@ -1225,7 +1225,7 @@ void tabBulkCloseStep(App& app, HWND hwnd) {
         if (victim < 0) {
             app.tabBulkCloseMode = 0;
             if (keep != app.activeTab) tabActivate(app, hwnd, keep);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
             return;
         }
         tabCloseIndex(app, hwnd, victim);
@@ -1272,7 +1272,7 @@ void renderTabMenu(App& app) {
         float prev = app.tabMenuAnimation;
         app.tabMenuAnimation = std::min(1.0f, app.tabMenuAnimation + 0.25f);
         if (app.tabMenuAnimation != prev)
-            InvalidateRect(app.hwnd, nullptr, FALSE);
+            requestRepaint(app.hwnd);
     }
     float anim = app.tabMenuAnimation;
 
@@ -1357,7 +1357,7 @@ bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y) {
     int index = app.tabMenuIndex;
     closeTabMenu(app);
     app.swallowNextMouseUp = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
     if (item < 0 || index < 0 || index >= (int)app.tabs.size()) return true;
     // Re-validate against the surviving tab row (indices can shift while
     // the menu is up only via external means; the guard is cheap)
@@ -1524,7 +1524,7 @@ void ghostMoveTo(App& app, int screenX, int screenY) {
 void dragCloseLocal(App& app, HWND hwnd, int index) {
     if (index < 0 || index >= (int)app.tabs.size()) return;
     if ((int)app.tabs.size() <= 1) {
-        PostMessageW(hwnd, WM_CLOSE, 0, 0);
+        postWindowMessage(hwnd, WM_CLOSE, 0, 0);
         return;
     }
     if (index == app.activeTab) {
@@ -1576,7 +1576,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         if (!app.tabDragDetached) {
             app.tabDragDetached = true;
             ghostCreate(app, app.tabs[index].title, ghostX, ghostY);
-            InvalidateRect(hwnd, nullptr, FALSE);
+            requestRepaint(hwnd);
         } else {
             ghostMoveTo(app, ghostX, ghostY);
         }
@@ -1586,7 +1586,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         // Back over the strip: the tab snaps home and reordering resumes
         app.tabDragDetached = false;
         ghostDestroy(app);
-        InvalidateRect(hwnd, nullptr, FALSE);
+        requestRepaint(hwnd);
     }
 
     // Reorder: the dragged tab claims the slot under the pointer
@@ -1602,7 +1602,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         app.activeTab = slot;
         app.tabDragIndex = slot;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void tabDragEnd(App& app, HWND hwnd, int x, int y) {
@@ -1653,7 +1653,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
             dragCloseLocal(app, hwnd, index);
         }
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void tabWindowDropMerge(App& app, HWND hwnd) {
@@ -1690,7 +1690,7 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
     data.lpData = (void*)path.c_str();
     SendMessageW(target, WM_COPYDATA, 0, (LPARAM)&data);
     SetForegroundWindow(target);
-    PostMessageW(hwnd, WM_CLOSE, 0, 0);
+    postWindowMessage(hwnd, WM_CLOSE, 0, 0);
 }
 
 void tabDragCancel(App& app, HWND hwnd) {
@@ -1700,7 +1700,7 @@ void tabDragCancel(App& app, HWND hwnd) {
     app.tabDragDetached = false;
     ghostDestroy(app);
     if (GetCapture() == hwnd) ReleaseCapture();
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 bool tabSwitcherMouseDown(App& app, HWND hwnd, int x, int y) {
@@ -1714,6 +1714,6 @@ bool tabSwitcherMouseDown(App& app, HWND hwnd, int x, int y) {
         }
     }
     app.showTabSwitcher = false;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
     return true;
 }

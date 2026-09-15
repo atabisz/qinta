@@ -112,7 +112,7 @@ void applyTheme(App& app, int themeIndex) {
 
     // Force a redraw
     if (app.hwnd) {
-        InvalidateRect(app.hwnd, nullptr, FALSE);
+        requestRepaint(app.hwnd);
     }
 }
 

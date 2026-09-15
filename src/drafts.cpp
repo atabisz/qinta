@@ -149,7 +149,7 @@ void draftsRecoverAll(App& app, HWND hwnd) {
         DeleteFileW(path.c_str());
     }
     app.recoveredDrafts.clear();
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void draftsDiscardAll(App& app) {

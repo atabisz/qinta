@@ -136,9 +136,13 @@ inline int64_t usElapsed(Clock::time_point start) {
 
 // armTimer and disarmTimer used to be defined here. They moved to win32_api.h,
 // which app.h includes, once it was clear they were not app.h's to own: SetTimer or
-// KillTimer is named in 23 files, so a seam this header happened to discover while
+// KillTimer was named in 23 files, so a seam this header happened to discover while
 // being ported belongs one layer down with the other API calls. The IDs above stay
 // here, because who owns which timer IS app state.
+//
+// TENSE CORRECTED 2026-09-15: the 23 is the pre-routing figure. Every site in the
+// tree now calls the seam, including the three armTimer and one disarmTimer calls in
+// this header's own inline helpers below.
 
 // Posted to continue an incomplete document layout in time-budgeted chunks
 #define WM_APP_LAYOUT_CHUNK (WM_APP + 1)

@@ -525,7 +525,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 21,620 / 58,914 | **36.7%** |
+| A. Source lines free of the Windows stack | 21,620 / 58,936 | **36.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 37 / 61 | 60.7% |
 | C. Files a *running* test links | 35 / 61 | 57.4% |
 | D. Test targets that *could* move, and do | 24 / 30 | 80.0% |
@@ -541,7 +541,7 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 51,459 lines of the 58,914,
+can never enter the numerator. With `src/*.cpp` totalling 51,459 lines of the 58,936,
 **basis A's ceiling is 87.3%, not 100%**, and 36.7% should be read against that.
 
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
@@ -556,8 +556,34 @@ why an independent line count disagreed with the probe by exactly 29 until the p
 re-run at the final tree state; two instruments agreeing at 58,026 is the reading, and one
 of them being stale was the reason to re-run rather than reconcile on paper.
 
-**This pass the headline did not move at all — 36.7% → 36.7% — while the numerator FELL, 21,635
-→ 21,620, and every other basis stood still.** No file entered or left any set: one file in the
+**This pass is the extreme case of that, and it is worth reading before the two below it.
+295 call sites moved behind four seams — every raw `InvalidateRect`, `SetTimer`, `KillTimer`
+and `PostMessage*` under `src/` is gone — and basis A's numerator did not move by one line:
+21,620 → 21,620.** The denominator moved 58,914 → 58,936, and all 22 of those lines are
+comments I wrote correcting two headers whose prose had gone stale, so the only measurable
+effect of the largest single-site change in the port so far is a headline that rounds to the
+same 36.7% and, unrounded, is *fractionally worse* (36.696% → 36.684%).
+
+The reason is the one already stated — the metric prices set membership — but this pass
+sharpens it into something more useful: **all 295 sites live in files that remain
+non-portable, so no site can possibly cross a set boundary, and basis A is structurally
+incapable of registering the work.** A different instrument saw it clearly. The portable
+`-fsyntax-only` census fell **2,711 → 2,479 errors, −232**, measured as a paired before/after
+run over the same tree at two commits with byte-identical flags, so untouched files acted as
+their own control and every one of them reported a delta of exactly zero.
+
+The gap between 295 sites and 232 errors is not slippage, and it was chased down rather than
+waved at. Per file, the drop equals **exactly** the number of routed sites that were emitting
+a diagnostic before — 4 of 41 in `main_d2d.cpp`, 48 of 69 in `editor.cpp`, 139 of 143 in
+`input.cpp`, 0 of 1 in `pandoc.cpp`, 23 of 23 in `tabs.cpp`, five files out of five in
+agreement. The other 63 sites were never diagnosed at all: g++ abandons the rest of a
+function body after an earlier error, so in an error-dense file a bad call is invisible to the
+count. **An error count is therefore a saturating measure — it can under-report a fix but
+never over-report one** — and the first hypothesis for the gap, that those sites sat inside
+`#ifdef _WIN32`, was refuted by preprocessing the files and finding all 295 still present.
+
+*The pass before this one:* **the headline did not move either — 36.7% → 36.7% — while the
+numerator FELL, 21,635 → 21,620, and every other basis stood still.** No file entered or left any set: one file in the
 numerator was replaced by a smaller file in the numerator, 334 lines of `platform_paths_posix.cpp`
 out and 319 of `platform_paths_qt.cpp` in, −15 on both numerator and denominator, and the
 percentage rounds to the same place. So the pass that **deleted an entire hand-written POSIX
@@ -597,7 +623,7 @@ filter, and the comment claiming otherwise sat in the file describing a control 
 fire. The comment is corrected in place, and the claim it made is now carried by a test that
 was proven to fail.
 
-*The pass before this one, for comparison:* the headline moved 36.5% → 36.7%, 21,439 / 58,809 →
+*And the one before that, for comparison:* the headline moved 36.5% → 36.7%, 21,439 / 58,809 →
 21,635 / 58,924, and B, C, D and E each moved by one. A `.cpp` file crossed into the portable set, which is
 the only thing that moves basis A, and the arithmetic of *how* it moved inverts the lesson of
 the previous pass. The numerator gained **196 lines. Only 10 of them were written this pass.**

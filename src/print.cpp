@@ -162,7 +162,7 @@ void leavePrintLayout(App& app, const SavedView& saved) {
     app.scrollY = saved.scrollY;
     app.targetScrollX = saved.targetScrollX;
     app.targetScrollY = saved.targetScrollY;
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 // Page break positions in document Y. Breaks avoid slicing text lines,
@@ -726,7 +726,7 @@ void openPrintPreview(App& app, HWND hwnd) {
     app.printPreviewPage = 0;
     refreshPreviewLayout(app);
     app.showPrintPreview = true;
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void printPreviewSetFormat(App& app, int paper, bool landscape) {
@@ -740,7 +740,7 @@ void printPreviewSetFormat(App& app, int paper, bool landscape) {
     app.printPreviewPaper = paper;
     app.printPreviewLandscape = landscape;
     refreshPreviewLayout(app);
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 void closePrintPreview(App& app, HWND hwnd) {
@@ -755,7 +755,7 @@ void closePrintPreview(App& app, HWND hwnd) {
         app.clearEditorLineLayoutCache();
         app.editorRowMetricsWidth = -1.0f;
     }
-    InvalidateRect(hwnd, nullptr, FALSE);
+    requestRepaint(hwnd);
 }
 
 void printPreviewSetPage(App& app, int page) {
@@ -765,7 +765,7 @@ void printPreviewSetPage(App& app, int page) {
     if (page == app.printPreviewPage) return;
     app.printPreviewPage = page;
     rasterizePreviewPage(app, page);
-    if (app.hwnd) InvalidateRect(app.hwnd, nullptr, FALSE);
+    if (app.hwnd) requestRepaint(app.hwnd);
 }
 
 void printPreviewConfirm(App& app, HWND hwnd) {

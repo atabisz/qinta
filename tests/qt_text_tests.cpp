@@ -28,9 +28,17 @@
 //
 // So this test REFUSES TO RUN unless a font database exists. That asserts the
 // property directly rather than checking for a particular platform name, the same
-// shape as the portable-mode guard in theme_data_tests.cpp. CMake sets
-// QT_QPA_PLATFORM=offscreen for the test; note that running with no hint at all
-// ABORTS (exit 134) in WSL, because the default xcb plugin cannot reach a display.
+// shape as the portable-mode guard in theme_data_tests.cpp. Note that running with
+// no hint at all ABORTS (exit 134) in WSL, because the default xcb plugin cannot
+// reach a display.
+//
+// CMake pins QT_QPA_PLATFORM PER PLATFORM -- offscreen off Windows, windows on it --
+// because the font-database answer INVERTS: measured 2026-09-15, offscreen has fonts
+// off Windows and NONE on it, where the windows plugin does. A single global pin that
+// was correct on Linux made this guard refuse (exit 2) on the first Windows run. Two
+// families are named per platform below for the same reason -- no one font family is
+// present on all three targets, and asserting metrics against a silently substituted
+// font measures a font nobody chose.
 //
 // One genuine Qt 6.4 GAP is recorded below rather than papered over: there is no
 // QFont::setFeature, so DirectWrite's per-feature typography control has no direct
@@ -51,6 +59,30 @@
 #include <cstdio>
 
 namespace {
+
+#ifdef _WIN32
+constexpr bool kOnWindows = true;
+#else
+constexpr bool kOnWindows = false;
+#endif
+
+// THE TOLERANCE FOR COMPARING A QTextLine WIDTH AGAINST A QFontMetricsF ADVANCE, and it
+// has to be a whole pixel rather than the 0.01 this file used to demand. The two are
+// DIFFERENT MEASUREMENT PATHS, not two readings of one: QTextLine accumulates subpixel
+// positions, while QFontMetricsF::horizontalAdvance returns the font engine's HINTED
+// advance -- integer-rounded on Windows. Measured on the paragraph below at 32pt, first
+// wrapped line, natural width vs metrics advance of the same string:
+//
+//   Segoe UI  182.0000 vs 182.0000     Arial     188.0000 vs 188.0000
+//   Calibri   169.0000 vs 169.0000     Cambria   183.2031 vs 183.0000  (0.203 apart)
+//   Tahoma    184.8750 vs 184.0000  (0.875 apart)
+//
+// So 0.01 was an assertion that the two paths agree to the BIT, which was never the
+// claim and passed on Linux only because DejaVu's advances happen to come out integral.
+// The claim these assertions actually make is "the gap is one space wide, not zero" --
+// and one space at this size is 10-13px, so a whole-pixel tolerance still fails loudly
+// on the bug they exist to catch while surviving hinting on any font.
+constexpr double kPathTolerance = 1.0;
 
 int failures = 0;
 int checks = 0;
@@ -108,19 +140,24 @@ int main(int argc, char** argv) {
     }
     check(true, "a font database is present, so the metrics below are real");
 
-    // A family the test can rely on resolving. DejaVu ships with Qt's own fontconfig
-    // setup on Linux; assert the resolution rather than assuming it, because every
-    // metric below is meaningless against a substituted font.
-    QFont font("DejaVu Sans", 32.0);
+    // A family the test can rely on resolving, NAMED PER PLATFORM because there is no
+    // single family present on all of them. DejaVu ships with Qt's own fontconfig setup
+    // on Linux; Segoe UI has shipped with every Windows since Vista.
+    //
+    // The requested name used to be "DejaVu Sans" unconditionally, and the only check on
+    // it was that the resolved family was non-empty -- which is true of every
+    // substitution, so it is not a control at all. Windows silently substituted TAHOMA
+    // and four assertions below were measured against a font nobody had chosen. So the
+    // resolution is now asserted EQUAL to the request, and printed either way.
+    const char* const kPrimaryFamily = kOnWindows ? "Segoe UI" : "DejaVu Sans";
+    QFont font(QString::fromLatin1(kPrimaryFamily), 32.0);
     const QFontInfo info(font);
-    check(!info.family().isEmpty(), "the requested family resolves to something named");
-    // WHAT IT ACTUALLY GOT, printed rather than merely asserted non-empty. DejaVu Sans
-    // does not exist on Windows, so the family below is a SUBSTITUTION there, and 4 of
-    // the assertions in this file are measured against whatever it turned out to be --
-    // discovered on the first Windows run because the failures could not be attributed
-    // without this line. A test that names no font is under-reporting what it measured.
-    std::printf("      font requested=\"DejaVu Sans\" resolved=\"%s\" platform=%s\n",
-                info.family().toUtf8().constData(), platform.toUtf8().constData());
+    std::printf("      font requested=\"%s\" resolved=\"%s\" platform=%s\n",
+                kPrimaryFamily, info.family().toUtf8().constData(),
+                platform.toUtf8().constData());
+    check(info.family() == QString::fromLatin1(kPrimaryFamily),
+          "THE REQUESTED FAMILY RESOLVED TO ITSELF, not to a substitute -- every metric "
+          "below is a property of this font and of no other");
     check(info.pointSizeF() > 0.0, "the resolved font has a positive point size");
 
     // --- CreateTextFormat -> QFont --------------------------------------------
@@ -204,14 +241,25 @@ int main(int argc, char** argv) {
     const QString lineText = paragraph.mid(first.textStart(), first.textLength());
     check(lineText.endsWith(QLatin1Char(' ')),
           "the first wrapped line does end in the space it broke on");
-    checkNear(first.naturalTextWidth(), metricsOf(font, lineText.trimmed()), 0.01,
+    const double spaceAdvance = metricsOf(font, QStringLiteral(" "));
+    check(spaceAdvance > kPathTolerance * 2.0,
+          "CONTROL: one space is several pixels wide at this size, so kPathTolerance "
+          "cannot swallow a whole space and the four assertions below still bite");
+    checkNear(first.naturalTextWidth(), metricsOf(font, lineText.trimmed()), kPathTolerance,
               "naturalTextWidth EXCLUDES the trailing space");
-    checkNear(xAtEnd, metricsOf(font, lineText), 0.01,
+    checkNear(xAtEnd, metricsOf(font, lineText), kPathTolerance,
               "cursorToX at the line end INCLUDES the trailing space");
-    checkNear(xAtEnd - first.naturalTextWidth(), metricsOf(font, QStringLiteral(" ")), 0.01,
-              "the gap between them is exactly one space advance");
+    checkNear(xAtEnd - first.naturalTextWidth(), spaceAdvance, kPathTolerance,
+              "the gap between them is one space advance");
+    // Tolerance-free companion to the assertion above, and the one that would actually
+    // catch the bug: whatever the hinting does to either path, the end-of-line caret must
+    // sit most of a space to the RIGHT of the natural width. A port that placed it at
+    // naturalTextWidth() lands at a gap of zero, which this rejects without depending on
+    // the two measurement paths agreeing at all.
+    check(xAtEnd - first.naturalTextWidth() > spaceAdvance * 0.5,
+          "AND THE GAP IS REAL, NOT ROUNDING -- more than half a space wide");
     checkNear(first.cursorToX(first.textStart() + first.textLength() - 1),
-              first.naturalTextWidth(), 0.01,
+              first.naturalTextWidth(), kPathTolerance,
               "the last NON-SPACE position is what lands on naturalTextWidth");
 
     const int cursorAtStart = first.xToCursor(0.0);
@@ -246,15 +294,27 @@ int main(int argc, char** argv) {
     check(kernedWidth < unkernedWidth,
           "kerning is ON by default and setKerning(false) is an effective control");
 
-    const int controlGlyphs = shapedGlyphCount(font, "xy");
+    // THE LIGATURE ASSERTIONS NEED A FONT THAT HAS THE LIGATURE, which is a property of
+    // the font and not of Qt -- so this family is named per platform too, and separately
+    // from the primary one. Measured at 32pt under Qt 6.8.3 on Windows, glyph count for
+    // "fi": Calibri 1; Tahoma, Segoe UI, Cambria, Times New Roman and Arial all 2. So
+    // "ligatures are on by default" is a claim about Qt's shaper that can only be
+    // demonstrated through a font whose GSUB actually offers the substitution, and
+    // asserting it against a UI font measures the font's inventory instead.
+    const char* const kLigatureFamily = kOnWindows ? "Calibri" : "DejaVu Sans";
+    QFont ligFont(QString::fromLatin1(kLigatureFamily), 32.0);
+    check(QFontInfo(ligFont).family() == QString::fromLatin1(kLigatureFamily),
+          "the ligature family resolved to itself, so the glyph counts below are its own");
+
+    const int controlGlyphs = shapedGlyphCount(ligFont, "xy");
     check(controlGlyphs == 2,
           "CONTROL: an unligated pair shapes to 2 glyphs, so the counter can speak");
-    const int ligatureGlyphs = shapedGlyphCount(font, "fi");
+    const int ligatureGlyphs = shapedGlyphCount(ligFont, "fi");
     check(ligatureGlyphs == 1,
           "standard ligatures are ON by default -- 'fi' shapes to a single glyph");
     check(shapedGlyphCount(unkerned, "fi") >= 1, "shaping still works with kerning off");
 
-    QFont unshaped = font;
+    QFont unshaped = ligFont;
     unshaped.setStyleStrategy(QFont::PreferNoShaping);
     check(shapedGlyphCount(unshaped, "fi") == 2,
           "PreferNoShaping is the coarse Qt 6.4 lever for turning ligatures off");

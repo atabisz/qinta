@@ -345,6 +345,73 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
 
 endif()  # WIN32 — app target
 
+# --- THE QT APPLICATION: the target the whole port is aimed at ------------------
+#
+# One stack on every platform means this target eventually REPLACES `tinta` above
+# rather than joining it, which is why src/render_d2d.cpp, src/text_d2d.cpp,
+# src/settings_win32.cpp and src/platform_paths_win32.cpp are described as scheduled
+# for deletion and not for porting. It is built on WINDOWS TOO wherever Qt is found:
+# a Qt target that only exists off Windows would let the two stacks drift, and
+# drifting is the thing the goal rules out.
+#
+# WHAT IT IS TODAY: a shell. It opens a window, clears to the theme background and
+# draws one line of text through the portable render seam. It does NOT render a
+# document, and the list of what stands in the way is measured rather than guessed --
+# see README.md, and src/qt_window.h's own comment.
+#
+# THE SOURCE LIST IS THE MEASURED LINK CLOSURE, not a guess and not everything
+# portable. On 2026-09-16 a scratch probe built the 39 portable objects into an
+# archive, linked a Qt main() against it, and read the link map: constructing an App
+# and painting through the seam pulls exactly six of them -- config_dir, markdown,
+# platform_paths_qt, themes, render_qt, text_qt. markdown.cpp is the surprising one
+# and the map named the reason: App holds a qmd::MarkdownParser BY VALUE, so merely
+# constructing an App references its constructor, which references md_parse. That is
+# the third time this tree has learned that fact from a linker rather than from
+# reading (see the comment on selection_tests below, and tests/portable-sources.txt).
+#
+# So md4c is on the link line for a target that parses nothing. Deliberate.
+if(Qt6_FOUND AND Qt6Widgets_FOUND)
+    add_executable(tinta_qt WIN32
+        src/main_qt.cpp
+        src/qt_window.cpp
+        src/qt_init.cpp
+        src/render_qt.cpp
+        src/text_qt.cpp
+        src/themes.cpp
+        src/markdown.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(tinta_qt PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(tinta_qt PRIVATE md4c Qt6::Core Qt6::Gui Qt6::Widgets)
+    if(WIN32)
+        # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
+        # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
+        # go away at the cutover this target exists to reach: the path seam collapses
+        # onto src/platform_paths_qt.cpp, which is written to be correct on all three.
+        target_compile_definitions(tinta_qt PRIVATE UNICODE _UNICODE)
+        target_link_libraries(tinta_qt PRIVATE shell32)
+        # Dynamic CRT, the same override and the same measured reason as the Qt test
+        # targets far below: Qt cannot be linked against the static CRT, and mixing the
+        # two debug heaps in one process trips an assertion in Qt's own allocations.
+        #
+        # THIS IS WHERE THAT STOPS BEING A TEST-ONLY OVERRIDE. The comment at the top of
+        # this file promises tinta.exe runs on a clean Windows install with no VC++
+        # redistributable, and this target cannot keep that promise. It does not break
+        # it either -- `tinta` above is untouched and still static -- but the two cannot
+        # both survive the cutover, and which one gives way is Alex's call, not this
+        # file's. README.md carries the three options.
+        set_property(TARGET tinta_qt PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    endif()
+    message(STATUS "Qt6 ${Qt6_VERSION} found -- tinta_qt (the Qt shell) enabled")
+else()
+    message(STATUS "Qt6 with Widgets not found -- tinta_qt skipped")
+endif()
+
 if(BUILD_TESTING)
     # --- Platform-independent targets: these build and run on every platform.
     # They link no Windows libraries, so a regression that drags Windows into the
@@ -1489,6 +1556,56 @@ if(BUILD_TESTING)
         set_tests_properties(render_api PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
 
+        # --- The Qt entry point: the first test that paints a tinta WINDOW --------
+        #
+        # Every other drawing assertion in this file paints into a BITMAP. That is
+        # right for the seam's own tests and it leaves the gap where the port is
+        # riskiest: between a QWidget's paintEvent and the abstract render target the
+        # tree draws through. This target closes it by constructing the same
+        # QtAppWindow src/main_qt.cpp runs, grabbing it, and reading the pixels.
+        #
+        # It links the same measured closure as tinta_qt above, minus main_qt.cpp --
+        # so a change that breaks the shell breaks this test, which is the point of
+        # sharing the window class rather than reimplementing it in the test.
+        #
+        # Widgets, not just Core and Gui: QtAppWindow is a QWidget and the test needs
+        # QApplication. The guard is therefore narrower than the enclosing
+        # Qt6_FOUND, for the same reason image_tests' is -- a partial Qt install
+        # should lose this target and SAY so, not fail the configure.
+        if(Qt6Widgets_FOUND)
+            add_executable(qt_entry_tests
+                tests/qt_entry_tests.cpp
+                src/qt_window.cpp
+                src/qt_init.cpp
+                src/render_qt.cpp
+                src/text_qt.cpp
+                src/themes.cpp
+                src/markdown.cpp
+                src/config_dir.cpp
+                ${PLATFORM_PATHS_SOURCE}
+            )
+            target_include_directories(qt_entry_tests PRIVATE
+                include ${md4c_SOURCE_DIR}/src)
+            target_link_libraries(qt_entry_tests PRIVATE
+                md4c Qt6::Core Qt6::Gui Qt6::Widgets)
+            if(WIN32)
+                target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
+                target_link_libraries(qt_entry_tests PRIVATE shell32)
+            endif()
+            add_test(NAME qt_entry COMMAND qt_entry_tests)
+            # Dynamic CRT, same reason and same measurement as qt_text_tests above.
+            set_property(TARGET qt_entry_tests PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+            # This one DOES need a font database -- it asserts that glyph pixels
+            # appeared -- so the per-platform pin matters here as much as it does for
+            # qt_text, and the test refuses with exit 2 rather than reporting a blank
+            # band as a broken seam.
+            set_tests_properties(qt_entry PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+        else()
+            message(STATUS "Qt6 Widgets not found -- qt_entry test skipped")
+        endif()
+
         # WINDOWS ONLY, AND MEASURED RATHER THAN ANTICIPATED. The first time these two
         # targets ran on Windows -- 2026-09-15, the day Qt 6.8.3 was installed here --
         # both FAILED under ctest while both PASSED when launched by hand with
@@ -1511,7 +1628,14 @@ if(BUILD_TESTING)
         # 3.22 and this file only requires 3.15, so it is guarded -- an older CMake gets
         # no property and the same by-hand PATH it needed before.
         if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
-            set_tests_properties(qt_text render_api PROPERTIES
+            # Built as a list because qt_entry only exists where Widgets was found, and
+            # naming a test that does not exist is a configure error -- which would
+            # delete the whole Qt block on a partial install rather than one target.
+            set(TINTA_QT_PATH_TESTS qt_text render_api)
+            if(Qt6Widgets_FOUND)
+                list(APPEND TINTA_QT_PATH_TESTS qt_entry)
+            endif()
+            set_tests_properties(${TINTA_QT_PATH_TESTS} PROPERTIES
                 ENVIRONMENT_MODIFICATION
                 "PATH=path_list_prepend:$<SHELL_PATH:$<TARGET_FILE_DIR:Qt6::Core>>")
         endif()

@@ -289,13 +289,33 @@ cmake --build build-linux -j"$(nproc)"
 
 Qt is currently **opt-in**: CMake looks for it with
 `find_package(Qt6 QUIET COMPONENTS Core Gui)` and skips the targets that need it when it is
-absent, which is what happens on Windows today. That is transitional too — under one stack
-Qt becomes a hard requirement on Windows as well, and making it one is a step that has not
-been taken because no Qt is installed on the Windows machine this is developed on. The
-targets concerned run headless and set `QT_QPA_PLATFORM=offscreen` themselves — it is not
-interchangeable with `minimal`, and running with no platform plugin at all aborts under WSL.
+absent. **Two sentences that used to follow here said Qt was absent on Windows and that
+making it a hard requirement was blocked on installing it. Both are now false and are
+corrected rather than deleted**, because the shape of the error is the useful part: they were
+true when written, the pass that installed Qt 6.8.3 on Windows updated the figures it touched
+and left the prose two sections away standing, and a stale *capability* claim reads as a
+considered limitation forever. Qt is installed on the Windows machine this is developed on,
+and Windows builds every Qt target including the frontend. What still blocks the requirement
+becoming hard is not an install — it is the twelve build failures in the next section.
 
-`qt_text` and `render_api` exist *only* where Qt does. `keyboard` is the exception and
+The headless targets pin `QT_QPA_PLATFORM` themselves, and it is pinned **per platform, not
+once**: `offscreen` off Windows, `windows` on Windows, from one `TINTA_QPA_PLATFORM` variable
+at `CMakeLists.txt:1524`. That asymmetry is measured, not stylistic — the offscreen plugin on
+Windows has **no font database**, so a text assertion there measures a fabricated metric
+rather than a glyph. `minimal` is used nowhere, for the same reason and more so, and running
+with no platform plugin at all aborts under WSL.
+
+```bash
+# the Qt frontend, on either platform
+cmake --build build-linux --target tinta_qt
+QT_QPA_PLATFORM=offscreen ./build-linux/tinta_qt      # headless: starts, paints, no window
+
+# on Windows, where Qt is not on the default search path
+cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
+cmake --build build-qtwin --target tinta_qt --config Debug
+```
+
+`qt_text`, `render_api` and `qt_entry` exist *only* where Qt does. `keyboard` is the exception and
 deliberately so: it is configured under `if(WIN32 OR Qt6_FOUND)`, because the seam has two
 backends and a seam whose Windows half is never asserted is precisely the shape this repo
 has criticised elsewhere. Off Windows it links `keyboard_qt.cpp` and Qt; on Windows it links
@@ -314,6 +334,55 @@ out of a portable target — a silent regression) or if a file was compiled that
 manifest does *not* list (the portable surface grew without anyone saying so). It also
 prints the portable share, computed from the manifest on every run rather than quoted
 from anywhere. Run it after any change that touches which files build off Windows.
+
+### The Qt frontend, and the twelve reasons it shows no document
+
+`tinta_qt` is a real target on both platforms: a `main()`, a `QWidget` subclass, and the
+first callers `Seated<>::install()` has ever had. It **starts and stays running** —
+`timeout 5 tinta_qt` reads exit `124` on Windows and on Linux, meaning the timeout had to
+kill it, so `main()` reached `QApplication::exec()`. The control matters more than the
+reading: `qt_entry_tests` under the same `timeout` reads `0`, so `124` means *alive* rather
+than being what this harness returns for everything.
+
+Its source list is nine files, and it is the **measured link closure** rather than a guess —
+read off a `-Wl,-Map=` link map, not inferred from includes. Six of the 39 portable objects
+are in it (`config_dir`, `markdown`, `platform_paths_qt`, `themes`, `render_qt`, `text_qt`),
+plus the three new ones. **md4c is on that link line even though `tinta_qt` parses nothing**,
+because `App` holds a `qmd::MarkdownParser` *by value* — constructing an `App` references its
+constructor, which references `md_parse`. That is the third time a linker has taught this
+tree that fact.
+
+What it draws is one centred line of placeholder text, and the honest statement of why is a
+list rather than a sentence. **Of the 24 `src/*.cpp` files the manifest does not list, 23 fail
+to compile off Windows, from 12 distinct causes** — measured with `-fsyntax-only` at
+`census_exit=0` against a control, reading `fatal` before any error tally, because a file that
+dies on its first include reports `errors=1` and that means *not measured* rather than
+one-error-away:
+
+| Cause | Files | |
+|---|---|---|
+| `windows.h` | 5 | `image_win32`, `keyboard_win32`, `platform_paths_win32`, `settings_win32`, `utils` |
+| `windowsx.h` | 2 | `input`, `main_d2d` |
+| `shlobj.h` | 2 | `drafts`, `pandoc` |
+| `shellapi.h` | 2 | `signals`, `tabs` |
+| `objbase.h` | 2 | `d2d_init`, `export_docx` |
+| `commdlg.h` | 2 | `file_dialog_win32`, `print` |
+| `imm.h` | 1 | `editor` |
+| `dwrite_1.h` | 1 | `startpage` |
+| `wcscpy_s` not declared | 1 | `overlays` |
+| `IDWriteTextLayout2` not declared | 1 | **`render.cpp`** |
+| wide-path `ofstream` constructor | 1 | `annotations` |
+| incomplete `IDWriteTextLayout` | 1 | `math_render` |
+
+21 files, plus the two deliberate `#error` guards in `render_d2d.cpp` and `text_d2d.cpp`, is
+the 23. The 24th is `settings_app.cpp`, which **compiles off Windows already** and is a
+deliberate manifest exclusion rather than a Windows dependency — worth knowing before someone
+spends a pass "porting" it.
+
+The single most informative row is `render.cpp`. It no longer dies on `windows.h` at all; its
+first error is a missing DirectWrite *interface*, which is measurable evidence that the header
+work landed. It is also the file every other blocker routes through: give `render.cpp` a
+portable compile and the Qt window has a document to draw.
 
 ### The deprecated-backend flag
 
@@ -360,8 +429,12 @@ Everything else that links the backends incidentally is deliberately **not** gat
 targets' subjects survive the stack change, so under `OFF` they are *supposed* to fail to
 link — gating them would hide the very inventory the flag exists to print.
 
-Flipping the default requires Qt on Windows, which is not installed on the machine this is
-developed on. That is an install and a decision, not a CMake change.
+**Flipping the default no longer requires an install, and this sentence used to say it did.**
+Qt 6.8.3 is on the Windows machine and `tinta_qt` builds there, so the missing piece is not a
+package — it is that `tinta_qt` draws a placeholder and `tinta.exe` draws documents. Flipping
+the default today would trade a working viewer for a window with one line of text in it. The
+inventory above is what stands between the two, and it is a build failure list rather than a
+decision.
 
 ### Where the two stacks will not agree
 
@@ -396,9 +469,16 @@ become the shipping backend, `tinta.exe` faces the choice the two Qt *test* targ
 had to make, and the single-file promise is what pays for it.
 
 The options are a dynamic CRT plus a redistributable dependency, shipping the CRT DLLs
-alongside the exe, or a static Qt build — and each trades something real. Nothing in the
-port needs the answer yet, and overriding the two test targets deliberately does not
-pre-empt it.
+alongside the exe, or a static Qt build — and each trades something real.
+
+**This got sharper rather than staying hypothetical: `tinta_qt` is now a Windows target that
+is not a test, and it carries the dynamic-CRT override.** Until this pass the override touched
+only `qt_text` and `render_api`, which nobody ships, so the promise at `CMakeLists.txt:20-22`
+was intact for every product binary. There are now two Windows executables built from one tree
+under two different C runtimes, and the one that is the future of the stack is the one that
+cannot keep the promise. Nothing breaks today — `tinta.exe` is unchanged and still static —
+but the decision is no longer ahead of the port, it is inside it, and the first person to ship
+a Qt Windows build makes it whether they mean to or not.
 
 ### Status
 
@@ -418,7 +498,7 @@ same session.
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
 | Portable-build regression guard | Done — manifest + probe, both directions |
-| Tests running off Windows | **26 run on Linux, and all 26 also run on Windows, out of 36 there.** 36 distinct test targets in total, and "all 26" is a measurement: the two `ctest -N` listings were diffed, and the only entry Linux has that Windows does not is `platform_paths_bare_locale`, a second entry for a target Windows already runs. The "Linux-only" category is now **empty**, and that is a real change rather than a rounding: the Qt backend tests used to exist only off Windows, and installing Qt 6.8.3 on Windows means the Qt backend is now asserted on both platforms — so `render_api`'s assertions run three times, Qt on Linux, Qt on Windows, and Direct2D on Windows |
+| Tests running off Windows | **27 run on Linux, and all 27 also run on Windows, out of 37 there.** 37 distinct test targets in total, both figures re-derived from `ctest -N` this pass rather than incremented — Linux prints 28 *entries* against 27 targets, which is the one place a `+1` looks right and is wrong. The new target is `qt_entry`, and "all 27" is a measurement: the two `ctest -N` listings were diffed, and the only entry Linux has that Windows does not is `platform_paths_bare_locale`, a second entry for a target Windows already runs. The "Linux-only" category is now **empty**, and that is a real change rather than a rounding: the Qt backend tests used to exist only off Windows, and installing Qt 6.8.3 on Windows means the Qt backend is now asserted on both platforms — so `render_api`'s assertions run three times, Qt on Linux, Qt on Windows, and Direct2D on Windows |
 | Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
 | In-document search asserted off Windows | Done — `search.cpp` was compile-only on both platforms and now has 53 assertions running on each. The blocker was never its shape: a real link found ten undefined symbols, nine already in portable files and one (`ensureLayoutComplete`) still in `render.cpp`, which the test stubs. Honest limit: **that stub means the precondition itself is untested**, and two folder-scan functions are unreachable from another translation unit and left uncovered |
 | The App overload of `tr()` asserted off Windows | Done — `i18n_app.cpp` is one forwarding line and was the second of the two compile-only files. It now runs 42 assertions inside the existing `i18n` test, on both platforms, taking that test from 40 to 82. Worth doing for the failure mode rather than the size: its whole job is to read `app.currentLanguageIndex`, and a version that forwards a constant leaves the app **silently monolingual** — no error, no crash, every string still drawn. A planted constant fails 34 of the 42. Honest limit: this adds **no new test target**, so the revert is invisible to the manifest, the ctest count *and* the pass rate — the only instrument is a new check on the link line |
@@ -433,6 +513,7 @@ same session.
 | HTML export portable and asserted (`export_html_tests`) | Done — **31 g++ errors to 0, and the first file in eleven passes to leave the to-do list rather than joining it.** It cost three things and no seam: the file-picker seam above took its `OPENFILENAMEW` block, `toUtf8` moved out of `editor.cpp` into `text_utils.cpp` (`export_html.cpp` needed it and cannot reach into the editor), and its two wide-path `fstream` constructions became named `const std::filesystem::path` locals — 2 of C58's 22, the MSVC extension libstdc++ rejects. **44 assertions against the real markdown parser**, not a hand-built tree: the fixture is a document with escaping traps in it — `# Title & <Subtitle>`, `` `a < b` ``, a code block containing `if (a < b && c > d) { return "<script>"; }`, a link whose href has `&` in it, and literal UTF-8 bytes for `café 日本語` — parsed by `parseDocument`, exported, and read back off disk. The escaping cases are the point: an exporter that forgets `&` still produces a file that opens, looks right at a glance, and mangles one entity per document. Six symbols are **stubbed, and every stub records that it was called** — `exportDocxFile`, `exportPdfFile`, `mathParse`, `mathBoxSvg`, `resolveDiagramRole`, `signalPushKey` — because a stub silently returning a default turns "this path is never reached" from a claim into an assumption; the test asserts all six tripwires stayed cold. Four planted defects, each with its failure count written in the script *before* the run, matched exactly (5/1/1/2). Honest limits: those six stubs mean the math and diagram branches and the whole of `exportDocumentAs` are untested, and `syntax.cpp` turned out to be **removable** from the link line — which is not tidiness, it means **HTML export emits code blocks unhighlighted** |
 | The source list that linked first time and was not minimal | Fixed, and it is a row because the same lesson has now been learned twice. `export_html_tests` linked on the first attempt, ran green, and its CMake comment said "THE SOURCE LIST IS MINIMAL, MEASURED BY REMOVAL" — **written before the measurement, and false.** A successful link proves a list is *sufficient* and says nothing about whether it is *minimal*; five entries were unnecessary and everything was green. Worse, the first removal sweep found a **local** minimum: `i18n.cpp` read as "needed, 1 undefined symbol" only because `i18n_app.cpp`, one of the four being removed, referenced it. Minimality has to be re-measured after every removal, on a **clean** build directory, or stale objects answer for absent sources. Final reading: 21 objects, 0 removable, and the positive control — omitting `export_html.cpp` itself — fails loudly |
 | The cross-CRT heap assertion on the Windows Qt tests | Fixed — **and it had been reporting itself as a pass.** Both Qt test targets inherited the tree-wide static CRT from `CMakeLists.txt:20-22` while `Qt6Cored.dll` uses the dynamic one, so a block allocated by one debug heap was freed by another and `__acrt_first_block == header` fired at `debug_heap.cpp:996`. Diagnosed with `dumpbin -dependents`, not by reasoning about it. The reason it survived is the part worth recording: a **modal** CRT assertion dialog makes `ctest` report one defect two opposite ways — dismissed with Ignore the process exits 0 and ctest says *Passed*, aborted it says *\*\*\*Failed*. `render_api`'s recorded "266 assertions pass on Windows" was obtained the first way. The **durations** were the tell: 63.98s and 28.27s before, 2.19s and 2.07s after — the old numbers were a dialog waiting for a click. Both targets now override `MSVC_RUNTIME_LIBRARY` to `MultiThreaded$<$<CONFIG:Debug>:Debug>DLL` (that spelling and not `MultiThreadedDLLDebug`, which CMake rejects — and the failed *generate* still let the build report exit 0 off the stale cache, so configure's exit code has to be read first), both import `ucrtbased.dll`, and the 266 was re-taken cleanly. **This overrides two TEST targets and deliberately does not pre-empt the product decision underneath it** — see the open question below |
+| Qt entry point — a window that drives tinta's own seams (`main_qt.cpp`, `qt_window.cpp`, `qt_init.cpp`) | Done — **and it is the first pass in this port that cost nothing anywhere else: no file split, no seam cut, no call routed, no Windows half added.** Three new files, 189 lines, and every existing file untouched. `Seated<>::install()` went from **zero** callers to two, which means a template member that had never been instantiated is now the only way the app gets a backend — and the two lifetimes are asymmetric, which is the one design decision in it: `QtTextFactory` is stateless and installed for the process, while `QtRenderTarget` *begins* a `QPainter` in its constructor and ends it in its destructor, so its scope is exactly one paint event. Hence one install function plus an RAII `QtScopedRenderTarget`, not two install calls. **`tests/qt_entry_tests.cpp` is the first test in this tree to paint a tinta window** — 20 assertions, and it exercises the same `QtAppWindow` class the app runs, which is why the class lives in a header at all: `main_d2d.cpp` has the opposite shape and that is precisely why no test on either platform had ever painted a tinta window before. `QWidget::grab()` turned out to paint an **unshown** widget, measured rather than assumed, so the test needs no display and no event loop. The reading that carries the weight is a **count, not a boolean**: non-background pixels inside the text band, 3,698 on Linux and 2,880 on Windows, against a control run with the text factory released that reads **0**. Those two numbers are deliberately never compared to each other — the font substitution differs per platform, and a test asserting they match would be asserting the font database. Two planted defects, each with its failure count written down before the run, failed in exactly the predicted 2 and 1 places; plant 1 is the instructive one, because it proves two of the assertions read **green while nothing is drawn at all**, which is why the `painted > control` comparison exists and not just the two counts. Honest limits: **it draws no document** — see the twelve-cause list above — there are no menus, tabs, input handling, settings load or custom themes, each absent for a stated reason rather than forgotten, and **nobody has looked at the window**; `exit 124` under a timeout proves the process lives, not that a human saw anything |
 
 **To do — 24 files, 28,478 lines**
 
@@ -518,7 +599,7 @@ better reading but a rising one is not the surprising one.
 | Startpage | 792 | `dwrite_1.h`; also uses `SetCharacterSpacing`, which stays native |
 | Device and factory creation | 689 | `d2d_init.cpp` — `objbase.h`, COM initialisation and the Direct2D device; becomes Qt paint-device setup |
 | Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired: those files report `errors=1, fatal=1`, which means not-measured rather than one-error-away |
-| Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
+| Qt entry point | — | **Built. This row used to read "`Seated::install()` still has zero callers; blocked behind `render.cpp`", and half of that was wrong: the entry point was blocked behind nothing.** It needed a *measurement* — which objects a Qt `main()` actually pulls — and the measurement came back as nine files rather than the whole tree, because `App` reaches its backends through pointers now. What is still blocked behind `render.cpp` is the **document**, not the window. See the twelve-cause list above |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
 | The Windows backends themselves | 375 + 767 + 217 + 173 + 65 + 23 + 346 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 1,966 lines, re-derived rather than carried (`text_d2d.cpp` read 635 for a pass after gaining 132 lines of line-breaking backend, and `platform_paths_win32.cpp` read 146 after gaining the FILETIME seam's 27). Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 346 lines, of which a good share is the post-mortem for a segfault it caused (see below). `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
 
@@ -583,23 +664,50 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 23,281 / 59,604 | **39.1%** |
-| B. `src/*.cpp` files compiling without Windows headers | 39 / 63 | 61.9% |
-| C. Files a *running* test links | 36 / 63 | 57.1% |
-| D. Test targets that *could* move, and do | 26 / 32 | 81.3% |
-| E. All test targets, run off Windows | 26 / 36 | 72.2% |
+| A. Source lines free of the Windows stack | 23,470 / 59,934 | **39.2%** |
+| B. `src/*.cpp` files compiling without Windows headers | 42 / 66 | 63.6% |
+| C. Files a *running* test links | 38 / 66 | 57.6% |
+| D. Test targets that *could* move, and do | 27 / 33 | 81.8% |
+| E. All test targets, run off Windows | 27 / 37 | 73.0% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
+| G. Platforms where the Qt frontend builds, links, starts and paints | 2 / 3 | 66.7% |
+
+**Basis F did NOT move, and that refutes what I said before building the entry point.** The
+plan for this pass called it "the only work that can move basis F off 0/3". It was not: F says
+*running Tinta*, and Tinta is a markdown viewer. A window that opens, clears to the theme
+background and centres one line of placeholder text is not the product on a new stack, and
+scoring it as one would make the headline basis of this whole document mean "a window exists".
+So F stays at zero and basis **G** is added underneath it for what actually moved — the move
+this file has already made twice, both times for the same reason: basis A's ceiling is stated
+separately because the metric cannot reach 100%, and basis C keeps a *linked* versus *called*
+judgment because crediting a link that executes nothing would make it a second way to count B.
+Splitting a metric that cannot register the work beats bending one that can't. G is 2/3 rather than 3/3 because macOS remains
+unattempted: nothing platform-specific to it has been written, built or measured, and Qt being
+cross-platform is an argument, not a reading. **The distance between G and F is exactly the
+twelve-cause list**, which is the useful thing about having both rows.
+
+**Basis A moved on new files rather than on ported ones, which is a first, and the bookkeeping
+is worth stating because it cuts both ways.** Numerator 23,281 → 23,470 (+189) and denominator
+59,604 → 59,934 (+330); the 189 is `qt_init.cpp` 40, `qt_window.cpp` 86 and `main_qt.cpp` 63,
+and the remaining 141 is `qt_init.h` 77 plus `qt_window.h` 64. Every other file in the tree is
+byte-identical, so those two sums are the whole delta and they reconcile against the tree
+exactly. The headline reads 39.1% → 39.2%, and it is the first rise in this port that came from
+code **written for Qt** rather than from a Windows file crossing the boundary. The cost side:
+the two new headers are denominator-only forever, so basis A's own ceiling *fell*, 86.8% →
+86.7%. Writing a class into a header so a test can construct it is what did that, and it was
+the right trade — it is the reason a test paints a window at all.
 
 **Basis C stopped being hand-kept this pass, and the check is the reconciliation rather than
 the number.** Every previous pass typed that numerator from memory. It is now measured — a
 full Linux build, `ctest -N` for the set of tests that actually run, then the union of
-`src/*.cpp` objects across those targets' link lines — and the mechanical union reads **37**,
-one higher than the figure above. The difference is `file_dialog_qt.cpp`, linked by a running
+`src/*.cpp` objects across those targets' link lines — and at that pass's tree the mechanical
+union read **37** against a stated 36, one higher. The difference is `file_dialog_qt.cpp`, linked
+by a running
 test and called by none, which is exactly the file the judgment below subtracts. So the
 instrument agrees with the standing judgment instead of replacing it, and re-deriving at the
 previous tree state returns 35, which is what the hand-kept figure said. That reconciliation
-is the reason to trust the 36; the union on its own would have been a second way to count
-basis B.
+is the reason to trust the figure at all; the union on its own would have been a second way to
+count basis B. The same gap of exactly one persists at today's 38, for the same one file.
 
 **Basis C's numerator did not move, and that is a judgment stated rather than an oversight.**
 `file_dialog_qt.cpp` and `file_dialog_win32.cpp` are both *linked into* a running test —
@@ -607,17 +715,22 @@ basis B.
 but neither is ever *called*, because `requestOpenPath` and `requestSavePath` do not return until
 a human clicks a dialog. Crediting a link that executes no instruction would make this basis
 measure the same thing as B while sounding like coverage, so the numerator was unchanged that
-pass and only the denominator moved. **This pass it moved, 35 → 36, on `export_html.cpp` —
+pass and only the denominator moved. **The pass after it moved 35 → 36, on `export_html.cpp` —
 which is the distinction working rather than being abandoned: that file is not merely linked,
-its `exportHtmlFile` is called 44 times by assertions.** Bases D and E moved by one target
-each again: Windows now configures **36** targets and Linux **26** (27 ctest *entries*,
+its `exportHtmlFile` is called 44 times by assertions.** **This pass it moved again, 36 → 38,
+and both additions clear the same bar: `qt_init.cpp` and `qt_window.cpp` are not merely linked
+into `qt_entry_tests`, their `installQtBackends` and `QtAppWindow::paintEvent` are what the 20
+assertions execute. `main_qt.cpp` is deliberately not counted — it holds `main()` and no test
+links it — so the mechanical union now reads 39 against this 38, the extra still being
+`file_dialog_qt.cpp`.** Bases D and E moved by one target
+each again: Windows now configures **37** targets and Linux **27** (28 ctest *entries*,
 because `platform_paths_tests` is registered twice with different environments — the count
 that moves is entries, not targets), and D still excludes the four targets that are
 Windows-only by subject. The Linux set is a strict subset of the Windows set, measured by
 diffing the two `ctest -N` listings rather than assumed: the only entry Linux has and Windows
 does not is that second entry of a target Windows already runs.
 
-**Basis A, 39.1%, is the headline** — it is the figure the probe itself prints on every
+**Basis A, 39.2%, is the headline** — it is the figure the probe itself prints on every
 run, so it is the one comparable across time. It *understates* progress, because its
 denominator includes headers the manifest never credits even when they are portable. And
 it *overstates* readiness, for a reason this pass demonstrated about as sharply as it can
@@ -626,8 +739,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 51,759 lines of the 59,604,
-**basis A's ceiling is 86.8%, not 100%**, and 39.1% should be read against that.
+can never enter the numerator. With `src/*.cpp` totalling 51,948 lines of the 59,934,
+**basis A's ceiling is 86.7%, not 100%**, and 39.2% should be read against that.
 
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
 denominator moved 57,997 → 58,026 *during* that pass: 29 lines, all of them

@@ -426,6 +426,50 @@ else
     check 1 "src/image_qt.cpp is linked into image_tests (not on the link line -- did the platform selection pick the win32 file?)"
 fi
 
+# --- The Qt frontend -------------------------------------------------------------
+#
+# tests/qt_entry_tests.cpp is a test object, so the manifest is blind to it the same
+# way it is blind to every header. It is worth naming for a reason none of the guards
+# above have: it is the ONLY test on this tree that paints a tinta WINDOW. Every other
+# drawing assertion paints into a bitmap, so if this target were dropped the suite
+# would keep asserting the seam and stop asserting that App's storage, a real paint
+# event and QWidget::grab() work together at all -- and the ctest count would simply
+# fall by one while ctest printed "100% tests passed".
+if grep -qE "qt_entry_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/qt_entry_tests.cpp was compiled by $CXX_BIN, so include/qt_init.h and include/qt_window.h are read off Windows"
+else
+    check 1 "tests/qt_entry_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
+# And the two frontend files on that test's LINK line, which is a different question
+# from the manifest. src/qt_init.cpp and src/qt_window.cpp are both listed above, and
+# src/tinta_qt compiles both -- so the manifest reads them as compiled whether or not
+# any test links them. The revert shape the manifest cannot see is exactly that: leave
+# them in the app target, drop them from the test, and the comparison stays green with
+# nothing executing a line of either.
+#
+# What is lost in that world is specific and worth naming: Seated<>::install() goes
+# back to having no caller under test, and the install/release symmetry, the QPainter's
+# scope and the glyph pixels all stop being measured.
+for frontend in qt_init qt_window; do
+    if grep -E -- '-o qt_entry_tests( |$)' "$BUILD_DIR.build.log" | grep -q "${frontend}\.cpp\.o"; then
+        check 0 "src/${frontend}.cpp is LINKED INTO qt_entry_tests, so it is executed off Windows and not merely compiled"
+    else
+        check 1 "src/${frontend}.cpp is linked into qt_entry_tests (not on the link line -- has it become compile-only?)"
+    fi
+done
+
+# The APPLICATION has to link, not just compile. src/main_qt.cpp is on the manifest,
+# so dropping the tinta_qt target would show up as MISSING -- but moving main_qt.cpp
+# into portable_compile_only would satisfy the manifest exactly while leaving the port
+# with no runnable frontend at all. Only the link line tells those apart, and the whole
+# goal -- one stack on every platform -- is the thing that quietly stops being true.
+if grep -qE -- '-o tinta_qt( |$)' "$BUILD_DIR.build.log"; then
+    check 0 "tinta_qt LINKS off Windows, so the Qt frontend is a runnable binary and not a compile-only file set"
+else
+    check 1 "tinta_qt links off Windows (no link line found -- was the target dropped, or main_qt.cpp made compile-only?)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

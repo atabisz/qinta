@@ -391,3 +391,33 @@ mermaid_uml.cpp
 # paths" a reading rather than an assumption -- but it does not make those paths
 # tested.
 export_html.cpp
+
+# --- The Qt frontend: the entry point the whole port is aimed at ---------------
+#
+# These three are a DIFFERENT KIND of entry from everything above. Every other line
+# in this file is a file that used to need Windows and stopped; these were written
+# for the Qt stack and have never had a Windows half at all. They are the beginning
+# of what replaces src/main_d2d.cpp rather than a portability repair.
+#
+# LINKED AND RUN, not compile-only: tests/qt_entry_tests.cpp constructs the same
+# QtAppWindow src/main_qt.cpp runs, grabs it, and reads the pixels back. It is the
+# first test on this tree to paint a tinta WINDOW -- every other drawing assertion
+# paints into a bitmap and involves no widget, no paint event and none of App's seam
+# storage.
+#
+# WHAT THEY COST: nothing elsewhere. The link closure was MEASURED before these were
+# written -- a scratch probe linked a Qt main() against an archive of all 39 portable
+# objects and read the link map -- and it came back at six existing files, all
+# already listed above. No file had to be split, no seam had to be added, and no
+# native call had to be routed. That is the first slice in this port for which that
+# is true, and it is what the header work above bought.
+#
+# THE THING THEY DO NOT DO is render a document, because src/render.cpp does not
+# compile off Windows. That list is measured too: 23 of the 24 src/ files outside
+# this manifest fail a syntax-only non-Windows compile, on 12 distinct first causes.
+# README.md carries it. src/settings_app.cpp is the 24th -- it compiles off Windows
+# already, and the probe asserts it is NOT built, which is now a deliberate exclusion
+# rather than a Windows dependency.
+qt_init.cpp
+qt_window.cpp
+main_qt.cpp

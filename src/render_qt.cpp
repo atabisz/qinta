@@ -296,6 +296,41 @@ tinta::SizeF QtBitmap::GetSize() const {
                         static_cast<float>(size.height())};
 }
 
+std::unique_ptr<tinta::Bitmap> QtRenderTarget::CreateBitmap(uint32_t pixelWidth,
+                                                           uint32_t pixelHeight,
+                                                           const uint8_t* premultipliedBgra,
+                                                           uint32_t stride, float dpi) {
+    if (!pixelWidth || !pixelHeight || !premultipliedBgra || !stride) return nullptr;
+    if (dpi <= 0.0f) return nullptr;
+
+    // Format_ARGB32_Premultiplied, and the byte order is why it matches BGRA without
+    // a swizzle: Qt's ARGB32 formats are 0xAARRGGBB in a 32-bit word, so on a
+    // little-endian machine the bytes in memory read B, G, R, A -- exactly what
+    // DXGI_FORMAT_B8G8R8A8_UNORM means. That is a real dependency on endianness, not
+    // an accident, so it is asserted rather than assumed.
+    static_assert(Q_BYTE_ORDER == Q_LITTLE_ENDIAN,
+                  "QImage's ARGB32 word order only matches BGRA byte order on a "
+                  "little-endian host; a big-endian port must swizzle here");
+
+    // The QImage(uchar*, ...) constructor does NOT copy, and the caller's buffer is a
+    // local vector at two of the three sites -- so this copies deliberately, via a
+    // non-owning view and copy(). Holding the view would give a bitmap that outlives
+    // its pixels and draws whatever later occupies that memory.
+    const QImage view(premultipliedBgra, static_cast<int>(pixelWidth),
+                      static_cast<int>(pixelHeight), static_cast<qsizetype>(stride),
+                      QImage::Format_ARGB32_Premultiplied);
+    if (view.isNull()) return nullptr;
+    QImage image = view.copy();
+    if (image.isNull()) return nullptr;
+
+    // devicePixelRatio is how a QImage carries what dpi carries in Direct2D:
+    // QtBitmap::GetSize reports deviceIndependentSize(), so a ratio of 2 makes a
+    // 2x raster report its intrinsic size, which is what the SVG path needs. 96 is
+    // the identity here for the same reason it is Direct2D's default.
+    image.setDevicePixelRatio(static_cast<qreal>(dpi) / 96.0);
+    return std::make_unique<QtBitmap>(std::move(image));
+}
+
 void QtRenderTarget::DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect,
                                 float opacity,
                                 tinta::BitmapInterpolationMode interpolationMode,

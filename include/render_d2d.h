@@ -153,11 +153,24 @@ private:
 // D2DRenderTarget::FillGeometry must trip rather than draw nothing.
 ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry);
 
-// Borrowed, like every other wrapper in this file: the 6 App members that hold a
-// bitmap already AddRef and Release their own, and d2d_init.cpp already tears them
+// Same guarantee for bitmaps, and exported for the same reason nativePathGeometry
+// is: src/print.cpp draws app.layoutBitmaps through its OWN ID2D1DeviceContext,
+// which this seam does not wrap, so it needs the native pointer back out. That
+// became necessary when LayoutBitmap::bitmap stopped being an ID2D1Bitmap* --
+// tests/bitmap_seam_tests.cpp used to static_assert that it never would, giving
+// print.cpp's device context as the reason, and this function is that reason
+// answered rather than overruled.
+//
+// Accepts an owned bitmap as well as a borrowed one, because D2DOwnedBitmap derives
+// from D2DBitmap precisely so that one unwrapper serves both.
+ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap);
+
+// BORROWS. The 4 remaining native App members that hold a bitmap
+// (nativeTitleIconBitmap, nativeStartPageIconBitmap, nativeLinkPeekBitmap and the
+// print-preview local) AddRef and Release their own, and d2d_init.cpp tears them
 // down. A wrapper that took a reference would make the ownership of those members
 // depend on whether a drawing call had happened to be made through the seam.
-class D2DBitmap final : public tinta::Bitmap {
+class D2DBitmap : public tinta::Bitmap {
 public:
     explicit D2DBitmap(ID2D1Bitmap* bitmap) : bitmap_(bitmap) {}
 
@@ -165,8 +178,30 @@ public:
 
     ID2D1Bitmap* native() const { return bitmap_; }
 
-private:
+    // Not final any more, so the rule of five is stated rather than inherited by
+    // luck: copying a borrowed wrapper is harmless, copying an OWNING one would
+    // double-release, and the owning subclass deletes them for itself.
+    D2DBitmap(const D2DBitmap&) = default;
+    D2DBitmap& operator=(const D2DBitmap&) = default;
+
+protected:
     ID2D1Bitmap* bitmap_;  // borrowed
+};
+
+// OWNS its bitmap: it came from D2DRenderTarget::CreateBitmap, which hands the
+// caller the only reference. Derives from D2DBitmap rather than reimplementing it so
+// that nativeBitmap's single dynamic_cast covers both, which is what keeps
+// src/print.cpp's unwrap from having to know which kind it was given.
+//
+// GetSize is inherited deliberately -- the size question does not depend on who owns
+// the pixels, and an override would be the same body twice.
+class D2DOwnedBitmap final : public D2DBitmap {
+public:
+    explicit D2DOwnedBitmap(ID2D1Bitmap* bitmap) : D2DBitmap(bitmap) {}
+    ~D2DOwnedBitmap() override;
+
+    D2DOwnedBitmap(const D2DOwnedBitmap&) = delete;
+    D2DOwnedBitmap& operator=(const D2DOwnedBitmap&) = delete;
 };
 
 class D2DBrush final : public tinta::Brush {
@@ -219,6 +254,10 @@ public:
     void DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect, float opacity,
                     tinta::BitmapInterpolationMode interpolationMode,
                     const tinta::RectF* srcRect) override;
+
+    std::unique_ptr<tinta::Bitmap> CreateBitmap(uint32_t pixelWidth, uint32_t pixelHeight,
+                                               const uint8_t* premultipliedBgra,
+                                               uint32_t stride, float dpi) override;
 
     void PushAxisAlignedClip(const tinta::RectF& rect, tinta::AntialiasMode mode) override;
     void PopAxisAlignedClip() override;

@@ -88,18 +88,34 @@
 //     a portable spelling of that is a design question rather than a rename. A
 //     concrete backend owns its own construction; this interface is about the
 //     drawing calls only.
-//   * Bitmap CREATION. CreateBitmapFromWicBitmap 4 and CreateBitmap 2, all six on
-//     the same ground as the brush above: they hand back an OWNED object, and six
-//     App members hold the result as an AddRef'd ID2D1Bitmap*, so a portable
-//     spelling is an ownership redesign rather than a rename. The four WIC calls
-//     carry a second, independent reason -- and it is smaller than it was long
-//     described as being. Two of them (src/startpage.cpp, src/tabs.cpp) convert a
-//     Win32 HICON, so they are Windows-terminal no matter which backend draws;
-//     the other two decode an image file, which is a dependency decision. The two
-//     CreateBitmap calls, by contrast, take a plain CPU BGRA buffer with a stride
-//     and touch no WIC type at all: "bitmaps are WIC-coupled" was true of 4 sites
-//     and false of the other 9, which is why DrawBitmap is now here and its
-//     creation is not.
+//   * Bitmap creation FROM A WIC SOURCE, and bitmap creation of a device-context
+//     RENDER TARGET. This entry used to exclude bitmap creation entirely, on the
+//     ground that "they hand back an OWNED object, and six App members hold the
+//     result as an AddRef'd ID2D1Bitmap*, so a portable spelling is an ownership
+//     redesign rather than a rename". That was true, and it was an argument for
+//     doing the redesign rather than for the exclusion: CreateBitmap is now in the
+//     interface below and the redesign is done -- App::ImageEntry::bitmap and
+//     App::LayoutBitmap::bitmap are shared_ptr<tinta::Bitmap>, which is what
+//     "AddRef'd while open" always meant. What is left excluded is narrower, and
+//     it is TWO kinds rather than one:
+//       - CreateBitmapFromWicBitmap, 3 sites. Two (src/startpage.cpp,
+//         src/tabs.cpp) convert a Win32 HICON, so they are Windows-terminal no
+//         matter which backend draws. The third (src/render.cpp) decodes an image
+//         file straight into a device bitmap, and routing it would add a
+//         full-image memcpy to every local image -- a regression, which a
+//         portability seam is not the place to accept. See image_api.h's "WHAT IS
+//         NOT IN HERE".
+//       - ID2D1DeviceContext::CreateBitmap with NULL pixels, 5 sites, all in
+//         src/print.cpp. These allocate an ID2D1Bitmap1 to draw INTO -- a GPU
+//         target plus a CPU staging copy -- which is device-lifetime work of the
+//         kind this whole list excludes, not an image handed to the drawing code.
+//     THE COUNT IN THE OLD ENTRY WAS WRONG, and wrong in the way a comment count
+//     usually is: it said "CreateBitmap 2" having grepped only src/render.cpp. The
+//     tree has THREE CPU-buffer sites -- the two in src/render.cpp and the print
+//     preview in src/overlays.cpp:2508, which carried its own comment saying it
+//     "stays Direct2D-terminal because CreateBitmap is native by the seam's own
+//     exclusion policy". A site excluded by a stale count reads as a considered
+//     decision, which is worse than reading as an omission. All three now route.
 // SetTransform/GetTransform WERE on this list. They are now in the interface, and
 // tinta::Matrix3x2F in geometry.h is the 3x2 matrix type they needed. DrawBitmap
 // was on it too, and tinta::Bitmap below is the handle type it needed.
@@ -173,9 +189,13 @@ public:
 // portable backend DELETES rather than reimplements; CopyPixels is the DOCX export
 // path, which reads pixels out rather than drawing them. That leaves GetSize.
 //
-// Creating one is NOT here, deliberately -- see the exclusion list above. A
-// backend creates its own bitmaps the way it creates its own brushes, and the
-// tests get theirs from RenderHarness::makeBitmap for exactly that reason.
+// Creating one from a CPU pixel buffer IS here now -- RenderTarget::CreateBitmap
+// below -- and this comment used to say the opposite ("NOT here, deliberately").
+// The exclusion list above records what is still out and why. What has not changed
+// is that RenderHarness::makeBitmap still builds its own, per backend, rather than
+// calling the seam: two independent construction paths that must produce the same
+// pixels is a stronger instrument than one path checked against itself, and the
+// shared assertions now compare them.
 class Bitmap {
 public:
     virtual ~Bitmap() = default;
@@ -359,6 +379,36 @@ public:
                             BitmapInterpolationMode interpolationMode =
                                 BitmapInterpolationMode::Linear,
                             const RectF* srcRect = nullptr) = 0;
+
+    // A bitmap from a CPU pixel buffer. The second exception to the "no creation"
+    // rule, admitted on the same terms as BeginPath and only after the ownership
+    // question had an answer: unique_ptr here, and the two App members that keep one
+    // are shared_ptr<Bitmap>, which is what the old `ID2D1Bitmap*  // AddRef'd while
+    // open` was doing by hand.
+    //
+    // THE PIXEL FORMAT IS FIXED, not a parameter, because the population is
+    // unanimous: all 3 sites pass DXGI_FORMAT_B8G8R8A8_UNORM with
+    // D2D1_ALPHA_MODE_PREMULTIPLIED, and tinta::DecodedImage -- which feeds two of
+    // them -- documents premultiplied BGRA as its own invariant. A format argument
+    // would be a parameter no caller varies, which this header's arc-segment entry
+    // already calls configuration that is really a guess.
+    //
+    // `stride` is the byte distance between rows, passed rather than derived,
+    // because Direct2D takes it and a caller with padded rows must be able to say
+    // so. Every site in the tree passes pixelWidth * 4 today.
+    //
+    // dpi IS LOAD-BEARING AND IS THE REASON THIS TAKES FIVE ARGUMENTS. GetSize
+    // above returns DIPs, so a bitmap declared at 192 dpi reports half its pixel
+    // dimensions -- and src/render.cpp's SVG path depends on exactly that, drawing a
+    // 2x raster at its intrinsic size. Passing 96 there would draw every SVG in the
+    // document at double size and nothing else would look wrong. One scalar rather
+    // than dpiX/dpiY because both sites that set it set them equal.
+    //
+    // Returns null on failure, which every caller already branches on: D2D's
+    // CreateBitmap can fail today and all three sites check.
+    virtual std::unique_ptr<Bitmap> CreateBitmap(uint32_t pixelWidth, uint32_t pixelHeight,
+                                                const uint8_t* premultipliedBgra,
+                                                uint32_t stride, float dpi = 96.0f) = 0;
 
     // Clips nest, and every push in the tree is matched by a pop in the same
     // function, so a backend may implement these with a save/restore stack.

@@ -291,7 +291,20 @@ struct App {
 
     // Image cache
     struct ImageEntry {
-        ID2D1Bitmap* bitmap = nullptr;
+        // SHARED, not a raw pointer with hand-written AddRef/Release, and that is the
+        // ownership redesign render_api.h's exclusion list said CreateBitmap needed
+        // before it could join the seam. Three parties want a say in this bitmap's
+        // lifetime: the cache, which evicts on an LRU budget; every LayoutBitmap the
+        // last relayout produced; and an open lightbox, which used to AddRef for
+        // exactly this reason. shared_ptr states that instead of implementing it
+        // three times, and the count is what decides -- a unique_ptr here would make
+        // eviction while the lightbox is open a dangle rather than a compile error.
+        //
+        // The width/height beside it are NOT derivable from GetSize: on the SVG path
+        // the bitmap is a 2x raster declared at 192 dpi, so GetSize returns the
+        // intrinsic size while these hold it directly. See image_api.h on why
+        // conflating the two silently breaks every SVG.
+        std::shared_ptr<tinta::Bitmap> bitmap;
         int width = 0;
         int height = 0;
         bool failed = false;
@@ -317,7 +330,14 @@ struct App {
 
         auto it = imageCache.find(key);
         if (it != imageCache.end()) {
-            releaseNative(it->second.bitmap);
+            // No releaseNative here any more: the assignment below drops the cache's
+            // reference, and a LayoutBitmap or an open lightbox still holding one
+            // keeps the bitmap alive. The hand-written release this replaces was
+            // CORRECT -- it dropped one of the two references openLightbox's AddRef
+            // had established -- so this is not a bug fix. It is the same rule stated
+            // once instead of paired by hand at four sites, which is what the eviction
+            // loop below, invalidateDeviceBitmaps and releaseImageCache each had to
+            // get right independently.
             imageCacheBytes -= it->second.bytes;
             it->second = std::move(entry);
             imageCacheBytes += it->second.bytes;
@@ -339,7 +359,6 @@ struct App {
                 }
             }
             if (victim == imageCache.end()) break;
-            releaseNative(victim->second.bitmap);
             imageCacheBytes -= victim->second.bytes;
             imageCache.erase(victim);
         }
@@ -347,36 +366,36 @@ struct App {
 
     // Layout bitmaps (document coordinates)
     struct LayoutBitmap {
-        ID2D1Bitmap* bitmap = nullptr;
+        // A COPY of the cache entry's shared_ptr, so a relayout that drops an entry
+        // cannot pull the pixels out from under a paint that is still walking this
+        // vector. It used to be an ID2D1Bitmap* borrowed from the cache, alongside a
+        // `mutable Seated<tinta::Bitmap, ID2D1Bitmap>` that rebuilt a D2DBitmap
+        // wrapper on every read.
+        //
+        // THAT RESEAT-ON-READ IS GONE, and the argument for it is worth keeping
+        // because it still applies to what is left: a STORED tinta::Bitmap* aimed at
+        // a sibling member keeps pointing at the pre-move address once this vector
+        // reallocates (render.cpp both resize()s and push_back()s it), and the dangle
+        // shows up only as a wrong picture. Reseating dodged that by never storing a
+        // pointer into the element. A shared_ptr dodges it differently and better: it
+        // points at the bitmap, not at a sibling, so moving the element moves a valid
+        // handle. The four remaining native scalars on App still reseat, and
+        // tests/bitmap_seam_tests.cpp still asserts they cannot go stale.
+        std::shared_ptr<tinta::Bitmap> bitmap;
         tinta::RectF destRect{};
-        // Reseated on read rather than stored, which is the shape the BORROWED
-        // ownership of D2DBitmap buys: the wrapper is one pointer, so rebuilding
-        // it costs nothing and it cannot go stale. A stored tinta::Bitmap* aimed
-        // at a sibling member would keep pointing at the pre-move address after
-        // this vector reallocates (render.cpp resize/push_back both do), and the
-        // dangle would only show as a wrong picture. mutable because the drawing
-        // loop iterates by const reference and this caches a view of state the
-        // accessor does not change. The text-format family CANNOT do this --
-        // reseating a unique_ptr<D2DTextFormat> on every read would thrash
-        // allocations -- so this is the ownership difference paying out.
-        mutable Seated<tinta::Bitmap, ID2D1Bitmap> bitmapStorage;
-        tinta::Bitmap* seam() const {
-#ifdef _WIN32
-            return bitmapStorage.seat<D2DBitmap>(bitmap);
-#else
-            // Nothing off Windows can produce an ID2D1Bitmap*, so this member is
-            // unconditionally null here and there is nothing to wrap.
-            bitmapStorage.reset();
-            return nullptr;
-#endif
-        }
     };
     std::vector<LayoutBitmap> layoutBitmaps;
 
     // Image lightbox: clicking an inline image views it full size over a
     // dimmed backdrop; wheel zooms, drag pans, Esc or a click closes
     bool showLightbox = false;
-    ID2D1Bitmap* nativeLightboxBitmap = nullptr;  // AddRef'd while open
+    // Shares the image cache's bitmap for as long as the lightbox is open. The
+    // comment here used to read `ID2D1Bitmap* nativeLightboxBitmap;  // AddRef'd
+    // while open`, and openLightbox/closeLightbox were the AddRef and the Release --
+    // this is that pair, spelled as the thing it was emulating. It is a member rather
+    // than a Seated accessor for the same reason: there is no native pointer left to
+    // wrap, so nothing can go stale.
+    std::shared_ptr<tinta::Bitmap> lightboxBitmap;
     float lightboxZoom = 1.0f;              // multiplier over fit-to-view
     float lightboxPanX = 0.0f;
     float lightboxPanY = 0.0f;
@@ -1429,9 +1448,9 @@ struct App {
     }
 
     void releaseImageCache() {
-        for (auto& [key, entry] : imageCache) {
-            releaseNative(entry.bitmap);
-        }
+        // clear() alone: each entry's shared_ptr drops the cache's reference, and the
+        // bitmap goes when the last holder does. The explicit per-entry release this
+        // replaces was the fourth hand-written half of the same pairing.
         imageCache.clear();
         imageCacheBytes = 0;
         imageCacheUseClock = 0;
@@ -1440,7 +1459,7 @@ struct App {
     }
 
     void shutdown() {
-        releaseNative(nativeLightboxBitmap);
+        lightboxBitmap.reset();
         releaseNative(nativeLinkPeekBitmap);
         clearLayoutCache();
         releaseOverlayFormats();
@@ -1643,14 +1662,8 @@ struct App {
         return nullptr;
 #endif
     }
-    tinta::Bitmap* lightboxBitmap() const {
-#ifdef _WIN32
-        return lightboxBitmapStorage.seat<D2DBitmap>(nativeLightboxBitmap);
-#else
-        lightboxBitmapStorage.reset();
-        return nullptr;
-#endif
-    }
+    // No lightboxBitmap() accessor: the member of that name IS a tinta::Bitmap
+    // holder now, so .get() is the whole accessor. Its Seated storage went with it.
     tinta::Bitmap* linkPeekBitmap() const {
 #ifdef _WIN32
         return linkPeekBitmapStorage.seat<D2DBitmap>(nativeLinkPeekBitmap);
@@ -1663,7 +1676,6 @@ struct App {
 private:
     mutable Seated<tinta::Bitmap, ID2D1Bitmap> titleIconBitmapStorage;
     mutable Seated<tinta::Bitmap, ID2D1Bitmap> startPageIconBitmapStorage;
-    mutable Seated<tinta::Bitmap, ID2D1Bitmap> lightboxBitmapStorage;
     mutable Seated<tinta::Bitmap, ID2D1Bitmap> linkPeekBitmapStorage;
 };
 

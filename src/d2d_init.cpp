@@ -549,7 +549,13 @@ void createTypography(App& app) {
 static void invalidateDeviceBitmaps(App& app) {
     app.imageCacheBytes = 0;
     for (auto it = app.imageCache.begin(); it != app.imageCache.end();) {
-        if (it->second.bitmap) { it->second.bitmap->Release(); it->second.bitmap = nullptr; }
+        // reset(), not Release(): the entry holds a shared_ptr<tinta::Bitmap> now.
+        // Worth noting what changed underneath, because the line reads the same:
+        // app.layoutBitmaps used to hold raw pointers BORROWED from these entries, so
+        // this release depended on a relayout landing before the next paint. Those
+        // elements now keep their own reference, so the pixels survive here until the
+        // relayout replaces them.
+        it->second.bitmap.reset();
         it->second.bytes = 0;
         if (it->second.pending) { ++it; }
         else { it = app.imageCache.erase(it); }

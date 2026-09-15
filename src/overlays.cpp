@@ -1377,11 +1377,13 @@ void renderLinkPeek(App& app) {
 
 // --- Image lightbox ---
 
-void openLightbox(App& app, ID2D1Bitmap* bitmap) {
+// Takes the handle BY VALUE and keeps it: the AddRef this used to do by hand is the
+// copy, and it is here for the same reason it was there. The image cache can evict or
+// replace the entry the caller read it from while the lightbox is still open.
+void openLightbox(App& app, std::shared_ptr<tinta::Bitmap> bitmap) {
     if (!bitmap) return;
     closeLightbox(app);
-    bitmap->AddRef();
-    app.nativeLightboxBitmap = bitmap;
+    app.lightboxBitmap = std::move(bitmap);
     app.showLightbox = true;
     app.lightboxZoom = 1.0f;
     app.lightboxPanX = 0.0f;
@@ -1390,16 +1392,13 @@ void openLightbox(App& app, ID2D1Bitmap* bitmap) {
 }
 
 void closeLightbox(App& app) {
-    if (app.nativeLightboxBitmap) {
-        app.nativeLightboxBitmap->Release();
-        app.nativeLightboxBitmap = nullptr;
-    }
+    app.lightboxBitmap.reset();
     app.showLightbox = false;
     app.lightboxDragging = false;
 }
 
 tinta::RectF lightboxImageRect(const App& app) {
-    tinta::Bitmap* bitmap = app.lightboxBitmap();
+    tinta::Bitmap* bitmap = app.lightboxBitmap.get();
     if (!bitmap) return tinta::RectF{};
     tinta::SizeF size = bitmap->GetSize();
     float availW = (float)app.width * 0.94f;
@@ -1418,12 +1417,12 @@ tinta::RectF lightboxImageRect(const App& app) {
 }
 
 void renderLightbox(App& app) {
-    if (!app.nativeLightboxBitmap || !app.renderTarget || !app.brush) return;
+    if (!app.lightboxBitmap || !app.renderTarget || !app.brush) return;
     app.brush->SetColor(tinta::colorF(0.0f, 0.0f, 0.0f, 0.82f));
     app.renderTarget->FillRectangle(
         tinta::rectF(0, 0, (float)app.width, (float)app.height), app.brush);
     tinta::RectF dest = lightboxImageRect(app);
-    app.renderTarget->DrawBitmap(app.lightboxBitmap(), dest);
+    app.renderTarget->DrawBitmap(app.lightboxBitmap.get(), dest);
     // Thin border so light images do not bleed into the backdrop
     app.brush->SetColor(tinta::colorF(1.0f, 1.0f, 1.0f, 0.18f));
     app.renderTarget->DrawRectangle(dest, app.brush, 1.0f);
@@ -2504,13 +2503,16 @@ void renderPrintPreview(App& app) {
     // Current page, uploaded from the CPU rasterization. Preview repaints
     // are interaction-driven, so the per-paint upload cost is irrelevant.
     if (!app.printPreviewPixels.empty() && app.printPreviewPxW && app.printPreviewPxH) {
-        ID2D1Bitmap* bmp = nullptr;
-        app.nativeRenderTarget->CreateBitmap(
-            D2D1::SizeU(app.printPreviewPxW, app.printPreviewPxH),
-            app.printPreviewPixels.data(), app.printPreviewPxW * 4,
-            D2D1::BitmapProperties(D2D1::PixelFormat(
-                DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED)),
-            &bmp);
+        // Through the seam now. This block used to call
+        // app.nativeRenderTarget->CreateBitmap directly, with a comment saying it
+        // "stays Direct2D-terminal because CreateBitmap is native by the seam's own
+        // exclusion policy". That policy has changed -- and this site is the reason
+        // worth recording: the exclusion's stated count was "CreateBitmap 2", taken
+        // from src/render.cpp alone, so a third CPU-buffer site sat here reading as a
+        // considered exception when it had simply never been counted.
+        std::unique_ptr<tinta::Bitmap> bmp = app.renderTarget->CreateBitmap(
+            app.printPreviewPxW, app.printPreviewPxH,
+            app.printPreviewPixels.data(), app.printPreviewPxW * 4);
         if (bmp) {
             float pw = (float)app.printPreviewPxW, ph = (float)app.printPreviewPxH;
             float px = (w - pw) / 2.0f;
@@ -2521,16 +2523,13 @@ void renderPrintPreview(App& app) {
                     tinta::rectF(px - i, py - i, px + pw + i, py + ph + i),
                     app.brush, 1.5f);
             }
-            // A local wrapper rather than a seated one: this bitmap is created
-            // and released inside this block, so nothing outside it can hold a
-            // handle. The site stays Direct2D-terminal because CreateBitmap is
-            // native by the seam's own exclusion policy -- what the seam buys
-            // here is that the whole block draws through ONE target, instead of
-            // the shadow ring going through the seam and the page through D2D.
-            D2DBitmap wrapper{bmp};
-            app.renderTarget->DrawBitmap(&wrapper,
+            // unique_ptr, and no Release: the handle is created and destroyed
+            // inside this block, so nothing outside it can hold one. That was
+            // already true of the `D2DBitmap wrapper{bmp}` plus bmp->Release()
+            // this replaces -- what the seam buys is that the lifetime is stated
+            // by the type instead of by a paired call at the bottom of an if.
+            app.renderTarget->DrawBitmap(bmp.get(),
                 tinta::rectF(px, py, px + pw, py + ph));
-            bmp->Release();
         }
     }
 

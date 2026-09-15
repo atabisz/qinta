@@ -549,15 +549,18 @@ render_document:
     }
 
     // Render images (bitmaps)
-    // const& is preserved: LayoutBitmap::seam() is const over mutable storage
-    // precisely so this loop does not have to give up its constness to draw.
+    // const& is preserved, and it now costs nothing to preserve. This comment used
+    // to explain that LayoutBitmap::seam() was "const over mutable storage precisely
+    // so this loop does not have to give up its constness to draw" -- that accessor
+    // and its mutable Seated storage are gone. The field is a
+    // shared_ptr<tinta::Bitmap>, so .get() on a const element is const already.
     for (const auto& bmp : app.layoutBitmaps) {
         if (!bmp.bitmap) continue;
         if (bmp.destRect.bottom < viewportTop - cullMargin ||
             bmp.destRect.top > viewportBottom + cullMargin) continue;
         if (bmp.destRect.right < viewportLeft - cullMargin ||
             bmp.destRect.left > viewportRight + cullMargin) continue;
-        app.renderTarget->DrawBitmap(bmp.seam(),
+        app.renderTarget->DrawBitmap(bmp.bitmap.get(),
             tinta::rectF(bmp.destRect.left - app.scrollX,
                          bmp.destRect.top - app.scrollY,
                          bmp.destRect.right - app.scrollX,

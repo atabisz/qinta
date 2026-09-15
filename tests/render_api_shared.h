@@ -80,9 +80,16 @@ public:
 
     // A drawable bitmap, row-major, `width * height` entries, in the same STRAIGHT
     // (not premultiplied) Rgba the pixel reader returns. Supplied by the harness for
-    // the same reason makeBrush is: render_api.h keeps creation out of the seam, so a
-    // backend makes its own bitmaps -- Direct2D needs a device-owned ID2D1Bitmap and
-    // a premultiply, Qt needs only a QImage, and no assertion should know which.
+    // the same reason makeBrush is: Direct2D needs a device-owned ID2D1Bitmap and a
+    // premultiply, Qt needs only a QImage, and no assertion should know which.
+    //
+    // THIS STAYS HAND-ROLLED NOW THAT THE SEAM CAN CREATE ONE. The reason used to be
+    // that "render_api.h keeps creation out of the seam"; RenderTarget::CreateBitmap
+    // is the exception, so that reason has expired and a better one replaced it --
+    // the bitmap-creation assertions compare the seam's output against THIS, and two
+    // independent construction paths that must produce the same pixels is a stronger
+    // instrument than one path checked against a copy of itself. Reimplementing this
+    // as a call to CreateBitmap would silently turn that comparison into a tautology.
     //
     // Returning null is a legitimate answer for a harness that cannot allocate one;
     // the assertions check for it and say so rather than dereferencing, because "the

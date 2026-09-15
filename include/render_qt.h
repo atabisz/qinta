@@ -91,6 +91,10 @@ public:
     void DrawTextLayout(tinta::PointF origin, tinta::TextLayout* layout,
                         tinta::Brush* brush, tinta::DrawTextOptions options) override;
 
+    std::unique_ptr<tinta::Bitmap> CreateBitmap(uint32_t pixelWidth, uint32_t pixelHeight,
+                                               const uint8_t* premultipliedBgra,
+                                               uint32_t stride, float dpi) override;
+
     void DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& destRect, float opacity,
                     tinta::BitmapInterpolationMode interpolationMode,
                     const tinta::RectF* srcRect) override;

@@ -2439,13 +2439,18 @@ static void asyncImageWorker(HWND hwnd, std::string src) {
 // Windows, QSvgRenderer on Qt. Both were 128 lines of device-context and memory-stream
 // plumbing in this file, and both are now one call.
 //
-// The 192-dpi bitmap properties are load-bearing and are the reason this function
-// still exists at all rather than folding into the seam. entry.width/height carry the
-// document's INTRINSIC size in DIPs while the bitmap holds 2x that many pixels, and
-// declaring the bitmap at twice the default 96 dpi is what keeps those consistent:
-// Direct2D then reports the bitmap's logical size as the intrinsic size, so every
-// draw and hit-test downstream sees one coherent number. Passing 96 here would draw
-// every SVG in the document at double size, and nothing else would look wrong.
+// The 192 dpi is load-bearing. entry.width/height carry the document's INTRINSIC size
+// in DIPs while the bitmap holds 2x that many pixels, and declaring the bitmap at
+// twice the default 96 dpi is what keeps those consistent: the backend then reports
+// the bitmap's logical size as the intrinsic size, so every draw and hit-test
+// downstream sees one coherent number. Passing 96 would draw every SVG in the document
+// at double size, and nothing else would look wrong.
+//
+// That used to read "the reason this function still exists at all rather than folding
+// into the seam", on the grounds that bitmap properties were Direct2D-only.
+// RenderTarget::CreateBitmap now takes the dpi, so the argument is gone and the
+// function survives for a smaller reason: rasterize, then declare, then record two
+// different sizes on one entry.
 static const float kSvgRasterScale = 2.0f;
 
 static bool loadSvgBitmap(App& app, const std::wstring& path,
@@ -2460,16 +2465,13 @@ static bool loadSvgBitmap(App& app, const std::wstring& path,
         tinta::rasterizeSvgFile(path, kSvgRasterScale, svgW, svgH);
     if (!raster.ok) return false;
 
-    D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                          D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f * kSvgRasterScale, 96.0f * kSvgRasterScale);
-    ID2D1Bitmap* bitmap = nullptr;
-    if (SUCCEEDED(app.nativeRenderTarget->CreateBitmap(
-            D2D1::SizeU(raster.width, raster.height), raster.pixels.data(),
-            raster.width * 4, bp, &bitmap)) &&
-        bitmap) {
-        entry.bitmap = bitmap;
+    // 96 * kSvgRasterScale, i.e. 192 -- see the comment above kSvgRasterScale for why
+    // this argument is the one that must not be defaulted.
+    std::shared_ptr<tinta::Bitmap> bitmap = app.renderTarget->CreateBitmap(
+        raster.width, raster.height, raster.pixels.data(), raster.width * 4,
+        96.0f * kSvgRasterScale);
+    if (bitmap) {
+        entry.bitmap = std::move(bitmap);
         entry.width = (int)svgW;
         entry.height = (int)svgH;
         entry.failed = false;
@@ -2572,8 +2574,16 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
     decoder->Release();
 
     if (SUCCEEDED(hr) && bitmap) {
-        tinta::SizeF size = tinta::fromD2D(bitmap->GetSize());
-        entry.bitmap = bitmap;
+        // D2DOwnedBitmap, not the seam's CreateBitmap: this is the local-raster branch
+        // that image_api.h deliberately leaves off the seam, because decoding through
+        // tinta::DecodedImage would add a full-image memcpy to every local image.
+        // CreateBitmapFromWicBitmap hands over the only reference, so the wrapper takes
+        // it -- which is what lets a Windows-terminal producer feed an ImageEntry whose
+        // field is now portable. When this branch is ported, this is the line that
+        // changes and nothing downstream of it does.
+        auto owned = std::make_shared<D2DOwnedBitmap>(bitmap);
+        tinta::SizeF size = owned->GetSize();
+        entry.bitmap = std::move(owned);
         entry.width = (int)size.width;
         entry.height = (int)size.height;
         entry.failed = false;
@@ -3263,13 +3273,14 @@ void completeAsyncImage(App& app, void* asyncResult) {
     App::ImageEntry entry;
     entry.failed = true;
     if (result->ok && app.renderTarget) {
-        D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-        ID2D1Bitmap* bitmap = nullptr;
-        if (SUCCEEDED(app.nativeRenderTarget->CreateBitmap(
-                D2D1::SizeU(result->width, result->height),
-                result->pixels.data(), result->width * 4, props, &bitmap)) && bitmap) {
-            entry.bitmap = bitmap;
+        // No dpi argument: this path takes the 96 default, which is what the
+        // D2D1::BitmapProperties one-argument overload it replaces meant. Unlike the
+        // SVG path the pixel size IS the intrinsic size here, so pixels and DIPs
+        // coincide and there is nothing to declare.
+        std::shared_ptr<tinta::Bitmap> bitmap = app.renderTarget->CreateBitmap(
+            result->width, result->height, result->pixels.data(), result->width * 4);
+        if (bitmap) {
+            entry.bitmap = std::move(bitmap);
             entry.width = (int)result->width;
             entry.height = (int)result->height;
             entry.failed = false;

@@ -87,19 +87,27 @@ ID2D1StrokeStyle* nativeStrokeStyle(tinta::StrokeStyle* style) {
     return static_cast<D2DStrokeStyle*>(style)->native();
 }
 
-ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
-    if (!bitmap) return nullptr;
-    assert(dynamic_cast<D2DBitmap*>(bitmap) != nullptr &&
-           "a non-Direct2D Bitmap reached D2DRenderTarget");
-    return static_cast<D2DBitmap*>(bitmap)->native();
-}
-
 }  // namespace
 
-// Not in the anonymous namespace above, because render_d2d.h declares it: the path
-// pair is the only wrapper a caller outside this file has a reason to unwrap, the
-// same way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp draw
-// through a device context this seam does not wrap.
+// Not in the anonymous namespace above, because render_d2d.h declares them: paths
+// and bitmaps are the wrappers a caller outside this file has a reason to unwrap,
+// the same way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp
+// draw through a device context this seam does not wrap.
+//
+// nativeBitmap WAS file-local, and it stopped being so when
+// App::LayoutBitmap::bitmap became a shared_ptr<tinta::Bitmap>: print.cpp's page
+// loop had been reading that field as an ID2D1Bitmap* directly.
+ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
+    if (!bitmap) return nullptr;
+    // dynamic_cast, so an owned bitmap passes too -- D2DOwnedBitmap derives from
+    // D2DBitmap. A static_cast off a wrongly-typed handle would return garbage
+    // instead of tripping.
+    assert(dynamic_cast<D2DBitmap*>(bitmap) != nullptr &&
+           "a non-Direct2D Bitmap reached the Direct2D drawing backend");
+    auto* concrete = dynamic_cast<D2DBitmap*>(bitmap);
+    return concrete ? concrete->native() : nullptr;
+}
+
 ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry) {
     if (!geometry) return nullptr;
     assert(dynamic_cast<D2DPathGeometry*>(geometry) != nullptr &&
@@ -216,6 +224,12 @@ tinta::SizeF D2DBitmap::GetSize() const {
     return tinta::fromD2D(bitmap_->GetSize());
 }
 
+// Out of line so that render_d2d.h needs no d2d1.h -- the header forward-declares
+// ID2D1Bitmap, and calling Release() on an incomplete type would break that.
+D2DOwnedBitmap::~D2DOwnedBitmap() {
+    if (bitmap_) bitmap_->Release();
+}
+
 void D2DBrush::SetColor(const tinta::Color& color) {
     // geometry.h's implicit operator D2D1_COLOR_F() is what makes this a
     // forwarding call rather than a conversion, and it is layout-asserted there.
@@ -307,6 +321,32 @@ void D2DRenderTarget::DrawBitmap(tinta::Bitmap* bitmap, const tinta::RectF& dest
     target_->DrawBitmap(native, &dest, opacity,
                         static_cast<D2D1_BITMAP_INTERPOLATION_MODE>(interpolationMode),
                         srcRect ? &source : nullptr);
+}
+
+std::unique_ptr<tinta::Bitmap> D2DRenderTarget::CreateBitmap(uint32_t pixelWidth,
+                                                            uint32_t pixelHeight,
+                                                            const uint8_t* premultipliedBgra,
+                                                            uint32_t stride, float dpi) {
+    if (!pixelWidth || !pixelHeight || !premultipliedBgra || !stride) return nullptr;
+
+    // dpi goes into BOTH dpiX and dpiY, which is what makes GetSize report DIPs:
+    // Direct2D divides the pixel size by dpi/96 to answer GetSize, so 192 here means
+    // a 2x raster reports its intrinsic size. render_api.h explains why that is
+    // load-bearing for the SVG path rather than cosmetic.
+    const D2D1_BITMAP_PROPERTIES props = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        dpi, dpi);
+
+    ID2D1Bitmap* bitmap = nullptr;
+    if (FAILED(target_->CreateBitmap(D2D1::SizeU(pixelWidth, pixelHeight),
+                                     premultipliedBgra, stride, props, &bitmap)) ||
+        !bitmap) {
+        // CreateBitmap can leave the out-pointer set on some failure paths; releasing
+        // it here rather than leaking is the same care BeginPath takes with its sink.
+        if (bitmap) bitmap->Release();
+        return nullptr;
+    }
+    return std::make_unique<D2DOwnedBitmap>(bitmap);
 }
 
 void D2DRenderTarget::PushAxisAlignedClip(const tinta::RectF& rect,

@@ -54,7 +54,18 @@
 // pixels. It is not routed through this seam, and that is a choice rather than an
 // oversight: going via DecodedImage would add a full-image memcpy to every local
 // image, which is a regression, and a portability seam is not the place to accept
-// one. It is the natural next consumer once a bitmap-from-pixels seam exists.
+// one.
+//
+// THAT SEAM NOW EXISTS -- RenderTarget::CreateBitmap in render_api.h -- and this entry
+// used to end "it is the natural next consumer once a bitmap-from-pixels seam exists".
+// The premise has changed and the conclusion has not: the memcpy objection is about
+// DECODING through DecodedImage, not about where the bitmap comes from afterwards, so
+// the branch is still excluded for its own reason. What did change is that the branch
+// now feeds a PORTABLE field -- App::ImageEntry::bitmap is a
+// shared_ptr<tinta::Bitmap>, and render.cpp wraps the WIC result in a D2DOwnedBitmap
+// on the spot. So this is one Windows-terminal producer behind a portable type rather
+// than a Windows-terminal path through the cache, and when it is ported, one line
+// changes and nothing downstream of it does.
 //
 // Paths are std::wstring to match the rest of the tree, on the same reasoning
 // platform_paths.h sets out at length: on Windows these hold UTF-16, on POSIX

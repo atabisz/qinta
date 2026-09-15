@@ -404,7 +404,13 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!bmp.bitmap) continue;
         if (!inRange(bmp.destRect.top, bmp.destRect.bottom)) continue;
         bool banded = applyBand(bmp.destRect.top, bmp.destRect.bottom);
-        dc->DrawBitmap(bmp.bitmap,
+        // nativeBitmap(), because `dc` is the print device context and not
+        // app.renderTarget -- the same reason the text loop below stays native. This
+        // line read `bmp.bitmap` until LayoutBitmap::bitmap became a
+        // shared_ptr<tinta::Bitmap>, and tests/bitmap_seam_tests.cpp used to
+        // static_assert that it never would, naming exactly this call as the reason.
+        // Exporting nativeBitmap from render_d2d.h is that reason answered.
+        dc->DrawBitmap(nativeBitmap(bmp.bitmap.get()),
             tinta::rectF(bmp.destRect.left + dx, bmp.destRect.top + dy,
                         bmp.destRect.right + dx, bmp.destRect.bottom + dy),
             1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);

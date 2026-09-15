@@ -134,8 +134,12 @@ void renderContextMenu(App& app);
 // Hovering a local .md link for a beat previews the target's first lines
 void renderLinkPeek(App& app);
 
-// Image lightbox (click an inline image)
-void openLightbox(App& app, ID2D1Bitmap* bitmap);
+// Image lightbox (click an inline image). Takes a shared handle rather than the
+// ID2D1Bitmap* it used to, because the caller's source -- App::LayoutBitmap::bitmap,
+// which shares the image cache's entry -- can be evicted or replaced while the
+// lightbox is open. That is what the old signature's AddRef inside openLightbox was
+// for; by value says it in the type.
+void openLightbox(App& app, std::shared_ptr<tinta::Bitmap> bitmap);
 void closeLightbox(App& app);
 void renderLightbox(App& app);
 // Where the image currently draws, in screen coordinates

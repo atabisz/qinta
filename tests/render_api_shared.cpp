@@ -54,6 +54,7 @@
 #include "render_api_shared.h"
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 
 namespace {
@@ -97,6 +98,43 @@ int rightmostPainted(RenderHarness& h) {
         for (int y = 0; y < kHeight; y++)
             if (h.pixel(x, y) != kWhite) return x;
     return -1;
+}
+
+// A w x h block of the surface, read back row-major. Used only by the bitmap-creation
+// family, which compares two whole blocks rather than named pixels: the claim there is
+// that two INDEPENDENT construction paths produce the same image, and a handful of
+// sampled points would let them differ everywhere else.
+std::vector<Rgba> readBlock(RenderHarness& h, int left, int top, int w, int hgt) {
+    std::vector<Rgba> out(static_cast<size_t>(w) * hgt);
+    for (int y = 0; y < hgt; y++)
+        for (int x = 0; x < w; x++)
+            out[static_cast<size_t>(y) * w + x] = h.pixel(left + x, top + y);
+    return out;
+}
+
+// Straight Rgba -> the premultiplied BGRA byte order RenderTarget::CreateBitmap takes,
+// at a caller-chosen stride. `padding` fills the bytes past each row's end, so a
+// backend that ignored `stride` and walked the buffer tightly would read it as image
+// data and produce a visibly wrong picture rather than an identical one.
+std::vector<uint8_t> premultipliedBgra(const std::vector<Rgba>& pixels, int w, int hgt,
+                                      int stride, uint8_t padding) {
+    std::vector<uint8_t> out(static_cast<size_t>(stride) * hgt, padding);
+    for (int y = 0; y < hgt; y++) {
+        uint8_t* row = out.data() + static_cast<size_t>(y) * stride;
+        for (int x = 0; x < w; x++) {
+            const Rgba p = pixels[static_cast<size_t>(y) * w + x];
+            // (v * a + 127) / 255, the usual rounded premultiply. Every colour this
+            // family uses is fully opaque, so this is the identity in practice -- it is
+            // written correctly anyway rather than as a copy, because the next person
+            // to add a translucent case should not have to discover that it was not.
+            const int a = p.a;
+            row[x * 4 + 0] = static_cast<uint8_t>((p.b * a + 127) / 255);
+            row[x * 4 + 1] = static_cast<uint8_t>((p.g * a + 127) / 255);
+            row[x * 4 + 2] = static_cast<uint8_t>((p.r * a + 127) / 255);
+            row[x * 4 + 3] = static_cast<uint8_t>(a);
+        }
+    }
+    return out;
 }
 
 int topmostPainted(RenderHarness& h) {
@@ -1544,6 +1582,164 @@ int runRenderApiAssertions(RenderHarness& h) {
             check(blendedUnderLinear > 0,
                   "linear sampling blends across the red/blue boundary, so the "
                   "interpolation argument is read rather than left at the backend's default");
+        }
+    }
+
+    // --- Bitmap CREATION through the seam ---------------------------------------
+    //
+    // RenderTarget::CreateBitmap is the second exception to render_api.h's "no
+    // creation" rule, and it is checked against the harness's OWN makeBitmap rather
+    // than against itself. That is deliberate and it is why makeBitmap was left
+    // hand-rolled per backend instead of being reimplemented as a call to the seam:
+    // two independent construction paths that must produce the same pixels is a
+    // stronger instrument than one path compared with a copy of itself. Under Qt they
+    // are QImage(Format_ARGB32) versus QImage(Format_ARGB32_Premultiplied) from a raw
+    // buffer; under Direct2D they are two CreateBitmap calls with different
+    // premultiply arithmetic in front of them.
+    //
+    // ALPHA IS OUT OF SCOPE HERE, and stated rather than quietly avoided: the two
+    // paths disagree about where premultiplication happens, so a translucent pixel
+    // would compare a value that went through premultiply-then-unpremultiply against
+    // one that never did, and a rounding difference of one would redden this for a
+    // reason that is not the seam's. The colours below are fully opaque.
+    {
+        const int bw = 10;
+        const int bh = 10;
+        std::vector<Rgba> source(static_cast<size_t>(bw) * bh);
+        for (int y = 0; y < bh; y++)
+            for (int x = 0; x < bw; x++)
+                source[static_cast<size_t>(y) * bw + x] = (x < bw / 2) ? kRed : kBlue;
+
+        // Tight stride, and a green pad byte value that cannot occur in the image, so
+        // the padded-stride case below has something to be wrong WITH.
+        const std::vector<uint8_t> tight = premultipliedBgra(source, bw, bh, bw * 4, 0);
+        const int paddedStride = (bw + 3) * 4;
+        const std::vector<uint8_t> padded =
+            premultipliedBgra(source, bw, bh, paddedStride, 0x7F);
+
+        // Created INSIDE the session it is drawn in, on purpose: a Direct2D bitmap
+        // belongs to its render target, and newSurface() is entitled to build a new
+        // one. Creating before the surface existed would be testing the harness's
+        // teardown order rather than the seam.
+        whiteSurface(h);
+        std::unique_ptr<tinta::Bitmap> made;
+        {
+            tinta::RenderTarget& rt = h.begin();
+            made = rt.CreateBitmap(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh),
+                                   tight.data(), static_cast<uint32_t>(bw * 4));
+            if (made) rt.DrawBitmap(made.get(), tinta::rectF(20, 10, 30, 20));
+            h.end();
+        }
+        check(made != nullptr,
+              "CONTROL: RenderTarget::CreateBitmap returned a bitmap from a CPU pixel "
+              "buffer -- every assertion in this family is void without it");
+
+        if (made) {
+            const std::vector<Rgba> viaSeam = readBlock(h, 20, 10, bw, bh);
+            check(h.pixel(21, 15) == kRed && h.pixel(28, 15) == kBlue,
+                  "a bitmap created through the seam draws its left half red and its "
+                  "right half blue, so the pixel buffer is read in BGRA byte order and "
+                  "not RGBA");
+
+            // GetSize AT THE DEFAULT DPI. render_api.h documents GetSize as DIPs, and
+            // at 96 dpi a DIP is a pixel -- so this is the case where the two
+            // coincide, and it is worth its own line because it is the one every
+            // caller but the SVG path relies on.
+            const tinta::SizeF size = made->GetSize();
+            check(size.width == static_cast<float>(bw) && size.height == static_cast<float>(bh),
+                  "at the default dpi a created bitmap reports its pixel dimensions");
+
+            // THE LOAD-BEARING ONE. src/render.cpp rasterizes SVGs at 2x and declares
+            // 192 dpi so the result reports its INTRINSIC size; passing 96 there would
+            // draw every SVG in a document at double size and nothing else would look
+            // wrong. A backend that accepted the dpi argument and threw it away would
+            // pass every other assertion in this file.
+            whiteSurface(h);
+            std::unique_ptr<tinta::Bitmap> at192;
+            {
+                tinta::RenderTarget& rt = h.begin();
+                at192 = rt.CreateBitmap(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh),
+                                        tight.data(), static_cast<uint32_t>(bw * 4), 192.0f);
+                h.end();
+            }
+            check(at192 != nullptr, "CONTROL: the 192-dpi bitmap was created at all");
+            if (at192) {
+                const tinta::SizeF dips = at192->GetSize();
+                check(dips.width == static_cast<float>(bw) / 2.0f &&
+                      dips.height == static_cast<float>(bh) / 2.0f,
+                      "a bitmap declared at 192 dpi reports HALF its pixel dimensions, "
+                      "because GetSize is in DIPs -- this is what lets render.cpp draw a "
+                      "2x SVG raster at its intrinsic size");
+            }
+
+            // The independent second construction. Same source pixels, the harness's
+            // own path, the same destination rect.
+            whiteSurface(h);
+            std::unique_ptr<tinta::Bitmap> byHarness = h.makeBitmap(bw, bh, source);
+            check(byHarness != nullptr,
+                  "CONTROL: the harness built the comparison bitmap by its own route");
+            if (byHarness) {
+                {
+                    tinta::RenderTarget& rt = h.begin();
+                    rt.DrawBitmap(byHarness.get(), tinta::rectF(20, 10, 30, 20));
+                    h.end();
+                }
+                const std::vector<Rgba> viaHarness = readBlock(h, 20, 10, bw, bh);
+                bool agree = viaSeam.size() == viaHarness.size();
+                for (size_t i = 0; agree && i < viaSeam.size(); i++)
+                    if (viaSeam[i] != viaHarness[i]) agree = false;
+                check(agree,
+                      "the seam's bitmap and the harness's independently-built one draw "
+                      "the SAME 100 pixels -- two construction paths, one image");
+                // Paired with a control that the block is not simply blank, which would
+                // make the agreement above vacuous on a backend that drew nothing.
+                bool anyInk = false;
+                for (const Rgba& p : viaHarness)
+                    if (p != kWhite) anyInk = true;
+                check(anyInk, "CONTROL: that comparison was between two blocks with ink in "
+                              "them, not two empty ones");
+            }
+
+            // STRIDE. Passed rather than derived, so a backend that derived it anyway
+            // would read the pad bytes as image data. The pad value is mid-grey, which
+            // is neither of the source's colours.
+            whiteSurface(h);
+            {
+                tinta::RenderTarget& rt = h.begin();
+                std::unique_ptr<tinta::Bitmap> strided =
+                    rt.CreateBitmap(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh),
+                                    padded.data(), static_cast<uint32_t>(paddedStride));
+                if (strided) rt.DrawBitmap(strided.get(), tinta::rectF(20, 10, 30, 20));
+                h.end();
+            }
+            const std::vector<Rgba> viaStride = readBlock(h, 20, 10, bw, bh);
+            bool strideAgrees = viaStride.size() == viaSeam.size();
+            for (size_t i = 0; strideAgrees && i < viaStride.size(); i++)
+                if (viaStride[i] != viaSeam[i]) strideAgrees = false;
+            check(strideAgrees,
+                  "a padded stride produces the same image as a tight one, so `stride` is "
+                  "honoured rather than recomputed as width * 4");
+        }
+
+        // REFUSALS. Every call site in the tree branches on the result, so returning
+        // null on bad input is part of the contract and not merely tidy. These are
+        // meaningful only because the control above created one successfully from the
+        // same buffer.
+        {
+            tinta::RenderTarget& rt = h.begin();
+            check(rt.CreateBitmap(0, static_cast<uint32_t>(bh), tight.data(),
+                                  static_cast<uint32_t>(bw * 4)) == nullptr,
+                  "a zero width returns null rather than a zero-sized bitmap");
+            check(rt.CreateBitmap(static_cast<uint32_t>(bw), 0, tight.data(),
+                                  static_cast<uint32_t>(bw * 4)) == nullptr,
+                  "and so does a zero height");
+            check(rt.CreateBitmap(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh),
+                                  nullptr, static_cast<uint32_t>(bw * 4)) == nullptr,
+                  "a null pixel buffer returns null rather than reading address zero");
+            check(rt.CreateBitmap(static_cast<uint32_t>(bw), static_cast<uint32_t>(bh),
+                                  tight.data(), 0) == nullptr,
+                  "and a zero stride returns null rather than dividing by it");
+            h.end();
         }
     }
 

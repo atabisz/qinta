@@ -1114,7 +1114,17 @@ struct App {
         // Cached polygon outline in LOCAL space (origin = rect top-left),
         // built lazily on first draw. Local space keeps it valid across the
         // exterior-lane x-shift that moves rects after layout.
-        ID2D1PathGeometry* geometry = nullptr;
+        //
+        // A unique_ptr to the ABSTRACT seam type, which is what deleted the release
+        // loop in clearLayoutCache below and the partial-rollback loop in
+        // render.cpp. Unique rather than shared, and that is a measurement rather
+        // than a default: every producer builds one path for one shape and the four
+        // sites that push a LayoutShape declare it inside a `case` block and break
+        // immediately, so no path is ever reachable from two owners. Contrast
+        // LayoutTextRun::layout, which is genuinely SHARED -- the maths cache and a
+        // frame's run own the same native layout on purpose -- so a unique_ptr there
+        // would have been a false lifetime claim that compiled and then double-freed.
+        std::unique_ptr<tinta::PathGeometry> geometry;
     };
     struct LayoutConnector {
         std::vector<tinta::PointF> points;
@@ -1358,13 +1368,16 @@ struct App {
     ~App() { shutdown(); }
 
     void clearLayoutCache() {
-        // No loop over layoutTextRuns any more: run.layout is a shared_ptr, so the
-        // clear() below is the release. layoutShapes still needs one, because
-        // `geometry` is still a raw ID2D1PathGeometry* -- the asymmetry is the
-        // measurement of how far this slice got, not an oversight.
-        for (auto& shape : layoutShapes) {
-            releaseNative(shape.geometry);
-        }
+        // NO RELEASE LOOPS AT ALL NOW, and that is the whole visible payoff of the
+        // two seam slices. run.layout is a shared_ptr and shape.geometry is a
+        // unique_ptr, so each clear() below IS the release -- the loop that used to
+        // sit here called releaseNative on every shape's raw ID2D1PathGeometry*, and
+        // its twin in render.cpp unwound a half-built layout by hand.
+        //
+        // Worth stating why the deletion is safe rather than just tidy: the old loop
+        // released and the clear() then destroyed, so a shape that was ever copied
+        // out of this vector would have been a double-free waiting to happen. A
+        // unique_ptr makes that shape not compile.
         layoutTextRuns.clear();
         layoutRects.clear();
         layoutLines.clear();

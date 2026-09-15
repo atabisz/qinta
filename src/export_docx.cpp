@@ -430,6 +430,22 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                             strokeWidth);
                 break;
             case mermaidext::PrimType::Slice: {
+                // KNOWN DIVERGENCE, deliberately left standing: src/render.cpp's
+                // buildSliceGeometry special-cases a full circle (a1 - a0 >= 2pi) as
+                // two half arcs, because a single arc from a point back to itself is
+                // degenerate. This case does not, so a 360-degree slice reaches
+                // Direct2D with start == end and draws NOTHING here while drawing
+                // correctly on screen.
+                //
+                // Not fixed as part of the path seam, on purpose. include/render_api.h
+                // records the reasoning: a description-shaped seam would have hidden
+                // this fix inside a portability change, silently altering what an
+                // exported .docx looks like. It is a real bug with its own fix.
+                //
+                // Also not routed onto the seam, and for print.cpp's reason: `target`
+                // here is a raw ID2D1RenderTarget over a WIC bitmap that no
+                // tinta::RenderTarget wraps, and this geometry is local -- it is never
+                // stored in a LayoutShape, so nothing forced it across the seam.
                 ID2D1PathGeometry* geometry = nullptr;
                 if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry))) {
                     break;

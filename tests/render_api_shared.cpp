@@ -357,6 +357,165 @@ int runRenderApiAssertions(RenderHarness& h) {
         check(h.pixel(100, 30) != kWhite, "but its rim is painted");
     }
 
+    // --- PATHS: the seam's only CREATION call, and the only one with a sequence --
+    //
+    // Every other drawing call on this interface is one call with its arguments.
+    // BeginPath returns an object that has to be fed in order and then closed, and
+    // the two backends implement that sequence completely differently: Direct2D
+    // opens a refcounted ID2D1GeometrySink on a device-owned ID2D1PathGeometry and
+    // has to Release both; Qt appends to a QPainterPath value. So this block is
+    // where the seam is least likely to be a rename and most likely to be a
+    // translation -- which is exactly why the assertions are pixels, and shared.
+    {
+        // A triangle, filled. The bounding-box corner is the discriminator, the same
+        // way it is for the ellipse above: a backend that filled the bounds instead of
+        // the path would pass every other check here.
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& target = h.begin();
+            std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+            check(sink != nullptr, "BeginPath returns a sink");
+            if (sink) {
+                sink->BeginFigure(tinta::pointF(20, 100));
+                sink->AddLine(tinta::pointF(100, 20));
+                sink->AddLine(tinta::pointF(180, 100));
+                sink->EndFigure();
+                std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+                check(geometry != nullptr, "Close hands back a geometry");
+                if (geometry) {
+                    std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                    target.FillGeometry(geometry.get(), brush.get());
+                }
+            }
+            h.end();
+        }
+        check(h.pixel(100, 80) != kWhite, "the interior of a filled triangle is painted");
+        check(h.pixel(100, 80) == kRed, "and it is painted the brush colour");
+        check(h.pixel(25, 25) == kWhite,
+              "the corner of its bounding box is NOT painted, so a PATH was filled and not a box");
+        check(h.pixel(100, 110) == kWhite, "a point below the triangle's base is untouched");
+    }
+    {
+        // AddLines, the array form. MSVC deduces the count from the array at 10 of the
+        // 26 sites in the tree, and on the Direct2D side this call reinterprets the run
+        // as D2D1_POINT_2F* without copying -- geometry_tests.cpp asserts that stride
+        // in isolation, and this asserts that the reinterpretation draws the same
+        // picture the one-point-at-a-time form does. A stride error would paint a
+        // plausible wrong triangle, not nothing.
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& target = h.begin();
+            std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+            if (sink) {
+                const tinta::PointF rest[2] = {{100, 20}, {180, 100}};
+                sink->BeginFigure(tinta::pointF(20, 100));
+                sink->AddLines(rest, 2);
+                sink->EndFigure();
+                std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+                if (geometry) {
+                    std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                    target.FillGeometry(geometry.get(), brush.get());
+                }
+            }
+            h.end();
+        }
+        check(h.pixel(100, 80) == kRed, "AddLines paints the same interior as repeated AddLine");
+        check(h.pixel(25, 25) == kWhite, "and the same background outside it");
+    }
+    {
+        // DrawGeometry is a stroke, and EndFigure CLOSES. Both are asserted by the same
+        // shape: a V of two AddLine segments, stroked. The closing edge along y == 20 is
+        // drawn ONLY because EndFigure closed the figure -- and unlike a fill, where
+        // both backends close implicitly, a stroke shows the difference. render_api.h
+        // dropped D2D1_FIGURE_END_OPEN from the seam on a 7-of-7 census; this is the
+        // assertion that the constant it hardcoded instead is the closed one.
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& target = h.begin();
+            std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+            if (sink) {
+                sink->BeginFigure(tinta::pointF(20, 20));
+                sink->AddLine(tinta::pointF(100, 100));
+                sink->AddLine(tinta::pointF(180, 20));
+                sink->EndFigure();
+                std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+                if (geometry) {
+                    std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                    target.DrawGeometry(geometry.get(), brush.get(), 3.0f);
+                }
+            }
+            h.end();
+        }
+        check(h.pixel(60, 60) != kWhite,
+              "CONTROL: a stroked path's own edge is painted, so the next checks read something");
+        check(h.pixel(100, 60) == kWhite,
+              "the V's interior is NOT filled, so DrawGeometry is a stroke");
+        check(h.pixel(100, 21) != kWhite,
+              "the CLOSING edge is stroked, so EndFigure closed the figure");
+    }
+    {
+        // ADDARC, AND THE SIGN OF ITS SWEEP.
+        //
+        // This is the one call on the seam whose two backends do not merely spell the
+        // same thing differently -- they use different PARAMETERISATIONS. Direct2D takes
+        // an endpoint and a large/small flag; Qt takes a bounding box, a start angle and
+        // a sweep in degrees measured the other way round. tinta::arcCenterFromEndpoints
+        // solves for the centre and QtPathSink flips both signs, and the failure mode of
+        // getting either wrong is an arc that bulges the wrong way: a picture, on one
+        // platform only, that no exit code reports.
+        //
+        // Chord from (60,90) to (140,90) with radius 45, closed by EndFigure, filled.
+        // The small clockwise arc bulges UP (apex near y == 66) because these coordinates
+        // are y-down and increasing angle is clockwise on screen. The large arc is the
+        // major arc of the OTHER circle of the same radius through the same two points,
+        // whose centre sits above the chord, so it encloses a strictly bigger region.
+        const tinta::PointF arcStart = tinta::pointF(60, 90);
+        const tinta::PointF arcEnd = tinta::pointF(140, 90);
+
+        auto fillArc = [&](bool largeArc) {
+            whiteSurface(h);
+            tinta::RenderTarget& target = h.begin();
+            std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+            if (sink) {
+                sink->BeginFigure(arcStart);
+                tinta::ArcSegment arc{};
+                arc.endpoint = arcEnd;
+                arc.radius = 45.0f;
+                arc.largeArc = largeArc;
+                sink->AddArc(arc);
+                sink->EndFigure();
+                std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+                if (geometry) {
+                    std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+                    target.FillGeometry(geometry.get(), brush.get());
+                }
+            }
+            h.end();
+        };
+
+        fillArc(false);
+        const int smallCount = countNonWhite(h);
+        check(h.pixel(100, 80) == kRed, "the small arc's segment is filled above the chord");
+        // THE SIGN CHECK. A counter-clockwise sweep would put the segment BELOW the
+        // chord instead, and every other assertion in this block would still pass.
+        check(h.pixel(100, 100) == kWhite,
+              "and NOT below it -- a reversed sweep direction fails exactly here");
+        // 34px above the chord is inside the arc; the chord's own midpoint is 24px from
+        // the apex, so this also says the arc reaches out and is not a flat chord.
+        check(h.pixel(100, 70) == kRed, "the segment extends up to near the arc's apex");
+        check(h.pixel(100, 60) == kWhite, "but not past it");
+        check(h.pixel(65, 80) == kWhite,
+              "CONTROL: a point outside the small arc's circle is background");
+
+        fillArc(true);
+        check(h.pixel(100, 80) == kRed,
+              "the large arc fills the shared region too, so both variants drew");
+        check(h.pixel(65, 80) == kRed,
+              "AND the point the small arc left alone -- so largeArc selected the major arc");
+        check(countNonWhite(h) > smallCount,
+              "the large arc encloses strictly more pixels than the small one");
+    }
+
     // --- Clip, and the control that it was actually released ------------------
     {
         whiteSurface(h);

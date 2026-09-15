@@ -30,14 +30,22 @@
 #ifdef _WIN32
 #include <d2d1.h>
 #else
-// The four Direct2D interfaces this header names, and it names them ONLY as
-// pointers -- measured, 12 occurrences, 0 by value. A forward declaration is
+// The SIX Direct2D interfaces this header names, and it names them ONLY as
+// pointers -- measured at 16 occurrences, 0 by value. A forward declaration is
 // therefore sufficient, and deliberately leaves them incomplete so that any
 // inline use added later fails here instead of compiling into a portable build.
+//
+// It said "four" and "12" until the path seam landed, which is the ordinary way a
+// count in a comment goes stale: the number was right when written and nothing can
+// re-check it. The two additions are the path pair, and they are the reason
+// D2DPathGeometry's destructor is OUT OF LINE -- releasing an incomplete type is
+// exactly the inline use this forward declaration exists to reject.
 struct ID2D1RenderTarget;
 struct ID2D1SolidColorBrush;
 struct ID2D1StrokeStyle;
 struct ID2D1Bitmap;
+struct ID2D1PathGeometry;
+struct ID2D1GeometrySink;
 #endif
 
 // The Direct2D backend for the drawing seam.
@@ -83,6 +91,67 @@ public:
 private:
     ID2D1StrokeStyle* style_;  // borrowed
 };
+
+// THE ONE OWNING WRAPPER IN THIS FILE, and the header comment above says the
+// opposite, so this is a stated exception rather than an inconsistency.
+//
+// Everything else here borrows because App already owns and already Releases the
+// thing being wrapped. A path geometry has no such owner: it did not exist before
+// BeginPath was called, and the only member that holds one
+// (App::LayoutShape::geometry) is now a unique_ptr precisely so that destroying a
+// shape destroys its path. Borrowing would leave nobody to Release it -- the two
+// manual release loops that used to do that job (App::clearLayoutCache and the
+// partial-rollback loop in render.cpp) are deleted in the same commit, because a
+// unique_ptr member makes both of them the compiler's work.
+//
+// The destructor is out of line for the reason the forward declarations above give:
+// off Windows ID2D1PathGeometry is incomplete, and calling Release on an incomplete
+// type inline here would be the exact mistake those declarations exist to catch.
+class D2DPathGeometry final : public tinta::PathGeometry {
+public:
+    explicit D2DPathGeometry(ID2D1PathGeometry* geometry) : geometry_(geometry) {}
+    ~D2DPathGeometry() override;
+
+    D2DPathGeometry(const D2DPathGeometry&) = delete;
+    D2DPathGeometry& operator=(const D2DPathGeometry&) = delete;
+
+    ID2D1PathGeometry* native() const { return geometry_; }
+
+private:
+    ID2D1PathGeometry* geometry_;  // OWNED -- see above
+};
+
+// Owns the sink for as long as the path is open, and the geometry until Close hands
+// it over. Both are out-of-line for the incomplete-type reason above.
+//
+// A sink that is never Closed still has to Release both, which is why the
+// destructor exists rather than trusting Close to run: three of the six builders
+// this replaces have an early-return path between Open and Close.
+class D2DPathSink final : public tinta::PathSink {
+public:
+    D2DPathSink(ID2D1PathGeometry* geometry, ID2D1GeometrySink* sink)
+        : geometry_(geometry), sink_(sink) {}
+    ~D2DPathSink() override;
+
+    D2DPathSink(const D2DPathSink&) = delete;
+    D2DPathSink& operator=(const D2DPathSink&) = delete;
+
+    void BeginFigure(tinta::PointF start) override;
+    void AddLine(tinta::PointF point) override;
+    void AddLines(const tinta::PointF* points, uint32_t count) override;
+    void AddArc(const tinta::ArcSegment& arc) override;
+    void EndFigure() override;
+    std::unique_ptr<tinta::PathGeometry> Close() override;
+
+private:
+    ID2D1PathGeometry* geometry_;  // OWNED until Close
+    ID2D1GeometrySink* sink_;      // OWNED until Close
+};
+
+// Asserts the handle really came from this backend, the same guarantee and for the
+// same reason as text_d2d.h's nativeTextLayout: a QtPathGeometry arriving at
+// D2DRenderTarget::FillGeometry must trip rather than draw nothing.
+ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry);
 
 // Borrowed, like every other wrapper in this file: the 6 App members that hold a
 // bitmap already AddRef and Release their own, and d2d_init.cpp already tears them
@@ -133,6 +202,11 @@ public:
 
     void DrawLine(tinta::PointF start, tinta::PointF end, tinta::Brush* brush,
                   float strokeWidth, tinta::StrokeStyle* strokeStyle) override;
+
+    std::unique_ptr<tinta::PathSink> BeginPath() override;
+    void FillGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush) override;
+    void DrawGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush,
+                      float strokeWidth) override;
 
     // Reads as DrawTextW here, because <windows.h> above has already rewritten the
     // token -- in this header, in render_api.h, and at all 107 call sites alike.

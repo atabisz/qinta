@@ -4,6 +4,12 @@
 #include "geometry.h"
 #include "text_api.h"
 
+// Named directly rather than leaned on through text_api.h. PathSink::Close returns
+// a unique_ptr and AddLines takes a uint32_t, so this header owns those two
+// dependencies whether or not another one happens to satisfy them today.
+#include <cstdint>
+#include <memory>
+
 // THE DrawText MACRO, WHICH IS NOT A NUISANCE BUT AN ODR HAZARD
 //
 // <winuser.h>:8268 does `#define DrawText DrawTextW` under UNICODE, and every
@@ -94,12 +100,24 @@
 //     and touch no WIC type at all: "bitmaps are WIC-coupled" was true of 4 sites
 //     and false of the other 9, which is why DrawBitmap is now here and its
 //     creation is not.
-//   * Geometry paths (FillGeometry 2, DrawGeometry 2). They need a path object,
-//     which is a handle type like StrokeStyle rather than a value type.
-//
 // SetTransform/GetTransform WERE on this list. They are now in the interface, and
 // tinta::Matrix3x2F in geometry.h is the 3x2 matrix type they needed. DrawBitmap
 // was on it too, and tinta::Bitmap below is the handle type it needed.
+//
+// GEOMETRY PATHS WERE ON IT TOO, and the entry read "FillGeometry 2, DrawGeometry
+// 2. They need a path object, which is a handle type like StrokeStyle rather than
+// a value type." The diagnosis was right and the count was wrong: measured over
+// code lines only, it is SIX of each (src/export_docx.cpp x2, src/main_d2d.cpp x2,
+// src/print.cpp x2). I found that out by grepping this header for FillGeometry,
+// getting a hit, and reading it as a declaration when it was this comment -- so
+// the stale number cost a wrong estimate before it cost anything else. A count in
+// a comment is a claim, and a grep hit inside a comment is not a call site.
+//
+// tinta::PathGeometry below is the handle type the entry asked for, and PathSink is
+// how one gets built. Both are here rather than in geometry.h because a path is a
+// backend OBJECT (a Direct2D ID2D1PathGeometry, a Qt QPainterPath) and not a
+// layout-compatible value like PointF -- ArcSegment is next to PathSink for the
+// same reason, and is deliberately NOT the same shape as D2D1_ARC_SEGMENT.
 //
 // Naming stays qualified as tinta::, for the reason geometry.h gives: bare Color
 // is already ambiguous across most of src/.
@@ -179,6 +197,83 @@ public:
     virtual Color GetColor() const = 0;
 };
 
+// One arc, in Direct2D's ENDPOINT parameterisation: where the arc finishes, not
+// where its circle is centred. That choice is a measurement, not a preference.
+//
+// All FOUR arc sites in the tree already compute an endpoint (src/render.cpp x3,
+// src/export_docx.cpp x1) because that is what ID2D1GeometrySink::AddArc takes, and
+// re-parameterising by centre would mean rewriting the trigonometry at every one of
+// them -- a behaviour change smuggled in under a portability seam. Qt's
+// QPainterPath::arcTo wants a bounding box and two angles instead, so the
+// conversion lives once inside QtPathSink where it can be asserted, rather than
+// four times in files that cannot be compiled off Windows.
+//
+// THREE of D2D1_ARC_SEGMENT's five fields are absent, each because the whole
+// population agrees: `size` is {r, r} at all 4 sites, so it collapses to one
+// radius; `rotationAngle` is 0.0f at all 4; `sweepDirection` is CLOCKWISE at all 4.
+// Only arcSize varies (2 sites choose on sweep > pi), which is why largeArc is the
+// one flag that survived. A field nobody varies is not configuration, it is a
+// constant with a setter, and this seam would be claiming a generality it has never
+// been asked for. If a counter-clockwise or elliptical arc is ever needed, ADD the
+// field then -- with the site that needs it in the same commit.
+struct ArcSegment {
+    PointF endpoint{};
+    float radius = 0.0f;
+    bool largeArc = false;
+};
+
+// An opaque, finished path. Opaque like StrokeStyle and for the same measured
+// reason: over every geometry-typed receiver in src/, the tree calls Release (which
+// a portable backend deletes rather than reimplements) and passes the object to
+// Fill/DrawGeometry. Nothing READS one -- no bounds query, no hit test, no outline
+// walk -- so this has no accessors rather than guessed-at ones.
+class PathGeometry {
+public:
+    virtual ~PathGeometry() = default;
+};
+
+// How a PathGeometry gets built, and it deliberately MIRRORS the
+// ID2D1GeometrySink call sequence that all 6 existing builders already write.
+//
+// The alternative was a description-shaped seam -- CreatePolygon(points) and
+// CreateSlice(centre, radius, a0, a1) -- which is smaller, since those two shapes
+// cover all 6 sites. It is rejected because it would move each caller's logic INTO
+// the backend, and the callers do not agree: src/render.cpp's slice builder
+// special-cases a full circle as two half-arcs (a single arc from a point back to
+// itself degenerates), and src/export_docx.cpp's slice case does not. A
+// description-shaped seam has to pick one, which would silently FIX the DOCX export
+// while the commit message said "portability". Mirroring the sink keeps every
+// caller's behaviour exactly where it is, and the divergence stays visible and
+// separately fixable.
+//
+// TWO ENUM ARGUMENTS ARE GONE, on a full census rather than a sample: BeginFigure
+// is D2D1_FIGURE_BEGIN_FILLED at 7 of 7 sites (0 HOLLOW) and EndFigure is
+// D2D1_FIGURE_END_CLOSED at 7 of 7 (0 OPEN). So every figure this tree builds is a
+// closed filled one, and the parameters existed only to say so 14 times.
+//
+// AddLine and AddLines are BOTH here, which a name-only census would have missed:
+// 2 sites append in a loop (src/render.cpp, src/export_docx.cpp) and 2 pass a whole
+// run at once through tinta::asD2DPointArray (src/main_d2d.cpp, src/print.cpp).
+// Collapsing the array form into a loop would throw away the one thing that helper
+// exists to guarantee, and geometry_tests.cpp asserts its stride.
+class PathSink {
+public:
+    virtual ~PathSink() = default;
+
+    virtual void BeginFigure(PointF start) = 0;
+    virtual void AddLine(PointF point) = 0;
+    virtual void AddLines(const PointF* points, uint32_t count) = 0;
+    virtual void AddArc(const ArcSegment& arc) = 0;
+    virtual void EndFigure() = 0;
+
+    // Hands the finished path over and ends this sink's usefulness; calling
+    // anything else afterwards is a caller bug. Returns null on backend failure,
+    // which is the SAME shape the 6 current sites already handle -- every one of
+    // them checks the geometry before drawing -- so a failure here reaches code
+    // that already copes rather than a new branch nobody has exercised.
+    virtual std::unique_ptr<PathGeometry> Close() = 0;
+};
+
 // Every drawing call tinta makes.
 //
 // The defaulted strokeWidth and strokeStyle mirror Direct2D's own defaults, so
@@ -206,6 +301,28 @@ public:
     virtual void DrawLine(PointF start, PointF end, Brush* brush,
                           float strokeWidth = 1.0f,
                           StrokeStyle* strokeStyle = nullptr) = 0;
+
+    // Paths. BeginPath is CREATION, which the exclusion list above otherwise keeps
+    // off this interface, and it is the one exception the tree's own rule allows:
+    // brushes and bitmaps are excluded because six App members hold the result as an
+    // AddRef'd COM pointer, so a portable spelling is an ownership redesign. A path
+    // is the opposite -- exactly one member holds one (App::LayoutShape::geometry),
+    // it is built lazily, and it is destroyed with its shape. So the ownership
+    // question has one answer here, and unique_ptr states it.
+    //
+    // It is on RenderTarget rather than on a factory because Direct2D's
+    // CreatePathGeometry hangs off ID2D1Factory, which a D2DRenderTarget can reach
+    // through GetFactory(), while QPainterPath needs no device at all. Putting it
+    // here means neither backend needs a second seam object, and the caller already
+    // has a render target at all 6 sites.
+    //
+    // Returns null if the backend cannot start a path. Every existing site already
+    // branches on that, because CreatePathGeometry can fail today.
+    virtual std::unique_ptr<PathSink> BeginPath() = 0;
+
+    virtual void FillGeometry(PathGeometry* geometry, Brush* brush) = 0;
+    virtual void DrawGeometry(PathGeometry* geometry, Brush* brush,
+                              float strokeWidth = 1.0f) = 0;
 
     // The two largest text items in the tree: 106 DrawText sites and 26
     // DrawTextLayout, every one of them on app.renderTarget. They are the reason

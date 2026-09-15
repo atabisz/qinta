@@ -214,14 +214,15 @@ static LayoutSnapshot takeSnapshot(App& app) {
 }
 
 static void rollbackTo(App& app, const LayoutSnapshot& s) {
-    // The text-run release loop that used to be here is gone: run.layout is a
-    // shared_ptr, so the resize() below is the release. The shape loop stays because
-    // `geometry` is still a raw ID2D1PathGeometry*.
-    for (size_t i = s.shapes; i < app.layoutShapes.size(); i++) {
-        if (app.layoutShapes[i].geometry) {
-            app.layoutShapes[i].geometry->Release();
-        }
-    }
+    // BOTH hand-written release loops are gone now. run.layout is a shared_ptr and
+    // shape.geometry is a unique_ptr, so every resize() below IS the release for
+    // whatever it truncates away.
+    //
+    // This function is the reason the path seam's ownership question had one answer:
+    // a partial layout is unwound by shrinking these vectors, so the path a shape
+    // holds must die with the shape. Anything shared would have leaked here or been
+    // freed twice, silently, on a code path that only runs when a layout chunk
+    // overruns its time budget.
     app.layoutTextRuns.resize(s.textRuns);
     app.layoutRects.resize(s.rects);
     app.layoutLines.resize(s.lines);
@@ -1822,44 +1823,41 @@ static std::shared_ptr<tinta::TextLayout> createDiagramTextLayout(
     return layout;
 }
 
-static ID2D1PathGeometry* buildPolygonGeometry(
+// The two path builders, on the seam. Both used to open an ID2D1GeometrySink on an
+// ID2D1PathGeometry from app.d2dFactory and hand back a raw refcounted pointer that
+// two hand-written loops elsewhere were responsible for releasing; both of those
+// loops are deleted in the same commit (App::clearLayoutCache and rollbackTo above).
+//
+// Note what did NOT change: the call SEQUENCE is identical, figure for figure and
+// arc for arc, including buildSliceGeometry's full-circle special case. That is
+// deliberate. render_api.h records the alternative that was rejected -- a seam
+// taking a DESCRIPTION of a slice rather than mirroring the sink -- because
+// src/export_docx.cpp builds the same shape WITHOUT this special case, so a
+// description-shaped seam would have silently fixed the DOCX export's full-circle
+// bug under a commit whose subject line says portability. The divergence stays a
+// named, separately fixable defect.
+static std::unique_ptr<tinta::PathGeometry> buildPolygonGeometry(
         App& app, const std::vector<mermaidext::Point>& points,
         float originX, float originY) {
-    if (points.size() < 3) return nullptr;
-    ID2D1PathGeometry* geometry = nullptr;
-    if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry)) || !geometry) {
-        return nullptr;
-    }
-    ID2D1GeometrySink* sink = nullptr;
-    if (FAILED(geometry->Open(&sink)) || !sink) {
-        geometry->Release();
-        return nullptr;
-    }
+    if (points.size() < 3 || !app.renderTarget) return nullptr;
+    std::unique_ptr<tinta::PathSink> sink = app.renderTarget->BeginPath();
+    if (!sink) return nullptr;
     sink->BeginFigure(
-        tinta::pointF(points[0].x - originX, points[0].y - originY),
-        D2D1_FIGURE_BEGIN_FILLED);
+        tinta::pointF(points[0].x - originX, points[0].y - originY));
     for (size_t i = 1; i < points.size(); i++) {
         sink->AddLine(
             tinta::pointF(points[i].x - originX, points[i].y - originY));
     }
-    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-    sink->Close();
-    sink->Release();
-    return geometry;
+    sink->EndFigure();
+    return sink->Close();
 }
 
-static ID2D1PathGeometry* buildSliceGeometry(App& app, float radius,
-                                             float a0, float a1) {
+static std::unique_ptr<tinta::PathGeometry> buildSliceGeometry(App& app, float radius,
+                                                              float a0, float a1) {
     // Local space: circle center at (radius, radius)
-    ID2D1PathGeometry* geometry = nullptr;
-    if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry)) || !geometry) {
-        return nullptr;
-    }
-    ID2D1GeometrySink* sink = nullptr;
-    if (FAILED(geometry->Open(&sink)) || !sink) {
-        geometry->Release();
-        return nullptr;
-    }
+    if (!app.renderTarget) return nullptr;
+    std::unique_ptr<tinta::PathSink> sink = app.renderTarget->BeginPath();
+    if (!sink) return nullptr;
     float cx = radius, cy = radius;
     tinta::PointF start =
         tinta::pointF(cx + radius * std::cos(a0), cy + radius * std::sin(a0));
@@ -1868,31 +1866,24 @@ static ID2D1PathGeometry* buildSliceGeometry(App& app, float radius,
     float sweep = a1 - a0;
     if (sweep >= 6.28318f - 0.0001f) {
         // Full circle: two half arcs
-        sink->BeginFigure(start, D2D1_FIGURE_BEGIN_FILLED);
+        sink->BeginFigure(start);
         tinta::PointF opposite = tinta::pointF(
             cx + radius * std::cos(a0 + 3.14159f),
             cy + radius * std::sin(a0 + 3.14159f));
-        D2D1_ARC_SEGMENT half1 = {
-            opposite, {radius, radius}, 0.0f,
-            D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL};
-        D2D1_ARC_SEGMENT half2 = {
-            start, {radius, radius}, 0.0f,
-            D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL};
-        sink->AddArc(half1);
-        sink->AddArc(half2);
-        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        // The three D2D1_ARC_SEGMENT fields tinta::ArcSegment does not carry were
+        // {radius, radius}, 0.0f and CLOCKWISE at all four arc sites in the tree,
+        // which is why the seam supplies them as constants. render_api.h has the
+        // census; these two braced initialisers are two of the four it counted.
+        sink->AddArc(tinta::ArcSegment{opposite, radius, /*largeArc=*/false});
+        sink->AddArc(tinta::ArcSegment{start, radius, /*largeArc=*/false});
+        sink->EndFigure();
     } else {
-        sink->BeginFigure(tinta::pointF(cx, cy), D2D1_FIGURE_BEGIN_FILLED);
+        sink->BeginFigure(tinta::pointF(cx, cy));
         sink->AddLine(start);
-        D2D1_ARC_SEGMENT arc = {
-            end, {radius, radius}, 0.0f, D2D1_SWEEP_DIRECTION_CLOCKWISE,
-            sweep > 3.14159f ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL};
-        sink->AddArc(arc);
-        sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+        sink->AddArc(tinta::ArcSegment{end, radius, sweep > 3.14159f});
+        sink->EndFigure();
     }
-    sink->Close();
-    sink->Release();
-    return geometry;
+    return sink->Close();
 }
 
 static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
@@ -1963,7 +1954,10 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                 shape.stroke = stroke;
                 shape.strokeWidth = prim.strokeWidth;
                 shape.radius = prim.radius;
-                app.layoutShapes.push_back(shape);
+                // std::move even though THIS shape holds no path: LayoutShape is
+                // move-only now, so a copy here would not compile. Worth naming
+                // because the diff looks like a gratuitous move on a plain struct.
+                app.layoutShapes.push_back(std::move(shape));
                 break;
             }
             case mermaidext::PrimType::Line: {
@@ -2003,7 +1997,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                         triangle.stroke.a = 0.0f;
                         triangle.geometry =
                             buildPolygonGeometry(app, tri, minX, minY);
-                        app.layoutShapes.push_back(triangle);
+                        app.layoutShapes.push_back(std::move(triangle));
                     }
                 }
                 connector.points = {tinta::pointF(x1, y1),
@@ -2040,7 +2034,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                 shape.stroke = stroke;
                 shape.strokeWidth = prim.strokeWidth;
                 shape.geometry = buildPolygonGeometry(app, shifted, minX, minY);
-                app.layoutShapes.push_back(shape);
+                app.layoutShapes.push_back(std::move(shape));
                 break;
             }
             case mermaidext::PrimType::Slice: {
@@ -2054,7 +2048,7 @@ static bool layoutMermaidExtDiagram(App& app, mermaidext::Kind kind,
                 shape.strokeWidth = prim.strokeWidth;
                 shape.geometry =
                     buildSliceGeometry(app, prim.radius, prim.a0, prim.a1);
-                app.layoutShapes.push_back(shape);
+                app.layoutShapes.push_back(std::move(shape));
                 break;
             }
             case mermaidext::PrimType::Text:

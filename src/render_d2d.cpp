@@ -96,6 +96,122 @@ ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
 
 }  // namespace
 
+// Not in the anonymous namespace above, because render_d2d.h declares it: the path
+// pair is the only wrapper a caller outside this file has a reason to unwrap, the
+// same way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp draw
+// through a device context this seam does not wrap.
+ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry) {
+    if (!geometry) return nullptr;
+    assert(dynamic_cast<D2DPathGeometry*>(geometry) != nullptr &&
+           "a non-Direct2D PathGeometry reached the Direct2D drawing backend");
+    auto* concrete = dynamic_cast<D2DPathGeometry*>(geometry);
+    return concrete ? concrete->native() : nullptr;
+}
+
+D2DPathGeometry::~D2DPathGeometry() {
+    if (geometry_) geometry_->Release();
+}
+
+// Releases whatever it still holds, which after a successful Close is nothing. The
+// two nulls Close leaves behind are what makes this safe to run either way, and
+// they matter: three of the six builders this seam replaces return early between
+// Open and Close, and every one of them had to remember its own Release.
+D2DPathSink::~D2DPathSink() {
+    if (sink_) sink_->Release();
+    if (geometry_) geometry_->Release();
+}
+
+void D2DPathSink::BeginFigure(tinta::PointF start) {
+    // FILLED and CLOSED are not parameters on this seam because the census found
+    // 7 of 7 sites passing each. render_api.h records the counts; this is where the
+    // constants actually go in.
+    sink_->BeginFigure(start, D2D1_FIGURE_BEGIN_FILLED);
+}
+
+void D2DPathSink::AddLine(tinta::PointF point) {
+    sink_->AddLine(point);
+}
+
+void D2DPathSink::AddLines(const tinta::PointF* points, uint32_t count) {
+    // tinta::asD2DPointArray rather than a loop, because that helper is the whole
+    // reason the array form survived onto the seam -- geometry_tests.cpp asserts
+    // PointF's stride matches D2D1_POINT_2F's, and reinterpreting the run is what
+    // that assertion licenses.
+    sink_->AddLines(tinta::asD2DPointArray(points), count);
+}
+
+void D2DPathSink::AddArc(const tinta::ArcSegment& arc) {
+    // The three fields render_api.h dropped are supplied here as the constants the
+    // whole population already used: {r, r} for size, 0.0f rotation, CLOCKWISE.
+    // If any of them ever needs to vary, this is the line that stops compiling
+    // once the field is added -- which is the point of spelling them out.
+    sink_->AddArc(D2D1::ArcSegment(
+        arc.endpoint, tinta::sizeF(arc.radius, arc.radius), 0.0f,
+        D2D1_SWEEP_DIRECTION_CLOCKWISE,
+        arc.largeArc ? D2D1_ARC_SIZE_LARGE : D2D1_ARC_SIZE_SMALL));
+}
+
+void D2DPathSink::EndFigure() {
+    sink_->EndFigure(D2D1_FIGURE_END_CLOSED);
+}
+
+std::unique_ptr<tinta::PathGeometry> D2DPathSink::Close() {
+    if (!sink_ || !geometry_) return nullptr;
+
+    // ID2D1GeometrySink::Close returns an HRESULT and the six builders this replaces
+    // all IGNORED it. Honoured here, because ignoring it is how a half-built path
+    // reaches a draw call: an unclosed geometry draws nothing on some drivers and
+    // asserts in the D2D debug layer on others, and both look like a layout bug
+    // rather than a return value nobody read.
+    HRESULT hr = sink_->Close();
+    sink_->Release();
+    sink_ = nullptr;
+
+    if (FAILED(hr)) {
+        geometry_->Release();
+        geometry_ = nullptr;
+        return nullptr;
+    }
+
+    ID2D1PathGeometry* finished = geometry_;
+    geometry_ = nullptr;  // ownership moves into the wrapper below
+    return std::make_unique<D2DPathGeometry>(finished);
+}
+
+std::unique_ptr<tinta::PathSink> D2DRenderTarget::BeginPath() {
+    // GetFactory rather than a factory member: render_api.h explains why BeginPath
+    // is on the render target at all, and this is the half of that argument that
+    // had to be true. It AddRefs, so it is released before returning either way.
+    ID2D1Factory* factory = nullptr;
+    target_->GetFactory(&factory);
+    if (!factory) return nullptr;
+
+    ID2D1PathGeometry* geometry = nullptr;
+    HRESULT hr = factory->CreatePathGeometry(&geometry);
+    factory->Release();
+    if (FAILED(hr) || !geometry) return nullptr;
+
+    ID2D1GeometrySink* sink = nullptr;
+    if (FAILED(geometry->Open(&sink)) || !sink) {
+        geometry->Release();
+        return nullptr;
+    }
+    return std::make_unique<D2DPathSink>(geometry, sink);
+}
+
+void D2DRenderTarget::FillGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush) {
+    ID2D1PathGeometry* native = nativePathGeometry(geometry);
+    if (!native) return;
+    target_->FillGeometry(native, nativeBrush(brush));
+}
+
+void D2DRenderTarget::DrawGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush,
+                                   float strokeWidth) {
+    ID2D1PathGeometry* native = nativePathGeometry(geometry);
+    if (!native) return;
+    target_->DrawGeometry(native, nativeBrush(brush), strokeWidth);
+}
+
 tinta::SizeF D2DBitmap::GetSize() const {
     return tinta::fromD2D(bitmap_->GetSize());
 }

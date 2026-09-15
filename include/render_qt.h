@@ -7,6 +7,7 @@
 #include <QColor>
 #include <QImage>
 #include <QPainter>
+#include <QPainterPath>
 
 class QPaintDevice;
 
@@ -75,6 +76,11 @@ public:
     void DrawLine(tinta::PointF start, tinta::PointF end, tinta::Brush* brush,
                   float strokeWidth, tinta::StrokeStyle* strokeStyle) override;
 
+    std::unique_ptr<tinta::PathSink> BeginPath() override;
+    void FillGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush) override;
+    void DrawGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush,
+                      float strokeWidth) override;
+
     // Text goes through QtTextRun, the same engine QtTextLayout::GetMetrics uses,
     // so a box that was measured and a box that was drawn cannot disagree. The
     // rect's width and height become the layout box, which is what Direct2D's
@@ -130,6 +136,61 @@ public:
 
 private:
     QImage image_;
+};
+
+// OWNS its QPainterPath, the same way QtBitmap owns its QImage and for the same
+// reason: a QPainterPath is a value, not a device resource, so there is nothing for
+// it to belong to. That makes this the SIMPLE half of the path pair -- D2DPathGeometry
+// had to be given a destructor and deleted copies because ID2D1PathGeometry is
+// refcounted; here the compiler-generated members are correct.
+//
+// No accessors beyond path(), because render_api.h::PathGeometry deliberately has
+// none: nothing in the tree reads a finished path back.
+class QtPathGeometry final : public tinta::PathGeometry {
+public:
+    explicit QtPathGeometry(QPainterPath path) : path_(std::move(path)) {}
+
+    const QPainterPath& path() const { return path_; }
+
+private:
+    QPainterPath path_;
+};
+
+// Builds a QPainterPath through the D2D sink call sequence.
+//
+// THE ONE PLACE THE TWO ARC PARAMETERISATIONS MEET. Direct2D gives an endpoint and
+// a large/small flag; Qt's arcTo wants a bounding box, a start angle and a sweep
+// length in DEGREES, positive being COUNTER-clockwise on screen. So the conversion
+// is a solve for the centre (tinta::arcCenterFromEndpoints, in geometry.h so both
+// compilers assert it) plus two sign flips, and the signs are the part that would
+// otherwise produce a plausible arc bulging the wrong way.
+//
+// Qt has no BeginFigure/EndFigure pair -- moveTo starts a subpath and closeSubpath
+// ends it -- so the seam's two calls map onto those. EndFigure is unconditionally
+// CLOSED because the census found 7 of 7 sites closing.
+class QtPathSink final : public tinta::PathSink {
+public:
+    void BeginFigure(tinta::PointF start) override;
+    void AddLine(tinta::PointF point) override;
+    void AddLines(const tinta::PointF* points, uint32_t count) override;
+    void AddArc(const tinta::ArcSegment& arc) override;
+    void EndFigure() override;
+    std::unique_ptr<tinta::PathGeometry> Close() override;
+
+    // Exposed for the test, which asserts on the built path's element sequence
+    // rather than on painted pixels: an arc's element list is what shows the sign
+    // convention came out right, and a screenshot comparison of two similar arcs
+    // would not.
+    const QPainterPath& path() const { return path_; }
+
+private:
+    QPainterPath path_;
+    // Where the current subpath started, so EndFigure can close and AddArc can
+    // report a degenerate arc. QPainterPath::currentPosition() covers the second
+    // need; this covers neither on its own and is kept for the first because
+    // closeSubpath is a no-op on an empty path and silence there is the failure
+    // mode this seam is meant to remove.
+    bool figureOpen_ = false;
 };
 
 // A solid colour and nothing else. Direct2D needs a device-owned object here

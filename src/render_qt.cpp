@@ -121,6 +121,117 @@ void QtRenderTarget::DrawLine(tinta::PointF start, tinta::PointF end,
     painter_.drawLine(toQt(start), toQt(end));
 }
 
+void QtPathSink::BeginFigure(tinta::PointF start) {
+    path_.moveTo(toQt(start));
+    figureOpen_ = true;
+}
+
+void QtPathSink::AddLine(tinta::PointF point) {
+    path_.lineTo(toQt(point));
+}
+
+void QtPathSink::AddLines(const tinta::PointF* points, uint32_t count) {
+    // A loop, where the D2D backend reinterprets the whole run in one call. Both
+    // are correct and the asymmetry is the point: D2D's AddLines takes an array of
+    // a layout-compatible type, Qt's path has no array form at all, so the seam
+    // keeping the array shape costs nothing on Windows and costs this loop here.
+    if (!points) return;
+    for (uint32_t i = 0; i < count; ++i) path_.lineTo(toQt(points[i]));
+}
+
+void QtPathSink::AddArc(const tinta::ArcSegment& arc) {
+    const QPointF from = path_.currentPosition();
+
+    tinta::PointF center{};
+    float startAngle = 0.0f;
+    float sweepAngle = 0.0f;
+    const bool solved = tinta::arcCenterFromEndpoints(
+        tinta::pointF(static_cast<float>(from.x()), static_cast<float>(from.y())),
+        arc.endpoint, arc.radius, arc.largeArc, &center, &startAngle, &sweepAngle);
+
+    // No such arc -- coincident endpoints. A straight line to the endpoint is the
+    // closest thing to Direct2D's behaviour here (D2D draws nothing for a
+    // degenerate segment and leaves the current point where it was; a zero-length
+    // lineTo does the same), and geometry.h explains at length why this case is
+    // preserved rather than reinterpreted as a full circle.
+    if (!solved) {
+        path_.lineTo(toQt(arc.endpoint));
+        return;
+    }
+
+    // Degrees, and NEGATED. Qt measures angles counter-clockwise from 3 o'clock;
+    // geometry.h returns a clockwise angle and a clockwise sweep, because that is
+    // the only direction the tree's 4 arc sites use. Two sign flips, both here.
+    const double toDegrees = 180.0 / 3.14159265358979323846;
+    const QRectF box(center.x - arc.radius, center.y - arc.radius,
+                     arc.radius * 2.0, arc.radius * 2.0);
+
+    // arcTo implicitly lineTo's the arc's start point if the current position is
+    // elsewhere. It should not be -- the arc was solved FROM the current position --
+    // but float rounding can leave a sub-pixel gap, and Qt closing it with a
+    // degenerate line is better than leaving the subpath broken.
+    path_.arcTo(box, -static_cast<double>(startAngle) * toDegrees,
+                -static_cast<double>(sweepAngle) * toDegrees);
+}
+
+void QtPathSink::EndFigure() {
+    // Guarded, because closeSubpath() on a path with no open subpath is a silent
+    // no-op in Qt -- and a silently ignored EndFigure is exactly the class of
+    // failure this seam exists to make loud.
+    if (!figureOpen_) return;
+    path_.closeSubpath();
+    figureOpen_ = false;
+}
+
+std::unique_ptr<tinta::PathGeometry> QtPathSink::Close() {
+    // No failure path, which is why this never returns null: D2D's Close can fail
+    // because it commits to a device object, and building a QPainterPath cannot.
+    // The seam still declares the null case because the Windows backend needs it.
+    figureOpen_ = false;
+    return std::make_unique<QtPathGeometry>(std::move(path_));
+}
+
+namespace {
+
+// Returns null rather than asserting on the wrong backend, which is the opposite of
+// nativePathGeometry in render_d2d.cpp. Deliberate: that one can assert because
+// <cassert> and a Windows-only translation unit are both already there, and this
+// file is compiled on three platforms where an abort in a paint call is a worse
+// outcome than a missing shape. The dynamic_cast still catches the mistake -- it
+// just declines to draw instead of terminating.
+const QPainterPath* qtPath(tinta::PathGeometry* geometry) {
+    auto* concrete = dynamic_cast<QtPathGeometry*>(geometry);
+    return concrete ? &concrete->path() : nullptr;
+}
+
+}  // namespace
+
+void QtRenderTarget::FillGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush) {
+    const QPainterPath* path = qtPath(geometry);
+    if (!path) return;
+    setFill(brush);
+    // drawPath rather than fillPath, so that the pen/brush state setFill and
+    // setStroke establish is the single place either operation is decided. fillPath
+    // takes its own brush argument and would make this the one drawing call in the
+    // file whose colour did not come from the same two helpers.
+    painter_.drawPath(*path);
+}
+
+void QtRenderTarget::DrawGeometry(tinta::PathGeometry* geometry, tinta::Brush* brush,
+                                  float strokeWidth) {
+    const QPainterPath* path = qtPath(geometry);
+    if (!path) return;
+    setStroke(brush, strokeWidth, nullptr);
+    painter_.drawPath(*path);
+}
+
+std::unique_ptr<tinta::PathSink> QtRenderTarget::BeginPath() {
+    // Needs nothing from the painter, unlike the D2D backend which has to reach
+    // ID2D1Factory through GetFactory(). render_api.h put BeginPath on RenderTarget
+    // for Direct2D's sake and noted this asymmetry; this is it.
+    return std::make_unique<QtPathSink>();
+}
+
 void QtRenderTarget::DrawText(const wchar_t* string, uint32_t stringLength,
                               tinta::TextFormat* format, const tinta::RectF& layoutRect,
                               tinta::Brush* brush, tinta::DrawTextOptions options) {

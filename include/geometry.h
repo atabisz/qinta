@@ -1,6 +1,11 @@
 #ifndef TINTA_GEOMETRY_H
 #define TINTA_GEOMETRY_H
 
+// <cmath> for arcCenterFromEndpoints below, which is the first function in this
+// file that computes rather than aggregates. Everything above it is a brace and a
+// struct name; that one has a sign convention and a degenerate case, which is
+// exactly why it lives here where both compilers can assert it.
+#include <cmath>
 #include <cstddef>
 
 // Plain-value geometry and colour types, with no rendering backend attached.
@@ -202,6 +207,118 @@ inline RoundedRect roundedRect(const RectF& rect, float radiusX, float radiusY) 
 
 inline Ellipse ellipse(const PointF& point, float radiusX, float radiusY) {
     return Ellipse{point, radiusX, radiusY};
+}
+
+// --- Arc conversion ----------------------------------------------------------
+//
+// Direct2D describes an arc by where it ENDS (D2D1_ARC_SEGMENT: endpoint, radii,
+// a large/small flag, a sweep direction). Qt describes the same arc by the BOX it
+// is inscribed in plus a start angle and a sweep angle (QPainterPath::arcTo). Both
+// are complete descriptions and neither can be turned into the other by renaming
+// fields, so somebody has to solve for the centre.
+//
+// This is that solve, and it is HERE rather than inside QtPathSink for one reason:
+// off Windows the Qt backend is the only thing that would exercise it, and a
+// Windows build would then never compile it at all. As a free function in this
+// header both compilers see it and tests/geometry_tests.cpp asserts it on both
+// platforms -- which matters more than usual, because the failure mode of a wrong
+// sign here is an arc that bulges the wrong way. That is a picture nobody's exit
+// code reports.
+//
+// SIGN CONVENTION, stated because it is the part most easily got backwards. All of
+// this tree's coordinates are y-DOWN (a screen, not a maths textbook). So an
+// increasing atan2 angle rotates from +x towards +y, which on screen is CLOCKWISE
+// -- the same direction D2D1_SWEEP_DIRECTION_CLOCKWISE means, and the reason this
+// function assumes clockwise rather than taking it as a parameter: the census found
+// all 4 arc sites in the tree passing CLOCKWISE, and render_api.h::ArcSegment
+// therefore has no field for it.
+//
+// Returns false when there is no such arc, and the SHAPE of that failure is
+// deliberate. Direct2D's own behaviour for a degenerate segment (endpoint equal to
+// the current point) is to draw nothing useful, and src/export_docx.cpp's slice
+// builder relies on that: it lacks render.cpp's full-circle special case, so a
+// 360-degree slice reaches D2D as start == end and comes out empty. That is a REAL
+// BUG in the DOCX export, and this function preserving it is a choice, not an
+// oversight -- fixing it here would silently change what a DOCX file looks like
+// under a commit whose subject line says "portability". It is recorded as its own
+// fixable defect instead.
+//
+// The radius is likewise NOT corrected upwards when it is too small to reach
+// (r < d/2). The term under the root is clamped at zero, which yields the r = d/2
+// semicircle -- the same thing SVG and Direct2D both do. No call site reaches it
+// today (all 4 compute their endpoint from the same radius they pass), so this is
+// a documented boundary rather than tested behaviour.
+inline bool arcCenterFromEndpoints(PointF start, PointF end, float radius,
+                                   bool largeArc, PointF* center,
+                                   float* startAngle, float* sweepAngle) {
+    if (!center || !startAngle || !sweepAngle) return false;
+
+    const float dx = end.x - start.x;
+    const float dy = end.y - start.y;
+    const float d = std::sqrt(dx * dx + dy * dy);
+
+    // Coincident endpoints: no arc. See the paragraph above on why this is not
+    // reinterpreted as a full circle.
+    if (d < 1e-6f || radius <= 0.0f) return false;
+
+    // Half-chord and the perpendicular offset from the chord's midpoint to the
+    // centre. Clamped rather than rejected -- see above.
+    const float half = d * 0.5f;
+    float hSquared = radius * radius - half * half;
+    if (hSquared < 0.0f) hSquared = 0.0f;
+    const float h = std::sqrt(hSquared);
+
+    const float midX = (start.x + end.x) * 0.5f;
+    const float midY = (start.y + end.y) * 0.5f;
+
+    // Unit perpendicular to the chord. Either sign gives a valid circle through
+    // both endpoints; which one is wanted is decided below by measuring the sweep
+    // each produces, rather than by a table of cases.
+    const float ux = dx / d;
+    const float uy = dy / d;
+    const float px = -uy;
+    const float py = ux;
+
+    const float twoPi = 6.28318530718f;
+    const float pi = 3.14159265359f;
+
+    // Both candidates are computed and then compared, because the relationship
+    // between the perpendicular's sign and the large-arc flag depends on the
+    // chord's direction -- so a hard-coded sign is right for half the inputs. The
+    // test asserts all four (large/small x each winding) for exactly this reason.
+    for (int side = 0; side < 2; ++side) {
+        const float sign = side == 0 ? 1.0f : -1.0f;
+        const float cx = midX + sign * h * px;
+        const float cy = midY + sign * h * py;
+
+        const float a0 = std::atan2(start.y - cy, start.x - cx);
+        const float a1 = std::atan2(end.y - cy, end.x - cx);
+
+        // Normalised into (0, 2pi): increasing angle is clockwise on screen, so
+        // this is the clockwise sweep from start to end whichever quadrant pair
+        // they fall in.
+        float sweep = a1 - a0;
+        while (sweep <= 0.0f) sweep += twoPi;
+        while (sweep > twoPi) sweep -= twoPi;
+
+        if ((sweep > pi) == largeArc) {
+            *center = PointF{cx, cy};
+            *startAngle = a0;
+            *sweepAngle = sweep;
+            return true;
+        }
+    }
+
+    // Unreachable for a well-formed input: the two candidates are supplementary,
+    // so one of them always satisfies the largeArc test. It IS reachable when
+    // h == 0 (the clamped r = d/2 case), where both candidates are the same
+    // semicircle with sweep == pi and neither test passes -- so the semicircle is
+    // handed back explicitly rather than reported as no arc at all.
+    const float a0 = std::atan2(start.y - midY, start.x - midX);
+    *center = PointF{midX, midY};
+    *startAngle = a0;
+    *sweepAngle = pi;
+    return true;
 }
 
 // --- Transform helpers -------------------------------------------------------

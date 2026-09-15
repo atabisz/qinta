@@ -23,8 +23,14 @@
 #include <type_traits>
 
 static int failures = 0;
+// COUNTED, not just printed. A green run with no count is indistinguishable from
+// a run where half the assertions were compiled out -- and this file has a whole
+// block behind #ifdef _WIN32, so "how many ran" is a real question here rather
+// than a formality.
+static int checks = 0;
 
 static void check(bool ok, const char* what) {
+    ++checks;
     std::printf("%s: %s\n", ok ? "ok  " : "FAIL", what);
     if (!ok) ++failures;
 }
@@ -123,6 +129,117 @@ int main() {
     check(nearly(tinta::colorFromHex(0x000000).r, 0.0f), "colorFromHex maps 0x00 to exactly 0.0");
     check(nearly(tinta::colorFromHex(0x808080, 0.25f).a, 0.25f), "colorFromHex honours an explicit alpha");
 
+    // --- arcCenterFromEndpoints --------------------------------------------------
+    //
+    // The first function in this header that COMPUTES. Everything above is a brace
+    // and a field order, where the failure mode is a wrong number in an obvious
+    // place; this one has a sign convention, a branch cut and a degenerate case, and
+    // its failure mode is an arc that bulges the wrong way -- a picture, not a
+    // crash. tests/render_api_shared.cpp asserts the drawn result on both backends;
+    // these assert the arithmetic itself, on both platforms, where the pixel test
+    // cannot run at all.
+    //
+    // Every expected value below is hand-computed from the geometry, not read back
+    // from a first run. Angles are y-DOWN, so increasing angle is clockwise on
+    // screen and that is the only direction this function produces.
+    {
+        const float pi = 3.14159265359f;
+        // Loose against the float noise of a sqrt and two atan2s. 1e-6 (what
+        // `nearly` uses) is too tight for a value that went through three
+        // transcendental calls; 1e-4 on a radius-1 circle is still a thousandth of a
+        // pixel at any size this tree draws at.
+        auto close = [](float a, float b) { return std::fabs(a - b) < 1e-4f; };
+
+        // A quarter arc on the unit circle at the origin: (1,0) to (0,1), the small
+        // way round. Clockwise from angle 0 to angle pi/2.
+        tinta::PointF ctr{999, 999};
+        float a0 = 999.0f, sweep = 999.0f;
+        bool ok = tinta::arcCenterFromEndpoints(tinta::pointF(1, 0), tinta::pointF(0, 1),
+                                                1.0f, false, &ctr, &a0, &sweep);
+        check(ok, "a quarter arc between two unit-circle points is solvable");
+        check(close(ctr.x, 0.0f) && close(ctr.y, 0.0f), "and its centre is the origin");
+        check(close(a0, 0.0f), "its start angle is 0, measured from +x");
+        check(close(sweep, pi / 2), "and its clockwise sweep is pi/2");
+
+        // THE SAME TWO ENDPOINTS, largeArc = true. There are exactly two circles of a
+        // given radius through two points, and this is the other one -- centre (1,1),
+        // sweeping 3pi/2 the long way round. Nothing about the endpoints distinguishes
+        // the two cases, so a function that ignored largeArc would pass the block
+        // above and fail here.
+        ctr = tinta::PointF{999, 999};
+        a0 = 999.0f;
+        sweep = 999.0f;
+        ok = tinta::arcCenterFromEndpoints(tinta::pointF(1, 0), tinta::pointF(0, 1), 1.0f,
+                                           true, &ctr, &a0, &sweep);
+        check(ok, "the same endpoints with largeArc are also solvable");
+        check(close(ctr.x, 1.0f) && close(ctr.y, 1.0f),
+              "but the OTHER circle is chosen, so largeArc is read and not ignored");
+        check(close(sweep, 3 * pi / 2), "and the sweep is the major one, 3pi/2");
+        check(sweep > pi, "CONTROL: a major sweep exceeds pi, which is what largeArc means");
+
+        // ACROSS THE atan2 BRANCH CUT. From angle 3pi/4 to angle -3pi/4, which is a
+        // clockwise quarter turn passing through pi -- the discontinuity where atan2
+        // jumps from +pi to -pi. A subtraction without the wrap below would report
+        // -3pi/2 here, and the sign alone would send the arc the wrong way.
+        const float r2 = 0.70710678f;
+        ctr = tinta::PointF{999, 999};
+        sweep = 999.0f;
+        ok = tinta::arcCenterFromEndpoints(tinta::pointF(-r2, r2), tinta::pointF(-r2, -r2),
+                                           1.0f, false, &ctr, &a0, &sweep);
+        check(ok && close(ctr.x, 0.0f) && close(ctr.y, 0.0f),
+              "an arc crossing atan2's +pi/-pi discontinuity still finds the origin");
+        check(close(sweep, pi / 2),
+              "and its sweep is a quarter turn, not the -3pi/2 a bare subtraction gives");
+
+        // THE SLICE SHAPE render.cpp ACTUALLY DRAWS: centre at (radius, radius) in
+        // local space, endpoints computed from cos/sin of the two angles. Included as
+        // itself rather than only as unit-circle algebra, because this is the caller.
+        const float radius = 10.0f;
+        ctr = tinta::PointF{999, 999};
+        sweep = 999.0f;
+        ok = tinta::arcCenterFromEndpoints(tinta::pointF(20, 10), tinta::pointF(10, 20),
+                                           radius, false, &ctr, &a0, &sweep);
+        check(ok && close(ctr.x, 10.0f) && close(ctr.y, 10.0f),
+              "a mermaid pie slice's arc recovers the centre render.cpp put it at");
+        check(close(sweep, pi / 2), "with the quarter sweep its two angles asked for");
+
+        // THE DEGENERATE CASE, AND IT IS A DELIBERATE BUG-PRESERVING ANSWER.
+        // src/export_docx.cpp's slice builder has no full-circle special case, so a
+        // 360-degree slice reaches the backend as start == end. Direct2D draws nothing
+        // for that; returning false here keeps the Qt backend agreeing with it. Fixing
+        // it in this function would silently change what a DOCX export looks like, so
+        // the divergence stays a separately fixable defect. geometry.h says so too --
+        // this is the assertion that makes the comment load-bearing.
+        ctr = tinta::PointF{7, 7};
+        a0 = 7.0f;
+        sweep = 7.0f;
+        ok = tinta::arcCenterFromEndpoints(tinta::pointF(5, 5), tinta::pointF(5, 5), 10.0f,
+                                           false, &ctr, &a0, &sweep);
+        check(!ok, "coincident endpoints are NOT an arc, matching what Direct2D draws");
+        // Poison values, unchanged. A function that returned false having already
+        // written garbage through its out-params would pass the check above and hand a
+        // caller a plausible centre.
+        check(nearly(ctr.x, 7.0f) && nearly(a0, 7.0f) && nearly(sweep, 7.0f),
+              "and a rejected arc writes NOTHING through its out-params");
+
+        check(!tinta::arcCenterFromEndpoints(tinta::pointF(0, 0), tinta::pointF(1, 0), 1.0f,
+                                             false, nullptr, &a0, &sweep),
+              "a null out-param is refused rather than dereferenced");
+
+        // A radius too small to reach: the chord is 2 units, the radius 0.6, so no
+        // circle of that radius passes through both. Clamped to the r = d/2
+        // semicircle, which is what SVG and Direct2D both do. No call site reaches
+        // this today -- asserted so that the boundary is a decision on record rather
+        // than whatever the arithmetic happened to produce.
+        ctr = tinta::PointF{999, 999};
+        sweep = 999.0f;
+        ok = tinta::arcCenterFromEndpoints(tinta::pointF(-1, 0), tinta::pointF(1, 0), 0.6f,
+                                           false, &ctr, &a0, &sweep);
+        check(ok, "a radius too small for the chord is clamped, not rejected");
+        check(close(ctr.x, 0.0f) && close(ctr.y, 0.0f) && close(sweep, pi),
+              "and yields the semicircle on the chord's midpoint");
+    }
+
 #ifdef _WIN32
     // On Windows the header also carries the Direct2D interop. The layout
     // static_asserts fire at compile time, so reaching this line at all is part
@@ -156,6 +273,7 @@ int main() {
           "asD2DPointArray preserves stride across a run of points");
 #endif
 
+    std::printf("%d/%d geometry assertions passed\n", checks - failures, checks);
     std::printf("%s\n", failures == 0 ? "all geometry assertions passed"
                                       : "geometry assertions FAILED");
     return failures == 0 ? 0 : 1;

@@ -393,21 +393,22 @@ render_document:
                            App::LayoutShape& shape) {
         if (count < 3) return;
 
+        // THE ONE LAZY BUILDER of the six. The other five run at layout time; this
+        // one runs inside the paint loop, which is why the failure path returns
+        // without drawing rather than falling through -- an empty geometry here
+        // would be re-attempted every frame.
+        //
+        // AddLines is kept as the array call rather than unrolled into a loop: the
+        // seam carries both because a shape census (not a name census) found this
+        // exact form at 10 of 26 sites, and the Qt backend does the loop instead.
         if (!shape.geometry) {
-            ID2D1PathGeometry* geometry = nullptr;
-            if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry)) || !geometry) return;
-            ID2D1GeometrySink* sink = nullptr;
-            if (SUCCEEDED(geometry->Open(&sink)) && sink) {
-                sink->BeginFigure(localPoints[0], D2D1_FIGURE_BEGIN_FILLED);
-                sink->AddLines(tinta::asD2DPointArray(localPoints + 1), static_cast<UINT32>(count - 1));
-                sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-                sink->Close();
-                sink->Release();
-                shape.geometry = geometry;
-            } else {
-                geometry->Release();
-                return;
-            }
+            std::unique_ptr<tinta::PathSink> sink = app.renderTarget->BeginPath();
+            if (!sink) return;
+            sink->BeginFigure(localPoints[0]);
+            sink->AddLines(localPoints + 1, static_cast<uint32_t>(count - 1));
+            sink->EndFigure();
+            shape.geometry = sink->Close();
+            if (!shape.geometry) return;
         }
 
         tinta::Matrix3x2F previous;
@@ -417,13 +418,13 @@ render_document:
                                           shape.rect.top - app.scrollY) * previous);
         if (shape.fill.a > 0.0f) {
             app.brush->SetColor(shape.fill);
-            app.nativeRenderTarget->FillGeometry(shape.geometry, app.nativeBrush);
+            app.renderTarget->FillGeometry(shape.geometry.get(), app.brush);
             app.drawCalls++;
         }
         if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
             app.brush->SetColor(shape.stroke);
-            app.nativeRenderTarget->DrawGeometry(
-                shape.geometry, app.nativeBrush, shape.strokeWidth);
+            app.renderTarget->DrawGeometry(
+                shape.geometry.get(), app.brush, shape.strokeWidth);
             app.drawCalls++;
         }
         app.renderTarget->SetTransform(previous);
@@ -454,13 +455,13 @@ render_document:
                 previous);
             if (shape.fill.a > 0.0f) {
                 app.brush->SetColor(shape.fill);
-                app.nativeRenderTarget->FillGeometry(shape.geometry, app.nativeBrush);
+                app.renderTarget->FillGeometry(shape.geometry.get(), app.brush);
                 app.drawCalls++;
             }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 app.brush->SetColor(shape.stroke);
-                app.nativeRenderTarget->DrawGeometry(
-                    shape.geometry, app.nativeBrush, shape.strokeWidth);
+                app.renderTarget->DrawGeometry(
+                    shape.geometry.get(), app.brush, shape.strokeWidth);
                 app.drawCalls++;
             }
             app.renderTarget->SetTransform(previous);

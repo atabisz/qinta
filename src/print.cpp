@@ -301,6 +301,14 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
     }
 
     // Mermaid node shapes
+    //
+    // NOT routed onto the path seam, and that is a limit of the seam rather than an
+    // oversight: BeginPath lives on tinta::RenderTarget, and this function draws
+    // through a print device context that no RenderTarget wraps. Building through
+    // app.renderTarget would work -- same ID2D1Factory -- but it would put a
+    // portable-looking call in a function that then hands the result to a raw dc,
+    // which is a worse lie than the honest native code below. When this file is
+    // ported to QPrinter the whole function goes.
     auto fillStrokePolygon = [&](const tinta::PointF* pts, size_t count,
                                  const App::LayoutShape& shape) {
         ID2D1PathGeometry* geometry = nullptr;
@@ -331,17 +339,23 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
                                     shape.rect.right + dx, shape.rect.bottom + dy);
         if (shape.type == App::LayoutShapeType::Path) {
             if (shape.geometry) {
+                // The cached path is a seam handle now, so it has to be unwrapped
+                // before a raw device context can draw it. nativePathGeometry
+                // ASSERTS on a foreign backend rather than returning null -- correct
+                // here, because reaching this line at all means a D2D print path is
+                // drawing a shape some other backend built.
+                ID2D1PathGeometry* native = nativePathGeometry(shape.geometry.get());
                 D2D1_MATRIX_3X2_F previous;
                 dc->GetTransform(&previous);
                 dc->SetTransform(
                     D2D1::Matrix3x2F::Translation(r.left, r.top) * previous);
                 if (shape.fill.a > 0.0f) {
                     brush->SetColor(shape.fill);
-                    dc->FillGeometry(shape.geometry, brush);
+                    dc->FillGeometry(native, brush);
                 }
                 if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                     brush->SetColor(shape.stroke);
-                    dc->DrawGeometry(shape.geometry, brush, shape.strokeWidth);
+                    dc->DrawGeometry(native, brush, shape.strokeWidth);
                 }
                 dc->SetTransform(previous);
             }

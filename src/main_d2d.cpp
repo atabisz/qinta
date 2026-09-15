@@ -6,7 +6,6 @@
 
 #include <windowsx.h>
 #include <shellapi.h>
-#include <commdlg.h>
 #include <shlobj.h>
 
 #include <d3d11.h>

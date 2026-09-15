@@ -37,7 +37,14 @@ FetchContent_MakeAvailable(md4c)
 # the selection are declared hundreds of lines above the old find_package call.
 # find_package caches, so the later call is satisfied from here and neither is
 # redundant.
-find_package(Qt6 QUIET COMPONENTS Core Gui)
+#
+# Widgets is OPTIONAL here and REQUIRED off Windows in the file-dialog seam below,
+# which looks contradictory and is the pattern this file already uses for Svg and
+# Network: asking for a component in the COMPONENTS list makes Qt6_FOUND false when
+# it is missing, which would silently delete every target in the Qt6_FOUND block
+# rather than reporting the one thing that is absent. So it is asked for optionally
+# and then checked where it is needed, with a message naming it.
+find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS Widgets)
 
 # The platform path seam. Its POSIX half is GONE: src/platform_paths_posix.cpp
 # was replaced by src/platform_paths_qt.cpp, which is written to be correct on all
@@ -114,6 +121,36 @@ else()
     set(PLATFORM_IMAGE_SOURCE src/image_qt.cpp)
 endif()
 
+# The file-picker seam (include/file_dialog.h): the Open and Save dialogs. Selected
+# like the three above, and it is the FIRST seam in this port whose non-Windows half
+# needs Qt6::Widgets.
+#
+# WIDGETS IS UNAVOIDABLE, not a convenience. There is no QtGui-only file dialog:
+# QFileDialog is a QWidget, and the only other Qt answer is Qt Quick Dialogs, which
+# would pull in Qml and Quick to replace a call that returns a string. So the module
+# is the price of a real second implementation instead of a stub that returns "the
+# user cancelled" forever -- which is precisely the failure win32_types.h's preamble
+# describes, and the reason GetOpenFileNameW did not go into win32_api.h.
+#
+# UNLIKE Svg AND Network, THIS ONE IS FATAL OFF WINDOWS. Those two gate one optional
+# target each, so a partial Qt install loses a test and says so. This seam has no
+# other non-Windows half at all, so a build without Widgets would fail at link with
+# undefined platform::requestSavePath -- a worse error, further from the cause.
+if(WIN32)
+    set(PLATFORM_FILE_DIALOG_SOURCE src/file_dialog_win32.cpp)
+    set(PLATFORM_FILE_DIALOG_LIBS comdlg32)
+else()
+    if(NOT Qt6Widgets_FOUND)
+        message(FATAL_ERROR
+            "Qt 6 Widgets is required off Windows: src/file_dialog_qt.cpp is the only "
+            "non-Windows implementation of the include/file_dialog.h seam, and QFileDialog "
+            "lives in QtWidgets. On Debian and Ubuntu the package is qt6-base-dev, which "
+            "also provides the Core and Gui components already required above.")
+    endif()
+    set(PLATFORM_FILE_DIALOG_SOURCE src/file_dialog_qt.cpp)
+    set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
+endif()
+
 # The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
 # on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
@@ -168,6 +205,7 @@ set(SOURCES
     ${PLATFORM_PATHS_SOURCE}
     ${PLATFORM_KEYBOARD_SOURCE}
     ${PLATFORM_IMAGE_SOURCE}
+    ${PLATFORM_FILE_DIALOG_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -1106,6 +1144,56 @@ if(BUILD_TESTING)
         target_compile_definitions(seated_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME seated COMMAND seated_tests)
+
+    # include/file_dialog.h -- the Open/Save picker seam's filter encoding.
+    #
+    # EVERY ASSERTION HERE IS ON THE HEADER, AND THE BACKEND IS ON THE LINK LINE FOR
+    # A DIFFERENT REASON ENTIRELY. Worth separating, because the two seams either side
+    # of this one look alike and are not. keyboard_tests links its backend because
+    # isShiftDown has a reachable claim on both halves (it returns false with nothing
+    # held). requestOpenPath and requestSavePath have NO reachable claim at all:
+    # neither returns until a human clicks a dialog. So nothing below asserts the
+    # backend, and the filter encoding that carries the whole test is inline in the
+    # header precisely so it can be reached without either half.
+    #
+    # ${PLATFORM_FILE_DIALOG_SOURCE} is here to be COMPILED, which is the argument
+    # tests/portable-sources.txt already makes for src/render_qt.cpp: an opt-in
+    # target's absence is silent, so a Qt backend that no target compiles is a file
+    # nothing off Windows ever reads. render_api_tests carries render_qt.cpp for
+    # exactly this reason and asserts none of it either. Without this line
+    # src/file_dialog_qt.cpp could not honestly appear in the manifest, and the one
+    # instrument that would notice it breaking off Windows would be a human running
+    # g++ by hand -- which is what happened this pass and is not a standing check.
+    #
+    # WHAT THAT COSTS, stated because the first version of this block claimed it and
+    # then this line took it away: with a backend on the link line, this target is no
+    # longer the standing check that the header stays free of BOTH backends. It still
+    # catches the cross-platform case -- a Qt include in the header breaks the Windows
+    # build, a windows.h dependency breaks the Linux one, because neither platform has
+    # the other's headers here. What it no longer catches is the header acquiring a
+    # dependency on its OWN platform's backend at both sites at once. The manifest
+    # hole is the failure this tree has actually been bitten by; that one is
+    # hypothetical, so this is the side to err on.
+    add_executable(file_dialog_tests
+        tests/file_dialog_tests.cpp
+        ${PLATFORM_FILE_DIALOG_SOURCE}
+    )
+    target_include_directories(file_dialog_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(file_dialog_tests PRIVATE ${PLATFORM_FILE_DIALOG_LIBS})
+    if(WIN32)
+        target_compile_definitions(file_dialog_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME file_dialog COMMAND file_dialog_tests)
+    if(NOT WIN32)
+        # Same reasoning as keyboard and qt_text: this binary links Qt Widgets, and a
+        # Qt binary with no QT_QPA_PLATFORM aborts in WSL trying to reach a display.
+        # Nothing here constructs a QApplication, so it would very likely survive
+        # without the variable -- set anyway, because "very likely" is not a reading.
+        set_tests_properties(file_dialog PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
 
     # Qt 6 text layout -- the contract the DirectWrite text code has to be ported
     # onto, measured before any of that port is written. OPT-IN: find_package is

@@ -105,6 +105,26 @@ keyboard_qt.cpp
 # made src/render.cpp fatal off Windows for six spans.
 image_qt.cpp
 
+# The Qt side of the FILE-PICKER seam (include/file_dialog.h): the Open and Save
+# dialogs. COMPILED off Windows by file_dialog_tests and not asserted by it, which
+# makes it the render_qt.cpp case rather than the image_qt.cpp case -- and the reason
+# is that its two functions have no reachable claim at all. Neither returns until a
+# human clicks a dialog, so no test can call them; what file_dialog_tests asserts is
+# the filter encoding, which is inline in the header and needs neither backend.
+#
+# So this line is doing the whole job of watching the file. It is the first Qt entry
+# needing Qt6::Widgets, and unlike Svg and Network for image_qt.cpp, a missing Widgets
+# is FATAL at configure time off Windows: QFileDialog is a QWidget and there is no
+# QtGui-only file dialog, so this seam has no other non-Windows half to fall back to.
+# A MISSING reading from this line therefore says "Qt or Widgets is gone" and cannot
+# mean "a test was quietly dropped", because the configure would have stopped first.
+#
+# Its counterpart, src/file_dialog_win32.cpp, must never appear here: it includes
+# <commdlg.h>. That file is now the ONLY place under src/ including <commdlg.h> for a
+# file dialog -- src/print.cpp keeps its own for PRINTDLGW, which is a different
+# dialog and a different seam nobody has cut yet.
+file_dialog_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
 # THREE ENTRIES. selection.cpp used to head this section and has moved

@@ -14,8 +14,9 @@
 #include "mermaid_ext.h"
 #include "render.h"
 #include "utils.h"
+#include "file_dialog.h"
+#include "portable_str.h"
 
-#include <commdlg.h>
 #include <cmath>
 #include <fstream>
 #include <memory>
@@ -919,32 +920,38 @@ mermaidext::Built buildDiagramPrims(App& app, const std::string& sourceUtf8,
     auto measure = [&](const std::string& text,
                        const mermaidext::TextStyle& style,
                        float wrapWidth) -> mermaidext::Size {
-        if (text.empty() || !app.dwriteFactory) return {};
+        // The gate is the SEAM's factory, for the reason wrapLines gives 750 lines
+        // above: dwriteFactory being alive says nothing about whether the wrapper
+        // this code actually calls through was seated. This lambda is that
+        // function's unported twin -- same create-measure-discard shape, same two
+        // factory calls -- which is why the port is a mirror of an in-file precedent
+        // rather than a fresh reading of the seam.
+        if (text.empty() || !app.textFactory) return {};
         std::wstring wide = toWide(text);
-        IDWriteTextFormat* format = nullptr;
-        const wchar_t* family =
-            style.mono ? app.theme.codeFontFamily : app.theme.fontFamily;
-        app.dwriteFactory->CreateTextFormat(
-            family, nullptr,
-            style.bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD
-                       : DWRITE_FONT_WEIGHT_NORMAL,
-            style.italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL, diagramFontSize(style, scale),
-            L"en-us", &format);
+        std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
+            style.mono ? app.theme.codeFontFamily : app.theme.fontFamily,
+            style.bold ? tinta::FontWeight::SemiBold : tinta::FontWeight::Normal,
+            style.italic ? tinta::FontStyle::Italic : tinta::FontStyle::Normal,
+            tinta::FontStretch::Normal, diagramFontSize(style, scale), L"en-us");
         if (!format) return {};
         constexpr float kHuge = 100000.0f;
-        IDWriteTextLayout* layout = nullptr;
-        app.dwriteFactory->CreateTextLayout(
-            wide.c_str(), (UINT32)wide.size(), format,
-            wrapWidth > 0.0f ? wrapWidth : kHuge, kHuge, &layout);
-        format->Release();
+        std::unique_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+            wide.c_str(), (uint32_t)wide.size(), format.get(),
+            wrapWidth > 0.0f ? wrapWidth : kHuge, kHuge);
         if (!layout) return {};
+        // NOT unconditional, unlike wrapLines, which always sets Wrap. This site
+        // only overrides the default when it asked for an unbounded width, and that
+        // difference is preserved rather than harmonised.
         if (wrapWidth <= 0.0f) {
-            layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            layout->SetWordWrapping(tinta::WordWrapping::NoWrap);
         }
-        DWRITE_TEXT_METRICS metrics{};
+        tinta::TextMetrics metrics{};
         layout->GetMetrics(&metrics);
-        layout->Release();
+        // The two Release calls are gone with the raw pointers. The format now
+        // outlives the layout instead of being released before it, which is the one
+        // ordering change: DirectWrite's layout holds its own reference to the
+        // format, so the early release was eager cleanup and never a lifetime the
+        // layout depended on.
         return {metrics.widthIncludingTrailingWhitespace, metrics.height};
     };
 
@@ -1444,8 +1451,14 @@ bool exportHtmlFile(App& app, const std::wstring& path) {
 void exportDocumentAs(App& app, HWND hwnd) {
     if (!app.root) return;
 
-    wchar_t path[MAX_PATH] = L"";
-    // Default name: the document's stem
+    // Default name: the document's stem.
+    //
+    // A std::wstring now rather than a wchar_t[MAX_PATH], which is what removed this
+    // file's last two CRT-and-SDK dependencies -- MAX_PATH and wcsncpy_s -- along
+    // with the buffer's double duty as both the input and the output of the dialog.
+    // Truncation is unchanged: the Windows backend still copies into a MAX_PATH
+    // buffer with _TRUNCATE.
+    std::wstring initialName;
     if (!app.currentFile.empty()) {
         std::wstring wide = toWide(app.currentFile);
         size_t slash = wide.find_last_of(L"/\\");
@@ -1453,31 +1466,33 @@ void exportDocumentAs(App& app, HWND hwnd) {
             slash == std::wstring::npos ? wide : wide.substr(slash + 1);
         size_t dot = stem.find_last_of(L'.');
         if (dot != std::wstring::npos) stem = stem.substr(0, dot);
-        wcsncpy_s(path, stem.c_str(), _TRUNCATE);
+        initialName = stem;
     }
 
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFilter =
-        L"Web page (*.html)\0*.html\0Word document (*.docx)\0*.docx\0"
-        L"PDF document (*.pdf)\0*.pdf\0";
-    ofn.lpstrFile = path;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!GetSaveFileNameW(&ofn)) return;
+    platform::FileDialogRequest request;
+    request.owner = hwnd;
+    request.filters = {{L"Web page (*.html)", L"*.html"},
+                       {L"Word document (*.docx)", L"*.docx"},
+                       {L"PDF document (*.pdf)", L"*.pdf"}};
+    request.initialName = initialName;
+    request.restoreDirectory = true;
+    std::optional<platform::FileDialogResult> picked =
+        platform::requestSavePath(request);
+    if (!picked) return;
 
     // The chosen filter decides the format; a typed extension wins
-    std::wstring chosen = path;
+    std::wstring chosen = picked->path;
     auto endsWith = [&](const wchar_t* suffix) {
         size_t n = wcslen(suffix);
         return chosen.size() >= n &&
-               _wcsicmp(chosen.c_str() + chosen.size() - n, suffix) == 0;
+               tinta::wcsnicmp(chosen.c_str() + chosen.size() - n, suffix, n) == 0;
     };
     enum class Format { Html, Docx, Pdf };
-    Format format = ofn.nFilterIndex == 2   ? Format::Docx
-                    : ofn.nFilterIndex == 3 ? Format::Pdf
-                                            : Format::Html;
+    // THE ONE SITE THAT READS THE FILTER INDEX, and the reason file_dialog.h returns
+    // one at all. It is 1-based on both backends because these two constants are.
+    Format format = picked->filterIndex == 2   ? Format::Docx
+                    : picked->filterIndex == 3 ? Format::Pdf
+                                               : Format::Html;
     if (endsWith(L".docx")) format = Format::Docx;
     else if (endsWith(L".pdf")) format = Format::Pdf;
     else if (endsWith(L".html") || endsWith(L".htm")) format = Format::Html;

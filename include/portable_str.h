@@ -44,6 +44,27 @@ inline int strnicmp(const char* a, const char* b, std::size_t n) {
 #endif
 }
 
+// The wide sibling: same contract as _wcsnicmp/wcsncasecmp.
+//
+// BOUNDED EVEN THOUGH THE SITE THAT NEEDED IT CALLED THE UNBOUNDED _wcsicmp, and
+// that is not a widening. export_html.cpp compares a file name's tail against a
+// literal suffix, having already checked that the tail is exactly as long as the
+// suffix, so an unbounded compare and a compare bounded at that same length read
+// the identical characters. Adding the unbounded spelling as well would be a second
+// name with no second caller.
+//
+// wcsncasecmp is POSIX-2008 and glibc has it; it is declared in <wchar.h>, which
+// <cwchar> above provides, rather than in <strings.h> where its narrow counterpart
+// lives. Case folding is locale-dependent in both implementations and the inputs
+// here are ASCII file extensions, so the two agree on everything this tree compares.
+inline int wcsnicmp(const wchar_t* a, const wchar_t* b, std::size_t n) {
+#ifdef _WIN32
+    return _wcsnicmp(a, b, n);
+#else
+    return wcsncasecmp(a, b, n);
+#endif
+}
+
 // --- Bounded wide formatting ---------------------------------------------------
 //
 // THE CONTRACT IS "IT MUST FIT, OR THE PROCESS DIES", AND THAT IS MEASURED RATHER

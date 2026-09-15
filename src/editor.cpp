@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "file_dialog.h"
 #include "platform_paths.h"
 #include "document.h"
 #include "drafts.h"
@@ -24,7 +25,6 @@
 #include <algorithm>
 #include <chrono>
 #include <imm.h>
-#include <commdlg.h>
 
 #define TIMER_EDITOR_REPARSE 2
 
@@ -1034,19 +1034,17 @@ void exitEditMode(App& app) {
 // when the user cancels; on success app.currentFile carries the new path
 // and the note becomes a normal file-backed session.
 static bool promptSaveAsPath(App& app, HWND hwnd) {
-    wchar_t path[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFilter = L"Markdown (*.md)\0*.md;*.markdown\0"
-                      L"Mermaid (*.mmd)\0*.mmd\0"
-                      L"All files (*.*)\0*.*\0";
-    ofn.lpstrFile = path;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrDefExt = L"md";
-    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-    if (!GetSaveFileNameW(&ofn)) return false;
-    app.currentFile = toUtf8(path);
+    platform::FileDialogRequest request;
+    request.owner = hwnd;
+    request.filters = {{L"Markdown (*.md)", L"*.md;*.markdown"},
+                       {L"Mermaid (*.mmd)", L"*.mmd"},
+                       {L"All files (*.*)", L"*.*"}};
+    request.defaultExtension = L"md";
+    request.restoreDirectory = true;
+    std::optional<platform::FileDialogResult> picked =
+        platform::requestSavePath(request);
+    if (!picked) return false;
+    app.currentFile = toUtf8(picked->path);
     return true;
 }
 
@@ -1062,21 +1060,19 @@ bool quickNoteEmptyStateActive(const App& app) {
 }
 
 void openFileDialog(App& app, HWND hwnd) {
-    wchar_t path[MAX_PATH] = L"";
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFilter = L"Documents (*.md;*.mmd;*.txt;*.json;*.yaml;...)\0"
-                      L"*.md;*.markdown;*.mmd;*.txt;*.json;*.yaml;*.yml;*.toml;"
-                      L"*.ini;*.csv;*.log\0"
-                      L"Markdown / Mermaid (*.md;*.markdown;*.mmd)\0"
-                      L"*.md;*.markdown;*.mmd\0"
-                      L"All files (*.*)\0*.*\0";
-    ofn.lpstrFile = path;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR |
-                OFN_HIDEREADONLY;
-    if (!GetOpenFileNameW(&ofn)) return;
+    platform::FileDialogRequest request;
+    request.owner = hwnd;
+    request.filters = {
+        {L"Documents (*.md;*.mmd;*.txt;*.json;*.yaml;...)",
+         L"*.md;*.markdown;*.mmd;*.txt;*.json;*.yaml;*.yml;*.toml;"
+         L"*.ini;*.csv;*.log"},
+        {L"Markdown / Mermaid (*.md;*.markdown;*.mmd)", L"*.md;*.markdown;*.mmd"},
+        {L"All files (*.*)", L"*.*"}};
+    request.restoreDirectory = true;
+    request.hideReadOnly = true;
+    std::optional<platform::FileDialogResult> picked =
+        platform::requestOpenPath(request);
+    if (!picked) return;
 
     // Only an empty launcher/note is replaced. A document or unsaved
     // buffer stays in its tab, including when the picked path is open.
@@ -1084,7 +1080,7 @@ void openFileDialog(App& app, HWND hwnd) {
                         (!app.editMode || (app.editorText.empty() && !app.editorDirty));
     tabsInit(app);
     int untitledId = replaceEmpty ? app.tabs[app.activeTab].id : -1;
-    tabOpenPath(app, hwnd, toUtf8(path));
+    tabOpenPath(app, hwnd, toUtf8(picked->path));
     for (int i = 0; i < (int)app.tabs.size(); i++) {
         if (app.tabs[i].id == untitledId) {
             tabCloseIndex(app, hwnd, i);

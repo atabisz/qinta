@@ -11,8 +11,8 @@
 #include "i18n.h"
 #include "settings.h"
 #include "platform_paths.h"
+#include "file_dialog.h"
 
-#include <commdlg.h>
 #include <shlobj.h>
 
 #include <fstream>
@@ -154,21 +154,22 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
     if (!pandocAvailable(app) || app.pandocRunning) return;
     const PandocFormat& f = kFormats[fmt];
 
-    // Save dialog for the target file
+    // Save dialog for the target file. The one site of five whose filter and
+    // default extension are built at runtime, which is why file_dialog.h's
+    // FileFilter owns its strings instead of pointing at literals: f.ext is a
+    // member of a static table, but `L"*" + f.ext` is a temporary.
+    //
+    // No restoreDirectory here, matching the OFN_NOCHANGEDIR this site never set.
     std::wstring stem = docStem(app);
-    wchar_t out[MAX_PATH]{};
-    wcsncpy_s(out, (stem + f.ext).c_str(), _TRUNCATE);
-    std::wstring filter = std::wstring(f.filter) + L'\0' + L"*" + f.ext +
-                          L'\0' + L'\0';
-    OPENFILENAMEW ofn{};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = hwnd;
-    ofn.lpstrFilter = filter.c_str();
-    ofn.lpstrFile = out;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrDefExt = f.ext + 1;
-    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
-    if (!GetSaveFileNameW(&ofn)) return;
+    platform::FileDialogRequest request;
+    request.owner = hwnd;
+    request.filters = {{f.filter, std::wstring(L"*") + f.ext}};
+    request.initialName = stem + f.ext;
+    request.defaultExtension = f.ext + 1;  // skip the leading '.'
+    std::optional<platform::FileDialogResult> picked =
+        platform::requestSavePath(request);
+    if (!picked) return;
+    const std::wstring& out = picked->path;
 
     // Stage the input on the UI thread: our HTML export (diagrams and
     // math as SVG) for rich targets, the raw buffer for LaTeX
@@ -213,7 +214,7 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
             cmd += L"--resource-path=\"" + dir.substr(0, slash) + L"\" ";
         }
     }
-    cmd += L"-o \"" + std::wstring(out) + L"\" \"" + tempFile + L"\"";
+    cmd += L"-o \"" + out + L"\" \"" + tempFile + L"\"";
 
     PandocJob* job = new PandocJob{hwnd, cmd, tempFile};
     app.pandocRunning = true;

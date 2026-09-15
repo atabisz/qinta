@@ -21,10 +21,10 @@
 #include "export.h"
 #include "i18n.h"
 #include "selection.h"
+#include "file_dialog.h"
 
 #include <windowsx.h>
 #include <shellapi.h>
-#include <commdlg.h>
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
@@ -674,17 +674,18 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             app.layoutDirty = true;
             break;
         case SET_LOCATE_PANDOC: {
-            wchar_t path[MAX_PATH]{};
-            OPENFILENAMEW ofn{};
-            ofn.lStructSize = sizeof(ofn);
-            ofn.hwndOwner = hwnd;
-            ofn.lpstrFilter =
-                L"pandoc.exe\0pandoc.exe\0Programs (*.exe)\0*.exe\0\0";
-            ofn.lpstrFile = path;
-            ofn.nMaxFile = MAX_PATH;
-            ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
-            if (GetOpenFileNameW(&ofn)) {
-                pandocSetUserPath(app, path);
+            // No restoreDirectory: this site never passed OFN_NOCHANGEDIR, so
+            // browsing here still moves the process's current directory. Carried
+            // rather than corrected -- see file_dialog.h on why the seam preserves
+            // the divergence instead of unifying it.
+            platform::FileDialogRequest request;
+            request.owner = hwnd;
+            request.filters = {{L"pandoc.exe", L"pandoc.exe"},
+                               {L"Programs (*.exe)", L"*.exe"}};
+            std::optional<platform::FileDialogResult> picked =
+                platform::requestOpenPath(request);
+            if (picked) {
+                pandocSetUserPath(app, picked->path);
             }
             break;
         }

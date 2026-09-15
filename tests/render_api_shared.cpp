@@ -2127,6 +2127,199 @@ int runRenderApiAssertions(RenderHarness& h) {
         }
     }
 
+    // --- AnalyzeLineBreaks: UAX#14, the one text question that is about the SCRIPT --
+    //
+    // The seam method with the largest gap between what was claimed and what was ever
+    // executed. The reasoning it replaced lived only in a comment in render.cpp --
+    // Chinese prose has no spaces, so a backend that cannot answer treats an entire
+    // sentence as one unbreakable word -- and nothing ran it. Two unrelated engines
+    // answer it now, IDWriteTextAnalyzer and QTextBoundaryFinder, so an agreement here
+    // is evidence about the SEAM rather than about either implementation.
+    //
+    // Every non-ASCII character is written as a \u escape and never as a literal,
+    // because MSVC without /utf-8 reads source in the active code page: a literal
+    // ideograph here would make the compiler guess at the very bytes under test.
+    //
+    // Sized text.size() + 1 and indexed exactly as src/render.cpp's
+    // analyzeBreakOpportunities does it. A test that sizes the vector differently from
+    // the only caller is testing a contract nobody uses.
+    {
+        auto analyse = [&h](const wchar_t* text, uint32_t len,
+                            std::vector<bool>& out) -> bool {
+            out.assign(static_cast<size_t>(len) + 1, false);
+            return h.textFactory().AnalyzeLineBreaks(text, len, out);
+        };
+
+        // ASCII first, because it is the case a reader can check by eye -- if this
+        // fails, nothing below is interpretable.
+        {
+            static const wchar_t kAscii[] = L"hello world";
+            std::vector<bool> b;
+            const bool ok = analyse(kAscii, 11, b);
+            check(ok,
+                  "CONTROL: the backend analysed line breaks at all -- a false here "
+                  "would leave every assertion below reading the vector's own zeroes");
+            if (ok) {
+                check(b[6], "a line may break before 'w', the character after the space");
+                check(!b[3], "and not in the middle of \"hello\"");
+                check(!b[5],
+                      "nor before the space itself -- the opportunity falls AFTER a "
+                      "space, which is the off-by-one the seam's loop is entirely about");
+            }
+        }
+
+        {
+            // U+65E5 U+672C U+8A9E -- three Han ideographs, no space anywhere. This is
+            // the fact the old comment asserted in prose and nothing measured.
+            static const wchar_t kHan[] = L"\u65E5\u672C\u8A9E";
+            std::vector<bool> b;
+            if (analyse(kHan, 3, b)) {
+                check(b[1] && b[2],
+                      "A LINE MAY BREAK BETWEEN IDEOGRAPHS, at every position -- the "
+                      "space-only fallback returns false for all of them, so this is "
+                      "the assertion that distinguishes a real analyzer from none");
+            }
+        }
+
+        {
+            // U+3002, the ideographic full stop: UAX#14 class CL. A break before it
+            // would orphan the punctuation onto the head of the next line.
+            static const wchar_t kClose[] = L"\u65E5\u672C\u3002";
+            std::vector<bool> b;
+            if (analyse(kClose, 3, b)) {
+                check(b[1], "CONTROL: the ideograph pair in the same string still breaks");
+                check(!b[2],
+                      "NO BREAK BEFORE CLOSING PUNCTUATION -- the full stop stays with "
+                      "the ideograph it follows, which space-only breaking gets right "
+                      "only by never breaking at all");
+            }
+        }
+
+        {
+            // U+300C / U+300D, the corner brackets: class OP forbids a break after the
+            // opener, class CL a break before the closer.
+            static const wchar_t kBracket[] = L"\u300C\u65E5\u672C\u300D";
+            std::vector<bool> b;
+            if (analyse(kBracket, 4, b)) {
+                check(!b[1], "NO BREAK AFTER AN OPENING BRACKET");
+                check(!b[3], "and none before a closing one");
+                check(b[2],
+                      "CONTROL: the two ideographs BETWEEN the brackets do break, so "
+                      "the two prohibitions above are not just an analyzer refusing to "
+                      "answer for this string");
+            }
+        }
+
+        {
+            // Quotation marks are class QU, which forbids a break on either side --
+            // asserted on ASCII because it is the one prohibition that shows up in
+            // ordinary English text.
+            static const wchar_t kQuoted[] = L"\"hello\"";
+            std::vector<bool> b;
+            if (analyse(kQuoted, 7, b)) {
+                check(!b[1], "no break between an opening quote and the word it opens");
+                check(!b[6], "and none between the word and its closing quote");
+            }
+        }
+
+        // --- THE NON-BMP CASE, which is the only reason the index walk exists -------
+        //
+        // The same omission the astral hit-testing block above was written to fix, and
+        // I nearly repeated it: every assertion so far is BMP, and for BMP text the
+        // Qt backend's caller-unit-to-QString-unit step is numerically 1 on both
+        // platforms, so breaking it reddens nothing. The mapping's entire subject would
+        // have been untested by the block written to test it.
+        //
+        // Offsets are derived from the literal's own element count rather than written
+        // down, because U+1F600 is TWO caller units on Windows and ONE on Linux --
+        // exactly as the astral hit-test block does it.
+        {
+            static const wchar_t kMixed[] = L"\u65E5\U0001F600\u672C";
+            const uint32_t kMixedLen = (uint32_t)(sizeof(kMixed) / sizeof(wchar_t)) - 1;
+            const uint32_t kAstralUnits = (sizeof(wchar_t) == 2) ? 2u : 1u;
+            check(kMixedLen == 1u + kAstralUnits + 1u,
+                  "CONTROL: the mixed BMP/astral literal has this platform's element "
+                  "count, so the index below is the caller's real one");
+
+            std::vector<bool> b;
+            if (analyse(kMixed, kMixedLen, b)) {
+                check(b[1],
+                      "CONTROL: a break is offered between the first ideograph and the "
+                      "astral character");
+                // THE ASSERTION THE WALK EXISTS FOR. On Linux a backend that stepped
+                // its QString cursor by 1 per caller unit would ask the boundary finder
+                // about a position INSIDE the surrogate pair, which is not a boundary,
+                // and this would come back false. On Windows the step is 1 either way,
+                // so this assertion is live off Windows and free on it -- which is the
+                // honest description of the mapping itself.
+                check(b[1u + kAstralUnits],
+                      "AND ONE AFTER IT, at the caller's index -- the QString cursor "
+                      "stayed aligned across a surrogate pair");
+            }
+        }
+
+        // --- The contract in text_api.h, clause by clause -------------------------
+        {
+            static const wchar_t kAscii[] = L"hello world";
+            const uint32_t len = 11;
+
+            // Clause 2, POISONED BOTH WAYS. Filling with false and asserting index 0
+            // and index length come back false would pass for a backend that writes
+            // false into them -- and writing them is the likely mistake, because Qt's
+            // boundary finder reports a boundary at BOTH ends, so an implementation
+            // that copies its answer straight across writes true at 0 and at length.
+            // Each end is therefore run once poisoned true and once poisoned false and
+            // must survive unchanged in both.
+            std::vector<bool> t(static_cast<size_t>(len) + 1, true);
+            const bool okT = h.textFactory().AnalyzeLineBreaks(kAscii, len, t);
+            std::vector<bool> f(static_cast<size_t>(len) + 1, false);
+            const bool okF = h.textFactory().AnalyzeLineBreaks(kAscii, len, f);
+            check(okT && okF, "CONTROL: both poisoned runs analysed");
+            if (okT && okF) {
+                check(t[0] && !f[0],
+                      "INDEX 0 IS UNTOUCHED: true when poisoned true, false when "
+                      "poisoned false, so the backend demonstrably did not write it");
+                check(t[len] && !f[len],
+                      "AND SO IS INDEX length -- the end-of-string break belongs to the "
+                      "caller, which sets it unconditionally");
+                check(t[6] && f[6],
+                      "CONTROL: an interior index IS written, to the same value from "
+                      "both poisons -- without this, the two checks above would be "
+                      "satisfied by a backend that writes nothing whatsoever");
+            }
+        }
+
+        {
+            // Clause 3: a false return leaves canBreak alone. The caller's space-only
+            // fallback reads the vector it assigned itself, so a backend that filled
+            // half of it and THEN failed would corrupt a fallback that still reports
+            // success.
+            std::vector<bool> b(6, true);
+            check(!h.textFactory().AnalyzeLineBreaks(L"hello", 0, b),
+                  "a zero length is refused rather than analysed");
+            check(b[0] && b[5], "and the refused call left the vector untouched");
+
+            std::vector<bool> nullv(6, true);
+            check(!h.textFactory().AnalyzeLineBreaks(nullptr, 5, nullv),
+                  "a null string is refused");
+            check(nullv[0] && nullv[5], "and that refusal touched nothing either");
+
+            // Sized `length`, one slot short of the contract. A backend that wrote
+            // 1..length-1 into it would be entirely in bounds and would silently
+            // deprive the caller of the end-of-string slot it depends on, so this is
+            // refused rather than served.
+            //
+            // Named `undersized` and not `small`, which MSVC rejects here for a reason
+            // no Linux build could ever surface: rpcndr.h, reached through windows.h,
+            // does `#define small char`. Worth the sentence -- it is invisible in the
+            // portable half of the tree and the error it produces names neither the
+            // macro nor the header.
+            std::vector<bool> undersized(5, false);
+            check(!h.textFactory().AnalyzeLineBreaks(L"hello", 5, undersized),
+                  "AN UNDERSIZED VECTOR IS REFUSED, not written into as far as it fits");
+        }
+    }
+
     std::printf("%s%d render-api assertions run, %d failed (backend=%s)\n",
                 failures == 0 ? "all " : "", checks, failures, h.name());
     return failures;

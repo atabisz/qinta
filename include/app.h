@@ -386,7 +386,9 @@ struct App {
     // DirectWrite
     IDWriteFactory* dwriteFactory = nullptr;
     IDWriteFontFallback* fontFallback = nullptr;  // For emoji font fallback
-    IDWriteTextAnalyzer* textAnalyzer = nullptr;  // UAX#14 line-break analysis
+    // textAnalyzer is GONE: UAX#14 line-break analysis moved behind
+    // tinta::TextFactory::AnalyzeLineBreaks, and D2DTextFactory owns its own analyzer,
+    // created on first use rather than on every start.
 
     // The factory's wrapper is SEATED, unlike the four bitmaps' read-time accessors,
     // and the discriminator is a replacement count of ZERO: dwriteFactory is created
@@ -1451,7 +1453,8 @@ struct App {
         renderTargetStorage.reset();
         renderTarget = nullptr;
         releaseNative(fontFallback);
-        releaseNative(textAnalyzer);
+        // No releaseNative(textAnalyzer): the analyzer is now owned by D2DTextFactory
+        // and released by ~D2DTextFactory when textFactoryStorage resets below.
         textFormatStorage.reset(); nativeTextFormat = nullptr; textFormat = nullptr;
         headingFormatStorage.reset(); nativeHeadingFormat = nullptr; headingFormat = nullptr;
         codeFormatStorage.reset(); nativeCodeFormat = nullptr; codeFormat = nullptr;

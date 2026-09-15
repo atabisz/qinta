@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "geometry.h"
 
@@ -642,6 +643,37 @@ public:
 
     virtual std::unique_ptr<InlineObject> CreateEllipsisTrimmingSign(
         TextFormat* format) = 0;
+
+    // UAX#14 line-break opportunities, which is the one text question tinta asks that
+    // is about the SCRIPT rather than about a font: Chinese prose has no spaces, so a
+    // backend that cannot answer it treats an entire sentence as one unbreakable word.
+    // It lives on the factory rather than on TextLayout because it needs no font, no
+    // size and no box -- DirectWrite answers it from IDWriteTextAnalyzer, a sibling of
+    // the layout objects this class already makes, and Qt answers it from
+    // QTextBoundaryFinder, which needs nothing but the string.
+    //
+    // THE CONTRACT, spelled out because two of its three clauses are the kind a
+    // backend gets wrong while still compiling and still drawing plausible text:
+    //
+    //   1. canBreak is indexed so that canBreak[i] == true means "a line may break
+    //      BEFORE text[i]", in the CALLER's wchar_t units. It is sized by the caller
+    //      and an implementation MUST NOT resize it.
+    //   2. An implementation writes indices 1 .. length-1 ONLY. Index 0 and index
+    //      length belong to the caller: a break before the first character is not a
+    //      break, and the end of the string is always a break. Qt's boundary finder
+    //      reports a boundary at both ends, so this clause is a real instruction and
+    //      not a description of what falls out naturally.
+    //   3. Returning false means "this backend did not analyse the text", NOT "there
+    //      are no break opportunities". The caller falls back to space-only breaking,
+    //      which is exactly what it already does today when DirectWrite's analyzer is
+    //      absent or its call fails -- so the shape a caller must handle is unchanged.
+    //      A false return leaves canBreak untouched.
+    //
+    // Caller units matter on Linux, where wchar_t is UTF-32: one caller unit can be
+    // two QString units. QtTextFactory maps them rather than assuming they agree, for
+    // the same reason QtTextLayout::ensureIndexMap exists.
+    virtual bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
+                                   std::vector<bool>& canBreak) = 0;
 };
 
 }  // namespace tinta

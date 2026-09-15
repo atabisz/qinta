@@ -263,6 +263,12 @@ public:
 
     std::unique_ptr<tinta::InlineObject> CreateEllipsisTrimmingSign(
         tinta::TextFormat* format) override;
+
+    // Needs no member state at all: QTextBoundaryFinder is constructed per call from
+    // the string. The DirectWrite side has to own an IDWriteTextAnalyzer to answer the
+    // same question, which is why the seam method is non-const.
+    bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
+                           std::vector<bool>& canBreak) override;
 };
 
 // Handles both wchar_t widths, which is the whole reason the seam can keep passing

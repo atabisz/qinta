@@ -189,6 +189,7 @@ private:
 class D2DTextFactory final : public tinta::TextFactory {
 public:
     explicit D2DTextFactory(IDWriteFactory* factory) : factory_(factory) {}
+    ~D2DTextFactory() override;
 
     std::unique_ptr<tinta::TextFormat> CreateTextFormat(
         const wchar_t* fontFamily, tinta::FontWeight weight, tinta::FontStyle style,
@@ -202,8 +203,18 @@ public:
     std::unique_ptr<tinta::InlineObject> CreateEllipsisTrimmingSign(
         tinta::TextFormat* format) override;
 
+    bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
+                           std::vector<bool>& canBreak) override;
+
 private:
     IDWriteFactory* factory_;  // borrowed -- App owns the DWrite factory
+
+    // Created on first use rather than in the constructor, and OWNED, which is why
+    // this class now has a destructor at all. It replaces App::textAnalyzer, a native
+    // member d2d_init.cpp created eagerly on every start whether or not a single
+    // non-ASCII paragraph was ever laid out -- the analyzer is only reached from the
+    // slow path in analyzeBreakOpportunities, so most sessions never needed it.
+    IDWriteTextAnalyzer* analyzer_ = nullptr;
 };
 
 // Unwraps a seam handle back to its DirectWrite object, asserting the handle

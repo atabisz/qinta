@@ -489,7 +489,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 21,398 / 58,660 | **36.5%** |
+| A. Source lines free of the Windows stack | 21,439 / 58,809 | **36.5%** |
 | B. `src/*.cpp` files compiling without Windows headers | 36 / 61 | 59.0% |
 | C. Files a *running* test links | 34 / 61 | 55.7% |
 | D. Windows tests that also run off Windows | 21 / 31 | 67.7% |
@@ -505,8 +505,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 51,301 lines of the 58,660,
-**basis A's ceiling is 87.5%, not 100%**, and 36.5% should be read against that.
+can never enter the numerator. With `src/*.cpp` totalling 51,398 lines of the 58,809,
+**basis A's ceiling is 87.4%, not 100%**, and 36.5% should be read against that.
 
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
 denominator moved 57,997 → 58,026 *during* that pass: 29 lines, all of them
@@ -520,36 +520,43 @@ why an independent line count disagreed with the probe by exactly 29 until the p
 re-run at the final tree state; two instruments agreeing at 58,026 is the reading, and one
 of them being stale was the reason to re-run rather than reconcile on paper.
 
-**This pass the headline went *down* — 36.7% → 36.5% — and B and C did not move at all.**
-That is the opposite arithmetic from the pass before it, and the two together say the thing
-worth knowing about these bases. The path geometry seam added **no** file to `src/*.cpp`, so
-B stayed at 36/61 and C at 34/61 exactly. What it added was 634 net lines to `src/`+`include/`,
-of which **111 can ever be credited** — 17.5%. Every line of that 111 is `src/render_qt.cpp`,
-the only manifest-listed file the pass touched:
+**This pass the headline did not move at all — 36.5% before and after — and B, C, D and E
+are each unchanged to the file.** The line-breaking seam added no file and no target: it
+moved a 75-line DirectWrite COM class out of `render.cpp` into `src/text_d2d.cpp`, wrote its
+Qt counterpart into `src/text_qt.cpp`, and declared the contract in `include/text_api.h`. Of
+149 net new lines in `src/`+`include/`, **41 can ever be credited** — 27.5%, and all of it
+`src/text_qt.cpp`, the only manifest-listed file the pass touched:
 
-| Where the 634 new lines went | Net | Creditable? |
+| Where the 149 new lines went | Net | Creditable? |
 |---|---|---|
-| `include/` — `geometry.h` +117, `render_api.h` +117, `render_d2d.h` +74, `render_qt.h` +61, `app.h` +13 | **+382** | never — header lines are denominator-only forever |
-| `src/render_d2d.cpp` — the `D2DPathSink` backend | **+116** | never — Windows backend, not in the manifest |
-| `src/render_qt.cpp` — the `QtPathSink` backend | **+111** | yes, all of it |
-| `src/export_docx.cpp` +16, `print.cpp` +14, `main_d2d.cpp` +1, `render.cpp` −6 | **+25** | not yet — none of these four compiles off Windows |
+| `src/text_d2d.cpp` — the moved `LineBreakAnalysis` COM pair plus the lazy analyzer | **+132** | never — Windows backend, not in the manifest |
+| `src/text_qt.cpp` — `QTextBoundaryFinder` and the caller-unit walk | **+41** | yes, all of it |
+| `include/` — `text_api.h` +32, `text_d2d.h` +11, `text_qt.h` +6, `app.h` +3 | **+52** | never — header lines are denominator-only forever |
+| `src/render.cpp` −78, `src/d2d_init.cpp` +2 | **−76** | not creditable, and it HELPED — see below |
 
-So a *seam* pass is structurally worse for basis A than a *backend-split* pass, and for a
-reason that is not a flaw in the work: the abstraction itself lives in headers, which the
-numerator cannot reach, and the Windows half lives in a `.cpp` the manifest will never list.
-The pass before this one showed the file-count version of the same thing — the image seam
-added **two** files to `src/*.cpp` where only `image_qt.cpp` can ever be portable, so B went
-35/59 → 36/61 and C 33/59 → 34/61, both numerators up one, both denominators up two, both
-percentages down, while basis A stood still at 36.7% and the ceiling fell 88.1% → 88.0%.
-The ceiling has now fallen again, 88.0% → 87.5%, which is the 382 header lines showing up
-in the only figure that reads them honestly.
+That last row is the one worth reading twice, because it is the first time this arithmetic
+has run the other way. `render.cpp` does not compile off Windows, so its lines are
+denominator-only exactly as a header's are — which means **deleting** them lifts basis A
+instead of lowering it. 78 lines left it, and that is why a pass whose creditable share was
+27.5% still held the headline flat where the previous pass, at 17.5% creditable, pushed it
+down. A seam pass is still structurally poor for basis A (the abstraction lives in headers
+and the Windows half in an unlisted `.cpp`), but a seam pass that *shrinks a Windows-only
+file* partly pays for itself in the same figure.
 
-That is the honest shape of building a seam, and it is worth stating rather than smoothing
-over: every seam this port creates will do this to these figures. A basis that falls when you
-do the right thing is not a broken basis, but it is a basis you have to read with the commit
-in front of you. Both instruments were re-read at the final tree state — the probe's own
-denominator and an independent `git diff --numstat` sum agree at 58,660 and at +634, which is
-the check, rather than reconciling on paper.
+The ceiling fell again, 87.5% → 87.4%, which is the 52 header lines showing up in the only
+figure that reads them honestly. Both instruments were re-read at the final tree state — the
+probe's own denominator and an independent `git diff --numstat` sum agree at 58,809 and at
++149 — which is the check, rather than reconciling on paper.
+
+**The measurable result of this pass is not in these bases at all**, and that is the point
+of keeping more than one. `src/render.cpp` went from **70 off-Windows compile errors to 47**
+with `fatal=0`, and the count of `IDWriteTextAnalys*` mentions in its error output went to
+**zero**: the entire DirectWrite text-analysis family is out of the file. Basis A cannot see
+that, because `render.cpp` is not portable either way. The other reading is the assertion
+count — the shared render-api suite went 263 → **266**, and it now returns 266 with zero
+failures on *three* independent readings: Qt on Linux, Qt on Windows, and Direct2D on
+Windows. Four positive controls were run against those assertions with the failing count
+predicted in the script before each, and each fired on exactly the predicted assertion.
 
 This is the fifth consecutive pass where the headline was the wrong place to look, and the
 second where it misled in the *flattering* direction — two passes ago it jumped a full point on

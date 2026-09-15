@@ -64,7 +64,9 @@ bool initD2D(App& app) {
     hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED,
         __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&app.dwriteFactory));
     if (app.dwriteFactory) {
-        app.dwriteFactory->CreateTextAnalyzer(&app.textAnalyzer);
+        // No CreateTextAnalyzer here any more. It used to run on EVERY start, for a
+        // COM object only the non-ASCII line-breaking slow path ever touched;
+        // D2DTextFactory now creates one lazily behind TextFactory::AnalyzeLineBreaks.
         // Seated HERE and not from App::seatSeamWrappers(), which has zero callers --
         // the live paths are the individual seaters, called from this file. Adding a
         // line to the aggregate would have compiled clean, left app.textFactory null

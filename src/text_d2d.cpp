@@ -7,6 +7,7 @@
 
 #include <cassert>
 #include <cstddef>
+#include <vector>
 
 // The pairings text_api.h promises but cannot assert, because that header must
 // stay clear of <dwrite.h>. Every value below was read out of the SDK header
@@ -608,6 +609,137 @@ std::unique_ptr<tinta::InlineObject> D2DTextFactory::CreateEllipsisTrimmingSign(
         return nullptr;
     }
     return std::make_unique<D2DInlineObject>(sign);
+}
+
+// --- UAX#14 line-break analysis ---------------------------------------------
+//
+// This class arrives VERBATIM from src/render.cpp, where it sat in an anonymous
+// namespace two hundred lines above its only caller. It is 75 lines of pure COM
+// callback plumbing -- two interfaces, a QueryInterface, five source methods and four
+// sink methods -- and it was the largest single reason the tree's most portable-looking
+// layout file could not be compiled off Windows.
+//
+// DirectWrite's text analyzer implements the Unicode line breaking algorithm, including
+// the CJK rules (a break opportunity between almost every pair of ideographs, but never
+// before closing punctuation like 。，」 or after opening brackets). That claim is now
+// asserted on both backends in tests/render_api_shared.cpp rather than only stated in a
+// comment, because a comment is an instrument nothing in this tree can read.
+namespace {
+
+class LineBreakAnalysis final : public IDWriteTextAnalysisSource,
+                                public IDWriteTextAnalysisSink {
+public:
+    LineBreakAnalysis(const wchar_t* text, UINT32 length)
+        : text_(text), length_(length), breakpoints_(length) {}
+
+    std::vector<DWRITE_LINE_BREAKPOINT> breakpoints_;
+
+    // Stack-allocated and used synchronously: refcounting is inert
+    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }
+    ULONG STDMETHODCALLTYPE Release() override { return 1; }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override {
+        if (riid == __uuidof(IDWriteTextAnalysisSource)) {
+            *object = static_cast<IDWriteTextAnalysisSource*>(this);
+            return S_OK;
+        }
+        if (riid == __uuidof(IDWriteTextAnalysisSink)) {
+            *object = static_cast<IDWriteTextAnalysisSink*>(this);
+            return S_OK;
+        }
+        if (riid == __uuidof(IUnknown)) {
+            *object = static_cast<IUnknown*>(static_cast<IDWriteTextAnalysisSource*>(this));
+            return S_OK;
+        }
+        *object = nullptr;
+        return E_NOINTERFACE;
+    }
+
+    // IDWriteTextAnalysisSource
+    HRESULT STDMETHODCALLTYPE GetTextAtPosition(UINT32 position, const WCHAR** text,
+                                                UINT32* textLength) override {
+        if (position >= length_) { *text = nullptr; *textLength = 0; return S_OK; }
+        *text = text_ + position;
+        *textLength = length_ - position;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetTextBeforePosition(UINT32 position, const WCHAR** text,
+                                                    UINT32* textLength) override {
+        if (position == 0 || position > length_) { *text = nullptr; *textLength = 0; return S_OK; }
+        *text = text_;
+        *textLength = position;
+        return S_OK;
+    }
+    DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override {
+        return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
+    }
+    HRESULT STDMETHODCALLTYPE GetLocaleName(UINT32 position, UINT32* textLength,
+                                            const WCHAR** localeName) override {
+        *localeName = L"en-us";
+        *textLength = length_ - position;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetNumberSubstitution(UINT32 position, UINT32* textLength,
+                                                    IDWriteNumberSubstitution** substitution) override {
+        *substitution = nullptr;
+        *textLength = length_ - position;
+        return S_OK;
+    }
+
+    // IDWriteTextAnalysisSink
+    HRESULT STDMETHODCALLTYPE SetLineBreakpoints(UINT32 position, UINT32 length,
+                                                 const DWRITE_LINE_BREAKPOINT* lineBreakpoints) override {
+        for (UINT32 i = 0; i < length && position + i < breakpoints_.size(); i++) {
+            breakpoints_[position + i] = lineBreakpoints[i];
+        }
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE SetScriptAnalysis(UINT32, UINT32, const DWRITE_SCRIPT_ANALYSIS*) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetBidiLevel(UINT32, UINT32, UINT8, UINT8) override { return S_OK; }
+    HRESULT STDMETHODCALLTYPE SetNumberSubstitution(UINT32, UINT32, IDWriteNumberSubstitution*) override { return S_OK; }
+
+private:
+    const wchar_t* text_;
+    UINT32 length_;
+};
+
+}  // namespace
+
+D2DTextFactory::~D2DTextFactory() {
+    // The one owned COM object on this class. factory_ is borrowed and must not be
+    // touched here.
+    if (analyzer_) analyzer_->Release();
+}
+
+bool D2DTextFactory::AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
+                                       std::vector<bool>& canBreak) {
+    if (!factory_ || !text || length == 0) return false;
+    if (canBreak.size() < static_cast<size_t>(length) + 1) return false;
+
+    // Lazy, and a failure here is not retried-and-cached: analyzer_ stays null, the
+    // call returns false, and the caller's space-only fallback runs -- the same
+    // behaviour App::textAnalyzer already had when CreateTextAnalyzer failed at start.
+    if (!analyzer_) {
+        if (FAILED(factory_->CreateTextAnalyzer(&analyzer_)) || !analyzer_) {
+            analyzer_ = nullptr;
+            return false;
+        }
+    }
+
+    LineBreakAnalysis analysis(text, static_cast<UINT32>(length));
+    if (FAILED(analyzer_->AnalyzeLineBreakpoints(&analysis, 0,
+                                                 static_cast<UINT32>(length), &analysis))) {
+        return false;
+    }
+
+    // Indices 1 .. length-1 only, per the contract in text_api.h. The read is
+    // breakConditionAfter of the PRECEDING character, which is what makes canBreak[i]
+    // mean "before text[i]" -- the off-by-one that this loop's shape is entirely about.
+    for (uint32_t i = 1; i < length; i++) {
+        const UINT8 after = analysis.breakpoints_[i - 1].breakConditionAfter;
+        canBreak[i] = (after == DWRITE_BREAK_CONDITION_CAN_BREAK ||
+                       after == DWRITE_BREAK_CONDITION_MUST_BREAK);
+    }
+    return true;
 }
 
 // --- unwrapping -------------------------------------------------------------

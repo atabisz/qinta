@@ -99,7 +99,10 @@ int main(int argc, char** argv) {
     if (QFontDatabase::families().isEmpty()) {
         std::printf("FAIL: no font database under platform=%s, so every metric below\n"
                     "      would be fabricated rather than measured. Refusing to run.\n"
-                    "      Use QT_QPA_PLATFORM=offscreen, never minimal.\n",
+                    "      Use offscreen OFF Windows and windows ON it, never minimal.\n"
+                    "      (offscreen has no font database on Windows -- measured\n"
+                    "      2026-09-15, and the reason CMakeLists.txt pins this per\n"
+                    "      platform rather than once.)\n",
                     platform.toUtf8().constData());
         return 2;
     }
@@ -111,6 +114,13 @@ int main(int argc, char** argv) {
     QFont font("DejaVu Sans", 32.0);
     const QFontInfo info(font);
     check(!info.family().isEmpty(), "the requested family resolves to something named");
+    // WHAT IT ACTUALLY GOT, printed rather than merely asserted non-empty. DejaVu Sans
+    // does not exist on Windows, so the family below is a SUBSTITUTION there, and 4 of
+    // the assertions in this file are measured against whatever it turned out to be --
+    // discovered on the first Windows run because the failures could not be attributed
+    // without this line. A test that names no font is under-reporting what it measured.
+    std::printf("      font requested=\"DejaVu Sans\" resolved=\"%s\" platform=%s\n",
+                info.family().toUtf8().constData(), platform.toUtf8().constData());
     check(info.pointSizeF() > 0.0, "the resolved font has a positive point size");
 
     // --- CreateTextFormat -> QFont --------------------------------------------

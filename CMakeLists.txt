@@ -1118,8 +1118,25 @@ if(BUILD_TESTING)
         add_executable(qt_text_tests tests/qt_text_tests.cpp)
         target_link_libraries(qt_text_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME qt_text COMMAND qt_text_tests)
+
+        # THE PLATFORM PLUGIN IS NOT THE SAME CHOICE ON BOTH SYSTEMS, and this was
+        # measured on 2026-09-15 rather than reasoned about. Off Windows, `offscreen`
+        # carries a real font database and `minimal` does not, which is why every
+        # comment in this tree says offscreen and never minimal. ON WINDOWS, offscreen
+        # has NO font database at all: qt_text_tests refuses with exit 2 under it, and
+        # render_api_tests refuses too -- both by the guards written for exactly this,
+        # which is the guards working rather than a new problem.
+        #
+        # Under `windows` the database is real and render_api passes all 266 assertions,
+        # the same count and the same zero failures as Qt on Linux and Direct2D here.
+        # So the variable is pinned per platform, not once.
+        set(TINTA_QPA_PLATFORM "offscreen")
+        if(WIN32)
+            set(TINTA_QPA_PLATFORM "windows")
+        endif()
+
         set_tests_properties(qt_text PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+            ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
 
         # The drawing seam and its first non-Direct2D backend. This target is also
         # the only thing that compiles include/render_api.h off Windows: a header
@@ -1143,7 +1160,34 @@ if(BUILD_TESTING)
         # that matters is that no arm reaches for a real display, and pinning it
         # keeps the two Qt targets from disagreeing about their environment.
         set_tests_properties(render_api PROPERTIES
-            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+            ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+
+        # WINDOWS ONLY, AND MEASURED RATHER THAN ANTICIPATED. The first time these two
+        # targets ran on Windows -- 2026-09-15, the day Qt 6.8.3 was installed here --
+        # both FAILED under ctest while both PASSED when launched by hand with
+        # C:/Qt/.../bin on PATH. The cause is the Windows DLL search: Qt6Core.dll and
+        # Qt6Gui.dll live in the Qt prefix, are not beside the .exe, and there is no
+        # rpath equivalent, so ctest's child could not start at all.
+        #
+        # Worth the paragraph because of what it LOOKED like: a process that dies before
+        # main() prints no assertion count, and ctest reports it the same way it reports
+        # a real assertion failure -- ***Failed, a duration, no output. Nothing in the
+        # line distinguishes "the DLL was missing" from "the seam is broken", which is
+        # the failure mode this tree keeps finding in its own instruments.
+        #
+        # Off Windows this is not needed and not set: the Linux build finds Qt through
+        # the loader's own configuration, which is why 23 tests were green there while
+        # these two were red here.
+        #
+        # ENVIRONMENT_MODIFICATION rather than ENVIRONMENT because PATH must be
+        # PREPENDED to what the runner already has, not replaced by it. It needs CMake
+        # 3.22 and this file only requires 3.15, so it is guarded -- an older CMake gets
+        # no property and the same by-hand PATH it needed before.
+        if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+            set_tests_properties(qt_text render_api PROPERTIES
+                ENVIRONMENT_MODIFICATION
+                "PATH=path_list_prepend:$<SHELL_PATH:$<TARGET_FILE_DIR:Qt6::Core>>")
+        endif()
 
         message(STATUS "Qt6 ${Qt6_VERSION} found -- qt_text and render_api targets enabled")
     else()

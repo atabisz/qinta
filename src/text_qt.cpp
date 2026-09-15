@@ -5,6 +5,7 @@
 
 #include <QFontMetricsF>
 #include <QPainter>
+#include <QTextBoundaryFinder>
 #include <QTextCharFormat>
 #include <QTextLine>
 #include <QTextOption>
@@ -987,4 +988,44 @@ std::unique_ptr<tinta::InlineObject> QtTextFactory::CreateEllipsisTrimmingSign(
     // know its own font.
     (void)format;
     return std::make_unique<QtInlineObject>();
+}
+
+bool QtTextFactory::AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
+                                      std::vector<bool>& canBreak) {
+    if (!text || length == 0) return false;
+    if (canBreak.size() < static_cast<size_t>(length) + 1) return false;
+
+    const QString qs = toQt(text, length);
+    if (qs.isEmpty()) return false;
+
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Line, qs);
+
+    // THE PART THAT IS NOT A RENAME. canBreak is indexed in the caller's wchar_t
+    // units; the finder answers in QString (UTF-16) units. Those agree on Windows,
+    // where wchar_t is already UTF-16, and DIVERGE on Linux, where a single wchar_t
+    // holding a non-BMP code point becomes a surrogate PAIR in the QString -- so
+    // every index after the first emoji or rare ideograph would be shifted, and the
+    // symptom would be line breaks landing one character off in exactly the scripts
+    // this seam exists to serve. Walking both cursors together keeps them aligned
+    // without a second pass, and on Windows the step is unconditionally 1, so this
+    // costs nothing there and needs no #ifdef.
+    int qtIndex = 0;
+    for (uint32_t i = 0; i < length; i++) {
+        if (i >= 1) {
+            // Clause 2 of the contract: 1 .. length-1 only. Qt reports a boundary at
+            // position 0 and at the end of the string, and both would be wrong to
+            // write -- index 0 is not a break, and index length is the caller's.
+            //
+            // setPosition-then-ask, because QTextBoundaryFinder::isAtBoundary() takes
+            // no index -- it answers about the finder's CURRENT position. Passing the
+            // index looked right and MSVC caught it (C2660); nothing about the shape
+            // of this loop would have. The positions are visited in increasing order,
+            // so this is a cursor move rather than a re-scan.
+            finder.setPosition(qtIndex);
+            canBreak[i] = finder.isAtBoundary();
+        }
+        const char32_t cp = static_cast<char32_t>(text[i]);
+        qtIndex += (sizeof(wchar_t) == 4 && cp > 0xFFFF) ? 2 : 1;
+    }
+    return true;
 }

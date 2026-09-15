@@ -320,89 +320,16 @@ static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent
 
 // --- UAX#14 line-break analysis ---
 //
-// DirectWrite's text analyzer implements the Unicode line breaking
-// algorithm, including CJK rules (a break opportunity between almost every
-// pair of ideographs, but never before closing punctuation like 。，」or
-// after opening brackets). Chinese prose has no spaces, so anything less
-// treats an entire sentence as one unbreakable word.
+// The 75-line IDWriteTextAnalysisSource/Sink pair that used to sit here has moved to
+// src/text_d2d.cpp behind tinta::TextFactory::AnalyzeLineBreaks, with its CJK reasoning
+// intact. What stays here is the part that is not DirectWrite's: the ASCII fast path,
+// and the space-only fallback for when a backend cannot answer.
+//
+// The seam call replaces a direct app.textAnalyzer use, and App::textAnalyzer is gone
+// with it -- the analyzer is now created lazily by the backend on first non-ASCII
+// paragraph rather than eagerly at startup for every session.
 
 namespace {
-
-class LineBreakAnalysis final : public IDWriteTextAnalysisSource,
-                                public IDWriteTextAnalysisSink {
-public:
-    LineBreakAnalysis(const wchar_t* text, UINT32 length)
-        : text_(text), length_(length), breakpoints_(length) {}
-
-    std::vector<DWRITE_LINE_BREAKPOINT> breakpoints_;
-
-    // Stack-allocated and used synchronously: refcounting is inert
-    ULONG STDMETHODCALLTYPE AddRef() override { return 2; }
-    ULONG STDMETHODCALLTYPE Release() override { return 1; }
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** object) override {
-        if (riid == __uuidof(IDWriteTextAnalysisSource)) {
-            *object = static_cast<IDWriteTextAnalysisSource*>(this);
-            return S_OK;
-        }
-        if (riid == __uuidof(IDWriteTextAnalysisSink)) {
-            *object = static_cast<IDWriteTextAnalysisSink*>(this);
-            return S_OK;
-        }
-        if (riid == __uuidof(IUnknown)) {
-            *object = static_cast<IUnknown*>(static_cast<IDWriteTextAnalysisSource*>(this));
-            return S_OK;
-        }
-        *object = nullptr;
-        return E_NOINTERFACE;
-    }
-
-    // IDWriteTextAnalysisSource
-    HRESULT STDMETHODCALLTYPE GetTextAtPosition(UINT32 position, const WCHAR** text,
-                                                UINT32* textLength) override {
-        if (position >= length_) { *text = nullptr; *textLength = 0; return S_OK; }
-        *text = text_ + position;
-        *textLength = length_ - position;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetTextBeforePosition(UINT32 position, const WCHAR** text,
-                                                    UINT32* textLength) override {
-        if (position == 0 || position > length_) { *text = nullptr; *textLength = 0; return S_OK; }
-        *text = text_;
-        *textLength = position;
-        return S_OK;
-    }
-    DWRITE_READING_DIRECTION STDMETHODCALLTYPE GetParagraphReadingDirection() override {
-        return DWRITE_READING_DIRECTION_LEFT_TO_RIGHT;
-    }
-    HRESULT STDMETHODCALLTYPE GetLocaleName(UINT32 position, UINT32* textLength,
-                                            const WCHAR** localeName) override {
-        *localeName = L"en-us";
-        *textLength = length_ - position;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE GetNumberSubstitution(UINT32 position, UINT32* textLength,
-                                                    IDWriteNumberSubstitution** substitution) override {
-        *substitution = nullptr;
-        *textLength = length_ - position;
-        return S_OK;
-    }
-
-    // IDWriteTextAnalysisSink
-    HRESULT STDMETHODCALLTYPE SetLineBreakpoints(UINT32 position, UINT32 length,
-                                                 const DWRITE_LINE_BREAKPOINT* lineBreakpoints) override {
-        for (UINT32 i = 0; i < length && position + i < breakpoints_.size(); i++) {
-            breakpoints_[position + i] = lineBreakpoints[i];
-        }
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE SetScriptAnalysis(UINT32, UINT32, const DWRITE_SCRIPT_ANALYSIS*) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetBidiLevel(UINT32, UINT32, UINT8, UINT8) override { return S_OK; }
-    HRESULT STDMETHODCALLTYPE SetNumberSubstitution(UINT32, UINT32, IDWriteNumberSubstitution*) override { return S_OK; }
-
-private:
-    const wchar_t* text_;
-    UINT32 length_;
-};
 
 // canBreak[i] == true when a line may break before text[i]; canBreak[len]
 // is always true. Falls back to space-only breaking if analysis fails.
@@ -427,18 +354,13 @@ void analyzeBreakOpportunities(App& app, const std::wstring& text, std::vector<b
         return;
     }
 
+    // A false return means the backend did not analyse -- not that there are no
+    // breaks -- so the fallback below is reached on exactly the conditions that
+    // reached it before: no analyzer, or an analyzer that failed.
     bool analyzed = false;
-    if (app.textAnalyzer) {
-        LineBreakAnalysis analysis(text.c_str(), (UINT32)text.size());
-        if (SUCCEEDED(app.textAnalyzer->AnalyzeLineBreakpoints(
-                &analysis, 0, (UINT32)text.size(), &analysis))) {
-            for (size_t i = 1; i < text.size(); i++) {
-                UINT8 after = analysis.breakpoints_[i - 1].breakConditionAfter;
-                canBreak[i] = (after == DWRITE_BREAK_CONDITION_CAN_BREAK ||
-                               after == DWRITE_BREAK_CONDITION_MUST_BREAK);
-            }
-            analyzed = true;
-        }
+    if (app.textFactory) {
+        analyzed = app.textFactory->AnalyzeLineBreaks(
+            text.c_str(), static_cast<uint32_t>(text.size()), canBreak);
     }
     if (!analyzed) {
         for (size_t i = 1; i < text.size(); i++) {

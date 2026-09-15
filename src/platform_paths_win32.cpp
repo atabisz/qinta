@@ -35,6 +35,33 @@ bool regularFileExists(const std::wstring& path) {
     return attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+unsigned long long fileWriteTicks(const std::wstring& path) {
+    // CreateFileW + GetFileTime, not the shorter GetFileAttributesExW, because
+    // this is the call file_utils.cpp made and the seam's job is to move it
+    // without changing what Windows reports. FILE_SHARE_WRITE is not incidental
+    // either: the file whose write time is wanted is very often one another
+    // process is in the middle of saving, which is the whole reason to ask.
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_EXISTING, 0, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+
+    FILETIME write{};
+    const BOOL ok = GetFileTime(h, nullptr, nullptr, &write);
+    CloseHandle(h);
+    if (!ok) return 0;
+
+    // The original ignored GetFileTime's return value and passed the member's
+    // address straight in, so a failure there left a half-written FILETIME. That
+    // is not preserved -- it is the one behaviour change here, it is a fix, and
+    // it is stated rather than smuggled: the caller now decides what an
+    // unreadable time means, and it cannot be handed a partial one.
+    ULARGE_INTEGER ticks;
+    ticks.LowPart = write.dwLowDateTime;
+    ticks.HighPart = write.dwHighDateTime;
+    return ticks.QuadPart;
+}
+
 // An explicit length is passed rather than -1, so an embedded NUL is carried
 // through instead of truncating the string, and the result needs no terminator
 // trimming. WC_ERR_INVALID_CHARS is deliberately NOT set: the seam's contract is

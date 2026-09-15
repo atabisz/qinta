@@ -288,6 +288,34 @@ settings.cpp
 text_utils.cpp
 themes.cpp
 
+# --- File and folder helpers, compiled AND run off Windows ---------------------
+#
+# file_utils.cpp. Newly portable, and the thing that made it portable was NOT a
+# missing spelling for GetFileTime -- std::filesystem::last_write_time has been
+# there all along. It was a REPRESENTATION question, and the answer the comment in
+# that file used to give was wrong.
+#
+# The question: App::lastFileWriteTime is a FILETIME, so are LayoutTab::lastWrite
+# and settings.ini's [Recent] timestamps, and the start page decodes those for
+# display. The old comment concluded that porting one function therefore meant
+# changing the representation at eleven sites, and rejected the cheap alternative
+# for a good reason -- packing a POSIX timestamp into a FILETIME's two halves
+# satisfies every equality comparison in input.cpp and silently redates the start
+# page by 369 years.
+#
+# The answer: produce the representation the tree already means. settings.cpp's
+# fileTimeTicksNow() had been computing genuine 1601-epoch ticks from std::chrono
+# on any platform since before that comment was written, so platform::fileWriteTicks
+# does the same for a file and all eleven sites are untouched.
+#
+# EXECUTED, not merely compiled: tests/file_utils_tests.cpp asserts all five
+# externally reachable functions, none of which had ever been run by a test on
+# either platform. Three are string arithmetic that assumes a drive letter, and two
+# of its assertions pin behaviour that is arguably wrong on Linux -- "/" is not
+# recognised as a root, so the folder browser offers ".." at the filesystem root --
+# rather than changing what the application does inside a portability slice.
+file_utils.cpp
+
 # --- The document model and markdown parser ----------------------------------
 document.cpp
 markdown.cpp

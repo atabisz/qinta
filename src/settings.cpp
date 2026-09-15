@@ -23,14 +23,16 @@
 
 unsigned long long fileTimeTicksNow() {
     using namespace std::chrono;
-    // 1601-01-01 to 1970-01-01 in 100ns ticks. Exact by definition rather than
-    // by a leap-second table: FILETIME counts a uniform 100ns tick and does not
-    // represent leap seconds at all.
-    constexpr unsigned long long kUnixEpochInFileTimeTicks = 116444736000000000ULL;
+    // The 1601-to-1970 offset moved to platform_paths.h when the POSIX side of
+    // platform::fileWriteTicks needed the same constant. It is shared rather than
+    // copied deliberately: two hand-written spellings of a 369-year offset that
+    // disagree would produce timestamps that are wrong only for some files, which
+    // is far harder to notice than being wrong for all of them.
     using FileTimeTicks = duration<long long, std::ratio<1, 10000000>>;
     const long long sinceUnixEpoch =
         duration_cast<FileTimeTicks>(system_clock::now().time_since_epoch()).count();
-    return kUnixEpochInFileTimeTicks + static_cast<unsigned long long>(sinceUnixEpoch);
+    return platform::kUnixEpochInFileTimeTicks +
+           static_cast<unsigned long long>(sinceUnixEpoch);
     // system_clock's epoch is only formally fixed to the Unix epoch in C++20.
     // Every implementation this tree can build with -- MSVC, libstdc++, libc++ --
     // already uses it, and settings_tests checks the result against

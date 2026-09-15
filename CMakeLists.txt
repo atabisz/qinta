@@ -448,6 +448,41 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME search COMMAND search_tests)
 
+    # --- file_utils.cpp, newly portable and newly EXECUTED ------------------------
+    #
+    # Two separate claims, and this target only makes one of them. That file compiles
+    # off Windows as of the FILETIME seam (platform::fileWriteTicks replacing
+    # CreateFileW/GetFileTime), and tests/portable-sources.txt is what asserts THAT.
+    # What this target adds is execution: all five externally reachable functions had
+    # zero coverage on either platform, and three of them are string arithmetic
+    # carrying drive-letter assumptions that no longer hold on two of the three
+    # target platforms.
+    #
+    # NOT app_fixture.h. file_utils.cpp reads currentFile, folderBrowserPath and
+    # folderItems and touches no layout state at all, so a plain stack App is enough
+    # and the fake layout would be dead weight on the link line.
+    add_executable(file_utils_tests
+        tests/file_utils_tests.cpp
+        src/file_utils.cpp
+        src/document.cpp
+        src/text_utils.cpp
+        src/themes.cpp
+        src/markdown.cpp
+        src/config_dir.cpp
+        ${PLATFORM_PATHS_SOURCE}
+    )
+    target_include_directories(file_utils_tests PRIVATE
+        include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(file_utils_tests PRIVATE md4c)
+    if(WIN32)
+        target_link_libraries(file_utils_tests PRIVATE shell32)
+        target_compile_definitions(file_utils_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME file_utils COMMAND file_utils_tests)
+
     # --- TWO TESTS THAT WERE ALREADY PORTABLE AND GATED TO WINDOWS ANYWAY --------
     #
     # Both of these existed, passed, and ran only on Windows. Neither needed a line

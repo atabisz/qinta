@@ -2393,8 +2393,14 @@ static void layoutList(App& app, const ElementPtr& elem, float& y, float indent,
 // via WM_APP_IMAGE_READY. Pixels are premultiplied BGRA.
 struct AsyncImageResult {
     std::string src;
-    UINT width = 0;
-    UINT height = 0;
+    // `unsigned`, not UINT, and not uint32_t either. UINT was a Windows spelling
+    // for a value that never comes from Windows: both fields are assigned from
+    // tinta::DecodedImage, which the image seam declares as plain `unsigned`, so
+    // this now matches its only source exactly rather than matching it by
+    // coincidence. Nine of this file's errors off Windows were these two lines --
+    // seven of them cascade, the compiler having given up on the struct.
+    unsigned width = 0;
+    unsigned height = 0;
     std::vector<uint8_t> pixels;
     bool ok = false;
 };

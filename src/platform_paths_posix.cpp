@@ -159,6 +159,32 @@ bool regularFileExists(const std::wstring& path) {
     return S_ISREG(info.st_mode);
 }
 
+unsigned long long fileWriteTicks(const std::wstring& path) {
+    struct stat info {};
+    if (stat(toUtf8(path).c_str(), &info) != 0) return 0;
+
+    // st_mtim, not st_mtime, so the sub-second part survives. The callers compare
+    // for INEQUALITY to notice an external edit, and at whole-second resolution a
+    // rewrite inside the same second reads as no change at all -- which is the
+    // failure this function exists to catch. macOS spells the member st_mtimespec.
+#if defined(__APPLE__)
+    const struct timespec mtime = info.st_mtimespec;
+#else
+    const struct timespec mtime = info.st_mtim;
+#endif
+
+    // Signed arithmetic first, then one check, because tv_sec is signed and a
+    // pre-1970 mtime is perfectly legal -- an unsigned multiply would wrap it
+    // into a plausible far-future timestamp instead of an obviously wrong one.
+    // A date before 1601 has no FILETIME at all, so it reports "unknown" rather
+    // than a negative tick count reinterpreted as an enormous positive one.
+    const long long ticks = static_cast<long long>(kUnixEpochInFileTimeTicks) +
+                            static_cast<long long>(mtime.tv_sec) * 10000000LL +
+                            static_cast<long long>(mtime.tv_nsec) / 100LL;
+    if (ticks <= 0) return 0;
+    return static_cast<unsigned long long>(ticks);
+}
+
 std::wstring userConfigDirectory(const std::wstring& appName) {
     const char* home = std::getenv("HOME");
     std::string base;

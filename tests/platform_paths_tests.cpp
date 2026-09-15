@@ -26,8 +26,10 @@
 namespace {
 
 int failures = 0;
+int checks = 0;
 
 void check(bool condition, const char* message) {
+    checks++;
     if (condition) return;
     std::cerr << "FAIL: " << message << '\n';
     failures++;
@@ -85,6 +87,88 @@ int main() {
     }
     check(platform::regularFileExists(unicodeFile.wstring()),
           "a path with spaces and non-ASCII survives the encoding boundary");
+
+    // --- fileWriteTicks -----------------------------------------------------
+    // The seam that made file_utils.cpp portable. Its contract is a value in the
+    // SAME units and epoch the tree already persists and displays, so what has to
+    // be pinned is not "did it return something" but "does it mean 1601 ticks".
+    {
+        const unsigned long long kTicksPerSecond = 10000000ULL;
+        // Independent of settings.cpp's fileTimeTicksNow(), which cannot be called
+        // here: settings.h reaches app.h and therefore windows.h, which is the
+        // entire reason the platform seam exists. So the clock is read directly.
+        const unsigned long long nowTicks =
+            platform::kUnixEpochInFileTimeTicks +
+            static_cast<unsigned long long>(
+                std::chrono::duration_cast<std::chrono::seconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count()) *
+                kTicksPerSecond;
+
+        const unsigned long long ticks = platform::fileWriteTicks(optIn.wstring());
+        check(ticks != 0, "a file just written reports a non-zero write time");
+
+        // AN HOUR EITHER WAY, and that window is the assertion. It is wide enough
+        // that no filesystem timestamp granularity or clock skew on a build
+        // machine can trip it, and narrow enough to fail on every way this can go
+        // wrong by construction: a Unix epoch is 369 YEARS out, a seconds-instead-
+        // of-ticks return is 7 orders of magnitude out, and dividing nanoseconds by
+        // the wrong power of ten moves it by decades.
+        const unsigned long long kHour = 3600ULL * kTicksPerSecond;
+        check(ticks > nowTicks - kHour && ticks < nowTicks + kHour,
+              "the write time is within an hour of now IN FILETIME TICKS -- the same "
+              "epoch settings.ini persists and the start page decodes");
+
+        // CONTROL, and it is the specific defect file_utils.cpp's old comment
+        // warned about: packing a POSIX timestamp into the same 64 bits satisfies
+        // every equality comparison in the tree and is wrong by 369 years. If the
+        // window above ever stopped biting, this is what would slip through it.
+        const unsigned long long unixEpochPacking =
+            ticks - platform::kUnixEpochInFileTimeTicks;
+        check(!(unixEpochPacking > nowTicks - kHour &&
+                unixEpochPacking < nowTicks + kHour),
+              "CONTROL: the same instant packed against the UNIX epoch fails the "
+              "window above, so that window is what detects the packing trap");
+
+        // The exact split file_utils.cpp performs, because it does it by shifting
+        // rather than through a ULARGE_INTEGER (win32_types.h stands FILETIME in
+        // off Windows but not that union), and a mask or shift error here would
+        // still produce a plausible-looking number.
+        const unsigned long low = static_cast<unsigned long>(ticks & 0xFFFFFFFFULL);
+        const unsigned long high = static_cast<unsigned long>(ticks >> 32);
+        const unsigned long long rejoined =
+            (static_cast<unsigned long long>(high) << 32) |
+            static_cast<unsigned long long>(low);
+        check(rejoined == ticks,
+              "splitting into a FILETIME's two halves and rejoining round-trips");
+        check(high != 0,
+              "CONTROL: the high half is actually populated, so the round-trip "
+              "above is not passing on two zeroes");
+
+        check(platform::fileWriteTicks(optIn.wstring()) == ticks,
+              "reading an unmodified file twice gives the same value");
+        check(platform::fileWriteTicks(unicodeFile.wstring()) != 0,
+              "a non-ASCII path reports a write time, so the seam converts the "
+              "path the same way regularFileExists does");
+        check(platform::fileWriteTicks((probeDir / L"no-such-file.md").wstring()) == 0,
+              "a missing file reports 0 rather than a garbage or partial time");
+        check(platform::fileWriteTicks(L"") == 0, "an empty path reports 0");
+
+        // A KNOWN DIVERGENCE, asserted per platform rather than skipped, because
+        // both answers are correct and the cause is nameable: CreateFileW refuses a
+        // directory without FILE_FLAG_BACKUP_SEMANTICS, which the Windows original
+        // did not pass and this seam does not add, while stat() is perfectly happy
+        // to describe one. No caller in the tree asks for a directory's write time,
+        // so this pins the behaviour instead of unifying it.
+#ifdef _WIN32
+        check(platform::fileWriteTicks(probeDir.wstring()) == 0,
+              "on Windows a DIRECTORY reports 0 -- CreateFileW without "
+              "FILE_FLAG_BACKUP_SEMANTICS cannot open one");
+#else
+        check(platform::fileWriteTicks(probeDir.wstring()) != 0,
+              "on POSIX a DIRECTORY reports a real time -- stat() describes one, "
+              "and this is a deliberate divergence, not a defect");
+#endif
+    }
 
     // --- userConfigDirectory ------------------------------------------------
     // A unique app name, never "Tinta": this test must not create, read or
@@ -257,10 +341,15 @@ int main() {
     fs::remove_all(probeDir, error);
     check(!error, "temporary probe directory is removed");
 
+    // The count is printed on SUCCESS, which this file did not do for the several
+    // spans it has existed. A binary that prints only a fixed sentence when it passes
+    // cannot be told apart from one whose assertions were skipped, gated out, or
+    // never reached -- and the counts differ per platform here on purpose, so the
+    // number is also the only visible evidence that the #ifdef'd blocks ran at all.
     if (failures == 0) {
-        std::cout << "Platform path tests passed\n";
+        std::cout << "Platform path tests passed (" << checks << " assertions)\n";
         return 0;
     }
-    std::cerr << failures << " failure(s)\n";
+    std::cerr << failures << " failure(s) of " << checks << " assertions\n";
     return 1;
 }

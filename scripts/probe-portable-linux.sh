@@ -303,6 +303,24 @@ else
     check 1 "tests/search_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# tests/file_utils_tests.cpp is the search_tests case exactly, with one addition
+# worth naming because it is the only guard here that protects a SEAM's caller.
+#
+# src/file_utils.cpp is on the manifest and this target is its only portable consumer,
+# so dropping the target reads as MISSING above. What the manifest cannot see is the
+# revert shape: move file_utils.cpp into portable_compile_only, drop the test, and the
+# comparison goes green with nothing executing a line of it -- and unlike search.cpp,
+# reverting THIS file is a live possibility, because its portability rests on one seam
+# call that a future slice might want to reshape.
+#
+# The five functions in it had zero coverage on either platform before this test, so a
+# silent revert would not lose coverage that Windows still has. It would lose all of it.
+if grep -qE "file_utils_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/file_utils_tests.cpp was compiled by $CXX_BIN, so src/file_utils.cpp and platform::fileWriteTicks are asserted off Windows and not merely compiled"
+else
+    check 1 "tests/file_utils_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 # src/i18n_app.cpp needs a DIFFERENT SHAPE of check from every guard above, and the
 # reason is worth stating because it took a wrong first attempt to see it.
 #

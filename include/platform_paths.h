@@ -29,6 +29,41 @@ std::wstring executableDirectory();
 // be mistaken for the opt-in file.
 bool regularFileExists(const std::wstring& path);
 
+// 1601-01-01 to 1970-01-01 in 100ns ticks. Exact by definition rather than by a
+// leap-second table: FILETIME counts a uniform 100ns tick and does not represent
+// leap seconds at all. It lives in this header because this is the only header
+// both the POSIX seam and settings.cpp can include -- settings.h reaches app.h
+// and therefore windows.h -- and one copy is the point: it was a function-local
+// constexpr in settings.cpp, and a second hand-written copy of a 369-year offset
+// is the kind of duplicate that goes wrong silently.
+constexpr unsigned long long kUnixEpochInFileTimeTicks = 116444736000000000ULL;
+
+// Last-write time of `path` as Windows FILETIME ticks -- 100ns intervals since
+// 1601-01-01 UTC -- or 0 if it cannot be read.
+//
+// FILETIME ticks rather than anything more natural because that is what the tree
+// ALREADY MEANS by a file time, in places that outlive this seam:
+// App::lastFileWriteTime and LayoutTab::lastWrite are FILETIMEs compared with
+// CompareFileTime, and settings.ini's [Recent] timestamps are persisted as these
+// ticks and decoded for display with FileTimeToLocalFileTime. This hands back the
+// value those callers already hold, so no representation changes anywhere.
+//
+// Worth stating because file_utils.cpp carried the opposite conclusion for
+// several spans: that porting its one Windows-bound function meant changing the
+// representation across eleven sites. Its premise was correct and is preserved
+// here -- packing a POSIX timestamp into a FILETIME's two halves would satisfy
+// every equality comparison in input.cpp and silently redate the start page by
+// 369 years -- but packing was never the only portable move. settings.cpp's
+// fileTimeTicksNow() had been computing GENUINE ticks from std::chrono, on any
+// platform, since before that comment was written.
+//
+// 0 for "cannot be read" rather than an error code, because it is what every
+// caller already does with a missing file: the Windows original silently skipped
+// the update when CreateFileW failed, and 0 lets a caller reproduce that exactly.
+// It is also the initial value of both members, so it can never be mistaken for
+// a real reading of a file this tree can open.
+unsigned long long fileWriteTicks(const std::wstring& path);
+
 // Per-user configuration directory for `appName`, created if it does not exist:
 //   Windows  %APPDATA%\<appName>
 //   macOS    ~/Library/Application Support/<appName>

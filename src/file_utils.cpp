@@ -7,38 +7,48 @@
 #include <cwctype>
 #include <filesystem>
 
-// STILL WINDOWS-ONLY, DELIBERATELY, AND THE ONLY THING IN THIS FILE THAT IS.
+// PORTABLE SINCE THE FILETIME SEAM LANDED, AND THE COMMENT THAT USED TO SIT HERE
+// IS CORRECTED IN PLACE RATHER THAN DELETED, BECAUSE ITS PREMISE WAS RIGHT AND ONLY
+// ITS CONCLUSION WAS WRONG.
 //
-// Not left behind for lack of a portable spelling -- std::filesystem::last_write_time
-// is right there. Left behind because the thing it writes into, App::lastFileWriteTime,
-// is a FILETIME, and FILETIME is a tree-wide member type: app.h declares two (1186
-// and LayoutTab::lastWrite at 539), input.cpp reads and compares five, tabs.cpp
-// copies one, and startpage.cpp converts three to local time for DISPLAY. That last
-// one is what makes this a decision rather than an edit. Changing the representation
-// to something portable means changing all eleven sites together, and the obvious
-// cheap move -- keeping the FILETIME shape off Windows and packing a POSIX timestamp
-// into its two halves -- would satisfy the equality comparisons in input.cpp and
-// silently produce garbage dates on the start page.
+// What it said: App::lastFileWriteTime is a FILETIME, FILETIME is a tree-wide member
+// type (app.h declares two, input.cpp touches five values, tabs.cpp copies one,
+// startpage.cpp converts three for DISPLAY), so porting this function means changing
+// the representation across all eleven sites -- and the cheap move, keeping the
+// FILETIME shape off Windows and packing a POSIX timestamp into its two halves, would
+// satisfy every equality comparison in input.cpp and silently redate the start page
+// by 369 years.
 //
-// So it is not ported and it is not stubbed. A no-op #else here would compile and
-// then never detect an external file change off Windows, which is the failure mode
-// this tree keeps writing down. Failing to compile is the accurate report.
+// Every word of that is still true, INCLUDING the counts: a census by type NAME finds
+// three in input.cpp and none in tabs.cpp, because `tab.lastWrite = app.lastFileWriteTime`
+// names no type. The value census is the correct one and it is the one above.
 //
-// Note precisely what is missing, because it is not the type: win32_types.h DOES
-// stand FILETIME in off Windows, field for field. What has no portable meaning is
-// its CONTENTS -- a count of 100-nanosecond intervals since 1601 -- and the stood-in
-// type is exactly what makes the packing trap above both available and wrong. What
-// blocks this function is GetFileTime and the start page's conversion of the result
-// for display, not the declaration of the struct they pass around.
+// What it got wrong is that packing was the only portable move. It was not, and the
+// counter-example was already in the tree: settings.cpp's fileTimeTicksNow() computes
+// GENUINE FILETIME ticks -- 100ns intervals since 1601 -- out of std::chrono, on any
+// platform, and settings.h says in as many words why it must (settings.ini's [Recent]
+// timestamps already hold that epoch and the start page decodes them with
+// FileTimeToLocalFileTime). So the answer is not to change what a file time MEANS off
+// Windows; it is to produce the meaning the tree already has. platform::fileWriteTicks
+// does that, all eleven sites are untouched, and nothing here is stubbed or no-oped.
 void updateFileWriteTime(App& app) {
     if (app.currentFile.empty()) return;
-    std::wstring widePath = toWide(app.currentFile);
-    HANDLE h = CreateFileW(widePath.c_str(), GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h != INVALID_HANDLE_VALUE) {
-        GetFileTime(h, nullptr, nullptr, &app.lastFileWriteTime);
-        CloseHandle(h);
-    }
+    const unsigned long long ticks = platform::fileWriteTicks(toWide(app.currentFile));
+
+    // 0 is "could not be read", and the member is LEFT ALONE rather than zeroed.
+    // That is the original's behaviour exactly -- it skipped the assignment when
+    // CreateFileW failed -- and it is load-bearing: input.cpp compares this value
+    // for inequality to decide the file changed underneath us, so zeroing it on a
+    // transient open failure would report an external edit that never happened.
+    if (ticks == 0) return;
+
+    // Split by shifting rather than through a ULARGE_INTEGER, which win32_types.h
+    // does not stand in off Windows. dwLowDateTime/dwHighDateTime are unsigned long
+    // in both the real header and the stand-in, so the casts are exact.
+    app.lastFileWriteTime.dwLowDateTime =
+        static_cast<unsigned long>(ticks & 0xFFFFFFFFULL);
+    app.lastFileWriteTime.dwHighDateTime =
+        static_cast<unsigned long>(ticks >> 32);
 }
 
 bool isRootPath(const std::wstring& path) {

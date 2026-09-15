@@ -57,8 +57,17 @@
 // undeclared-identifier errors, FALSE is 22, BOOL 2, FLOAT 2, TRUE 0 -- TRUE is
 // here anyway because a census of the SOURCE finds 9 uses of it, in files that
 // currently die at a missing header before the compiler ever reaches them. Nothing
-// else was added: UINT, DWORD, INT32, UINT8, UINT16 and UINT64 appear in NO error
-// on any file, so declaring them would be a claim with nothing behind it.
+// else was added: DWORD, INT32, UINT8, UINT16 and UINT64 appear in NO error on any
+// file, so declaring them would be a claim with nothing behind it.
+//
+// UINT was on that list and is CORRECTED IN PLACE rather than removed, because the
+// sentence went stale in the interesting direction: UINT later showed up in two
+// render.cpp errors, which by the reasoning above would have argued for adding it.
+// It was not added. The bar for this header is that the STANDARD does not already
+// cover the thing, and `unsigned` covers UINT completely -- so the fix was to spell
+// the two struct members `unsigned`, matching tinta::DecodedImage, which is where
+// their values come from. A type appearing in an error is necessary for admitting it
+// here and not sufficient.
 //
 // Deliberately NOT here, and this is the load-bearing omission: HRESULT, SUCCEEDED,
 // FAILED and S_OK. Supplying them was measured too, and it buys 9 errors out of 359

@@ -5,8 +5,28 @@
 # and turn a 179-line change into an 11,788-line one. This file makes it a rule.
 #
 # eol=lf rather than plain text=auto: the working copy gets LF on Windows too.
-# That is already the state on disk, so this introduces no churn, and MSVC, rc.exe
-# and PowerShell all read LF without complaint.
+# MSVC, rc.exe and PowerShell all read LF without complaint.
+#
+# The line above used to end "That is already the state on disk, so this introduces
+# no churn." That was false when it was written, and stayed false for five spans,
+# because eol=lf acts only at CHECKOUT -- it cannot rewrite a file already sitting
+# in the working copy. Measured 2026-09-15: 17 of 189 tracked text files still held
+# CRLF on disk, src/input.cpp and src/editor.cpp entirely so. Nothing could report
+# it, because the INDEX was already normalised, so `git status` was clean and
+# `git diff` empty; the only way to see it was to count \r\n bytes.
+#
+# Two things that made it worth fixing rather than just noting. Three multi-line
+# raw string literals in src/startpage.cpp (kSampleDocument, kMermaidTour,
+# kMarkdownBasics) embedded their line endings, so those documents were 171 bytes
+# longer in my working copy than in the commit -- a local build compiled different
+# string contents than a fresh clone, and no test asserts on them. And normalising
+# the working copy cannot change what is committed: the 17 files then showed up in
+# `git status` only as a stale stat cache, `git add` staged 0 rows and 0 bytes, and
+# HEAD was untouched.
+#
+# So the rule works and only its self-description was wrong -- which is the most
+# believable kind of wrong claim, sitting in accurate, load-bearing text that was
+# verified once.
 * text=auto eol=lf
 
 # Images must never be touched. text=auto guesses correctly on these today, but a

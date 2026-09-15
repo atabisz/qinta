@@ -364,3 +364,30 @@ mermaid_narrative.cpp
 mermaid_pie.cpp
 mermaid_seq.cpp
 mermaid_uml.cpp
+
+# --- HTML export --------------------------------------------------------------
+#
+# The first exporter to compile off Windows, and it is LINKED AND RUN rather than
+# compile-only: tests/export_html_tests.cpp parses real markdown, exports it to a
+# temporary file, reads the file back and asserts on the generated HTML. 44
+# assertions. HTML export is the only one of the three exporters that can be
+# reached without a device -- docx rasterizes through the bitmap seam, pdf rides
+# the print pipeline -- because it is pure string work.
+#
+# WHAT IT COST, so the line is not read as more than it is. Two things, both
+# elsewhere: the picker seam from the previous commit removed export_html.cpp's
+# OPENFILENAMEW block, and toUtf8's one-line body moved from src/editor.cpp to
+# src/text_utils.cpp so that an off-Windows link did not have to resolve it out of
+# the largest Windows-only file in the tree. The remaining 4 compile errors were
+# one cause: two wide-path fstream constructions, an MSVC extension libstdc++
+# rejects, which are 2 of the 22 sites tracked as C58.
+#
+# WHAT IS NOT COVERED, stated here rather than left to a green run. Six symbols
+# are STUBBED in the test because their definitions are still Windows-only:
+# exportDocxFile, exportPdfFile, mathParse, mathBoxSvg, resolveDiagramRole and
+# signalPushKey. So the math and diagram branches of the walk, and the whole of
+# exportDocumentAs, are untested. The stubs record their calls and the test
+# asserts none fired, which makes "plain markdown export never enters those
+# paths" a reading rather than an assumption -- but it does not make those paths
+# tested.
+export_html.cpp

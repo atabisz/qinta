@@ -148,7 +148,13 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
 claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
 claim "overlays, annot., math" "| $(c "$(lines src/overlays.cpp)") + $(c "$(lines src/annotations.cpp)") + $(c "$(lines src/math_render.cpp)") |"
-claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/export_html.cpp)") + $(c "$(lines src/print.cpp)") + $(c "$(lines src/pandoc.cpp)") |"
+# export_html.cpp is DELIBERATELY absent from this row: it left the to-do set when it
+# reached 0 errors and joined tests/portable-sources.txt, so deriving the row from it
+# would keep asserting a README figure that must no longer include it. This row is
+# hand-maintained against the to-do TABLE, which the manifest does not drive -- so it
+# is the one row that can rot silently in the *other* direction, by keeping a file the
+# tree has since freed. When a file leaves the to-do set, it leaves here too.
+claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/print.cpp)") + $(c "$(lines src/pandoc.cpp)") |"
 claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src/signals.cpp)") + $(c "$(lines src/drafts.cpp)") |"
 claim "clipboard, misc"       "| Clipboard, misc | $(c "$(lines src/utils.cpp)") |"
 claim "startpage"             "| Startpage | $(c "$(lines src/startpage.cpp)") |"

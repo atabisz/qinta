@@ -28,6 +28,13 @@
 // UTF-8 -> wide, via the platform_paths.h conversion seam.
 std::wstring toWide(const std::string& str);
 
+// Wide -> UTF-8, the same seam in the other direction. Declared HERE and no
+// longer in editor.h: the body was a one-line forwarder sitting in the tree's
+// largest Windows-only file, so every off-Windows caller had to resolve it out of
+// 3,100 lines of editor. editor.h now includes this header, so no call site
+// changed -- the same trick that let toWide move without touching its 19 callers.
+std::string toUtf8(const std::wstring& wstr);
+
 // Lowercases in place per towlower(). Not locale- or script-aware beyond what
 // the C library offers, which is what the search and filter call sites want.
 std::wstring toLower(const std::wstring& str);

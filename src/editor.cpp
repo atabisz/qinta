@@ -35,13 +35,12 @@ static size_t editorPosFromClick(App& app, int x, int y);
 
 // --- UTF conversion ---
 
-// These keep their existing names and linkage: toUtf8 is declared in editor.h
-// and called from other translation units, and the unqualified name is used at
-// dozens of call sites in this file. Only the body moved to the seam.
-std::string toUtf8(const std::wstring& wstr) {
-    return platform::toUtf8(wstr);
-}
-
+// toUtf8's BODY has left this file for src/text_utils.cpp, and the name and
+// linkage are unchanged: the unqualified ::toUtf8 that dozens of call sites below
+// use is the same function, now declared in text_utils.h (which editor.h
+// includes). It moved because off-Windows callers -- export_html.cpp is the first
+// -- had to resolve a one-line forwarder out of the largest Windows-only file in
+// the tree. fromUtf8 stays: it is `static`, so it is this file's own.
 static std::wstring fromUtf8(const std::string& str) {
     return platform::fromUtf8(str);
 }

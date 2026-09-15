@@ -2,6 +2,10 @@
 #define TINTA_EDITOR_H
 
 #include "app.h"
+// For toUtf8, which used to be declared in this header. Included explicitly and
+// not left to arrive through app.h: a transitively-available declaration is a
+// dependency nothing states and any include reshuffle can remove silently.
+#include "text_utils.h"
 // Real windows.h here, stand-ins for its value types off Windows. This header
 // names HWND/WPARAM/LPARAM by value and nothing else from Win32 -- no COM
 // interfaces, no API calls -- so that swap is the whole of its port cost.
@@ -71,6 +75,8 @@ void editorReplaceAll(App& app, HWND hwnd);
 // Utility
 void rebuildLineStarts(App& app);
 size_t editorTopVisibleLine(App& app);
-std::string toUtf8(const std::wstring& wstr);
+// toUtf8 moved to text_utils.h, included above, so every file that reached it
+// through editor.h still does. It is declared there beside toWide because that is
+// where its body now lives -- see the note there.
 
 #endif // TINTA_EDITOR_H

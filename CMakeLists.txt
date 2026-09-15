@@ -1005,6 +1005,107 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME i18n COMMAND i18n_tests)
 
+    # src/export_html.cpp -- RUN, and this is the first exporter to leave
+    # portable_compile_only for a target with assertions in it.
+    #
+    # WHY IT IS WORTH A TARGET AND NOT JUST A MANIFEST LINE. Every other exporter
+    # needs a device: docx rasterizes through the bitmap seam, pdf rides the print
+    # pipeline. HTML is pure string work -- element tree in, one UTF-8 document out
+    # -- so the whole of exportHtmlFile executes here, escaping and theme CSS and
+    # the file write included. A compile-only entry would have said only that GCC
+    # accepts the syntax, which is the weakest claim this repo makes about a file.
+    #
+    # SIX SYMBOLS ARE STUBBED IN THE TEST, not linked: exportDocxFile,
+    # exportPdfFile, mathParse, mathBoxSvg, resolveDiagramRole and signalPushKey.
+    # All six live in Windows-only sources today. That is a real limit on this
+    # target and it is stated in the test's own header comment -- but the stubs
+    # RECORD their calls and the test asserts none of them fired, so "a plain
+    # markdown export never enters those paths" is measured here rather than
+    # assumed. If a future change routes plain export through math or the docx
+    # dispatch, this target fails and names the symbol.
+    #
+    # THE SOURCE LIST IS MINIMAL, MEASURED BY REMOVAL -- and the first version of it
+    # was NOT, which is the more useful half of this note. It had FIVE extra entries
+    # (file_utils.cpp, i18n.cpp, i18n_app.cpp, inline_style.cpp, syntax.cpp), it
+    # linked first time with zero undefined symbols, and all 44 assertions passed.
+    # That is the failure recorded at i18n_tests above repeating itself: a successful
+    # link proves a list is SUFFICIENT and says nothing about whether it is MINIMAL.
+    # The five were picked by reading export_html.cpp's #includes, which is a guess
+    # about what a file might reference rather than a reading of what it does.
+    #
+    # ONE-AT-A-TIME REMOVAL FINDS A LOCAL MINIMUM, NOT A GLOBAL ONE, and this target
+    # is the proof: the first pass reported 4 removable and i18n.cpp NEEDED, at one
+    # undefined symbol. That symbol was referenced by i18n_app.cpp, one of the four --
+    # so dropping the four made a fifth entry removable, which the first pass could
+    # not have seen. Minimality has to be re-measured after every removal, not read
+    # off one sweep. Second pass: 0 removable, on a clean build directory because
+    # stale objects from the previous list are still on disk otherwise.
+    #
+    # Final reading, 21 objects, 0 removable, with omitting export_html.cpp itself as
+    # the positive control (3 undefined). Undefined-symbol counts without each entry,
+    # lowest first: themes.cpp, config_dir.cpp, document.cpp, file_dialog_qt.cpp and
+    # five mermaid families 1 each, mermaid_charts/charts2 2, export_html.cpp,
+    # mermaid_c4/grid/narrative/uml 3, mermaid.cpp 5, markdown.cpp 9,
+    # text_utils.cpp 12, platform_paths_qt.cpp 16, mermaid_ext.cpp 324.
+    #
+    # syntax.cpp being removable is a statement about the FEATURE, not just the link:
+    # HTML export references no symbol in the highlighter, so exported code blocks
+    # come out unhighlighted. That is the current behaviour and this target now pins
+    # it -- add a highlighted-code assertion here the day that changes.
+    #
+    # Every mermaid parser IS needed, because export_html.cpp defines
+    # buildDiagramPrims and buildFlowchartPrims, so it references the whole family
+    # whether or not the test document contains a diagram.
+    add_executable(export_html_tests
+        tests/export_html_tests.cpp
+        src/export_html.cpp
+        src/document.cpp
+        src/markdown.cpp
+        src/themes.cpp
+        src/text_utils.cpp
+        src/config_dir.cpp
+        src/mermaid.cpp
+        src/mermaid_ext.cpp
+        src/mermaid_seq.cpp
+        src/mermaid_pie.cpp
+        src/mermaid_uml.cpp
+        src/mermaid_git.cpp
+        src/mermaid_gantt.cpp
+        src/mermaid_charts.cpp
+        src/mermaid_narrative.cpp
+        src/mermaid_grid.cpp
+        src/mermaid_charts2.cpp
+        src/mermaid_block.cpp
+        src/mermaid_c4.cpp
+        ${PLATFORM_PATHS_SOURCE}
+        # The picker seam, and a REAL backend rather than a seventh stub. It is here
+        # because exportDocumentAs -- which this test never calls -- references
+        # platform::requestSavePath, and a linker does not care which function in a
+        # translation unit needed the symbol. Worth noting as the seam paying for
+        # itself: before last commit this line would have had to be
+        # src/export_html.cpp's OPENFILENAMEW block, which cannot link here at all.
+        ${PLATFORM_FILE_DIALOG_SOURCE}
+    )
+    target_include_directories(export_html_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${md4c_SOURCE_DIR}/src
+    )
+    target_link_libraries(export_html_tests PRIVATE md4c
+        ${PLATFORM_PATHS_LIBS} ${PLATFORM_FILE_DIALOG_LIBS})
+    if(WIN32)
+        target_compile_definitions(export_html_tests PRIVATE UNICODE _UNICODE)
+    endif()
+    add_test(NAME export_html COMMAND export_html_tests)
+    if(NOT WIN32)
+        # Same reasoning as file_dialog: this binary links Qt Widgets through the
+        # picker backend, and a Qt binary with no QT_QPA_PLATFORM aborts in WSL
+        # trying to reach a display. Nothing here constructs a QApplication or a
+        # dialog, so it would very likely survive without the variable -- set
+        # anyway, because "very likely" is not a reading.
+        set_tests_properties(export_html PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
     # settings.cpp -- the settings.ini reader and writer -- built and run off
     # Windows. It reached windows.h only through settings.h -> app.h; the App
     # coupling now lives in settings_app.cpp and the file-association feature in
@@ -1309,6 +1410,28 @@ if(BUILD_TESTING)
         target_link_libraries(qt_text_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME qt_text COMMAND qt_text_tests)
 
+        # THE QT TARGETS MUST USE THE DYNAMIC CRT, and the tree-wide setting at the
+        # top of this file uses the static one on purpose. Both halves are deliberate,
+        # so this is an override with a reason and not a contradiction.
+        #
+        # MEASURED 2026-09-16, after both Qt tests on Windows put up a modal
+        # "Debug Assertion Failed! ... __acrt_first_block == header" from
+        # minkernel/crts/ucrt/src/appcrt/heap/debug_heap.cpp. dumpbin -dependents on
+        # qt_text_tests.exe named KERNEL32, Qt6Cored and Qt6Guid and NO CRT dll at all
+        # -- static CRT -- while Qt6Cored.dll names ucrtbased.dll, MSVCP140D.dll and
+        # VCRUNTIME140D.dll. Two debug heaps in one process, so any block Qt allocates
+        # and we free (or the reverse) trips that assertion. Nothing to do with the
+        # seam under test.
+        #
+        # WHAT THIS DOES NOT DECIDE. Qt cannot be linked against the static CRT, so
+        # once render_qt.cpp and text_qt.cpp are the real backend rather than a tested
+        # seam, tinta.exe itself faces the same choice and the "no VC++ redistributable"
+        # promise in the comment at the top of this file is what pays for it. That is a
+        # product decision, it is Alex's, and overriding two TEST targets deliberately
+        # does not pre-empt it.
+        set_property(TARGET qt_text_tests PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+
         # THE PLATFORM PLUGIN IS NOT THE SAME CHOICE ON BOTH SYSTEMS, and this was
         # measured on 2026-09-15 rather than reasoned about. Off Windows, `offscreen`
         # carries a real font database and `minimal` does not, which is why every
@@ -1320,6 +1443,17 @@ if(BUILD_TESTING)
         # Under `windows` the database is real and render_api passes all 266 assertions,
         # the same count and the same zero failures as Qt on Linux and Direct2D here.
         # So the variable is pinned per platform, not once.
+        #
+        # THAT WINDOWS READING WAS NOT CLEAN, and this is the correction rather than a
+        # deletion. It was taken with a modal CRT assertion dialog on screen, which
+        # somebody dismissed with Ignore -- so the process finished, printed 266 and
+        # exited 0, and ctest recorded a pass. A dialog that has to be clicked away is
+        # not a green run, and on 2026-09-16 the same assertion took qt_text down as an
+        # abort while render_api's Ignore let it through: the identical defect reported
+        # once as a pass and once as a failure. The cause and the fix are at the
+        # MSVC_RUNTIME_LIBRARY override below. The 266 stands -- Linux agrees, and the
+        # cross-heap free is at teardown -- but it stands as a number taken through a
+        # broken instrument, and the run that re-takes it is the one to cite.
         set(TINTA_QPA_PLATFORM "offscreen")
         if(WIN32)
             set(TINTA_QPA_PLATFORM "windows")
@@ -1345,6 +1479,9 @@ if(BUILD_TESTING)
         target_include_directories(render_api_tests PRIVATE include)
         target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME render_api COMMAND render_api_tests)
+        # Dynamic CRT, same reason and same measurement as qt_text_tests above.
+        set_property(TARGET render_api_tests PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
         # This one paints into a QImage and draws no text, so it does not depend on
         # a font database the way qt_text does. offscreen is set anyway: the arm
         # that matters is that no arm reaches for a real display, and pinning it

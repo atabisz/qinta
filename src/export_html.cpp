@@ -18,6 +18,7 @@
 #include "portable_str.h"
 
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -112,7 +113,12 @@ const char* mimeForPath(const std::string& path) {
 }
 
 bool readBinary(const std::wstring& path, std::string& out) {
-    std::ifstream in(path, std::ios::binary);
+    // fs::path, not the wstring: the wide-path stream constructor is an MSVC
+    // extension and libstdc++ rejects it. Free on Windows, where fs::path stores a
+    // wstring natively. Named rather than inline for the most-vexing-parse reason
+    // spelled out at settings.cpp:63 and i18n.cpp:1467.
+    const std::filesystem::path filePath(path);
+    std::ifstream in(filePath, std::ios::binary);
     if (!in) return false;
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -1442,7 +1448,9 @@ bool exportHtmlFile(App& app, const std::wstring& path) {
     walk(ctx, app.root);
     ctx.out += "</body>\n</html>\n";
 
-    std::ofstream out(path, std::ios::binary);
+    // fs::path for the same reason as readBinary above: see settings.cpp:63.
+    const std::filesystem::path outPath(path);
+    std::ofstream out(outPath, std::ios::binary);
     if (!out) return false;
     out.write(ctx.out.data(), ctx.out.size());
     return out.good();

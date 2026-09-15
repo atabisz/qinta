@@ -16,6 +16,17 @@ std::wstring toWide(const std::string& str) {
     return platform::fromUtf8(str);
 }
 
+// The other direction, moved here from editor.cpp for the reason toWide moved:
+// it is a one-line forwarder onto the platform seam that had no business living
+// in the largest Windows-only file in the tree. Anything linking export_html.cpp
+// or markdown.cpp off Windows needed it and pulled in 3,100 lines of editor to
+// get it. The NAME and linkage are unchanged -- it is still the unqualified
+// ::toUtf8 that dozens of call sites in editor.cpp use -- so this is a move and
+// not an interface change.
+std::string toUtf8(const std::wstring& wstr) {
+    return platform::toUtf8(wstr);
+}
+
 std::wstring toLower(const std::wstring& str) {
     std::wstring result = str;
     for (auto& c : result) {

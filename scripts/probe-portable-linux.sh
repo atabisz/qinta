@@ -303,6 +303,28 @@ else
     check 1 "tests/search_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# src/i18n_app.cpp needs a DIFFERENT SHAPE of check from every guard above, and the
+# reason is worth stating because it took a wrong first attempt to see it.
+#
+# Every check so far greps for an OBJECT line, which answers "did this compiler read
+# this file". For i18n_app.cpp that question cannot distinguish the two states that
+# matter: whether it is compiled as part of portable_compile_only (nothing executes
+# it) or compiled INTO i18n_tests (82 assertions run through it). The object path
+# CMake writes is /src/i18n_app.cpp.o either way, so an object-line guard here would
+# pass in both worlds -- and so would the manifest comparison above, since the file
+# is listed and would be compiled regardless.
+#
+# The LINK line is what tells them apart: it names every object going into the
+# binary. So this asserts i18n_app.cpp.o appears on the command that produces
+# i18n_tests. Move the file back to compile-only and this is the only thing in the
+# repo that goes red -- the ctest count would not even change, because the i18n test
+# would still exist and still pass, just without ever calling the App overload.
+if grep -E -- '-o i18n_tests( |$)' "$BUILD_DIR.build.log" | grep -q "i18n_app\.cpp\.o"; then
+    check 0 "src/i18n_app.cpp is LINKED INTO i18n_tests, so the App overload of tr() is executed off Windows and not merely compiled"
+else
+    check 1 "src/i18n_app.cpp is linked into i18n_tests (not found on the link line -- has it gone back to portable_compile_only?)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

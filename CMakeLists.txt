@@ -619,7 +619,6 @@ if(BUILD_TESTING)
     # from the layout fixture instead. Cost of finding that out: one link attempt.
     add_library(portable_compile_only OBJECT
         src/editrail.cpp
-        src/i18n_app.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
@@ -775,15 +774,42 @@ if(BUILD_TESTING)
     # purely because the file it links against pulled in windows.h. A non-Windows
     # compiler accepting src/i18n.cpp is the only real proof of that, which is why
     # the target moved rather than a comment being added.
+    # src/i18n_app.cpp is here, and not in portable_compile_only, because a
+    # forwarding function is exactly the kind of code that compiles forever while
+    # being wrong. tr(const App&, key) reads app.currentLanguageIndex and hands it
+    # to the index overload; drop that read and every language silently becomes
+    # English, with no error, no crash and no failing build anywhere in the tree.
+    # Nothing executed a line of this file on either platform until now.
+    #
+    # The two extra sources below are NOT i18n's dependencies -- they are App's.
+    # Constructing an App needs exactly three symbols from outside this target:
+    # THEMES (src/themes.cpp) and qmd::MarkdownParser's constructor and destructor
+    # (src/markdown.cpp). Measured by relinking with each candidate removed, not by
+    # reasoning about includes.
+    #
+    # That measurement is here because the first version of this list had FOUR
+    # sources: it was copied from selection_layout_tests, which is the nearest
+    # precedent for constructing an App off Windows. It linked first time with zero
+    # undefined symbols -- and src/text_utils.cpp was not needed at all. A
+    # successful link proves a list is SUFFICIENT and says nothing about whether it
+    # is MINIMAL, so the only way to know is to remove each entry and watch what the
+    # linker says. Dropping themes.cpp yields 1 undefined symbol, markdown.cpp 2,
+    # both 3, and text_utils.cpp 0. A source list copied from a precedent is a
+    # guess, in the same way the search.cpp estimate was.
     add_executable(i18n_tests
         tests/i18n_tests.cpp
         src/i18n.cpp
+        src/i18n_app.cpp
+        src/themes.cpp
+        src/markdown.cpp
         src/config_dir.cpp
         ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(i18n_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${md4c_SOURCE_DIR}/src
     )
+    target_link_libraries(i18n_tests PRIVATE md4c)
     if(WIN32)
         # shell32 for ShellExecuteW/SHGetFolderPathW inside the win32 seam.
         target_link_libraries(i18n_tests PRIVATE shell32)

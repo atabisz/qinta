@@ -391,6 +391,7 @@ same session.
 | Tests running off Windows | **21 run on Linux, 19 of them shared with the 29 that run on Windows.** The other 2 are the Qt backend tests, which exist *only* off Windows. 31 distinct test targets in total |
 | Text path in `render.cpp` on the seam | Done — every layout the file creates goes through `app.textFactory`, and `dwriteFactory` is named at **zero** live sites. Typography is a value, not a COM object. Honest limit: **no test links `render.cpp`**, so the build is the evidence here and the test count is not |
 | In-document search asserted off Windows | Done — `search.cpp` was compile-only on both platforms and now has 53 assertions running on each. The blocker was never its shape: a real link found ten undefined symbols, nine already in portable files and one (`ensureLayoutComplete`) still in `render.cpp`, which the test stubs. Honest limit: **that stub means the precondition itself is untested**, and two folder-scan functions are unreachable from another translation unit and left uncovered |
+| The App overload of `tr()` asserted off Windows | Done — `i18n_app.cpp` is one forwarding line and was the second of the two compile-only files. It now runs 42 assertions inside the existing `i18n` test, on both platforms, taking that test from 40 to 82. Worth doing for the failure mode rather than the size: its whole job is to read `app.currentLanguageIndex`, and a version that forwards a constant leaves the app **silently monolingual** — no error, no crash, every string still drawn. A planted constant fails 34 of the 42. Honest limit: this adds **no new test target**, so the revert is invisible to the manifest, the ctest count *and* the pass rate — the only instrument is a new check on the link line |
 
 **To do — 24 files, 30,122 lines**
 
@@ -446,7 +447,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 |---|---|---|
 | A. Source lines free of the Windows stack | 20,439 / 57,253 | **35.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 33 / 57 | 57.9% |
-| C. Files a *running* test links | 31 / 57 | 54.4% |
+| C. Files a *running* test links | 32 / 57 | 56.1% |
 | D. Windows tests that also run off Windows | 19 / 29 | 65.5% |
 | E. All test targets, run off Windows | 21 / 31 | 67.7% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
@@ -455,10 +456,10 @@ basis below is measured — Windows and Linux each built and tested in the same 
 run, so it is the one comparable across time. Three honest caveats on it.
 
 It *understates* progress, because its denominator includes headers that the manifest
-never credits even when they are portable. It *overstates* readiness, because two of the
-33 compiling files (`editrail.cpp`, `i18n_app.cpp`) are compile-only: nothing executes
-them on either platform, so they are proof that a compiler accepts them and nothing more.
-That was three until `search.cpp` got a running test.
+never credits even when they are portable. It *overstates* readiness, because one of the
+33 compiling files (`editrail.cpp`) is compile-only: nothing executes it on either
+platform, so it is proof that a compiler accepts it and nothing more. That was three
+before `search.cpp` and then `i18n_app.cpp` got running tests.
 
 And it just moved the *wrong way* on a commit that was real progress: 35.8% → 35.7%, while
 `render.cpp` lost 40 live DirectWrite text mentions and gained a working seam. The reason
@@ -474,7 +475,9 @@ running test with 53 assertions on both platforms moved basis A by **exactly zer
 because the file was already counted as portable. So basis A cannot see the difference
 between a file a compiler merely accepts and a file with a test behind it — which is
 what basis C is for, and why the two are listed separately rather than blended into one
-number.
+number. `i18n_app.cpp` then did it a second time: 42 new assertions, basis A unchanged
+at 35.7%, basis C up one file. Two commits in a row where the headline was the wrong
+place to look is enough to stop treating the pattern as a coincidence.
 
 A basis was **removed** rather than updated when the goal changed. There used to be a
 line reading "same, excluding the five never-move files — 36.6%", and it measured

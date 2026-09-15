@@ -110,10 +110,16 @@ editrail.cpp
 # the census reads 93 mentions today (75 outside comments), and the link debt was
 # never render.cpp's depth -- it was one symbol.
 #
-# i18n_app.cpp is one function. It was split off i18n.cpp so that 1500 lines of
-# string data could compile off Windows, and the half left behind turned out to
-# compile too once App stopped naming a backend.
-i18n_app.cpp
+# i18n_app.cpp HAS LEFT THIS SECTION -- it is linked and run by the i18n test now,
+# see the i18n heading below. The note that used to sit here said it was "one
+# function... split off i18n.cpp so that 1500 lines of string data could compile off
+# Windows". True, and it was the wrong reason to leave it untested: being one
+# forwarding line is what made it cheap to assert, not what made it not worth
+# asserting. Its whole job is to read a member, and dropping that read makes the app
+# silently monolingual with no error anywhere.
+#
+# THIS SECTION IS NOW ONE FILE. editrail.cpp above is the only entry in the manifest
+# that nothing executes, on either platform.
 
 # --- In-document search, compiled AND run off Windows --------------------------
 #
@@ -197,6 +203,17 @@ inline_style.cpp
 
 # --- Portable application logic ----------------------------------------------
 i18n.cpp
+# The App-aware half of i18n: tr(const App&, key), which forwards
+# app.currentLanguageIndex to the index overload every one of the 169 tr(app, "key")
+# call sites eventually reaches. Linked and run by i18n_tests, which is why this
+# line is here and not in the compile-only section above.
+#
+# The manifest CANNOT tell you that. Unlike search.cpp, moving this file back into
+# portable_compile_only leaves its object line in the build log unchanged, so the
+# comparison above stays green either way. The instrument for that is a check on the
+# LINK line of i18n_tests in scripts/probe-portable-linux.sh -- a different shape
+# from every other guard there, and the comment on it says why.
+i18n_app.cpp
 keymap.cpp
 settings.cpp
 # The text helpers split out of utils.cpp: toWide, toLower, isWordBoundary,

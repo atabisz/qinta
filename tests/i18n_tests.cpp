@@ -1,4 +1,5 @@
 #include "i18n.h"
+#include "app.h"
 
 #include <iostream>
 #include <string>
@@ -6,8 +7,10 @@
 namespace {
 
 int failures = 0;
+int checks = 0;
 
 void check(bool condition, const char* message) {
+    checks++;
     if (condition) return;
     std::cerr << "FAIL: " << message << '\n';
     failures++;
@@ -105,10 +108,80 @@ int main() {
         check(contains(fmt, L"%zu"), "match_count keeps %zu");
     }
 
+    // --- the App overload -------------------------------------------------
+    //
+    // tr(const App&, key) is the whole of src/i18n_app.cpp, and until this block
+    // existed nothing executed a line of that file on any platform: it sat in
+    // portable_compile_only, where a compiler accepting it was the only evidence
+    // there was. Every one of the 169 tr(app, "key") call sites across the tree
+    // goes through it.
+    //
+    // What makes it worth asserting is the failure mode, not the size. The
+    // function's entire job is to READ app.currentLanguageIndex and forward it.
+    // Break that read -- forward a constant, forward the wrong member, forward the
+    // system language instead of the chosen one -- and the app compiles, runs,
+    // draws every string, and is silently monolingual. There is no error to see.
+    // So the assertions below are all differential: the same key through the same
+    // object must change answer when the index changes, and must agree exactly
+    // with the index overload it delegates to.
+    App app;
+
+    check(app.currentLanguageIndex == 0,
+          "a default-constructed App starts on the first registry entry");
+    check(std::wstring(tr(app, "settings.title")) ==
+              std::wstring(tr(en, "settings.title")),
+          "the App overload on a default App agrees with tr(en, ...)");
+
+    // The differential core. Same object, same key, index moved: a forwarding
+    // function that ignored the member would return the same string three times.
+    app.currentLanguageIndex = de;
+    const std::wstring titleDe = tr(app, "settings.title");
+    app.currentLanguageIndex = fr;
+    const std::wstring titleFr = tr(app, "settings.title");
+    app.currentLanguageIndex = ja;
+    const std::wstring titleJa = tr(app, "settings.language");
+
+    check(titleDe == L"Einstellungen",
+          "the App overload reads currentLanguageIndex (German)");
+    check(titleFr == L"Param\u00E8tres",
+          "the App overload reads currentLanguageIndex (French)");
+    check(titleJa == L"\u8A00\u8A9E",
+          "the App overload reads currentLanguageIndex (Japanese)");
+    check(titleDe != titleFr,
+          "moving currentLanguageIndex changes the answer, so the member is not ignored");
+
+    // Agreement with the overload it delegates to, across every shipped language
+    // and several keys. This is the forwarding contract stated directly: for any
+    // index the App overload must be indistinguishable from the index overload.
+    // Asserted as pointer-equality-free string comparison on purpose -- the table
+    // returns stable pointers today and that is not the contract being pinned.
+    for (int lang : {en, zh, de, fr, it, ja, ko}) {
+        app.currentLanguageIndex = lang;
+        for (const char* key : {"settings.title", "ctx.settings", "toast.copied",
+                                "codeblock.copy", "title.untitled"}) {
+            check(std::wstring(tr(app, key)) == std::wstring(tr(lang, key)),
+                  "tr(app, key) agrees with tr(app.currentLanguageIndex, key)");
+        }
+    }
+
+    // The English fallback has to survive the extra hop. A key missing from the
+    // German table resolves through the App overload exactly as it does through
+    // the index one -- worth its own assertion because the fallback lives in the
+    // index overload, and an App overload that cached or short-circuited would
+    // break it while every present key still looked right.
+    app.currentLanguageIndex = de;
+    check(std::wstring(tr(app, "title.no_file")) == L"Tinta",
+          "an untranslated key still falls back to English through the App overload");
+
     if (failures == 0) {
-        std::cout << "i18n tests passed\n";
+        // The count is printed on success, which this test did not do for its
+        // whole life: it said "i18n tests passed" and nothing else, so a block
+        // compiled out, a loop that never entered, or the whole App section
+        // silently dropped would all have read as a clean pass. A green run with
+        // no number is indistinguishable from a green run of nothing.
+        std::cout << "i18n: all " << checks << " assertions passed\n";
         return 0;
     }
-    std::cerr << failures << " failure(s)\n";
+    std::cerr << failures << " failure(s) out of " << checks << " assertions\n";
     return 1;
 }

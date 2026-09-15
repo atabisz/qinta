@@ -10,7 +10,12 @@
 // two implementations of one call -- so pretending otherwise behind one signature
 // would be worse than a Windows-only translation unit that says so. When a Linux
 // or macOS build needs this feature it gets its own file and its own entry point,
-// which is the same shape platform_paths_posix.cpp already has.
+// which used to be the same shape platform_paths_posix.cpp had. THAT PRECEDENT IS
+// GONE, and in the opposite direction: the paths seam collapsed to ONE non-Windows
+// file, platform_paths_qt.cpp, because Qt answers the question identically on Linux
+// and macOS. So this file is now the weaker case, not the matching one -- it stays
+// Windows-only because file-association registration has no single Qt call, and if
+// one ever appears this translation unit should collapse the same way.
 #include "settings.h"
 #include "document.h"
 #include "i18n.h"

@@ -32,14 +32,54 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
-# The platform path seam has one implementation per family. Selected here rather
-# than with #ifdefs inside one file so that a Windows-only API can never be
-# reached from a POSIX build even by accident, and so adding a platform means
-# adding a file rather than editing a shared one.
+# Qt is found HERE rather than only at the bottom of this file because the seam
+# selection immediately below now depends on it, and the test targets that consume
+# the selection are declared hundreds of lines above the old find_package call.
+# find_package caches, so the later call is satisfied from here and neither is
+# redundant.
+find_package(Qt6 QUIET COMPONENTS Core Gui)
+
+# The platform path seam. Its POSIX half is GONE: src/platform_paths_posix.cpp
+# was replaced by src/platform_paths_qt.cpp, which is written to be correct on all
+# three platforms and is the file src/platform_paths_win32.cpp collapses into at
+# the TINTA_LEGACY_D2D cutover below. That is a deletion rather than another seam,
+# which is what the goal -- one stack everywhere -- asks for.
+#
+# Nine of the eleven functions have no platform branch in the Qt file. The two that
+# do are named there: executableDirectory, because every Qt answer needs a
+# QCoreApplication instance and the callers run before one exists, and
+# documentPathsEqual, because Qt has no per-platform path-identity rule.
 if(WIN32)
     set(PLATFORM_PATHS_SOURCE src/platform_paths_win32.cpp)
 else()
-    set(PLATFORM_PATHS_SOURCE src/platform_paths_posix.cpp)
+    if(NOT Qt6_FOUND)
+        message(FATAL_ERROR
+            "Qt 6 (Core and Gui) is required off Windows: the platform path, keyboard and image "
+            "seams all resolve to their Qt implementations there. This is not a new dependency -- "
+            "src/keyboard_qt.cpp and src/image_qt.cpp were already the only non-Windows halves -- "
+            "it is the first one that fails loudly instead of silently dropping test targets.")
+    endif()
+    set(PLATFORM_PATHS_SOURCE src/platform_paths_qt.cpp)
+    set(PLATFORM_PATHS_BACKEND_QT TRUE)
+endif()
+
+# THE SEAM'S LIBRARIES TRAVEL WITH THE SEAM, and this variable exists because they
+# did not. Seventeen targets list ${PLATFORM_PATHS_SOURCE}, and twelve of them
+# carried a hand-written `if(WIN32) target_link_libraries(x PRIVATE shell32)` block
+# -- shell32 being there for exactly one reason: SHGetFolderPathW in the Windows
+# half of this seam. The Qt half needs Qt6::Core and Qt6::Gui the same way, and
+# adding it without this variable built ONE target (platform_paths_tests, the only
+# one edited by hand) and broke the other sixteen at `QByteArray: No such file or
+# directory` -- 15 of 25 ctest entries Not Run, which is a far louder failure than
+# the previous file, needing no include path at all, could ever have produced.
+#
+# So the dependency is stated once, beside the file selection it belongs to. A new
+# target that lists the source and forgets the libraries still breaks, but it breaks
+# the same way for everyone rather than per-platform, and the fix is one token.
+if(WIN32)
+    set(PLATFORM_PATHS_LIBS shell32)
+else()
+    set(PLATFORM_PATHS_LIBS Qt6::Core Qt6::Gui)
 endif()
 
 # The modifier-key seam (include/keyboard.h), selected the same way and for the same
@@ -306,12 +346,43 @@ if(BUILD_TESTING)
         ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(platform_paths_tests PRIVATE include)
+    # shell32 on Windows, Qt6::Core and Qt6::Gui off it -- see PLATFORM_PATHS_LIBS.
+    target_link_libraries(platform_paths_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        # SHGetFolderPathW lives in shell32; the POSIX build needs no extra libs.
-        target_link_libraries(platform_paths_tests PRIVATE shell32)
         target_compile_definitions(platform_paths_tests PRIVATE UNICODE _UNICODE)
     endif()
+    if(PLATFORM_PATHS_BACKEND_QT)
+        # Gui, not just Core, and for exactly one function: openInDefaultApplication
+        # is QDesktopServices. Nothing here constructs a QGuiApplication, so this
+        # links and runs headless -- which the test target needs, because it has no
+        # display and no business launching an application.
+        target_link_libraries(platform_paths_tests PRIVATE Qt6::Core Qt6::Gui)
+        # The Qt backend UNIFIES one answer the two native backends disagreed about
+        # (a directory's write time), so the test's per-platform assertion has to key
+        # on the BACKEND rather than on the OS. Without this definition that
+        # assertion would silently test the wrong thing on whichever side moved.
+        target_compile_definitions(platform_paths_tests PRIVATE TINTA_PATHS_BACKEND_QT)
+    endif()
     add_test(NAME platform_paths COMMAND platform_paths_tests)
+
+    if(NOT WIN32)
+        # A SECOND ENTRY FOR ONE ASSERTION, because it cannot share a process with
+        # the first. preferredUiLanguages drops the C/POSIX locale, and the Qt
+        # backend resolves the system locale once and caches it -- so a run that
+        # forces LANGUAGE to real languages can never afterwards observe the C
+        # locale being filtered. Deleting that filter from the backend left the
+        # single-process test green, which is what this entry fixes.
+        #
+        # All three variables, and the empty LANGUAGE is not redundant: measured,
+        # LANG=en_AU with an empty LANGUAGE still reports en-AU, and only
+        # LC_ALL=C plus LANG=C plus an empty LANGUAGE yields exactly one tag, "C".
+        # This is set here rather than in the test because a test that edits its own
+        # environment before the first query is the bug this replaced.
+        add_test(NAME platform_paths_bare_locale
+                 COMMAND platform_paths_tests --bare-locale)
+        set_tests_properties(platform_paths_bare_locale PROPERTIES
+            ENVIRONMENT "LC_ALL=C;LANG=C;LANGUAGE=")
+    endif()
 
     # src/selection.cpp -- LINKED AND RUN off Windows, which it was not until this
     # commit. It used to be in portable_compile_only below, under a long comment
@@ -356,9 +427,8 @@ if(BUILD_TESTING)
         ${PLATFORM_PATHS_SOURCE}
     )
     target_include_directories(selection_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(selection_tests PRIVATE md4c)
+    target_link_libraries(selection_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(selection_tests PRIVATE shell32)
         target_compile_definitions(selection_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME selection COMMAND selection_tests)
@@ -400,9 +470,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(selection_layout_tests PRIVATE md4c)
+    target_link_libraries(selection_layout_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(selection_layout_tests PRIVATE shell32)
         target_compile_definitions(selection_layout_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME selection_layout COMMAND selection_layout_tests)
@@ -441,9 +510,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(search_tests PRIVATE md4c)
+    target_link_libraries(search_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(search_tests PRIVATE shell32)
         target_compile_definitions(search_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME search COMMAND search_tests)
@@ -476,9 +544,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tests
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(file_utils_tests PRIVATE md4c)
+    target_link_libraries(file_utils_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(file_utils_tests PRIVATE shell32)
         target_compile_definitions(file_utils_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME file_utils COMMAND file_utils_tests)
@@ -520,9 +587,8 @@ if(BUILD_TESTING)
     add_executable(context_menu_tests tests/context_menu_tests.cpp src/context_menu.cpp
         src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE})
     target_include_directories(context_menu_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(context_menu_tests PRIVATE md4c)
+    target_link_libraries(context_menu_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(context_menu_tests PRIVATE shell32)
         target_compile_definitions(context_menu_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME context_menu COMMAND context_menu_tests)
@@ -543,9 +609,8 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(inline_style_tests PRIVATE md4c)
+    target_link_libraries(inline_style_tests PRIVATE md4c ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(inline_style_tests PRIVATE shell32)
         target_compile_definitions(inline_style_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME inline_styles COMMAND inline_style_tests)
@@ -682,7 +747,9 @@ if(BUILD_TESTING)
     # path moved onto the seam. The first was true but overstated, and a written claim
     # of impossibility is the least-tested kind: a real link found exactly ten
     # undefined symbols, nine of them in translation units already on this manifest
-    # (themes.cpp, text_utils.cpp, markdown.cpp, platform_paths_posix.cpp). Only
+    # (themes.cpp, text_utils.cpp, markdown.cpp, and platform_paths_posix.cpp, which
+    # is DELETED as of the Qt paths span -- platform_paths_qt.cpp resolves those
+    # symbols now, so the count stands and the file naming it does not). Only
     # ensureLayoutComplete is genuinely stuck in render.cpp, search.cpp calls it at one
     # site as a documented precondition, and search_tests supplies that precondition
     # from the layout fixture instead. Cost of finding that out: one link attempt.
@@ -893,9 +960,9 @@ if(BUILD_TESTING)
         ${md4c_SOURCE_DIR}/src
     )
     target_link_libraries(i18n_tests PRIVATE md4c)
+    # shell32 for ShellExecuteW/SHGetFolderPathW inside the win32 seam, Qt off Windows.
+    target_link_libraries(i18n_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        # shell32 for ShellExecuteW/SHGetFolderPathW inside the win32 seam.
-        target_link_libraries(i18n_tests PRIVATE shell32)
         target_compile_definitions(i18n_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME i18n COMMAND i18n_tests)
@@ -922,8 +989,8 @@ if(BUILD_TESTING)
     target_include_directories(settings_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_link_libraries(settings_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(settings_tests PRIVATE shell32)
         target_compile_definitions(settings_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME settings_roundtrip COMMAND ${CMAKE_COMMAND}
@@ -952,8 +1019,8 @@ if(BUILD_TESTING)
     target_include_directories(theme_data_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_link_libraries(theme_data_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(theme_data_tests PRIVATE shell32)
         target_compile_definitions(theme_data_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME theme_data COMMAND ${CMAKE_COMMAND}
@@ -1007,8 +1074,8 @@ if(BUILD_TESTING)
     target_include_directories(text_utils_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_link_libraries(text_utils_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     if(WIN32)
-        target_link_libraries(text_utils_tests PRIVATE shell32)
         target_compile_definitions(text_utils_tests PRIVATE UNICODE _UNICODE)
     endif()
     add_test(NAME text_utils COMMAND text_utils_tests)
@@ -1261,7 +1328,7 @@ if(BUILD_TESTING)
     target_include_directories(config_path_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
-    target_link_libraries(config_path_tests PRIVATE shell32)
+    target_link_libraries(config_path_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     target_compile_definitions(config_path_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME config_paths COMMAND config_path_tests)
 

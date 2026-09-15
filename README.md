@@ -256,7 +256,7 @@ the "target" column is where every platform ends up:
 | `include/render_api.h` | Direct2D render target, brushes, bitmaps | `src/render_d2d.cpp` | `src/render_qt.cpp` |
 | `include/win32_types.h` | Win32 scalar types (`UINT32`, `BOOL`, `FLOAT`, …) | real `<windows.h>` types | stand-in typedefs, each pinned to the SDK's by `static_assert` — and eventually neither, once no code names them |
 | `include/win32_api.h` | Win32 and CRT *calls* (`swprintf_s`, `PostMessage`, …) | native | portable spellings |
-| `include/platform_paths.h` | Config and data directory lookup | `src/platform_paths_win32.cpp` | `src/platform_paths_posix.cpp`, then `QStandardPaths` |
+| `include/platform_paths.h` | Config and data directory lookup | `src/platform_paths_win32.cpp` | `src/platform_paths_qt.cpp` — `QStandardPaths`/`QDir`/`QLocale`, and it **replaced** `platform_paths_posix.cpp` rather than joining it |
 | `include/keyboard.h` | "is a modifier held" (`GetKeyState`) | `src/keyboard_win32.cpp` | `src/keyboard_qt.cpp` |
 | `include/seated.h` | How `App` *stores* a backend object | — | `Seated<Seam, Native>` |
 
@@ -398,7 +398,7 @@ same session.
 | Text seam (`text_api.h`) + Qt backend | Done, tested headless |
 | Render seam (`render_api.h`) + Qt backend | Done, tested headless |
 | Win32 scalar + call seams | Done — 5 scalars admitted from an error census (`UINT32`, `FLOAT`, `BOOL`, `TRUE`, `FALSE`), 6 more refused for appearing in no error at all, and `HRESULT`/`SUCCEEDED` withheld deliberately so COM-shaped code cannot quietly compile off Windows |
-| Platform paths seam | Done, POSIX backend |
+| Platform paths seam | Done — **and the POSIX backend is now DELETED rather than maintained.** `src/platform_paths_qt.cpp` replaced all 334 lines of `platform_paths_posix.cpp`, including a hand-rolled UTF-8↔`wchar_t` codec and a double-`fork`/`execlp("xdg-open")`/`waitpid` sequence whose whole purpose was avoiding a zombie process. Nine of the eleven functions have no platform branch at all in the new file, which is what one stack on three platforms looks like at the file level; the two that do are `executableDirectory` (every Qt answer needs a `QCoreApplication` instance and the callers run before one exists) and `documentPathsEqual` (Qt has no per-platform path-identity rule, so the shipped comparison is preserved verbatim). Written against measurements taken *first*, on Qt 6.4.2 and 6.8.3, which is the only reason it is correct: four defects were designed out, three of them silent — most seriously `QStandardPaths::GenericConfigLocation` being `%LOCALAPPDATA%` on Windows, which would have relocated every existing user's `settings.ini` out of Roaming and orphaned the old one behind a clean-looking diff |
 | Theme data de-Direct2D'd | Done — colours are no longer `D2D1_COLOR_F`, which is what freed `themes.cpp` (511 lines of palette data and an ini reader) from `windows.h` |
 | `App` storage behind the seam (`seated.h`) | Done — an `App` links and runs off Windows with zero Direct2D wrapper symbols in the binary |
 | Synthetic `App` layout for tests (`tests/app_fixture.h`) | Done — a fake, not a device |
@@ -415,12 +415,20 @@ same session.
 | Line-breaking seam (`TextFactory::AnalyzeLineBreaks`) + both backends | Done — **and this row is itself a correction: the pass that did the work added no row here.** It moved a 75-line `IDWriteTextAnalysisSource`/`Sink` COM pair out of `render.cpp` into `src/text_d2d.cpp` and wrote the Qt half over `QTextBoundaryFinder`, which is why the file's line-breaking mentions are now zero live. The interesting part is the **contract**, three clauses of which two are the kind a backend gets wrong while still compiling and still drawing plausible text, so they are spelled out in `include/text_api.h` rather than left to fall out: `canBreak[i]` means "may break *before* `text[i]`" in the **caller's** `wchar_t` units and must not be resized; an implementation writes indices `1 .. length-1` **only**, because Qt reports a boundary at both ends and the ends belong to the caller; and returning `false` means "this backend did not analyse the text", never "there are no break opportunities" — the caller then falls back to space-only breaking, which is exactly what it already did when DirectWrite's analyzer was absent, so no caller sees a new shape. Caller units are load-bearing on Linux, where `wchar_t` is UTF-32 and one caller unit can be two `QString` units, so `QtTextFactory` maps them rather than assuming they agree. Why it matters beyond tidiness: the question is about the **script**, not the font — Chinese prose has no spaces, so a backend that cannot answer treats a whole sentence as one unbreakable word |
 | FILETIME seam (`platform::fileWriteTicks`) + both backends | Done — and it is the row where **a blocking comment in the tree turned out to be right about its premise and wrong about its conclusion.** `src/file_utils.cpp` carried a 23-line comment arguing that porting it meant a representation change across eleven sites, because `App::lastFileWriteTime`, `LayoutTab::lastWrite` and `settings.ini`'s `[Recent]` block all mean *Windows FILETIME ticks* — 100ns intervals since 1601 — and packing a POSIX timestamp into the same 64 bits satisfies every `CompareFileTime` equality in `input.cpp` while **redating the start page by 369 years**. That premise is correct and is preserved verbatim; two of its claims were also checked mechanically and **the comment was right where my own census was wrong** — `input.cpp` touches five file-time values and `tabs.cpp` one, where `rg FILETIME` finds three and zero, because a **type-name census cannot see a site that touches the value without naming the type**. Its *conclusion* was the error: packing is not the only portable move. The seam produces genuine 1601-epoch ticks from `std::chrono`, which `settings.cpp` had already been doing since before the comment was written, so nothing about what a file time *means* had to change. The comment was **corrected in place, not deleted.** 5 g++ errors to 0. The Windows half also fixes a real defect it inherited: the original ignored `GetFileTime`'s return value and passed the member's address straight in, so a failure left a half-written `FILETIME`; the seam returns 0 and the caller leaves the member alone, because `input.cpp` compares for *inequality* and a zeroed member would look like a change. POSIX reads `st_mtim` rather than `st_mtime` — whole-second resolution misses a same-second rewrite, which is exactly the case the polling exists for — and does the arithmetic signed then checks, because a pre-1970 mtime would otherwise wrap into a plausible far-future value |
 
-**To do — 24 files, 29,834 lines**
+**To do — 24 files, 29,839 lines**
 
 **A file left this set for the first time in three passes**, and the count fell both ways:
 25 → 24 files, 29,959 → 29,834 lines. It reconciles exactly, which is the only reason to
 trust it — `file_utils.cpp`'s 158 lines left, `platform_paths_win32.cpp` gained 27 and
 `render.cpp` 6, for −125 net. Every other file in the set is untouched.
+
+**29,834 → 29,839 the following pass, and the 5 lines are a comment.** No file entered or
+left the set; `src/settings_win32.cpp` grew by five lines of correction, because it justified
+staying Windows-only by pointing at `platform_paths_posix.cpp` as the precedent — and that
+pass deleted the precedent. The paths seam collapsed to **one** non-Windows file instead of
+splitting into two, so `settings_win32.cpp` is now the weaker case rather than the matching
+one, and it says so where the next reader will look. Five lines on the to-do total is what
+that costs.
 
 **That "29,959" is a correction, not a restatement, and it falsifies a claim this section
 used to make about itself.** The header here read "25 files, 29,903 lines", and 29,903 is the
@@ -454,7 +462,7 @@ better reading but a rising one is not the surprising one.
 | Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired: those files report `errors=1, fatal=1`, which means not-measured rather than one-error-away |
 | Qt entry point | — | `Seated::install()` still has zero callers; blocked behind `render.cpp` |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
-| The Windows backends themselves | 335 + 767 + 212 + 173 + 65 + 23 + 346 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 1,921 lines, re-derived rather than carried (`text_d2d.cpp` read 635 for a pass after gaining 132 lines of line-breaking backend, and `platform_paths_win32.cpp` read 146 after gaining the FILETIME seam's 27). Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 346 lines, of which a good share is the post-mortem for a segfault it caused (see below). `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
+| The Windows backends themselves | 335 + 767 + 217 + 173 + 65 + 23 + 346 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 1,926 lines, re-derived rather than carried (`text_d2d.cpp` read 635 for a pass after gaining 132 lines of line-breaking backend, and `platform_paths_win32.cpp` read 146 after gaining the FILETIME seam's 27). Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 346 lines, of which a good share is the post-mortem for a segfault it caused (see below). `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
 
 The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
 it is worth a note because the reasoning is not visible from the code. Folding
@@ -469,7 +477,7 @@ answer ever changes.
 That last row is the change of goal made arithmetic. These files used to be listed
 separately as "will never move", excluded from the count on the grounds that they were
 the Windows half of a permanent pair. Under one stack there is no permanent Windows half,
-so they are work — **1,921 lines of it today**, across seven files: the five originally
+so they are work — **1,926 lines of it today**, across seven files: the five originally
 excluded, plus the two seam backends written since — and they are counted.
 
 The *membership* of the to-do set is derived mechanically — every `src/*.cpp` that
@@ -517,7 +525,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 21,635 / 58,924 | **36.7%** |
+| A. Source lines free of the Windows stack | 21,620 / 58,914 | **36.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 37 / 61 | 60.7% |
 | C. Files a *running* test links | 35 / 61 | 57.4% |
 | D. Test targets that *could* move, and do | 24 / 30 | 80.0% |
@@ -533,7 +541,7 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 51,469 lines of the 58,924,
+can never enter the numerator. With `src/*.cpp` totalling 51,459 lines of the 58,914,
 **basis A's ceiling is 87.3%, not 100%**, and 36.7% should be read against that.
 
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
@@ -548,8 +556,49 @@ why an independent line count disagreed with the probe by exactly 29 until the p
 re-run at the final tree state; two instruments agreeing at 58,026 is the reading, and one
 of them being stale was the reason to re-run rather than reconcile on paper.
 
-**This pass the headline moved — 36.5% → 36.7%, 21,439 / 58,809 → 21,635 / 58,924 — and B,
-C, D and E each moved by exactly one.** A `.cpp` file crossed into the portable set, which is
+**This pass the headline did not move at all — 36.7% → 36.7% — while the numerator FELL, 21,635
+→ 21,620, and every other basis stood still.** No file entered or left any set: one file in the
+numerator was replaced by a smaller file in the numerator, 334 lines of `platform_paths_posix.cpp`
+out and 319 of `platform_paths_qt.cpp` in, −15 on both numerator and denominator, and the
+percentage rounds to the same place. So the pass that **deleted an entire hand-written POSIX
+implementation** — a UTF-8 codec, a double `fork`, an `execlp`, a `waitpid` — is invisible in
+the headline, and worse than invisible in the numerator, which reads it as a small loss.
+
+That is the previous pass's lesson seen from the other side, and the two together say what
+basis A is. Last pass it jumped 196 lines on 38 lines of new work, because a file crossed into
+the set. This pass it fell 15 while the port got structurally simpler, because no file crossed
+and the one that changed got shorter. **The metric prices set membership, and deleting code is
+the one form of progress it can only read as shrinkage.** A seam that collapses two
+implementations into one will always look like this, and there are four more seams to collapse.
+
+The other bases held for a reason worth stating rather than assuming: B, C, D and E all count
+*files* or *targets*, and this pass changed neither. `tests/portable-sources.txt` still lists 37
+files, because line 43 changed its spelling and not the count. The one real change is invisible
+to every basis in the table — the Linux suite went from 24 configured ctest entries to 25,
+because `platform_paths_tests` is now registered **twice**, with different environments. That is
+one target, so basis E stays 24 / 34, and a future reader tempted to bump it to 25 should not:
+the count that moved is entries, not targets.
+
+The reason for the second entry is the sharpest single reading of the pass. `preferredUiLanguages`
+filters out the C/POSIX locale, and Qt resolves the system locale **once per process** and caches
+it — so a test that forces `LANGUAGE` to real languages can never afterwards observe the filter
+working, and one that does not force it observes nothing at all, because with no `LANGUAGE` the
+list is `{"C"}`, the filter empties it, and every assertion in the loop runs zero times while the
+suite prints green. Deleting the filter from the backend left the single-process test **passing**.
+It now fails in the second entry, which ctest runs under `LC_ALL=C LANG=C LANGUAGE=` — measured
+to yield exactly one tag — and asserts the result is empty: 2 failures of 50 with the filter gone,
+0 of 45 with it there, while the first entry stays green through both. Two processes, because one
+process physically cannot hold both readings.
+
+An earlier attempt at that control is why this is stated so carefully. I had seeded the forced
+list as `"C:zh_CN.UTF-8:ja_JP@x"` and written in the test that the leading `"C"` exercised the
+filter. **Qt drops the leading `"C"` itself while resolving the list**, so it never reached the
+filter, and the comment claiming otherwise sat in the file describing a control that could not
+fire. The comment is corrected in place, and the claim it made is now carried by a test that
+was proven to fail.
+
+*The pass before this one, for comparison:* the headline moved 36.5% → 36.7%, 21,439 / 58,809 →
+21,635 / 58,924, and B, C, D and E each moved by one. A `.cpp` file crossed into the portable set, which is
 the only thing that moves basis A, and the arithmetic of *how* it moved inverts the lesson of
 the previous pass. The numerator gained **196 lines. Only 10 of them were written this pass.**
 
@@ -588,7 +637,23 @@ Direct2D/DirectWrite wrappers themselves and are gated on `TINTA_LEGACY_D2D` to 
 with the backends, and `config_paths` checks MSIX filesystem virtualization, which has no
 non-Windows meaning. Excluding those four, 24 of 30 movable targets have moved.
 
-The other readings this pass, each with its instrument named. `src/file_utils.cpp` went from
+**The loudest reading of the Qt paths pass came from the full suite, not from the target under
+test, and it is the one worth carrying forward.** `platform_paths_tests` was built and green —
+78 assertions, both environments, every planted control firing at its predicted count — while
+`ctest` reported **15 of 25 entries Not Run**. Sixteen other targets also list the paths source,
+and all sixteen failed at `QByteArray: No such file or directory`, because the file this seam
+replaced needed no include path at all and the one target I edited by hand was the only one that
+linked Qt. The seam's libraries were not travelling with the seam.
+
+Two things in that are worth keeping. The dependency is now stated **once**, beside the file
+selection, as `PLATFORM_PATHS_LIBS` — which also absorbed twelve hand-written
+`if(WIN32) target_link_libraries(x PRIVATE shell32)` blocks, since `shell32` was only ever there
+for `SHGetFolderPathW` in the same seam. And **building one target is not building the tree**: a
+green target next to a suite that will not configure is exactly the shape a probe is supposed to
+catch, and this one was caught by running everything rather than by reasoning about it. The
+ceiling reading for the pass, for completeness: 51,469 / 58,924 → 51,459 / 58,914, still 87.3%.
+
+The other readings of the pass before this one, each with its instrument named. `src/file_utils.cpp` went from
 **5 off-Windows compile errors to 0** and `src/render.cpp` from **47 to 38** — the 9 being two
 `UINT` members respelled `unsigned`, seven of the nine having been cascade. A new seam function
 `platform::fileWriteTicks` has an implementation per family and its own assertions. The new
@@ -608,8 +673,10 @@ defect fires in `platform_paths_tests` and is **completely invisible to `file_ut
 together. Only the seam's own test, which computes 1601-epoch ticks from `std::chrono`
 independently, can see it.
 
-This is the sixth consecutive pass where the headline was the wrong place to look, though
-this time it moved in the right direction for the right reason. Two passes ago it stood still
+This is the seventh consecutive pass where the headline was the wrong place to look, and the
+seventh is the clearest case yet: it stood still to one decimal place while a whole
+implementation was deleted. The pass before it moved in the right direction for the right
+reason, which had not happened in five. Two passes before that it stood still
 while the port gained its first tested image seam, then it fell while the port gained its
 first portable path geometry, and before that it jumped a full point on `tableedit.cpp`, a
 file nothing executes. Before that, giving `search.cpp` a
@@ -696,7 +763,7 @@ one each in `d2d_init.cpp`, `export_docx.cpp`, `export_html.cpp`, `math_render.c
 the census, which is exactly the kind of match that inflates a count nobody re-derives.
 
 Call it roughly a third of the way through by volume, with the hardest single file still
-ahead — and note that the finish line moved out, not in: **1,921 lines of Windows backend are
+ahead — and note that the finish line moved out, not in: **1,926 lines of Windows backend are
 now work rather than furniture**, they grow with every seam before they leave in one piece,
 and re-verifying Windows on a new stack is effort that appears in no line count here.
 

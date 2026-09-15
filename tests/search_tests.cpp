@@ -10,7 +10,8 @@
 // WHAT MADE IT TESTABLE, and what did not. CMakeLists said search.cpp "would not
 // LINK", which was true and overstated. The real debt was ten undefined symbols,
 // nine of which live in portable translation units already in the manifest
-// (themes.cpp, text_utils.cpp, markdown.cpp, platform_paths_posix.cpp). Exactly
+// (themes.cpp, text_utils.cpp, markdown.cpp, platform_paths_posix.cpp -- that last
+// file is DELETED now, and platform_paths_qt.cpp resolves the same symbols). Exactly
 // one -- ensureLayoutComplete -- is stuck in render.cpp, and search.cpp calls it
 // at one site, as a stated precondition: docText and textRects must cover the
 // whole document before searching. This file supplies that precondition directly

@@ -40,7 +40,12 @@
 
 # --- The platform seam and its consumers -------------------------------------
 config_dir.cpp
-platform_paths_posix.cpp
+# Was platform_paths_posix.cpp, which is DELETED. The Qt file replaced it rather
+# than joining it, so the seam's non-Windows half is now the same stack as the
+# keyboard and image seams. Like keyboard_qt.cpp and image_qt.cpp -- and unlike
+# render_qt.cpp and text_qt.cpp -- this one is LINKED AND RUN off Windows, by
+# platform_paths_tests, and the probe asserts it is on that link line.
+platform_paths_qt.cpp
 
 # --- The Qt rendering backend -------------------------------------------------
 #
@@ -197,7 +202,8 @@ tableedit.cpp
 # WHAT UNBLOCKED IT was one symbol, not a seam. The old note here blamed
 # render.cpp's depth. A real link named ten undefined symbols, nine resolving from
 # files already on this manifest (themes.cpp, text_utils.cpp, markdown.cpp,
-# platform_paths_posix.cpp) and one -- ensureLayoutComplete -- still in render.cpp.
+# platform_paths_posix.cpp, since replaced by platform_paths_qt.cpp, which resolves
+# the same symbols) and one -- ensureLayoutComplete -- still in render.cpp.
 # search.cpp calls it at a single site as a stated precondition, so the test defines
 # a stub and builds the same state from tests/app_fixture.h. THE LIMIT THAT BUYS:
 # everything downstream of the precondition is asserted, and the precondition itself

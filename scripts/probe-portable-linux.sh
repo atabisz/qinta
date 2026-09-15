@@ -376,6 +376,28 @@ else
     check 1 "src/keyboard_qt.cpp is linked into keyboard_tests (not on the link line -- did the platform selection pick the win32 file?)"
 fi
 
+# The path seam's backend, and the argument above transplanted exactly. There is a
+# sharper reason to assert this one: the two backends DISAGREE about a directory's
+# write time, and platform_paths_tests keys that assertion on TINTA_PATHS_BACKEND_QT
+# rather than on the OS. So a selection that quietly picked a different file would
+# not fail -- it would compile the OTHER arm of that #ifdef and report a green suite
+# for the backend nobody shipped.
+if grep -E -- '-o platform_paths_tests( |$)' "$BUILD_DIR.build.log" | grep -q "platform_paths_qt\.cpp\.o"; then
+    check 0 "src/platform_paths_qt.cpp is LINKED INTO platform_paths_tests, so the Qt backend is the one the 4x assertions exercised"
+else
+    check 1 "src/platform_paths_qt.cpp is linked into platform_paths_tests (not on the link line -- did the platform selection pick the win32 file, or is platform_paths_posix.cpp back?)"
+fi
+
+# And the DELETED file must stay deleted. Without this, restoring
+# src/platform_paths_posix.cpp and reselecting it would show up only as a manifest
+# mismatch on a name nobody reads as a regression -- while every assertion in
+# platform_paths_tests kept passing, because both backends satisfy almost all of them.
+if [ -e "$SOURCE_DIR/src/platform_paths_posix.cpp" ]; then
+    check 1 "src/platform_paths_posix.cpp stays deleted (it is back on disk -- the Qt file REPLACED it rather than joining it)"
+else
+    check 0 "src/platform_paths_posix.cpp stays deleted -- the path seam has one non-Windows implementation, and it is Qt"
+fi
+
 # tests/image_tests.cpp, for the same structural reason as every test object above:
 # include/image_api.h is a header, so the manifest cannot see it, and image_tests is
 # its ONLY consumer on either platform.

@@ -37,8 +37,20 @@ void check(bool condition, const char* message) {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
     namespace fs = std::filesystem;
+
+    // --bare-locale runs the SAME assertions against a deliberately empty language
+    // environment, and it exists because one process cannot test both cases: the
+    // backend caches the first resolved system locale, so forcing LANGUAGE and
+    // observing the C-locale fallback are mutually exclusive within one run.
+    // CMakeLists.txt registers this as a second ctest entry with LC_ALL=C, LANG=C
+    // and an empty LANGUAGE, which measured as exactly one reported tag, "C".
+    bool bareLocale = false;
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--bare-locale") bareLocale = true;
+    }
+    (void)bareLocale;  // read only off Windows, where LANGUAGE steers the result
 
 #ifdef _WIN32
     check(platform::pathSeparator() == L'\\', "Windows separator is a backslash");
@@ -153,20 +165,32 @@ int main() {
               "a missing file reports 0 rather than a garbage or partial time");
         check(platform::fileWriteTicks(L"") == 0, "an empty path reports 0");
 
-        // A KNOWN DIVERGENCE, asserted per platform rather than skipped, because
-        // both answers are correct and the cause is nameable: CreateFileW refuses a
-        // directory without FILE_FLAG_BACKUP_SEMANTICS, which the Windows original
-        // did not pass and this seam does not add, while stat() is perfectly happy
-        // to describe one. No caller in the tree asks for a directory's write time,
-        // so this pins the behaviour instead of unifying it.
-#ifdef _WIN32
+        // A DIRECTORY'S WRITE TIME, AND THE CONDITION IS THE BACKEND, NOT THE OS.
+        // This block used to be `#ifdef _WIN32` and to call the disagreement a
+        // deliberate per-platform divergence on the grounds that both answers were
+        // correct. Measuring Qt on both platforms refuted the premise: Windows
+        // returned 0 only because CreateFileW refuses a directory without
+        // FILE_FLAG_BACKUP_SEMANTICS, which the original did not pass -- so it was
+        // an artifact of a flag, not a truth about the platform. QFileInfo reports
+        // a real time on Windows (measured, 6.8.3) and on Linux (6.4.2) alike.
+        //
+        // No caller in the tree asks a directory for its write time, so nothing
+        // behavioural rides on this. It is asserted anyway, and keyed on the
+        // backend, because that is what makes the change VISIBLE at the cutover
+        // instead of discovered afterwards.
+#ifdef TINTA_PATHS_BACKEND_QT
+        check(platform::fileWriteTicks(probeDir.wstring()) != 0,
+              "with the Qt backend a DIRECTORY reports a real write time on EVERY "
+              "platform -- QFileInfo describes one, and the old Windows 0 was an "
+              "artifact of CreateFileW's flags rather than a platform difference");
+#elif defined(_WIN32)
         check(platform::fileWriteTicks(probeDir.wstring()) == 0,
-              "on Windows a DIRECTORY reports 0 -- CreateFileW without "
-              "FILE_FLAG_BACKUP_SEMANTICS cannot open one");
+              "with the native Win32 backend a DIRECTORY reports 0 -- CreateFileW "
+              "without FILE_FLAG_BACKUP_SEMANTICS cannot open one");
 #else
         check(platform::fileWriteTicks(probeDir.wstring()) != 0,
-              "on POSIX a DIRECTORY reports a real time -- stat() describes one, "
-              "and this is a deliberate divergence, not a defect");
+              "with a native POSIX backend a DIRECTORY reports a real time -- stat() "
+              "describes one");
 #endif
     }
 
@@ -239,8 +263,37 @@ int main() {
     //
     // The list itself cannot be asserted -- it is whatever the user has
     // configured -- so what is checked is the *shape contract*, which is the
-    // part a caller depends on and the part the POSIX normalization can get
-    // wrong.
+    // part a caller depends on and the part the normalization can get wrong.
+#ifndef _WIN32
+    // FORCED BEFORE THE FIRST QUERY, AND THE ORDERING IS THE WHOLE POINT.
+    // Measured: the Qt backend resolves the system locale ONCE per process and
+    // caches the first non-C answer, so a setenv() after the list has been read is
+    // never observed. The previous shape of this block read the real list first and
+    // forced LANGUAGE afterwards, which passed only on a machine whose environment
+    // named no language -- and failed all three of its own controls on one that
+    // did, against correct code. It looked like it worked because the machine it
+    // was written on has no LANGUAGE set, where the first answer is the C locale
+    // and Qt does re-resolve past that.
+    //
+    // Forcing first also fixes a vacuous pass: with no LANGUAGE the backend
+    // reports only the C locale, the filter drops it, and every assertion in the
+    // loop below ran ZERO times while the suite reported green.
+    //
+    // A LEADING "C" HERE WOULD NOT REACH THE C/POSIX FILTER, and an earlier version
+    // of this comment claimed it did. Measured: seeded with "C:zh_CN.UTF-8:ja_JP@x",
+    // Qt drops the "C" itself while resolving the list, so the backend's filter
+    // never sees it and deleting that filter left this test green. The filter is
+    // only reachable in a BARE locale, which is what --bare-locale is for, and one
+    // process cannot test both because the resolved locale is cached. So the entries
+    // below are only the two that do normalization work -- native locale form,
+    // underscore, codeset, @modifier.
+    if (!bareLocale) {
+        setenv("LANGUAGE", "zh_CN.UTF-8:ja_JP@x", 1);
+    }
+    // In --bare-locale mode the environment is left exactly as ctest set it
+    // (LC_ALL=C, LANG=C, empty LANGUAGE, measured as the single tag "C"), because
+    // the point of that mode is to observe the untouched C locale.
+#endif
     std::vector<std::wstring> tags = platform::preferredUiLanguages();
     for (const std::wstring& tag : tags) {
         check(!tag.empty(), "no reported language tag is empty");
@@ -262,21 +315,67 @@ int main() {
     // Windows always reports at least one UI language.
     check(!tags.empty(), "CONTROL: Windows reports at least one UI language");
 #else
+    if (bareLocale) {
+        // THE C/POSIX FILTER'S ONLY CONTROL, and it needs its own process. ctest
+        // registers this mode as a second entry with LC_ALL=C, LANG=C and an empty
+        // LANGUAGE -- measured to make the backend report exactly one tag, "C" --
+        // so the filter drops it and the correct result is an EMPTY list.
+        //
+        // Not vacuous, and not the same thing as the loop above: delete the C/POSIX
+        // skip from the backend and this fails twice, here and at "the C/POSIX
+        // locale is not a language", because the loop then has one tag to walk. In
+        // the forced mode it fails not at all, which is exactly why this exists --
+        // a planted-defect run against the forced list reported green.
+        //
+        // An empty LANGUAGE alone is NOT enough (measured: LANG=en_AU with
+        // LANGUAGE= reports en-AU), so all three variables have to be set; the
+        // CMake ENVIRONMENT property carries them, not this file.
+        check(tags.empty(),
+              "CONTROL: a bare C/POSIX locale reports no languages at all");
+        std::cout << "bare-locale mode: C/POSIX filter observed\n";
+    } else {
     // On POSIX the input is the environment, so it can be supplied: LANGUAGE is
     // the colon-separated preference list, and both entries here are written in
     // native locale form specifically to make the normalization do work.
-    setenv("LANGUAGE", "zh_CN.UTF-8:ja_JP@x", 1);
-    std::vector<std::wstring> forced = platform::preferredUiLanguages();
+    // Asserted on `tags` itself, not on a second list read after a second setenv:
+    // the backend caches, so a re-forced value cannot be observed at all (measured).
+    // That also retires the old LANGUAGE=C sub-control below, which would have
+    // passed vacuously here -- it would have been re-reading the cached zh/ja list
+    // and concluding that C was filtered.
+    const std::vector<std::wstring>& forced = tags;
     check(forced.size() >= 2, "CONTROL: LANGUAGE supplies a preference list");
-    if (forced.size() >= 2) {
-        check(forced[0] == L"zh-CN", "CONTROL: locale name normalizes to a BCP 47 tag");
-        check(forced[1] == L"ja-JP", "CONTROL: preference order is preserved");
-    }
-    setenv("LANGUAGE", "C", 1);
-    check(platform::preferredUiLanguages().empty() ||
-              platform::preferredUiLanguages()[0] != L"C",
-          "CONTROL: the C locale is filtered out rather than reported");
+    check(!forced.empty() && forced[0] == L"zh-CN",
+          "CONTROL: the most-preferred locale name normalizes to a BCP 47 tag");
+
+    // THIS ASSERTION USED TO READ `forced[1] == L"ja-JP"` AND WOULD NOW FAIL
+    // AGAINST A CORRECT IMPLEMENTATION. Qt expands each entry with likely subtags,
+    // so the measured list is six long, not two:
+    //     zh-CN, zh-Hans-CN, zh, ja-JP, ja-Jpan-JP, ja
+    // and position 1 is zh-Hans-CN. Asserting a POSITION was over-specifying from
+    // the start: what the only caller depends on -- detectSystemLanguage() in
+    // i18n.cpp, which matches by PREFIX while walking the whole list in order -- is
+    // that both requested languages are present and that the more-preferred one
+    // still comes FIRST. Expansion cannot break that; a reversed list would, and
+    // this still catches it.
+    auto positionOf = [&forced](const wchar_t* tag) -> long long {
+        for (size_t i = 0; i < forced.size(); i++) {
+            if (forced[i] == tag) return static_cast<long long>(i);
+        }
+        return -1;
+    };
+    const long long zhAt = positionOf(L"zh-CN");
+    const long long jaAt = positionOf(L"ja-JP");
+    check(zhAt >= 0 && jaAt >= 0,
+          "CONTROL: both requested languages survive normalization and are reported");
+    check(zhAt >= 0 && jaAt >= 0 && zhAt < jaAt,
+          "CONTROL: preference ORDER is preserved, even though the backend may insert "
+          "expanded tags (zh-Hans-CN, ja-Jpan-JP) between the two");
+    // The C locale is not re-forced here. A second setenv is unobservable (the
+    // backend has already cached the resolved locale), so it would have been a
+    // control that cannot fire; the --bare-locale entry above covers it in the only
+    // process state where it can be seen.
     unsetenv("LANGUAGE");
+    }  // !bareLocale
 #endif
     std::cout << "preferred UI languages: " << tags.size() << '\n';
 

@@ -181,17 +181,35 @@ endif()
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
 # QSettings) or src/platform_paths_win32.cpp (becomes QStandardPaths).
 #
-# The option DEFAULTS ON because turning it off today does not produce a Qt
-# Windows build, it produces no Windows build at all: the app still calls Direct2D
-# through the seam and nothing else implements it. So its job right now is not to
-# be flipped -- it is to make the deprecation visible in the configure output, to
-# make the eventual removal a flag flip instead of a port, and to be a MEASURING
-# INSTRUMENT: configure with -DTINTA_LEGACY_D2D=OFF and the link errors are an
-# exact inventory of what still depends on the stack being replaced.
+# The option DEFAULTS ON, but BOTH of the reasons originally written here have
+# since expired, and they are corrected in place rather than deleted so the
+# argument that moved them stays on the record.
 #
-# Flipping the default requires Qt on Windows, which is not installed here. That
-# is a decision and an install, not a CMake change, so this file does not pretend
-# otherwise.
+# It used to say that turning the option off "does not produce a Qt Windows build,
+# it produces no Windows build at all". That is now FALSE, and measurably so: with
+# -DTINTA_LEGACY_D2D=OFF the tinta_qt target compiles, links with zero LNK2019 and
+# produces a binary that launches and stays up (negative-controlled by taking the Qt
+# DLLs off PATH, which turns the same binary into a 127). So a Windows build without
+# a line of Direct2D in it EXISTS. What fails with the option off is the `tinta`
+# target -- the Direct2D app -- and that is a different sentence entirely.
+#
+# It also used to say that flipping the default "requires Qt on Windows, which is
+# not installed here". Also now false: Qt 6.8.3 is installed at
+# C:/Qt/6.8.3/msvc2022_64 and configure finds it.
+#
+# So the reason the default stays ON is no longer a missing dependency, it is
+# FEATURE PARITY: tinta_qt renders and scrolls a document but has no input
+# handling, no editor and no search, so deleting the backend today would delete the
+# working product to keep the more portable one. That is a product call, not a
+# build-system one.
+#
+# The option's other job is unchanged and is why it is worth keeping even after the
+# cutover argument is settled: it is a MEASURING INSTRUMENT. Configure with
+# -DTINTA_LEGACY_D2D=OFF and the `tinta` link errors are an exact inventory of what
+# still depends on the stack being replaced -- currently 57 unresolved externals,
+# of which only 24 are real app-code leaks; the other 33 are referenced solely by
+# d2d_init.obj, whose entire job is constructing the D2D device and factories, so
+# they die WITH the backend instead of blocking it.
 option(TINTA_LEGACY_D2D
     "Build the transitional Direct2D/DirectWrite backends (DEPRECATED -- to be deleted once Qt covers Windows)"
     ON)

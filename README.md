@@ -663,9 +663,15 @@ existed at the time; under `qinta` the colour-emoji arm compiled and the link ca
 compile. **The dashed-stroke guard was the worse of the two and would not have failed at all**:
 it resolves through `d2d1.lib`, so it would have linked cleanly and then dereferenced a null
 `app.d2dFactory` at the first dashed mermaid connector — a crash in the running viewer instead
-of an error at build time. Only that one file is converted so far, because it is the only file
-both stacks compile that has native code inside it. As more files cross, each one has to answer
-the backend question rather than the OS question, and this is the macro that lets it.
+of an error at build time. Two files are converted so far, and the second arrived by exactly
+the same route: `include/app.h`'s three bitmap accessors — `titleIconBitmap()`,
+`startPageIconBitmap()`, `linkPeekBitmap()` — seated a `D2DBitmap` behind `#ifdef _WIN32`, and
+the link came back `unresolved external symbol D2DBitmap::GetSize`. Being in a *header*, one
+wrong guard leaked into every translation unit that called it: five objects wanted the symbol
+and four of them name no Direct2D type at all, so the fix was three lines in one file rather
+than four files' worth of work the error report appeared to be describing. As more files cross,
+each one has to answer the backend question rather than the OS question, and this is the macro
+that lets it.
 
 ```bash
 cmake -S . -B build-nod2d -DTINTA_LEGACY_D2D=OFF
@@ -676,28 +682,47 @@ Turning it off does not produce a Qt build of Windows — it produces no Windows
 all, because the app still reaches Direct2D through the seam and nothing else implements
 it yet. So the flag's job today is not to be flipped. It is to be a **measuring
 instrument**: the build failure it produces is an exact inventory of what still depends on
-the stack being replaced. Measured on 2026-09-15:
+the stack being replaced. Measured on 2026-09-16, by running exactly the two commands above:
 
 | Reading | Value |
 |---|---|
 | Compile errors (`error C`) | **0** — nothing outside the two backend files *names* Direct2D |
-| Targets failing to link | 7 (`tinta`, `blockquote_layout`, `code_block_layout`, `file_path`, `input`, `math_layout`, `theme`) |
-| Unresolved externals | 47 (17 for `math_layout_tests`, which links less) |
-| Classes they belong to | `D2DTextLayout`, `D2DTextFormat`, `D2DRenderTarget`, `D2DBitmap`, `D2DTextFactory`, `D2DBrush` |
+| Targets failing to link | 8 (`tinta`, `blockquote_layout`, `code_block_layout`, `file_path`, `input`, `theme`, `math_layout`, `image`) |
+| Unresolved externals | **57** for `tinta` and for the five test targets that link the same object set; 18 for `math_layout_tests` and 2 for `image_tests`, which link less |
 
-That external count read **46** here for two commits, and correcting it is worth a sentence
-because of *how* it went wrong. The table carries a measurement date, and the date was
-refreshed on a commit that did not re-run the measurement — so a stale number sat under a
-current date, which is worse than sitting under an old one. The 47th symbol is
-`D2DTextLayout::SetTypography`, added when typography moved onto the text seam; the seam
-grew a method, so excluding the backend leaves one more thing unresolved. Re-run the two
-commands above rather than trusting this table, and if you refresh the date, refresh the
-numbers in the same pass.
+The 57 decompose exactly, and the decomposition is the part worth reading — a total this
+size looks like scattered debt and is nothing of the kind:
+
+| Owner | Distinct symbols | What it is |
+|---|---|---|
+| `D2DRenderTarget` | 19 | one class's vtable, itemised by the linker |
+| `D2DTextLayout` | 18 | likewise — and **18 symbols, one construction site** |
+| `D2DTextFormat` | 7 | |
+| `D2DTextFactory` | 5 | |
+| `D2DBrush` | 2 | |
+| `D2DBitmap` | 1 | `GetSize`, the accessor cause above |
+| `D2DOwnedBitmap` | 1 | a destructor, reached through `make_shared` |
+| free functions | 4 | `nativeTextFormat`, and `nativeTextLayout` / `nativePathGeometry` / `nativeBitmap`, which are deliberate escape hatches in one file |
+
+Two corrections to the previous version of this table, both worth their space because of
+*how* they went wrong. The external count read **46**, then **47**, and is now **57**: the
+seam has grown methods, and each one the backend implements is one more thing left
+unresolved when the backend is excluded, so **this number rises as the port progresses and a
+fall would need explaining**. And the target list said **7** where it is now 8. The addition
+is `image_tests`, whose second symbol (`D2DOwnedBitmap`'s destructor) only entered
+`src/image_win32.cpp` on 2026-09-16 — so the list was right when it was written and the tree
+moved under it. That is the shape to distrust here: **a hand-kept list of failing targets has
+no way to notice a target joining the set.** Re-run the two commands rather than trusting
+either table, and if you refresh the date, refresh the numbers in the same pass.
 
 Zero compile errors is the useful half of that. It means the seam rewiring is real and
-complete at the call sites: the remaining Windows debt is six wrapper *implementations*,
-not Direct2D calls scattered through the app — and it is the same six a Qt backend already
-provides on Linux.
+complete at the call sites: the remaining Windows debt is seven wrapper *implementations*
+plus four native escape hatches, not Direct2D calls scattered through the app — and the
+wrappers are the same ones a Qt backend already provides on Linux. Read the decomposition
+rather than the total for a second reason: **a symbol count over-reports work in exactly the
+mirror direction a compiler's error count under-reports it.** A linker enumerates a vtable,
+so the two largest rows above are two classes, and `D2DTextLayout`'s 18 are a single
+`math_render.cpp` construction — first place on any count-ordered list, and one edit.
 
 Three test targets are gated on the flag and disappear when it is off, because their
 subject *is* the backend: `render_d2d_tests`, `bitmap_seam_tests`, `text_factory_tests`.
@@ -964,7 +989,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 32,731 / 62,157 | **52.7%** |
+| A. Source lines free of the Windows stack | 32,731 / 62,178 | **52.6%** |
 | B. `src/*.cpp` files compiling without Windows headers | 49 / 71 | 69.0% |
 | C. Files a running test links **off Windows** | 45 / 71 | 63.4% |
 | D. Test targets that *could* move, and do | 28 / 33 | 84.8% |
@@ -1182,8 +1207,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 53,543 lines of the 62,157,
-**basis A's ceiling is 86.1%, not 100%**, and 52.7% should be read against that.
+can never enter the numerator. With `src/*.cpp` totalling 53,543 lines of the 62,178,
+**basis A's ceiling is 86.1%, not 100%**, and 52.6% should be read against that.
 **A crossed a threshold this pass and it is worth naming precisely once: 46.0% → 52.7% is
 past half, and it is the largest single jump the basis has ever taken** — one 4,153-line
 file, which is what happens when the biggest remaining item moves rather than a seam being
@@ -1193,7 +1218,14 @@ the usual dilution (every seam puts denominator-only lines in `include/`) did no
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
 denominator moved 57,997 → 58,026 *during* that pass: 29 lines, all of them
 `src/image_win32.cpp` growing when the post-mortem for a segfault went in as a comment
-above the class that fixed it. Writing down why the obvious design was wrong costs a
+above the class that fixed it. It has now happened a second time, and the second one is
+sharper: **the row above reads 52.7% and the table reads 52.6%, and the whole 0.1 is a
+comment.** Routing `include/app.h`'s three bitmap accessors onto `TINTA_D2D_BACKEND` was
+three functional lines and twenty-one lines of explanation, and because the denominator
+counts `include/*.h` while the numerator can never reach it, **every line of that
+explanation counted against the headline.** The figure gate is what noticed — it derives
+these numbers from the tree on every run, so a percentage cannot quietly rot here even
+when what moved it was prose. Writing down why the obvious design was wrong costs a
 fraction of a point on the headline, and it is worth it. It is the same honest bookkeeping
 as `keyboard_win32.cpp`'s 23 lines being counted as work still to delete — and it is the
 one figure in this section that the checker could not catch on its own, because the probe's

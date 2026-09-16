@@ -16,9 +16,12 @@ static tinta::Color promptChipSurface(const App& app);
 static float promptKeycap(App& app, const wchar_t* label, float rightX,
                           float cy);
 
+#include "portable_str.h"
+
 #include <chrono>
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <memory>
 #include <utility>
 
@@ -136,11 +139,24 @@ void renderSearchOverlay(App& app) {
             size_t matchCount = app.editMode ? app.editorSearchMatches.size() : app.searchMatches.size();
             int currentIdx = app.editMode ? app.editorSearchCurrentIndex : app.searchCurrentIndex;
             if (matchCount == 0) {
-                wcscpy_s(countText, tr(app, "search.no_matches"));
+                // wcscpy_s HAS NO PORTABLE SPELLING AND NEEDS NO NEW SEAM: the
+                // array form wcscpy_s(buf, src) is exactly swprintf into the same
+                // buffer with a single wide-string conversion, and tinta::swprintf
+                // already carries the fail-fast-on-overflow contract wcscpy_s has
+                // (portable_str.h argues that contract at length). So the three
+                // sites in this file route through the seam that exists rather than
+                // growing a second one beside it.
+                //
+                // %ls AND NOT %s, DELIBERATELY: in a wide format string MSVC reads
+                // %s as wide and glibc reads it as narrow, so %s is the one
+                // conversion that silently means two different things here. And
+                // tr() is passed as an ARGUMENT, never as the format, so a '%' in a
+                // translated string is data rather than a conversion.
+                tinta::swprintf(countText, L"%ls", tr(app, "search.no_matches"));
                 // Red color for no matches
                 app.brush->SetColor(tinta::colorF(0.9f, 0.3f, 0.3f, anim));
             } else {
-                swprintf_s(countText, tr(app, "search.match_count"), currentIdx + 1, matchCount);
+                tinta::swprintf(countText, tr(app, "search.match_count"), currentIdx + 1, matchCount);
                 tinta::Color countColor = app.theme.text;
                 countColor.a = 0.7f * anim;
                 app.brush->SetColor(countColor);
@@ -722,7 +738,7 @@ void renderFolderBrowser(App& app) {
                 wdir += L'\\';
             }
             if (wcur.size() > wdir.size() &&
-                _wcsnicmp(wcur.c_str(), wdir.c_str(), wdir.size()) == 0 &&
+                tinta::wcsnicmp(wcur.c_str(), wdir.c_str(), wdir.size()) == 0 &&
                 wcur.find_first_of(L"\\/", wdir.size()) == std::wstring::npos) {
                 currentName = wcur.substr(wdir.size());
             }
@@ -770,7 +786,7 @@ void renderFolderBrowser(App& app) {
                               app.mouseY <= g.listBottom);
 
             bool isCurrent = !item.isDirectory && !currentName.empty() &&
-                             _wcsicmp(item.name.c_str(), currentName.c_str()) == 0;
+                             tinta::wcsicmp(item.name.c_str(), currentName.c_str()) == 0;
             bool isMd = !item.isDirectory &&
                         qmd::fileRefIsMarkdown(toUtf8(item.name));
 
@@ -893,15 +909,16 @@ void renderFolderBrowser(App& app) {
             app.brush->SetColor(hc);
             wchar_t counts[96];
             if (app.folderBrowserNaming != 0) {
-                wcscpy_s(counts, tr(app, app.folderBrowserNaming == 2
-                                             ? "browser.naming_folder"
-                                             : "browser.naming_file"));
+                tinta::swprintf(counts, L"%ls",
+                                tr(app, app.folderBrowserNaming == 2
+                                            ? "browser.naming_folder"
+                                            : "browser.naming_file"));
             } else {
                 int dirs = g.dirCount;
                 for (const auto& it : app.folderItems) {
                     if (it.isDirectory && it.name == L"..") { dirs--; break; }
                 }
-                swprintf_s(counts, tr(app, "browser.counts"), dirs,
+                tinta::swprintf(counts, tr(app, "browser.counts"), dirs,
                            (int)app.folderItems.size() - g.dirCount);
             }
             app.renderTarget->DrawText(counts, (UINT32)wcslen(counts),
@@ -1020,7 +1037,7 @@ void renderToc(App& app) {
 
         if (!app.headings.empty() && app.signalSmallFormat) {
             wchar_t count[8];
-            swprintf_s(count, L"%d", (int)app.headings.size());
+            tinta::swprintf(count, L"%d", (int)app.headings.size());
             float cw = measureText(app, count, app.signalSmallFormat);
             tinta::RectF badge = tinta::rectF(
                 cardLeft + padding + titleW + dpi(app, 8.0f),
@@ -1990,7 +2007,7 @@ void renderHelpOverlay(App& app) {
     // TINTA_VERSION_* defines, the single source of truth)
     if (app.tocFormat) {
         wchar_t version[32];
-        swprintf_s(version, _countof(version), L"v%d.%d.%d",
+        tinta::swprintf(version, std::size(version), L"v%d.%d.%d",
                    TINTA_VERSION_MAJOR, TINTA_VERSION_MINOR,
                    TINTA_VERSION_PATCH);
         IDWriteTextLayout* verLayout = nullptr;
@@ -2086,10 +2103,10 @@ void renderHelpOverlay(App& app) {
         return lineH + sectionHeaderExtra + entryCount * lineH + sectionGap;
     };
     float footerH = dpi(app, 35.0f);
-    float totalContentHeight = sectionHeight((int)_countof(navEntries)) +
-                               sectionHeight((int)_countof(overlayEntries)) +
-                               sectionHeight((int)_countof(editEntries)) +
-                               sectionHeight((int)_countof(generalEntries)) + footerH;
+    float totalContentHeight = sectionHeight((int)std::size(navEntries)) +
+                               sectionHeight((int)std::size(overlayEntries)) +
+                               sectionHeight((int)std::size(editEntries)) +
+                               sectionHeight((int)std::size(generalEntries)) + footerH;
 
     // Scrollable area
     float contentTopY = titleBottomY + dpi(app, 10.0f);
@@ -2144,10 +2161,10 @@ void renderHelpOverlay(App& app) {
         y += sectionGap;
     };
 
-    drawSection(tr(app, "help.section.navigation"), navEntries, (int)_countof(navEntries));
-    drawSection(tr(app, "help.section.view"), overlayEntries, (int)_countof(overlayEntries));
-    drawSection(tr(app, "help.section.editing"), editEntries, (int)_countof(editEntries));
-    drawSection(tr(app, "help.section.general"), generalEntries, (int)_countof(generalEntries));
+    drawSection(tr(app, "help.section.navigation"), navEntries, (int)std::size(navEntries));
+    drawSection(tr(app, "help.section.view"), overlayEntries, (int)std::size(overlayEntries));
+    drawSection(tr(app, "help.section.editing"), editEntries, (int)std::size(editEntries));
+    drawSection(tr(app, "help.section.general"), generalEntries, (int)std::size(generalEntries));
 
     // Footer hint
     normalFmt->SetTextAlignment(tinta::TextAlignment::Center);
@@ -2455,7 +2472,7 @@ void renderFolderSearchResults(App& app) {
 
         if ((size_t)file.totalMatches > file.matches.size()) {
             wchar_t more[32];
-            swprintf_s(more, L"+%d more", file.totalMatches - (int)file.matches.size());
+            tinta::swprintf(more, L"+%d more", file.totalMatches - (int)file.matches.size());
             tinta::Color moreColor = app.theme.text;
             moreColor.a = 0.45f * anim;
             app.brush->SetColor(moreColor);
@@ -2556,7 +2573,7 @@ void renderPrintPreview(App& app) {
         uiFmt->SetTextAlignment(tinta::TextAlignment::Center);
         uiFmt->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
         wchar_t label[64];
-         swprintf_s(label, tr(app, "print.title"),
+         tinta::swprintf(label, tr(app, "print.title"),
                     app.printPreviewPage + 1, pageCount > 0 ? pageCount : 1);
         app.brush->SetColor(th.text);
         app.renderTarget->DrawText(label, (UINT32)wcslen(label), uiFmt,
@@ -2889,8 +2906,8 @@ void renderSettingsOverlay(App& app) {
         app.renderTarget->FillEllipse(
             tinta::ellipse(tinta::pointF(fillX, y), knobR, knobR), app.brush);
         wchar_t label[16];
-        if (pct >= 100) wcscpy_s(label, tr(app, "settings.full"));
-        else swprintf_s(label, L"%d%%", pct);
+        if (pct >= 100) tinta::swprintf(label, L"%ls", tr(app, "settings.full"));
+        else tinta::swprintf(label, L"%d%%", pct);
         c = app.theme.text; c.a = 0.7f * anim;
         app.brush->SetColor(c);
         app.renderTarget->DrawText(label, (UINT32)wcslen(label), fmt,
@@ -4027,7 +4044,7 @@ void renderThemeEditor(App& app) {
                             i < (int)app.systemFontFamilies.size(); i++) {
             float ry = list.top + i * rowH - app.themeEditorFontScroll;
             const std::wstring& fam = app.systemFontFamilies[i];
-            bool selected = (_wcsicmp(fam.c_str(), app.themeEditorFont.c_str()) == 0);
+            bool selected = (tinta::wcsicmp(fam.c_str(), app.themeEditorFont.c_str()) == 0);
             if (selected) {
                 tinta::Color hl = base.accent; hl.a = 0.18f;
                 app.brush->SetColor(hl);

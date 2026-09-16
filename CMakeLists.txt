@@ -1,6 +1,31 @@
 cmake_minimum_required(VERSION 3.15)
 project(tinta VERSION 3.6.7 LANGUAGES C CXX)
 
+# THE VERSION DEFINES ARE A LIST BECAUSE MORE THAN ONE TARGET NEEDS THEM, and that became
+# true the moment a file reading TINTA_VERSION_* was measured off Windows. src/overlays.cpp
+# formats "v%d.%d.%d" from these three, and its own comment already called them "the single
+# source of truth" -- which they were not, because they reached exactly one target. Off
+# Windows the census read three `was not declared in this scope` errors that had nothing to
+# do with portability: the file was fine and the target was missing a define.
+#
+# IT LIVES HERE, DIRECTLY UNDER project(), AND THAT PLACEMENT IS THE WHOLE POINT. Written
+# first beside its only consumer -- target_compile_definitions(tinta ...) -- which put it
+# inside that block's if(WIN32), so off Windows the variable was EMPTY and both new consumers
+# expanded to `target_compile_definitions(<target> PRIVATE )`. CMake accepts that silently:
+# no warning, no error, a configure and a build that both succeed, and three version errors
+# still in the census. Caught only because the re-measurement script greps the definition off
+# tinta_qt's actual compile line and printed "NO VERSION DEFINES ON THE LINE". A single
+# source of truth placed inside a platform guard is not one.
+#
+# Applied to tinta, tinta_qt and portable_compile_only rather than inherited via
+# $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>, which some test targets below do use: that
+# expression would also drag TINTA_D2D_BACKEND onto tinta_qt, and tinta_qt is precisely the
+# target that must NOT have it.
+set(TINTA_VERSION_DEFINITIONS
+    TINTA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    TINTA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    TINTA_VERSION_PATCH=${PROJECT_VERSION_PATCH})
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
@@ -353,9 +378,7 @@ target_link_libraries(tinta PRIVATE
 )
 
 target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
-    TINTA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-    TINTA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-    TINTA_VERSION_PATCH=${PROJECT_VERSION_PATCH})
+    ${TINTA_VERSION_DEFINITIONS})
 
 # TINTA_D2D_BACKEND: "this target links the Direct2D/DirectWrite backend", which is a
 # DIFFERENT QUESTION from _WIN32 and the difference is now load bearing.
@@ -544,6 +567,10 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
     )
     target_link_libraries(tinta_qt PRIVATE md4c
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
+    # OUTSIDE the if(WIN32) below, deliberately: the version numbers are not a platform
+    # fact, and every UNICODE definition in this file is guarded, so the tempting place to
+    # add these is the one place they would silently not apply off Windows.
+    target_compile_definitions(tinta_qt PRIVATE ${TINTA_VERSION_DEFINITIONS})
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
@@ -1089,6 +1116,8 @@ if(BUILD_TESTING)
         src/scrollbar.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
+    # Unconditional, same argument as tinta_qt above: a version number is not a platform fact.
+    target_compile_definitions(portable_compile_only PRIVATE ${TINTA_VERSION_DEFINITIONS})
     if(WIN32)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
     endif()

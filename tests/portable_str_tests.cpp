@@ -59,6 +59,64 @@ static void testStrnicmp() {
     check(tinta::strnicmp("ab", "ABC", 3) < 0, "strnicmp: terminator sorts low");
 }
 
+// --- wcsnicmp, bounded wide compare -------------------------------------------
+//
+// This shipped untested too, and it has had a live caller in export_html.cpp the
+// whole time. The cases mirror testStrnicmp deliberately: the two seams claim the
+// same contract in different character widths, so an asymmetry between these two
+// blocks is itself the signal.
+
+static void testWcsnicmp() {
+    check(tinta::wcsnicmp(L"abc", L"ABC", 3) == 0, "wcsnicmp: equal ignoring case");
+    check(tinta::wcsnicmp(L"abc", L"abc", 3) == 0, "wcsnicmp: equal exactly");
+    check(tinta::wcsnicmp(L"abc", L"ABD", 3) < 0, "wcsnicmp: less than");
+    check(tinta::wcsnicmp(L"abd", L"ABC", 3) > 0, "wcsnicmp: greater than");
+
+    check(tinta::wcsnicmp(L"abcX", L"ABCY", 3) == 0, "wcsnicmp: n stops before the difference");
+    check(tinta::wcsnicmp(L"abcX", L"ABCY", 4) != 0, "wcsnicmp: n includes the difference");
+    check(tinta::wcsnicmp(L"a", L"b", 0) == 0, "wcsnicmp: n of zero is equal");
+    check(tinta::wcsnicmp(L"a1-", L"A1-", 3) == 0, "wcsnicmp: non-letters unaffected");
+    check(tinta::wcsnicmp(L"ab", L"ABC", 3) < 0, "wcsnicmp: terminator sorts low");
+
+    // The export_html.cpp caller's actual shape: a suffix compare bounded at the
+    // suffix's own length, run against the tail of a longer string.
+    const wchar_t* chosen = L"MyDocument.HTML";
+    const wchar_t* suffix = L".html";
+    const size_t n = 5;
+    check(tinta::wcsnicmp(chosen + 15 - n, suffix, n) == 0, "wcsnicmp: the export_html suffix compare");
+}
+
+// --- wcsicmp, unbounded wide compare ------------------------------------------
+//
+// Added with its two overlays.cpp callers, and asserted here because the whole
+// argument for a second name (portable_str.h states it) is that the unbounded
+// contract is not the bounded one with a length filled in. That argument is only
+// worth anything if the difference is actually pinned down, which is what the
+// prefix case below does: it is the exact input where a caller that reached for
+// the bounded spelling with the wrong length would silently report a match.
+
+static void testWcsicmp() {
+    check(tinta::wcsicmp(L"abc", L"ABC") == 0, "wcsicmp: equal ignoring case");
+    check(tinta::wcsicmp(L"abc", L"abc") == 0, "wcsicmp: equal exactly");
+    check(tinta::wcsicmp(L"abc", L"ABD") < 0, "wcsicmp: less than");
+    check(tinta::wcsicmp(L"abd", L"ABC") > 0, "wcsicmp: greater than");
+    check(tinta::wcsicmp(L"", L"") == 0, "wcsicmp: two empty strings are equal");
+    check(tinta::wcsicmp(L"", L"a") < 0, "wcsicmp: empty is less than non-empty");
+    check(tinta::wcsicmp(L"a1-", L"A1-") == 0, "wcsicmp: non-letters unaffected");
+
+    // THE CASE THE BOUNDED SPELLING CANNOT EXPRESS. A prefix is not a match, and
+    // this is precisely where wcsnicmp bounded at the shorter length disagrees --
+    // asserted here as a pair so the divergence is on the record and not implied.
+    check(tinta::wcsicmp(L"note", L"notes") != 0, "wcsicmp: a prefix is not a match");
+    check(tinta::wcsnicmp(L"note", L"notes", 4) == 0, "wcsnicmp: the same prefix DOES match when bounded");
+
+    // Both overlays.cpp callers compare a filename or a font family, so the
+    // realistic inputs carry spaces, digits and dots and differ only in case.
+    check(tinta::wcsicmp(L"Segoe UI Variable", L"segoe ui variable") == 0, "wcsicmp: a font family");
+    check(tinta::wcsicmp(L"Chapter 2.md", L"CHAPTER 2.MD") == 0, "wcsicmp: a document name");
+    check(tinta::wcsicmp(L"Chapter 2.md", L"Chapter 3.md") != 0, "wcsicmp: names differing past the case");
+}
+
 // --- swprintf, explicit-count arity -------------------------------------------
 
 static void testSwprintfCount() {
@@ -92,9 +150,18 @@ static void testSwprintfCount() {
 
 // --- swprintf, array-deducing arity -------------------------------------------
 //
-// The overload that takes no count. These call sites are the 10 that had no
-// portable spelling at all, so the assertion that matters is that the deduced N
-// really is the array's extent and not something else.
+// The overload that takes no count. The assertion that matters is that the
+// deduced N really is the array's extent and not something else.
+//
+// THIS COMMENT USED TO SAY "these call sites are the 10 that had no portable
+// spelling at all", and that was wrong in a way worth keeping a record of rather
+// than quietly overwriting: at the commit where it was written this overload had
+// ZERO callers tree-wide, and 25 swprintf_s calls were still unconverted, so the
+// 10 matched neither the callers it named nor the sites it was built for. It was
+// a forward-looking estimate written in the present tense. Measured now:
+// 11 tinta::swprintf sites, 2 of the explicit-count arity and 9 of this one.
+// Do not re-quote those numbers from here either -- they move with every file
+// that gets converted. Measure them.
 
 static void testSwprintfArray() {
     wchar_t buf[64];
@@ -124,6 +191,8 @@ static void testSwprintfArray() {
 
 int main() {
     testStrnicmp();
+    testWcsnicmp();
+    testWcsicmp();
     testSwprintfCount();
     testSwprintfArray();
 

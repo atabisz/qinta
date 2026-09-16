@@ -50,8 +50,12 @@ inline int strnicmp(const char* a, const char* b, std::size_t n) {
 // that is not a widening. export_html.cpp compares a file name's tail against a
 // literal suffix, having already checked that the tail is exactly as long as the
 // suffix, so an unbounded compare and a compare bounded at that same length read
-// the identical characters. Adding the unbounded spelling as well would be a second
-// name with no second caller.
+// the identical characters. ~~Adding the unbounded spelling as well would be a
+// second name with no second caller.~~ THAT CLAUSE EXPIRED 2026-09-16: overlays.cpp
+// has two genuine unbounded sites, so the unbounded spelling is below. The clause
+// was correct when written and is kept struck through rather than deleted, because
+// the bar it states -- no name without a caller -- is the rule that admitted the
+// second one, not an argument the second one had to defeat.
 //
 // wcsncasecmp is POSIX-2008 and glibc has it; it is declared in <wchar.h>, which
 // <cwchar> above provides, rather than in <strings.h> where its narrow counterpart
@@ -62,6 +66,31 @@ inline int wcsnicmp(const wchar_t* a, const wchar_t* b, std::size_t n) {
     return _wcsnicmp(a, b, n);
 #else
     return wcsncasecmp(a, b, n);
+#endif
+}
+
+// Unbounded case-insensitive wide compare: same contract as _wcsicmp/wcscasecmp.
+//
+// ADDED FOR TWO REAL CALLERS, not for symmetry. overlays.cpp compares a folder
+// item's name against the open document's name, and a font family against the
+// theme editor's chosen font -- both whole strings of unbounded length, so the
+// bounded spelling above cannot express them without the caller first supplying a
+// length it does not have.
+//
+// The alternative considered and rejected: at both sites the compare is a pure
+// equality test (`== 0`), so `a.size() == b.size() && wcsnicmp(a, b, a.size()) == 0`
+// is exactly equivalent for the ASCII inputs involved. Rejected because it pushes a
+// two-part invariant into every call site, where a later edit can drop the size
+// guard and leave a compare that silently matches on a prefix. One name with a
+// clear contract beats a correct idiom that has to be re-derived at each use.
+//
+// wcscasecmp is POSIX-2008, declared in <wchar.h> which <cwchar> above provides --
+// the same provenance as wcsncasecmp, which this tree already relies on.
+inline int wcsicmp(const wchar_t* a, const wchar_t* b) {
+#ifdef _WIN32
+    return _wcsicmp(a, b);
+#else
+    return wcscasecmp(a, b);
 #endif
 }
 

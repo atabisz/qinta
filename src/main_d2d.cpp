@@ -26,6 +26,7 @@
 #include "search.h"
 #include "render.h"
 #include "paint_document.h"
+#include "scrollbar.h"
 #include "file_utils.h"
 #include "overlays.h"
 #include "annotations.h"
@@ -143,17 +144,9 @@ void render(App& app) {
         }
     }
 
-    // Incremental layout grows contentHeight in small steps. Keep scrollbar
-    // visibility latched for the duration of that layout and only let its
-    // extent grow, so the right edge cannot blink as chunks arrive.
-    if (app.layoutComplete) {
-        app.scrollbarContentHeight = app.contentHeight;
-        app.verticalScrollbarVisible = app.contentHeight > app.height;
-    } else if (app.contentHeight > app.height) {
-        app.verticalScrollbarVisible = true;
-        app.scrollbarContentHeight = std::max(app.scrollbarContentHeight,
-                                              app.contentHeight);
-    }
+    // The latching rule, and its comment, moved to src/scrollbar.cpp so the Qt window
+    // gets the same non-blinking right edge instead of a second copy of the rule.
+    updateScrollbarExtent(app);
 
     // Sync preview scroll to editor scroll position using source-offset anchors
     if (editorPreviewVisible(app) && !app.scrollAnchors.empty() &&
@@ -286,18 +279,24 @@ render_document:
     // header comment names the two spots that are still behind #ifdef _WIN32.
     const DocumentViewport documentViewport = prepareDocumentViewport(app);
 
-    // The four values the chrome BELOW this pass still reads, re-declared under the
-    // names they had before the extraction: documentWidth at 7 later sites,
-    // cullMargin at 4, viewportTop and viewportBottom at 2 each. Aliasing them keeps
-    // this a relocation rather than a 15-site edit, and const rather than float
-    // because nothing below assigns them -- which was measured, not assumed.
+    // THREE VALUES, NOT FOUR, AS OF THE SCROLLBAR EXTRACTION. This comment said
+    // "documentWidth at 7 later sites, cullMargin at 4, viewportTop and viewportBottom at
+    // 2 each" -- fifteen references. All seven documentWidth sites were the scrollbar
+    // block, which is now src/scrollbar.cpp and takes the DocumentViewport itself, so the
+    // alias had zero readers left and is gone rather than left as an unused local. Eight
+    // references remain and the count is corrected here rather than in a new sentence
+    // below it, because a stale figure a reader can check against the code is worse than
+    // no figure.
     //
-    // maxScrollX and maxScrollY are deliberately NOT aliased. A grep said they leaked
-    // too; both later occurrences are inner-scope re-declarations in the scrollbar
-    // code (:571, and :503 from a different extent), so they shadow rather than read,
-    // and aliasing them would have added two shadowed variables for a dependency that
-    // does not exist.
-    const float documentWidth = documentViewport.documentWidth;
+    // Aliasing the rest keeps this a relocation rather than a 15-site edit, and const
+    // rather than float because nothing below assigns them -- measured, not assumed.
+    //
+    // maxScrollX and maxScrollY were deliberately NOT aliased, and that decision is now
+    // moot in the best way: a grep said they leaked, both later occurrences were
+    // inner-scope re-declarations inside the scrollbar code, and that code has left this
+    // file entirely. The lesson it recorded -- a declaration matching the grep for its own
+    // identifier looks exactly like a read -- is why the extraction above re-checked all
+    // four of its own locals by scope before moving them.
     const float viewportTop = documentViewport.top;
     const float viewportBottom = documentViewport.bottom;
     const float cullMargin = documentViewport.cullMargin;
@@ -489,101 +488,14 @@ render_document:
         }
     }
 
-    // Determine scrollbar visibility
-    bool needsVScroll = app.verticalScrollbarVisible;
-    bool needsHScroll = app.contentWidth > documentWidth;
-    float scrollbarSize = dpi(app, 14.0f);
-
-    // Scrollbar color: dark on light themes, light on dark themes
-    float sbColorValue = app.theme.isDark ? 1.0f : 0.0f;
-
-    // Draw vertical scrollbar
-    if (needsVScroll) {
-        float scrollExtent = std::max((float)app.height, app.scrollbarContentHeight);
-        float maxScrollY = std::max(0.0f, scrollExtent - app.height);
-        float trackTop = chromeTopHeight(app);
-        float trackHeight =
-            app.height - trackTop - (needsHScroll ? scrollbarSize : 0);
-        float sbHeight = trackHeight / scrollExtent * trackHeight;
-        sbHeight = std::max(sbHeight, dpi(app, 30.0f));
-        float sbY = trackTop +
-            ((maxScrollY > 0) ? (app.scrollY / maxScrollY * (trackHeight - sbHeight)) : 0);
-
-        float sbWidth = (app.scrollbarHovered || app.scrollbarDragging) ? dpi(app, 10.0f) : dpi(app, 6.0f);
-        float sbAlpha = (app.scrollbarHovered || app.scrollbarDragging) ? 0.5f : 0.3f;
-
-        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
-        app.renderTarget->FillRoundedRectangle(
-            tinta::roundedRect(tinta::rectF(documentWidth - sbWidth - dpi(app, 4.0f), sbY,
-                                          documentWidth - dpi(app, 4.0f), sbY + sbHeight), 3, 3),
-            app.brush);
-        app.drawCalls++;
-
-        // Find-match ticks along the track: the document's match silhouette
-        // at a glance (overview-ruler pattern). Dense results thin out so a
-        // one-letter query cannot flood the frame with fills.
-        if (app.showSearch && !app.searchQuery.empty() &&
-            !app.searchMatches.empty() && !app.editMode) {
-            size_t step =
-                std::max<size_t>(1, app.searchMatches.size() / 400);
-            float tickLeft = documentWidth - dpi(app, 12.0f);
-            float tickRight = documentWidth - dpi(app, 2.0f);
-            auto tickY = [&](const App::SearchMatch& m, float& ty) {
-                float docY;
-                if (m.highlightRect.bottom > m.highlightRect.top) {
-                    docY = m.highlightRect.top;
-                } else if (!app.docText.empty()) {
-                    docY = (float)m.startPos / (float)app.docText.size() *
-                           scrollExtent;
-                } else {
-                    return false;
-                }
-                ty = trackTop + docY / scrollExtent * trackHeight;
-                ty = std::min(ty, trackTop + trackHeight - dpi(app, 2.0f));
-                return true;
-            };
-            app.brush->SetColor(tinta::colorF(1.0f, 0.82f, 0.0f, 0.55f));
-            for (size_t i = 0; i < app.searchMatches.size(); i += step) {
-                float ty;
-                if (!tickY(app.searchMatches[i], ty)) continue;
-                app.renderTarget->FillRectangle(
-                    tinta::rectF(tickLeft, ty, tickRight, ty + dpi(app, 2.0f)),
-                    app.brush);
-            }
-            // The current match always gets its tick, stepping or not
-            if (app.searchCurrentIndex >= 0 &&
-                app.searchCurrentIndex < (int)app.searchMatches.size()) {
-                float ty;
-                if (tickY(app.searchMatches[app.searchCurrentIndex], ty)) {
-                    app.brush->SetColor(tinta::colorF(1.0f, 0.6f, 0.0f, 0.95f));
-                    app.renderTarget->FillRectangle(
-                        tinta::rectF(tickLeft, ty - dpi(app, 0.5f), tickRight,
-                                    ty + dpi(app, 2.5f)),
-                        app.brush);
-                }
-            }
-            app.drawCalls++;
-        }
-    }
-
-    // Draw horizontal scrollbar
-    if (needsHScroll) {
-        float maxScrollX = std::max(0.0f, app.contentWidth - documentWidth);
-        float trackWidth = documentWidth - (needsVScroll ? scrollbarSize : 0);
-        float sbWidth = trackWidth / app.contentWidth * trackWidth;
-        sbWidth = std::max(sbWidth, dpi(app, 30.0f));
-        float sbX = (maxScrollX > 0) ? (app.scrollX / maxScrollX * (trackWidth - sbWidth)) : 0;
-
-        float sbHeight = (app.hScrollbarHovered || app.hScrollbarDragging) ? dpi(app, 10.0f) : dpi(app, 6.0f);
-        float sbAlpha = (app.hScrollbarHovered || app.hScrollbarDragging) ? 0.5f : 0.3f;
-
-        app.brush->SetColor(tinta::colorF(sbColorValue, sbColorValue, sbColorValue, sbAlpha));
-        app.renderTarget->FillRoundedRectangle(
-            tinta::roundedRect(tinta::rectF(sbX, app.height - sbHeight - dpi(app, 4.0f),
-                                          sbX + sbWidth, app.height - dpi(app, 4.0f)), 3, 3),
-            app.brush);
-        app.drawCalls++;
-    }
+    // THE 95 LINES THAT DREW BOTH SCROLLBARS ARE NOW src/scrollbar.cpp, and the four
+    // locals they used -- needsVScroll, needsHScroll, scrollbarSize, sbColorValue -- went
+    // with them because a grep proved none of them is read below this point. That check is
+    // the one paint_document.h's DocumentViewport comment records getting wrong the first
+    // time, so it was done by name AND by scope: maxScrollX and maxScrollY inside the
+    // moved block were inner-scope redeclarations shadowing the outer names, which is why
+    // they are not parameters.
+    paintDocumentScrollbars(app, documentViewport);
 
     // Draw selection highlights from the exact [selAnchor, selFocus) glyph
     // ranges. The copied text comes from the same range, so highlight and

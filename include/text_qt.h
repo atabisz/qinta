@@ -101,11 +101,38 @@ public:
     // reads is exactly where a convenient zero survives being wrong.
     bool trimmed() const { return trimmed_; }
 
+    // UNIFORM LINE SPACING, RESOLVED ONCE AT CONSTRUCTION, and exposed because two
+    // separate readers need the same answer: the layout loop, which positions lines,
+    // and GetLineMetrics, which reports their height and baseline. Qt has no
+    // equivalent of DWRITE_LINE_SPACING_METHOD_UNIFORM -- QTextLine::height() is
+    // always the font's own -- so the cell height is carried here rather than asked
+    // of Qt.
+    //
+    // ZERO MEANS "the font's own metrics", which is DirectWrite's Default method and
+    // Qt's natural behaviour, so a format that never calls SetLineSpacing goes down
+    // exactly the path it did before this pair existed.
+    //
+    // WHY THIS EXISTS AT ALL, since nothing on the Qt stack draws the editor yet:
+    // QtTextFormat::SetLineSpacing STORED its three arguments and NOTHING READ THEM.
+    // Measured rather than assumed -- QtTextStyle has eight fields and a census of
+    // the reads found five honoured (textAlignment, paragraphAlignment, wordWrapping,
+    // trimming.granularity, hasTrimmingSign) and three inert (lineSpacingMethod,
+    // lineSpacing, baseline). app.editorTextFormat is the tree's only SetLineSpacing
+    // caller and it calls it to pin editor rows to a fontSize*1.5 grid, which issue
+    // #181 records as a real layout skew when it is missing. Installing that format
+    // on the Qt path while its configuration was silently dropped would have been
+    // worse than not installing it: the format would be non-null, every assertion
+    // about its existence would pass, and the editor would lay out wrong.
+    qreal uniformLineHeight() const { return uniformLineHeight_; }
+    qreal uniformBaseline() const { return uniformBaseline_; }
+
 private:
     QTextLayout layout_;
     tinta::TextMetrics metrics_{};
     qreal paragraphOffset_ = 0.0;
     bool trimmed_ = false;
+    qreal uniformLineHeight_ = 0.0;
+    qreal uniformBaseline_ = 0.0;
 };
 
 class QtInlineObject final : public tinta::InlineObject {

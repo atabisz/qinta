@@ -33,18 +33,25 @@ struct App;
 // The scroll state and cull rectangle one paint pass works from.
 //
 // WHY A STRUCT AND NOT A HANDFUL OF LOCALS. The extracted code computed these at the
-// top and then USED them further down -- four of the names leak past the end of the
-// drawn range into the chrome that main_d2d.cpp still draws itself (scrollbars, hover
-// buttons, the table edit rail): documentWidth at 7 later sites, cullMargin at 4, and
-// viewportTop and viewportBottom at 2 each. Fifteen references, and a straight cut
-// would have broken all of them. So the producer moved here and the values come back
-// as one object; main_d2d.cpp re-declares those four under their old names from the
-// struct's fields, which is why the 15 sites below the cut read unchanged.
+// top and then USED them further down -- four of the names leaked past the end of the
+// drawn range into the chrome that main_d2d.cpp draws itself (hover buttons, the table
+// edit rail): documentWidth at 7 later sites, cullMargin at 4, and viewportTop and
+// viewportBottom at 2 each. Fifteen references, and a straight cut would have broken all
+// of them. So the producer moved here and the values come back as one object;
+// main_d2d.cpp re-declares them under their old names from the struct's fields, which is
+// why the sites below the cut read unchanged.
+//
+// THREE NAMES AND EIGHT REFERENCES NOW, and "scrollbars" is struck from that list of
+// chrome. All seven documentWidth sites were the scrollbar block, which moved to
+// src/scrollbar.cpp so the Qt window could draw the same thumb; it takes a
+// DocumentViewport and reads the field directly, so the alias in main_d2d.cpp is gone.
+// Corrected in place because both halves of the sentence -- the count and the list of
+// what is still inline -- are claims a reader can check, and each was true when written.
 //
 // FOUR, NOT SIX, AND THE FIRST COUNT WAS MINE AND WRONG. A name-based grep over the
 // rest of the function said six -- it also flagged maxScrollX and maxScrollY -- and
-// both of those are inner-scope RE-DECLARATIONS in the scrollbar code
-// (src/main_d2d.cpp:571 and :503 after the cut, the second computed from a different extent
+// both of those are inner-scope RE-DECLARATIONS in the scrollbar code (now
+// src/scrollbar.cpp, one per bar, the vertical one computed from a different extent
 // entirely), which shadow the outer name rather than read it. So they do not leak,
 // and aliasing them back would have introduced two shadowed variables to satisfy a
 // dependency that was never there. This tree has written the same lesson down before

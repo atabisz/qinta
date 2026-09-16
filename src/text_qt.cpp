@@ -234,6 +234,21 @@ QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& 
     // if the option were ever lost; this way the intent survives that.
     const qreal lineWidth = noWrap ? std::max<qreal>(boxWidth, 1.0e6) : boxWidth;
 
+    // UNIFORM SPACING RESOLVED BEFORE THE LOOP, so the loop reads one bool and two
+    // numbers rather than re-deriving the decision per line.
+    //
+    // The `> 0.0` is not defensive padding: DirectWrite treats a zero uniform spacing
+    // as a degenerate request and this tree has no caller that wants one, so a zero
+    // here means the method was set and the height was not, and falling back to the
+    // font's own metrics is the reading that cannot collapse every line onto the same
+    // pixel. Recorded because it is a DIVERGENCE -- DirectWrite would stack them.
+    if (style.lineSpacingMethod == tinta::LineSpacingMethod::Uniform &&
+        style.lineSpacing > 0.0f) {
+        uniformLineHeight_ = static_cast<qreal>(style.lineSpacing);
+        uniformBaseline_ = static_cast<qreal>(style.baseline);
+    }
+    const bool uniform = uniformLineHeight_ > 0.0;
+
     qreal y = 0.0;
     qreal widest = 0.0;
     qreal widestIncludingTrailing = 0.0;
@@ -283,13 +298,28 @@ QtTextRun::QtTextRun(const QString& text, const QFont& font, const QtTextStyle& 
         // whitespace hang outside the aligned box rather than pushing the glyphs left.
         const qreal offset = alignmentOffset(style.textAlignment, natural, boxWidth);
 
-        line.setPosition(QPointF(offset, y));
+        // VERTICAL PLACEMENT IS BY BASELINE UNDER UNIFORM SPACING, not by box top,
+        // and that is what makes the mapping to DirectWrite exact rather than
+        // approximate. UNIFORM says: every line occupies a cell of `lineSpacing`, and
+        // the glyph baseline sits `baseline` below the cell's top. Qt positions a line
+        // by its TOP and puts the baseline `ascent()` below that, so the top that
+        // lands the baseline where DirectWrite would is `y + baseline - ascent`.
+        //
+        // That offset is routinely NEGATIVE for the first line -- a 14 DIP monospace
+        // font in a 21 DIP cell has ascent ~14 against a baseline ~16.8, so the first
+        // line's box starts above the layout origin -- and that is correct, not a bug
+        // to clamp: the cell is what occupies the grid, the glyph box only has to put
+        // its baseline in the right place inside it. Clamping to zero here would
+        // shift every line down by the difference and reintroduce exactly the drift
+        // uniform spacing exists to remove.
+        const qreal lineTop = uniform ? (y + uniformBaseline_ - line.ascent()) : y;
+        line.setPosition(QPointF(offset, lineTop));
 
         if (lineCount == 0 || offset < leftmost) leftmost = offset;
         widest = std::max(widest, natural);
         widestIncludingTrailing = std::max(widestIncludingTrailing, advance);
 
-        y += line.height();
+        y += uniform ? uniformLineHeight_ : line.height();
         lineCount++;
     }
     layout_.endLayout();
@@ -868,12 +898,23 @@ bool QtTextLayout::GetLineMetrics(tinta::LineMetrics* lineMetrics,
         while (wsStart > start && laid[wsStart - 1].isSpace()) wsStart--;
         out.trailingWhitespaceLength = toCallerIndex(end) - toCallerIndex(wsStart);
 
-        out.height = static_cast<float>(line.height());
+        // THE CELL, NOT THE GLYPH BOX, when the format asked for uniform spacing --
+        // and reporting the natural height here would have been a quiet inconsistency
+        // rather than an obvious one, because the run POSITIONS lines on the uniform
+        // grid either way. A caller reading these metrics to size a scroll extent or
+        // to hit-test a row would then disagree with where the run actually drew,
+        // which is the exact class of split this file exists to prevent (one engine
+        // behind measurement and drawing). DirectWrite reports `lineSpacing` and
+        // `baseline` verbatim under UNIFORM, so these two lines are the same answer.
+        const qreal uniformHeight = run_->uniformLineHeight();
+        out.height = static_cast<float>(uniformHeight > 0.0 ? uniformHeight
+                                                            : line.height());
         // Qt's ascent IS the baseline distance from the line's top, which is what
         // DirectWrite's `baseline` means. The three sites that read this use it as
         // an ascent (math_render.cpp assigns it to m.ascent and derives descent as
         // height - baseline), so the two names describe the same number.
-        out.baseline = static_cast<float>(line.ascent());
+        out.baseline = static_cast<float>(uniformHeight > 0.0 ? run_->uniformBaseline()
+                                                             : line.ascent());
         out.isTrimmed = run_->trimmed() ? 1 : 0;
     }
 

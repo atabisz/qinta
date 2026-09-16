@@ -2,6 +2,7 @@
 
 #include <QKeyEvent>
 #include <QPaintEvent>
+#include <QResizeEvent>
 #include <QString>
 #include <QWheelEvent>
 
@@ -18,6 +19,7 @@
 #include "render.h"
 #include "render_qt.h"
 #include "scroll.h"
+#include "scrollbar.h"
 #include "text_api.h"
 #include "text_utils.h"
 
@@ -226,21 +228,57 @@ tinta::RectF QtAppWindow::placeholderRect() const {
                         mid + kPlaceholderBandHalfHeight};
 }
 
+void QtAppWindow::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+
+    // THE LAYOUT IS MARKED DIRTY, NOT PERFORMED. layoutDocument walks the whole element
+    // tree, and Qt delivers a resize event per frame of a window drag -- doing the work
+    // here would relayout a long document sixty times a second while the user is still
+    // dragging. Windows takes the same shape: WM_SIZE sets app.layoutDirty and the paint
+    // that follows does the work.
+    //
+    // WHAT THIS ACTUALLY FIXES, because syncViewport was already called from paintDocument
+    // and a reader is entitled to ask what was broken: the SCROLL POSITION. Every scroll
+    // maximum is contentHeight - app_.height, so a TALLER window has a SMALLER maximum --
+    // GROWING the window is what leaves app_.scrollY past the end, and shrinking one never
+    // can. This sentence said "making a window shorter" until tests/qt_entry_tests.cpp's
+    // resize run was written, which is the direction the arithmetic refutes and the reason
+    // the test asserts a grow: an assertion written to match the wrong sentence would have
+    // measured a clamp that never fires. clampDocumentScroll fixes it here, against the new
+    // height, before anything paints.
+    if (syncViewport()) {
+        app_.layoutDirty = true;
+        // AFTER the flag and BEFORE the paint. The clamp reads app_.contentHeight, which
+        // is still the OLD document height at this point -- the relayout has not run --
+        // so this is a clamp against a stale extent, and it is still the right call: a
+        // stale maximum is a bounded amount wrong, whereas no clamp at all leaves the
+        // scroll offset unbounded. The paint's own prepareDocumentViewport clamps again
+        // against the fresh extent, so the final position is correct either way and this
+        // only removes the one-frame flash.
+        tinta::clampDocumentScroll(app_);
+    }
+    update();
+}
+
 bool QtAppWindow::paintDocument() {
     if (!app_.root) return false;
 
-    // App's viewport is the widget's size. It is synced here rather than in a resize
-    // handler because this stack has no resize handler yet -- see the header comment.
-    // The input handlers call syncViewport too, and they have to: a scroll maximum is
-    // derived from app_.height, so a wheel event before the first paint would clamp
-    // against zero.
+    // Synced here as well as in resizeEvent, and that is not redundant: a widget can be
+    // resized before it is shown, in which case no resize event has been delivered yet.
+    // The input handlers call it too, because every scroll maximum is derived from
+    // app_.height and a wheel event before the first paint would clamp against zero.
     const bool resized = syncViewport();
 
     // Relayout on a size change, and on the first paint after a document is set --
     // which is what an empty run list means here, since every document tinta can open
     // produces at least one text run. Not "always": layoutDocument walks the whole
     // element tree and this is the paint path.
-    if (resized || app_.layoutTextRuns.empty()) {
+    //
+    // app_.layoutDirty is in the test now because resizeEvent sets it. `resized` alone
+    // would still be true in the common case, but only because syncViewport happens to be
+    // called from both places -- a resize followed by anything that syncs first would
+    // have left the flag set and the layout stale.
+    if (resized || app_.layoutDirty || app_.layoutTextRuns.empty()) {
         layoutDocument(app_);
     }
 
@@ -253,7 +291,26 @@ bool QtAppWindow::paintDocument() {
         return false;
     }
 
-    paintDocumentLayout(app_, prepareDocumentViewport(app_));
+    // AFTER the layout and BEFORE the paint, which is the order main_d2d.cpp uses and the
+    // only order that works: it reads app_.contentHeight, and it latches visibility so an
+    // incremental layout cannot make the right edge blink.
+    updateScrollbarExtent(app_);
+
+    // Held rather than passed inline, because the scrollbars need the same object. Two
+    // prepareDocumentViewport calls would be worse than untidy -- it MUTATES App
+    // (scrollX, scrollY, targetScrollY, pendingScrollRestore), so the second call would
+    // be clamping against state the first one already moved.
+    const DocumentViewport viewport = prepareDocumentViewport(app_);
+    paintDocumentLayout(app_, viewport);
+
+    // The chrome the Windows paint handler drew inline until this slice: the same rounded
+    // thumb, the same 6-to-10 DIP hover swell, the same colour rule. It draws OVER the
+    // document rather than reserving a column, which is why it comes after.
+    //
+    // The hover and drag flags it reads are set by src/input.cpp's mouse handling, which
+    // is Windows-only, so on this stack the thumb is always in its resting form and cannot
+    // be dragged. A missing caller, not a missing implementation -- see include/scrollbar.h.
+    paintDocumentScrollbars(app_, viewport);
     return true;
 }
 

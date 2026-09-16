@@ -240,6 +240,10 @@ set(SOURCES
     # targets, which is the property that makes the extraction checkable: if Windows
     # and Qt ever draw a document differently, they are not sharing this file.
     src/paint_document.cpp
+    # The two scrollbars, cut out of main_d2d.cpp's paint handler for the same reason and
+    # on the same terms: BOTH platforms, both app targets, so a divergence in the most
+    # visible piece of chrome in the product would have to be a divergence in this file.
+    src/scrollbar.cpp
     src/file_utils.cpp
     src/overlays.cpp
     src/context_menu.cpp
@@ -478,6 +482,10 @@ set(TINTA_QT_APP_SOURCES
     # did not exist when that closure was measured -- it is the code this slice cut out
     # of src/main_d2d.cpp so that something other than a Win32 WM_PAINT could call it.
     src/paint_document.cpp
+    # The scrollbars. Not a QScrollBar -- include/scrollbar.h explains why at length, but
+    # the build-level version is short: this is the SAME file the `tinta` target links, so
+    # both stacks draw the identical thumb and neither can restyle it alone.
+    src/scrollbar.cpp
     src/math_stub.cpp
     # The command line's two files, and the LINKER is what added them rather than a
     # reading of the include graph. src/main_qt.cpp's one new call --
@@ -1073,6 +1081,12 @@ if(BUILD_TESTING)
         # THIS TARGET IS THE ONLY THING THAT WOULD CATCH THAT: qt_entry_tests links Qt,
         # so it cannot tell the difference.
         src/scroll.cpp
+        # The scrollbars, and this one has a Windows-flavoured edge rather than a Qt one.
+        # The 95 lines came out of src/main_d2d.cpp, the least portable file in the tree,
+        # and they drew through the seam already -- so the risk is not a Qt include
+        # drifting in, it is a Direct2D one that was always there and that nothing had
+        # ever asked about. This target is what asks.
+        src/scrollbar.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)

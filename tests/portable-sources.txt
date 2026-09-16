@@ -518,6 +518,31 @@ math_stub.cpp
 # that makes the claim whole, and it is not done.
 scroll.cpp
 
+# --- The scrollbars, cut out of the least portable file in the tree ------------
+#
+# scrollbar.cpp. The vertical thumb, its find-match ticks and the horizontal thumb: 95
+# lines that were inline in src/main_d2d.cpp's paint handler, plus the 8-line visibility
+# latch from the same function. Compiled, linked and RUN off Windows by qt_entry_tests,
+# and compiled with NO Qt by portable_compile_only.
+#
+# THIS ONE IS A DELETION, WHICH THE TWO ENTRIES ABOVE ARE NOT. paint_document.cpp and
+# scroll.cpp both stand BESIDE a Windows copy -- scroll.cpp says so in as many words, and
+# src/input.cpp still holds its eleven duplicate sites. This file has no second copy:
+# main_d2d.cpp calls it. So "both stacks draw the same scrollbar" is a claim about the
+# PROGRAM here and not just about a file, which is the shape the other two are aiming for.
+#
+# WHY IT IS NOT A QScrollBar, since that is what the slice was scoped as: tinta's scrollbar
+# is a custom-drawn rounded thumb, not a native control, and a Qt widget down the right
+# edge would have made the single most visible piece of chrome in the product differ
+# between the two builds. Moving the existing code costs the same and produces the same
+# pixels. include/scrollbar.h has the full argument.
+#
+# WHAT IT DOES NOT CLAIM: that the scrollbar is INTERACTIVE off Windows. App's hover and
+# drag flags are set by src/input.cpp's mouse handling, so on Qt the thumb draws in its
+# resting 6 DIP / 0.3 alpha form and cannot be dragged. The code reads those flags and will
+# honour them the moment something sets them -- a missing caller, not a missing half.
+scrollbar.cpp
+
 # --- The Qt frontend: the entry point the whole port is aimed at ---------------
 #
 # These three are a DIFFERENT KIND of entry from everything above. Every other line

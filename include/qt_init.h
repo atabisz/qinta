@@ -49,13 +49,39 @@ class RenderTarget;
 // Windows App had a text factory and every one of app.textFormat,
 // app.headingFormats[0..5], app.codeFormat and the bold/italic combinations null. The
 // first document handed to a Qt window segfaulted in src/render.cpp:378 on the null.
-// Only the DOCUMENT formats are created; the ~25 chrome formats are still null off
-// Windows, and src/qt_init.cpp lists them.
+// THE CHROME FORMATS ARE HERE TOO SINCE 2026-09-16, and the sentence that stood here --
+// "only the DOCUMENT formats are created; the ~25 chrome formats are still null off
+// Windows" -- was wrong about the count as well as out of date. Where the 25 came from,
+// since guessing at that was itself wrong once: it is the number of lines matching
+// `IDWriteTextFormat*` in app.h, and TWENTY-FOUR of those are members. The twenty-fifth is
+// the `native` PARAMETER of the seating helper at app.h:1542, which a grep cannot tell from
+// a field. So the old figure was a whole-file grep mislabelled as the chrome subset, and the
+// off-by-one inside it was a function argument.
+//
+// The real split, measured: 11 declarations of DOCUMENT formats -- 16 objects, because
+// nativeHeadingFormats is a [6] -- plus the 3 of the per-theme preview triple, plus TEN
+// chrome (search, signals, theme title, theme header, stats, folder browser, both TOC,
+// editor text, editor gutter). The ten agree with what updateOverlayFormats assigns in
+// src/d2d_init.cpp, which is the authority on which formats are chrome; the member list is
+// only a proxy for it. This call now creates those ten. Corrected rather than deleted,
+// because the figure appeared in two files and a reader who checks one and not the other
+// should find the same number -- and it had TWO different wrong explanations before this
+// one, so the derivation is written down here rather than the result alone.
 //
 // QApplication has to exist first. QtTextFactory itself constructs nothing Qt on
 // its own, but the QFont/QTextLayout work every TextFormat it hands out performs
 // needs the font database, and Qt's font database needs a QGuiApplication.
 void installQtBackends(App& app);
+
+// The per-theme preview triple -- three formats for every theme in theme_data -- created
+// on first use and not at startup. The Qt counterpart of ensureThemePreviewFormats
+// (include/d2d_init.h), and public for the same reason that one is: its caller is the
+// theme chooser, which lives in src/overlays.cpp and has not been ported.
+//
+// Idempotent by the same test the Windows version uses: it returns early when
+// App::themePreviewFormats is non-empty, which is why releaseQtBackends CLEARS that
+// vector rather than merely nulling the wrappers inside it.
+void ensureQtThemePreviewFormats(App& app);
 
 // Undoes installQtBackends. Explicit rather than left to App's destructor because
 // App's own teardown path is inside #ifdef _WIN32 (see app.h's cleanup members),

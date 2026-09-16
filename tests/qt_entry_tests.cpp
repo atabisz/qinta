@@ -24,6 +24,19 @@
 //      existed, render.cpp -- 3,294 lines, the largest file in the tree -- was on
 //      tests/portable-sources.txt as compile-only, and the paint pass lived inside
 //      main_d2d.cpp's WM_PAINT where no test could reach it.
+//   5. THE CHROME FORMATS AND THE TWO SCALES (runs 11-13). Ten formats whose only
+//      callers are still Windows-only files, so no pixel in here can see them and the
+//      by-name and by-SIZE assertions are the entire guard. The size half is not
+//      pedantry: chrome is scaled by contentScale alone and editor text by
+//      contentScale * zoomFactor, both arrangements produce ten non-null formats, and
+//      only the numbers tell them apart.
+//   6. UNIFORM LINE SPACING (run 14) -- the one assertion in this file that would have
+//      FAILED before the slice that added it. QtTextFormat stored SetLineSpacing's
+//      three arguments and QtTextRun read none of them, so the editor format could be
+//      non-null, correctly sized, and lay text out on the wrong grid.
+//   7. THE SCROLLBAR (runs 15-16), which is src/scrollbar.cpp lifted out of
+//      main_d2d.cpp's paint handler rather than a QScrollBar, and resizeEvent's scroll
+//      re-clamp. Both are read in PIXELS, with a short document as the control.
 //
 // THE CONTROL IS THE POINT OF THE THIRD RUN. "Some pixels in the text band differ
 // from the background" is only evidence that text was drawn if the same measurement
@@ -59,15 +72,22 @@
 #include <QPixmap>
 #include <QPoint>
 #include <QPointF>
+#include <QResizeEvent>
+#include <QSize>
 #include <QString>
 #include <QWheelEvent>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+// std::abs(int) is declared here and not in <cmath>. libstdc++ happens to pull it in
+// anyway, which is exactly the sort of thing MSVC does not.
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+
+#include <memory>
 
 #include "app.h"
 #include "document.h"
@@ -75,6 +95,8 @@
 #include "geometry.h"
 #include "qt_init.h"
 #include "qt_window.h"
+#include "text_api.h"
+#include "theme_data.h"
 
 namespace {
 
@@ -199,12 +221,65 @@ void sendKey(QtAppWindow& window, int key, Qt::KeyboardModifiers mods = Qt::NoMo
     QApplication::sendEvent(&window, &ev);
 }
 
+// Resize the widget AND deliver the resize event, because on a widget that has never been
+// shown the first half does not imply the second.
+//
+// MEASURED, not assumed, and it is the reason this helper exists. The resize run below was
+// written with QApplication::processEvents() after the resize and read app.height still at
+// 400 with layoutDirty clear: Qt defers the resize event of a hidden widget to its show,
+// so nothing was ever posted for processEvents to deliver. resize() alone therefore leaves
+// width()/height() correct and QtAppWindow::resizeEvent never entered -- which would have
+// been a test that reported the override missing when the override was fine.
+//
+// WHAT THIS DOES AND DOES NOT PROVE, on the same footing as sendWheel's note about focus:
+// it exercises the real dispatch, QWidget::event() to the virtual, so the override is
+// under test. It does NOT prove Qt delivers a resize event to a SHOWN window, which is
+// Qt's contract rather than tinta's -- and showing a window from a test would put a real
+// frame on the screen of whoever runs the suite.
+void sendResize(QtAppWindow& window, int w, int h) {
+    const QSize before(window.width(), window.height());
+    window.resize(w, h);
+    QResizeEvent ev(QSize(w, h), before);
+    QApplication::sendEvent(&window, &ev);
+}
+
 // float equality, at the tolerance the arithmetic deserves. Every value asserted below is
 // a sum of at most a few multiples of 50 or 60, so anything further out than this is a
 // different number and not a rounding difference. Written as a helper because an
 // exact == on a float would be the wrong claim and a `> 0` would be the wrong test.
 bool sameScroll(float actual, float expected) {
     return std::abs(actual - expected) < 0.01f;
+}
+
+// The same tolerance under a name that says what is being compared. Deliberately not a
+// call to sameScroll: a font size is not a scroll offset, and a reader who found a format
+// size compared with a scroll helper would be right to wonder which one had been reused
+// by accident.
+bool sameSize(float actual, float expected) {
+    return std::abs(actual - expected) < 0.01f;
+}
+
+// A long single-line string for the two format runs below. Long enough that any format
+// will overflow a narrow layout box, which is what makes the elide measurable.
+const wchar_t kLongRow[] =
+    L"a-very-long-file-name-that-cannot-possibly-fit-inside-a-narrow-column.md";
+constexpr uint32_t kLongRowLength =
+    static_cast<uint32_t>(sizeof(kLongRow) / sizeof(kLongRow[0]) - 1);
+
+// Measured width of `kLongRow` laid out through the seam at `maxWidth`, or -1 if the
+// layout could not be created. A float rather than a bool so the elided and unelided
+// numbers can be printed side by side -- the assertion is that they differ by hundreds
+// of pixels, and a boolean pair would hide a three-pixel difference passing for an elide.
+float rowWidthAt(App& app, tinta::TextFormat* format, float maxWidth,
+                 uint32_t* lineCountOut) {
+    if (!app.textFactory || !format) return -1.0f;
+    std::unique_ptr<tinta::TextLayout> layout =
+        app.textFactory->CreateTextLayout(kLongRow, kLongRowLength, format, maxWidth, 100.0f);
+    if (!layout) return -1.0f;
+    tinta::TextMetrics metrics{};
+    layout->GetMetrics(&metrics);
+    if (lineCountOut) *lineCountOut = metrics.lineCount;
+    return metrics.width;
 }
 
 }  // namespace
@@ -765,6 +840,457 @@ int main(int argc, char** argv) {
     check(sameScroll(app.scrollY, std::max(0.0f, app.contentHeight - 700.0f)),
           "and End landed on a maximum computed from the new height -- 300 pixels away from "
           "where the stale one would have put it");
+
+    // --- Run 11: THE CHROME FORMATS -----------------------------------------------
+    //
+    // Ten formats that were null off Windows until src/qt_init.cpp's
+    // installQtChromeFormats existed, and the reason they are asserted BY NAME and BY
+    // SIZE rather than through a pixel count is that no pixel in this file can see them:
+    // their only callers are src/overlays.cpp, src/editor.cpp and src/tabs.cpp, none of
+    // which compiles off Windows yet. So this run is the whole guard, and a null here is
+    // the segfault src/render.cpp:378 already produced once for the document formats.
+    const bool chromeAllPresent =
+        app.searchTextFormat != nullptr && app.signalSmallFormat != nullptr &&
+        app.themeTitleFormat != nullptr && app.themeHeaderFormat != nullptr &&
+        app.statsFormat != nullptr && app.folderBrowserFormat != nullptr &&
+        app.tocFormat != nullptr && app.tocFormatBold != nullptr &&
+        app.editorTextFormat != nullptr && app.editorGutterFormat != nullptr;
+    check(chromeAllPresent,
+          "all TEN chrome formats exist after installQtBackends -- search, signals, theme "
+          "title, theme header, stats, folder browser, both TOC, editor text and gutter");
+
+    // THE SIZES, and they are not decoration. Every number here is copied from
+    // src/d2d_init.cpp, and a format that exists at the wrong size draws chrome that
+    // looks deliberate: a stats box at 16 instead of 13 overflows its fixed rectangle,
+    // which is the exact failure the two-scale rule in run 12 exists to prevent.
+    //
+    // GUARDED ON chromeAllPresent, AND THE GUARD IS NOT DEFENSIVE PADDING. Written without
+    // it, the printf below dereferences ten pointers, so the planted control that removes
+    // installQtChromeFormats would SEGFAULT here instead of failing -- and a run that
+    // crashes prints no FAIL line and no tally, so the harness reports zero failures for
+    // the plant it exists to catch. That exact defect is already recorded forty lines up,
+    // against the heading formats; this is the same lesson applied before it bit twice.
+    if (!chromeAllPresent) {
+        std::printf("chrome_sizes=UNREADABLE: at least one format is null, so every size "
+                    "assertion below is skipped rather than crashed through\n");
+    } else {
+    std::printf("chrome_sizes=%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f\n",
+                app.searchTextFormat->GetFontSize(), app.signalSmallFormat->GetFontSize(),
+                app.themeTitleFormat->GetFontSize(), app.themeHeaderFormat->GetFontSize(),
+                app.statsFormat->GetFontSize(), app.folderBrowserFormat->GetFontSize(),
+                app.tocFormatBold->GetFontSize(), app.tocFormat->GetFontSize(),
+                app.editorTextFormat->GetFontSize(), app.editorGutterFormat->GetFontSize());
+    check(sameSize(app.searchTextFormat->GetFontSize(), 16.0f * scale) &&
+              sameSize(app.signalSmallFormat->GetFontSize(), 10.0f * scale) &&
+              sameSize(app.themeTitleFormat->GetFontSize(), 28.0f * scale) &&
+              sameSize(app.themeHeaderFormat->GetFontSize(), 11.0f * scale) &&
+              sameSize(app.statsFormat->GetFontSize(), 13.0f * scale),
+          "the five overlay formats carry d2d_init's sizes: 16, 10, 28, 11, 13");
+    check(sameSize(app.folderBrowserFormat->GetFontSize(), 13.0f * scale) &&
+              sameSize(app.tocFormatBold->GetFontSize(), 13.0f * scale) &&
+              sameSize(app.tocFormat->GetFontSize(), 12.0f * scale),
+          "and the three trimmed rows carry 13, 13 and 12 -- the TOC pair DIFFERS in size "
+          "as well as weight, which is easy to miss where the two calls are adjacent");
+    check(sameSize(app.editorTextFormat->GetFontSize(), 14.0f * scale * app.zoomFactor) &&
+              sameSize(app.editorGutterFormat->GetFontSize(), 9.5f * scale * app.zoomFactor),
+          "and the two editor formats carry 14 and 9.5");
+    }  // chromeAllPresent
+
+    // A MEASUREMENT AND NOT A NULL CHECK, for the same reason the space widths are one: a
+    // zero character width makes every editor caret land on column zero, and the editor
+    // still draws. src/editor.cpp divides by this number.
+    std::printf("editor_char_width=%.3f\n", app.editorCharWidth);
+    check(app.editorCharWidth > 0.0f,
+          "editorCharWidth was measured through the seam -- src/editor.cpp divides by it, so "
+          "a zero here is a division by zero and not a cosmetic default");
+
+    // THE TRIMMING SIGNS, counted rather than checked for non-emptiness. Three formats go
+    // through configureTrimmedRow and QtTextFactory::CreateEllipsisTrimmingSign never
+    // returns null, so the number is exactly three -- and the vector exists at all only
+    // because DirectWrite retains the sign where Qt does not (include/app.h's
+    // App::trimmingSigns). A count of 0 would mean the ellipsis went out of scope and the
+    // Windows build would be reading freed memory.
+    std::printf("trimming_signs=%zu\n", app.trimmingSigns.size());
+    check(app.trimmingSigns.size() == 3,
+          "App::trimmingSigns holds exactly three signs -- folder browser and both TOC rows "
+          "-- which is what keeps the DirectWrite backend's retained pointer alive");
+
+    // AND THE TRIMMING IS HONOURED, which is a different claim from "SetTrimming was
+    // called". THE DISCRIMINATING PAIR: editorTextFormat and folderBrowserFormat are BOTH
+    // NoWrap, so neither can wrap out of the box; only one of them elides. A long row
+    // measured at a narrow width therefore overflows on one and fits on the other, and the
+    // gap is hundreds of pixels rather than a rounding difference.
+    const float narrow = 60.0f * scale;
+    uint32_t elidedLines = 0;
+    uint32_t overflowLines = 0;
+    const float elidedWidth = rowWidthAt(app, app.folderBrowserFormat, narrow, &elidedLines);
+    const float overflowWidth = rowWidthAt(app, app.editorTextFormat, narrow, &overflowLines);
+    std::printf("row_width_elided=%.2f row_width_nowrap=%.2f narrow=%.2f lines=%u,%u\n",
+                elidedWidth, overflowWidth, narrow, elidedLines, overflowLines);
+    check(elidedLines == 1 && overflowLines == 1,
+          "both formats produce ONE line at a narrow width, so neither wrapped and the width "
+          "comparison below is about the elide alone");
+    check(elidedWidth >= 0.0f && elidedWidth <= narrow,
+          "the folder browser row FITS its 60-pixel box, so the ellipsis trimming recorded by "
+          "configureTrimmedRow reached QtTextRun's elide");
+    check(overflowWidth > narrow * 2.0f,
+          "CONTROL: the editor format, NoWrap and untrimmed, overflows the same box by more "
+          "than double -- so the fit above is an elide and not a narrow font");
+
+    // --- Run 12: THE TWO-SCALE RULE ------------------------------------------------
+    //
+    // The single subtlest line in installQtChromeFormats. Chrome uses app.contentScale
+    // ALONE; the two editor formats use contentScale * zoomFactor, because editor text IS
+    // document text. src/d2d_init.cpp:378 gives the reason -- "fixed UI size so zooming the
+    // document cannot overflow the fixed stats box" -- and getting it backwards makes the
+    // search box and the stats readout grow with Ctrl+= and look like a feature rather
+    // than a defect.
+    //
+    // NO PIXEL IN THIS FILE CAN SEE THIS EITHER, and no null check can: both arrangements
+    // produce ten non-null formats. Only the sizes tell them apart.
+    releaseQtBackends(app);
+    app.zoomFactor = 2.0f;
+    installQtBackends(app);
+    std::printf("zoom2_chrome=%.2f,%.2f zoom2_editor=%.2f,%.2f\n",
+                app.searchTextFormat ? app.searchTextFormat->GetFontSize() : -1.0f,
+                app.statsFormat ? app.statsFormat->GetFontSize() : -1.0f,
+                app.editorTextFormat ? app.editorTextFormat->GetFontSize() : -1.0f,
+                app.editorGutterFormat ? app.editorGutterFormat->GetFontSize() : -1.0f);
+    check(app.searchTextFormat && app.statsFormat &&
+              sameSize(app.searchTextFormat->GetFontSize(), 16.0f * scale) &&
+              sameSize(app.statsFormat->GetFontSize(), 13.0f * scale),
+          "AT DOUBLE ZOOM THE CHROME DOES NOT MOVE: search is still 16 and stats still 13, so "
+          "zooming a document cannot overflow a fixed overlay box");
+    check(app.editorTextFormat && app.editorGutterFormat &&
+              sameSize(app.editorTextFormat->GetFontSize(), 28.0f * scale) &&
+              sameSize(app.editorGutterFormat->GetFontSize(), 19.0f * scale),
+          "and the two EDITOR formats DID double, to 28 and 19 -- editor text is document "
+          "text, so it is the one thing on the other scale");
+
+    releaseQtBackends(app);
+    app.zoomFactor = 1.0f;
+    installQtBackends(app);
+    check(app.editorTextFormat && sameSize(app.editorTextFormat->GetFontSize(), 14.0f * scale),
+          "and back at zoom 1 the editor format is 14 again, so the install reads zoomFactor "
+          "live rather than baking it once");
+
+    // --- Run 13: THE THEME PREVIEWS, and the lazy door -----------------------------
+    //
+    // Roughly thirty formats across every theme, wanted only while the theme chooser is
+    // open, so installQtBackends does NOT create them -- that is asserted first, because
+    // an eager install would be a silent cost on every launch and would look identical
+    // from every other assertion in this file.
+    check(app.themePreviewFormats.empty(),
+          "installQtBackends did NOT build the per-theme previews: they are the lazy door, "
+          "the same division of labour d2d_init uses");
+
+    ensureQtThemePreviewFormats(app);
+    std::printf("theme_count=%d preview_slots=%zu\n", themeCount(),
+                app.themePreviewFormats.size());
+    check(app.themePreviewFormats.size() == static_cast<size_t>(themeCount()),
+          "ensureQtThemePreviewFormats filled one slot per theme");
+
+    int previewTriples = 0;
+    bool previewSizesOrdered = true;
+    for (const App::ThemePreviewFormats& slot : app.themePreviewFormats) {
+        if (slot.name && slot.preview && slot.code) previewTriples++;
+        // 14 / 11 / 10. Asserted as an ORDER rather than three equalities per theme
+        // because the sizes are shared and the families are not -- a per-theme size
+        // check would be thirty copies of one claim.
+        if (!slot.name || !slot.preview || !slot.code ||
+            !(slot.name->GetFontSize() > slot.preview->GetFontSize() &&
+              slot.preview->GetFontSize() > slot.code->GetFontSize())) {
+            previewSizesOrdered = false;
+        }
+    }
+    std::printf("preview_triples=%d\n", previewTriples);
+    check(previewTriples == themeCount(),
+          "every theme got all THREE formats -- name, preview and code -- so a chooser row "
+          "cannot draw two of three and leave a null for the third");
+    check(previewSizesOrdered,
+          "and each triple is ordered 14 > 11 > 10, so the three carry their d2d_init sizes "
+          "rather than one shared default");
+
+    // IDEMPOTENCE BY POINTER IDENTITY, not by size. The vector being non-empty afterwards
+    // would pass on a function that rebuilt all thirty formats every time the chooser
+    // opened; the same pointer proves the early return fired. It also proves the RESIZE
+    // ordering held -- a push_back per theme would have reallocated and invalidated every
+    // pointer already handed to a caller.
+    tinta::TextFormat* const firstName = app.themePreviewFormats[0].name;
+    ensureQtThemePreviewFormats(app);
+    check(app.themePreviewFormats.size() == static_cast<size_t>(themeCount()) &&
+              app.themePreviewFormats[0].name == firstName,
+          "a second call is a no-op down to the POINTER, so the chooser can call it on every "
+          "open without rebuilding thirty formats");
+
+    // AND THE RELEASE CLEARS THE VECTOR RATHER THAN NULLING THE WRAPPERS INSIDE IT, which
+    // is the half that is easy to get wrong: the early return above tests EMPTINESS, so a
+    // release that left thirty seated nulls behind would turn the lazy door into a
+    // permanent no-op and the chooser would draw nothing after the first theme change.
+    releaseQtBackends(app);
+    check(app.themePreviewFormats.empty(),
+          "releaseQtBackends CLEARED the preview vector, so the lazy door still opens after a "
+          "release -- nulling the wrappers in place would have wedged it shut");
+    check(app.trimmingSigns.empty() && app.editorCharWidth == 0.0f,
+          "and it dropped the trimming signs and zeroed editorCharWidth rather than leaving "
+          "them as stale values pointing at a released factory");
+    check(app.searchTextFormat == nullptr && app.editorGutterFormat == nullptr,
+          "and the chrome formats went with the factory that made them");
+
+    installQtBackends(app);
+
+    // --- Run 14: UNIFORM LINE SPACING ----------------------------------------------
+    //
+    // THE ONE ASSERTION IN THIS FILE THAT WOULD HAVE FAILED BEFORE THIS SLICE, and the
+    // defect it catches is why the run exists. QtTextFormat::SetLineSpacing stored all
+    // three of its arguments and NOTHING READ THEM: QtTextRun positioned lines on Qt's
+    // natural metrics regardless. So installQtChromeFormats could hand back a non-null
+    // editorTextFormat that laid text out on the wrong grid -- issue #181's fontSize*1.5
+    // row pitch silently ignored -- and every null check, every size check and every
+    // pixel count above would still have passed.
+    //
+    // MEASURED THROUGH THE FACTORY RATHER THAN THROUGH editorTextFormat, because that
+    // format is NoWrap and this is a claim about MULTIPLE LINES. Two formats identical
+    // except for the SetLineSpacing call is the only pair that isolates it.
+    const float spacingFontSize = 12.0f;
+    const float uniformHeight = 40.0f;
+    const float uniformBaseline = 30.0f;
+    const float spacingWidth = 120.0f;
+    std::unique_ptr<tinta::TextFormat> naturalFormat = app.textFactory->CreateTextFormat(
+        app.theme.fontFamily, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
+        tinta::FontStretch::Normal, spacingFontSize, L"en-us");
+    std::unique_ptr<tinta::TextFormat> uniformFormat = app.textFactory->CreateTextFormat(
+        app.theme.fontFamily, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
+        tinta::FontStretch::Normal, spacingFontSize, L"en-us");
+    check(naturalFormat != nullptr && uniformFormat != nullptr,
+          "two identical formats were created for the line-spacing pair");
+    if (naturalFormat && uniformFormat) {
+        naturalFormat->SetWordWrapping(tinta::WordWrapping::Wrap);
+        uniformFormat->SetWordWrapping(tinta::WordWrapping::Wrap);
+        uniformFormat->SetLineSpacing(tinta::LineSpacingMethod::Uniform, uniformHeight,
+                                      uniformBaseline);
+
+        std::unique_ptr<tinta::TextLayout> naturalLayout = app.textFactory->CreateTextLayout(
+            kLongRow, kLongRowLength, naturalFormat.get(), spacingWidth, 10000.0f);
+        std::unique_ptr<tinta::TextLayout> uniformLayout = app.textFactory->CreateTextLayout(
+            kLongRow, kLongRowLength, uniformFormat.get(), spacingWidth, 10000.0f);
+        check(naturalLayout != nullptr && uniformLayout != nullptr,
+              "and both laid out at a width narrow enough to wrap");
+
+        if (naturalLayout && uniformLayout) {
+            tinta::TextMetrics naturalMetrics{};
+            tinta::TextMetrics uniformMetrics{};
+            naturalLayout->GetMetrics(&naturalMetrics);
+            uniformLayout->GetMetrics(&uniformMetrics);
+            std::printf("spacing_lines=%u,%u spacing_height=%.2f,%.2f expected_uniform=%.2f\n",
+                        naturalMetrics.lineCount, uniformMetrics.lineCount,
+                        naturalMetrics.height, uniformMetrics.height,
+                        static_cast<float>(uniformMetrics.lineCount) * uniformHeight);
+
+            // PRECONDITION. On one line the two arrangements agree at the first line's
+            // top and the height comparison would be reading a single line box, which is
+            // the false green available here.
+            check(uniformMetrics.lineCount >= 3,
+                  "PRECONDITION: the row wrapped to at least three lines, so a per-line pitch "
+                  "is measurable at all");
+            check(naturalMetrics.lineCount == uniformMetrics.lineCount,
+                  "the two layouts wrapped IDENTICALLY, so line spacing changed the pitch and "
+                  "not the break positions");
+            check(sameSize(uniformMetrics.height,
+                           static_cast<float>(uniformMetrics.lineCount) * uniformHeight),
+                  "AND THE UNIFORM LAYOUT IS EXACTLY lineCount * 40 TALL. This is the check "
+                  "that fails before QtTextRun honours SetLineSpacing -- the format stored the "
+                  "value and the run ignored it, so the height came back on Qt's natural "
+                  "metrics and issue #181's row grid was silently dropped");
+            check(uniformMetrics.height > naturalMetrics.height,
+                  "and it is TALLER than the naturally-spaced twin, so the 40 is doing work "
+                  "rather than happening to equal the font's own line height");
+
+            // A BUFFER FOR EIGHT AND NOT FOR ONE, and the first draft of this run asked for
+            // one and got `false` out of both layouts. That is the CONTRACT and not a
+            // defect: GetLineMetrics returns lineCount <= maxLineCount and writes nothing
+            // when the buffer is too small, which is DirectWrite's E_NOT_SUFFICIENT_BUFFER
+            // rendered as a bool. src/qt_init.cpp gets away with `&lm, 1` because it
+            // measures a one-character string. Recorded here because a caller that ignores
+            // the return would read an untouched LineMetrics full of zeroes and compute a
+            // row pitch of nothing.
+            tinta::LineMetrics uniformLines[8]{};
+            tinta::LineMetrics naturalLines[8]{};
+            uint32_t uniformLineCount = 0;
+            uint32_t naturalLineCount = 0;
+            const bool gotUniform =
+                uniformLayout->GetLineMetrics(uniformLines, 8, &uniformLineCount);
+            const bool gotNatural =
+                naturalLayout->GetLineMetrics(naturalLines, 8, &naturalLineCount);
+            const tinta::LineMetrics& uniformLine = uniformLines[0];
+            const tinta::LineMetrics& naturalLine = naturalLines[0];
+            std::printf("line_metrics_uniform=%.2f/%.2f natural=%.2f/%.2f counts=%u,%u\n",
+                        uniformLine.height, uniformLine.baseline, naturalLine.height,
+                        naturalLine.baseline, uniformLineCount, naturalLineCount);
+            check(gotUniform && gotNatural,
+                  "GetLineMetrics answered for both layouts");
+            check(uniformLineCount == uniformMetrics.lineCount &&
+                      naturalLineCount == naturalMetrics.lineCount,
+                  "and reported the same line count GetMetrics did, so the two readings are of "
+                  "one layout and not of two different passes");
+            // CONTROL for the buffer contract itself, since getting it wrong is what made
+            // the first version of this run report zeroes: a buffer of one must REFUSE a
+            // five-line layout rather than fill in the first line and call it success.
+            tinta::LineMetrics tooSmall[1]{};
+            uint32_t tooSmallCount = 0;
+            check(!uniformLayout->GetLineMetrics(tooSmall, 1, &tooSmallCount) &&
+                      tooSmallCount == uniformMetrics.lineCount && tooSmall[0].height == 0.0f,
+                  "CONTROL: a one-entry buffer is REFUSED for a five-line layout, and the count "
+                  "still comes back so the caller can size a second call -- which is what "
+                  "DirectWrite's E_NOT_SUFFICIENT_BUFFER contract says and what a caller that "
+                  "ignored the return would silently read as a zero-height row");
+            check(sameSize(uniformLine.height, uniformHeight) &&
+                      sameSize(uniformLine.baseline, uniformBaseline),
+                  "GetLineMetrics reports THE CELL and not the glyph box: 40 tall with the "
+                  "baseline at 30, which is what src/d2d_init.cpp's editor row arithmetic reads "
+                  "back and would otherwise compute a row pitch from the font instead");
+            check(!sameSize(naturalLine.height, uniformHeight),
+                  "CONTROL: the naturally-spaced layout reports a DIFFERENT line height, so the "
+                  "40 above was read from the format rather than being a constant this test "
+                  "would have found either way");
+        }
+    }
+
+    // --- Run 15: resizeEvent -------------------------------------------------------
+    //
+    // WHAT THIS FIXES IS THE SCROLL OFFSET, NOT THE LAYOUT, and the direction is the part
+    // that had to be measured rather than reasoned about. Every maximum is
+    // contentHeight - height, so a TALLER window has a SMALLER maximum -- growing the
+    // window is what leaves app.scrollY past the end, and shrinking it never can. The
+    // comment in src/qt_window.cpp said the opposite until this run was written.
+    //
+    // THE ABSENCE OF A GRAB AFTER THE RESIZE IS THE INSTRUMENT, exactly as in run 10.
+    // prepareDocumentViewport clamps on every paint, so with a grab in between the
+    // assertion would pass whether resizeEvent existed or not.
+    //
+    // Driven through sendResize rather than resize(), and that helper's comment is the
+    // finding: a widget that has never been shown gets no resize event out of resize() at
+    // all, not even a posted one.
+    check(window.openDocument(tallUtf8), "the tall document is back for the resize run");
+    // Plain resize() for the baseline, deliberately: the grab that follows syncs App's
+    // viewport itself, so no event is needed to get to 400 and using one here would make
+    // the flag read below ambiguous about which resize set it.
+    window.resize(600, 400);
+    grabWindow(window);
+    sendKey(window, Qt::Key_End);
+    const float bottomAt400 = app.scrollY;
+    const float contentAt400 = app.contentHeight;
+    std::printf("resize_baseline: h=%d content=%.1f scroll=%.2f dirty=%d\n", app.height,
+                contentAt400, bottomAt400, app.layoutDirty ? 1 : 0);
+    check(!app.layoutDirty,
+          "BASELINE: the paint cleared layoutDirty, so the flag below can only have been set "
+          "by resizeEvent");
+    check(sameScroll(bottomAt400, std::max(0.0f, contentAt400 - 400.0f)),
+          "BASELINE: End put the document at the 400-tall window's maximum");
+    check(bottomAt400 > 0.0f,
+          "PRECONDITION: that maximum is not zero, so there is a clamp to observe");
+
+    sendResize(window, 600, 700);
+    std::printf("after_grow: h=%d app_h=%d content=%.1f scroll=%.2f dirty=%d\n", window.height(),
+                app.height, app.contentHeight, app.scrollY, app.layoutDirty ? 1 : 0);
+    check(app.layoutDirty,
+          "resizeEvent MARKED THE LAYOUT DIRTY rather than relayouting: Qt delivers one of "
+          "these per frame of a window drag, so the work belongs in the paint -- which is "
+          "WM_SIZE's shape, so the two stacks agree");
+    check(app.height == 700,
+          "and it synced App's viewport, with no paint and no key event in between");
+    check(sameScroll(app.scrollY, std::max(0.0f, contentAt400 - 700.0f)),
+          "AND IT RE-CLAMPED THE SCROLL OFFSET against the new height, BEFORE any paint. "
+          "prepareDocumentViewport would have clamped on the next frame, so what this removes "
+          "is one frame of a document showing past its own end");
+    check(app.scrollY < bottomAt400,
+          "which is a smaller offset than the 400-tall window's maximum -- GROWING the window "
+          "shrinks the maximum, and this is the direction the original comment had backwards");
+
+    // --- Run 16: THE SCROLLBAR, in pixels ------------------------------------------
+    //
+    // src/scrollbar.cpp, drawn by the Qt window for the first time. NOT a QScrollBar: the
+    // approved slice asked for one and tinta turned out to already have a scrollbar --
+    // ninety-five lines of custom-drawn rounded thumb stranded inside main_d2d.cpp's paint
+    // handler. A platform control down one stack's right edge and this thumb down the
+    // other's would have made the two builds disagree about the most visible piece of
+    // chrome in the product. include/scrollbar.h carries the full argument.
+    //
+    // TWO PRECONDITIONS AND A CONTROL, because a strip of right-edge pixels is exactly the
+    // kind of band that can light up for a reason that has nothing to do with a scrollbar.
+    const float sbStripLeft = 600.0f - dpi(app, 12.0f);
+    const float sbStripRight = 600.0f - dpi(app, 2.0f);
+    const float trackTop = chromeTopHeight(app);
+    const float trackMid = trackTop + (700.0f - trackTop) * 0.5f;
+    const tinta::RectF sbTopHalf{sbStripLeft, trackTop, sbStripRight, trackMid};
+    const tinta::RectF sbBottomHalf{sbStripLeft, trackMid, sbStripRight, 700.0f};
+
+    check(sameSize(documentViewportWidth(app), 600.0f),
+          "PRECONDITION: no side panel is open, so the document viewport is the whole window "
+          "and the thumb is inside the strip sampled below");
+    check(app.contentWidth <= documentViewportWidth(app),
+          "PRECONDITION: the document does not scroll horizontally, so no horizontal bar is "
+          "drawn across the bottom of the strip to be counted as the vertical thumb");
+
+    sendKey(window, Qt::Key_Home);
+    const QImage sbTopImage = grabWindow(window);
+    check(app.verticalScrollbarVisible,
+          "updateScrollbarExtent latched the vertical bar visible for a document taller than "
+          "the window");
+    // The thumb is trackHeight^2 / scrollExtent tall, so it fits inside half a track only
+    // while the content is at least twice the track. ASSERTED rather than assumed: on a
+    // document just barely taller than the window the thumb fills the track, both halves
+    // below light up, and the position assertions would pass while measuring nothing.
+    check(app.scrollbarContentHeight >= 2.0f * (700.0f - trackTop),
+          "PRECONDITION: the content is at least twice the track, so the thumb occupies less "
+          "than half of it and a top/bottom comparison can discriminate");
+
+    const int sbTopAtTop = nonBackgroundPixels(sbTopImage, sbTopHalf, bg);
+    const int sbBottomAtTop = nonBackgroundPixels(sbTopImage, sbBottomHalf, bg);
+    std::printf("scrollbar_at_top: top_half=%d bottom_half=%d\n", sbTopAtTop, sbBottomAtTop);
+    check(sbTopAtTop > 0,
+          "AT THE TOP OF THE DOCUMENT THERE ARE PIXELS IN THE UPPER HALF OF THE TRACK. This is "
+          "the first time anything on this stack has drawn the scrollbar, and it is the answer "
+          "to 'nothing on screen says how far down you are'");
+    check(sbBottomAtTop == 0,
+          "and NONE in the lower half, so the count above is a thumb at a POSITION and not a "
+          "band that lights up wherever it is sampled");
+
+    sendKey(window, Qt::Key_End);
+    const QImage sbBottomImage = grabWindow(window);
+    const int sbTopAtBottom = nonBackgroundPixels(sbBottomImage, sbTopHalf, bg);
+    const int sbBottomAtBottom = nonBackgroundPixels(sbBottomImage, sbBottomHalf, bg);
+    std::printf("scrollbar_at_bottom: top_half=%d bottom_half=%d\n", sbTopAtBottom,
+                sbBottomAtBottom);
+    check(sbBottomAtBottom > 0 && sbTopAtBottom == 0,
+          "AT THE BOTTOM THE THUMB HAS MOVED to the lower half and left the upper one empty, so "
+          "it tracks app.scrollY rather than being drawn at a fixed place");
+    // WITHIN A TENTH RATHER THAN EQUAL, and the tolerance is reasoned rather than tuned:
+    // sbY is fractional at both ends, so a rounded rectangle antialiases differently
+    // against the two subpixel offsets and the edge rows are worth a few pixels either
+    // way. A thumb whose height were derived from scrollY rather than from the extent
+    // would differ by the whole track, not by an edge row.
+    check(sbTopAtTop > 0 && std::abs(sbBottomAtBottom - sbTopAtTop) <= sbTopAtTop / 10,
+          "and it is the same SIZE at both ends to within a tenth, so the thumb kept its "
+          "height while moving -- its height comes from the content extent and not from the "
+          "scroll position");
+
+    // CONTROL: a document that FITS. verticalScrollbarVisible goes false, nothing is
+    // drawn, and the strip must go flat -- which is what proves the counts above measured
+    // the scrollbar and not a right-hand margin, a glyph or a rounding artefact.
+    check(window.openDocument(tmpUtf8), "CONTROL: the short document opens over the tall one");
+    const QImage sbNoneImage = grabWindow(window);
+    std::printf("control_content_height=%.1f app_height=%d visible=%d\n", app.contentHeight,
+                app.height, app.verticalScrollbarVisible ? 1 : 0);
+    check(app.contentHeight <= static_cast<float>(app.height),
+          "PRECONDITION: it fits the window, so there is nothing to scroll");
+    check(!app.verticalScrollbarVisible,
+          "so updateScrollbarExtent un-latched the bar -- the latch only ever GROWS during an "
+          "incremental layout and must not survive a smaller document");
+    check(nonBackgroundPixels(sbNoneImage, sbTopHalf, bg) == 0 &&
+              nonBackgroundPixels(sbNoneImage, sbBottomHalf, bg) == 0,
+          "CONTROL: BOTH HALVES OF THE STRIP ARE FLAT BACKGROUND. Every scrollbar count above "
+          "measured the scrollbar");
 
     std::error_code rmEc;
     std::filesystem::remove(tmp, rmEc);

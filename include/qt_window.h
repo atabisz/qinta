@@ -42,6 +42,23 @@
 // has changed from "nothing else runs" to "syncViewport is called from three places and
 // only the paint knows a relayout is affordable". A resizeEvent override is still owed.
 //
+// THE resizeEvent OVERRIDE IS PAID as of 2026-09-16, and the paragraph above is left
+// standing because BOTH of its readings turned out to be right about the wrong thing.
+// The layout still happens inside paintEvent, deliberately: Qt delivers a resize event
+// per frame of a window drag, so relayouting there would walk the element tree sixty
+// times a second while the pointer is still moving. resizeEvent sets app.layoutDirty and
+// the paint does the work -- which is exactly WM_SIZE's shape, so the two stacks now agree
+// rather than one of them being a temporary.
+//
+// What the override actually fixed was not the layout at all. It was the SCROLL POSITION:
+// every maximum is contentHeight - app.height, so GROWING the window shrinks the maximum
+// and leaves app.scrollY past the end until the next scroll input re-clamps it, and the
+// document appears to scroll itself. Recorded because "a resizeEvent override is owed"
+// named the right gap for the wrong reason, which is a thing this tree keeps doing to
+// itself -- and this paragraph said "shortening the window" until the test that asserts it
+// was written, which is the same mistake one level down: shrinking a window makes MORE of
+// the document reachable and can never need a clamp.
+//
 // WHAT INPUT THIS WINDOW HANDLES, and the ceiling on it: scrolling and open. That is
 // two of the several hundred behaviours src/input.cpp implements -- no selection, no
 // search, no tabs, no editor, no zoom. The scroll POLICY is not here either; it is
@@ -58,6 +75,7 @@
 #include "geometry.h"
 
 class QKeyEvent;
+class QResizeEvent;
 class QWheelEvent;
 struct App;
 
@@ -114,6 +132,10 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+
+    // Marks the layout dirty and re-clamps the scroll offset against the new height.
+    // Does NOT relayout -- see the header comment above for why that stays in the paint.
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     // Copy the widget's size into App's viewport. Returns whether it CHANGED, which is

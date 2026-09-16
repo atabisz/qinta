@@ -228,6 +228,11 @@ set(SOURCES
     # Windows feature half (title bar, shell handoff, clipboard, path
     # canonicalisation) stayed in utils.cpp.
     src/text_utils.cpp
+    # The App-taking, backend-free half: one function, measureText's seam overload. Same
+    # split and same naming as src/i18n_app.cpp. It is its own file rather than part of
+    # text_utils.cpp above because that file's whole property is needing no app.h -- see
+    # src/text_utils_app.cpp, which records the linker reading that forced the move.
+    src/text_utils_app.cpp
     src/search.cpp
     src/render.cpp
     src/file_utils.cpp
@@ -874,6 +879,37 @@ if(BUILD_TESTING)
     add_library(portable_compile_only OBJECT
         src/editrail.cpp
         src/tableedit.cpp
+        # src/text_utils_app.cpp -- one function, measureText's seam overload, split out
+        # of the windows.h-fatal src/utils.cpp because a linker reading of tinta_qt's
+        # closure found it was the ONLY symbol render.cpp needed from that file.
+        #
+        # COMPILE-ONLY, and that is a stated gap rather than a quiet one. NOTHING in this
+        # tree executes measureText on any platform -- grepping tests/ for the name
+        # returns nothing, which also corrected a claim in utils.cpp that
+        # text_factory_tests asserted the two overloads agree. It asserts the layer
+        # beneath instead. Executing this overload needs an App with a live textFactory,
+        # which the Qt seam tests deliberately do not build (they use a harness, not an
+        # App), so an assertion here is its own slice and not a line in this one.
+        src/text_utils_app.cpp
+        # src/render.cpp ARRIVES HERE, and it is the largest single file this port has
+        # moved -- but read what that does and does not mean, because the gap between
+        # the three readings is unusually wide for this one file.
+        #
+        #   COMPILES off Windows: measured, exit 0 / fatal 0 / errors 0, under a census
+        #   whose six controls all held. That is what this target asserts.
+        #
+        #   LINKS into a Qt app: NOT YET, and the residue is exactly six symbols --
+        #   mathParse, mathBoxWidth, mathBoxHeight, mathBoxBaseline, mathExpandLine and
+        #   mathBoxRetain, all owned by src/math_render.cpp, which does not compile off
+        #   Windows. Measured by a fixpoint link closure, not estimated: nineteen other
+        #   files and two Qt library lines also have to join tinta_qt, and every one of
+        #   those nineteen already compiles.
+        #
+        #   RUNS: nobody has watched it. No test links this file on any platform.
+        #
+        # The distance between "compiles" and "links" is the whole reason this target
+        # exists, and this file is the sharpest example of it in the tree.
+        src/render.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
@@ -1437,6 +1473,27 @@ if(BUILD_TESTING)
     # target rather than a configure error. That is a hole the manifest cannot see, and
     # it is why the test prints its assertion count: a silently absent target and a
     # passing one are otherwise indistinguishable.
+    # THE RENDER BACKEND JOINED THIS TARGET, and it is a link fact rather than a
+    # taste call. tinta::decodeImageFileToBitmap -- the entry point render.cpp's
+    # local-image branch now calls -- constructs a backend bitmap and asserts the
+    # target it was handed belongs to the same backend. Both of those are out-of-line
+    # facts about a class, not calls to a function: `typeinfo for QtRenderTarget`
+    # comes from the dynamic_cast and `vtable for QtBitmap` from the construction,
+    # and each is emitted only in the translation unit holding that class's key
+    # function. That is src/render_qt.cpp. An image backend which produces backend
+    # bitmaps depends on the backend; there is no arrangement of this target that
+    # avoids it.
+    #
+    # text_qt.cpp travels with it for the same mechanical reason, measured not
+    # assumed: render_qt.cpp:238 and :255 dynamic_cast to QtTextFormat and
+    # QtTextLayout, whose typeinfo lives there. It is the pair every other Qt target
+    # in this file lists, and now it is clear why the pair is not a convention.
+    #
+    # The Windows half reaches the same shape through ${LEGACY_D2D_SOURCES} rather
+    # than naming render_d2d.cpp and text_d2d.cpp, and that indirection is the point:
+    # configure with -DTINTA_LEGACY_D2D=OFF and this target joins the link-error
+    # inventory of what still depends on the stack being replaced, instead of quietly
+    # building a backend the flag says is excluded.
     if(WIN32 OR (Qt6_FOUND AND Qt6Svg_FOUND AND Qt6Network_FOUND))
         add_executable(image_tests tests/image_tests.cpp ${PLATFORM_IMAGE_SOURCE})
         target_include_directories(image_tests PRIVATE
@@ -1450,13 +1507,17 @@ if(BUILD_TESTING)
             # QString and needs neither. shell32 is what platform_paths_win32.cpp
             # wants, the same line text_utils_tests carries.
             target_sources(image_tests PRIVATE
-                src/text_utils.cpp ${PLATFORM_PATHS_SOURCE})
+                src/text_utils.cpp ${PLATFORM_PATHS_SOURCE} ${LEGACY_D2D_SOURCES})
             # windowscodecs for WIC, d2d1 for the SVG device context, shlwapi for
             # SHCreateMemStream, urlmon for the fetch, ole32 for CoInitializeEx.
             # These are the libs render.cpp's image code needed; they moved with it.
+            # dwrite arrives with ${LEGACY_D2D_SOURCES} -- text_d2d.cpp calls
+            # DWriteCreateFactory, the same one line render_d2d_tests carries.
             target_link_libraries(image_tests PRIVATE
-                windowscodecs d2d1 shlwapi urlmon ole32 shell32)
+                windowscodecs d2d1 dwrite shlwapi urlmon ole32 shell32)
         else()
+            target_sources(image_tests PRIVATE
+                src/render_qt.cpp src/text_qt.cpp)
             target_link_libraries(image_tests PRIVATE
                 Qt6::Core Qt6::Gui Qt6::Svg Qt6::Network)
         endif()

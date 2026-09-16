@@ -12,13 +12,28 @@
 
 #include "text_api.h"
 
+// dwrite_2.h, not dwrite.h, and THIS HEADER MUST NOT RELY ON WHO INCLUDED IT FIRST.
+// IDWriteFontFallback -- which the ApplyFontFallback work put in a member and a
+// constructor parameter below -- is declared in dwrite_2.h. It compiled anyway for a
+// while, on both platforms, for a reason that was pure luck: app.h forward-declares
+// `struct IDWriteFontFallback;` at :62 and includes this header afterwards, so every
+// TU that arrives through app.h sees the name. Eleven Windows targets, `tinta` among
+// them, do not all arrive that way, and they read 593 errors that all traced to this
+// one line. Off Windows the same latent hole exists and is invisible, because the
+// forward declarations below are the only definition of these names there and app.h's
+// one covered the gap.
+//
+// So: the real header on Windows, and the missing forward declaration added off it.
+// A header that compiles only in a particular include order is a defect that reports
+// itself somewhere else.
 #ifdef _WIN32
-#include <dwrite.h>
+#include <dwrite_2.h>
 #else
 struct IDWriteFactory;
 struct IDWriteTextFormat;
 struct IDWriteTextLayout;
 struct IDWriteInlineObject;
+struct IDWriteFontFallback;
 #endif
 
 // The DirectWrite backend for the text seam.
@@ -138,8 +153,24 @@ public:
     // away when createLayout moved onto app.textFactory. A population under active
     // migration is a moving number, which is the real reason to measure it rather
     // than read it here.
-    D2DTextLayout(IDWriteTextLayout* layout, IDWriteFactory* factory)
-        : layout_(layout), factory_(factory) {}
+    // The third parameter is a POINTER TO A SLOT, not a fallback pointer, and the
+    // indirection is the point: App builds the fallback chain in updateTextFormats,
+    // which runs AFTER initD2D has already seated the text factory. A layout that
+    // copied the value at construction would capture whatever was there at the time,
+    // so ApplyFontFallback would depend on when the layout was made. Reading through a
+    // slot reads it at APPLY time, which is exactly when render.cpp reads
+    // app.fontFallback today -- so the behaviour is unconditionally the same rather
+    // than the same as long as an ordering argument holds.
+    //
+    // REQUIRED, not defaulted, for the reason the comment above gives at length: a
+    // defaulted null here would let a construction site silently produce layouts whose
+    // ApplyFontFallback does nothing, which is the failure this seam's tests exist to
+    // make visible. Both construction sites pass it explicitly, and math_render.cpp's
+    // passes nullptr deliberately -- that layout is a retained maths box and no call
+    // site has ever asked it for a fallback.
+    D2DTextLayout(IDWriteTextLayout* layout, IDWriteFactory* factory,
+                  IDWriteFontFallback* const* fallbackSlot)
+        : layout_(layout), factory_(factory), fallbackSlot_(fallbackSlot) {}
     ~D2DTextLayout() override;
 
     D2DTextLayout(const D2DTextLayout&) = delete;
@@ -178,12 +209,16 @@ public:
     void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
     void SetTypography(const tinta::Typography& typography,
                        tinta::TextRange range) override;
+    void ApplyFontFallback() override;
 
     IDWriteTextLayout* native() const { return layout_; }
 
 private:
     IDWriteTextLayout* layout_;   // owned
     IDWriteFactory* factory_;     // borrowed -- App owns the DWrite factory
+    // Borrowed slot, read at apply time -- see the constructor comment. May be null,
+    // and a null slot means "this layout has no fallback source", not an error.
+    IDWriteFontFallback* const* fallbackSlot_;
 };
 
 class D2DTextFactory final : public tinta::TextFactory {
@@ -206,8 +241,24 @@ public:
     bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
                            std::vector<bool>& canBreak) override;
 
+    // HOLDING THE CHAIN IS NOT APPLYING IT, and that sentence is the whole reason this
+    // setter is allowed to exist without reopening the refusal at render.cpp:54-76.
+    // Every layout this factory makes now has a route to the chain; only a layout whose
+    // caller calls ApplyFontFallback() gets one attached, and exactly one call site in
+    // the tree does. The 15 sites the refusal is about call CreateTextLayout and
+    // nothing else, so their measured widths cannot move.
+    //
+    // BORROWED. App owns the chain and releases it in its own teardown; this class must
+    // not, or the double release lands in App::releaseNative long after this factory is
+    // gone. Called from d2d_init.cpp's updateTextFormats, immediately after the chain is
+    // built, and never again -- the chain is built once per process behind
+    // `if (!app.fontFallback)`.
+    void setFontFallback(IDWriteFontFallback* fallback) { fontFallback_ = fallback; }
+    IDWriteFontFallback* fontFallback() const { return fontFallback_; }
+
 private:
     IDWriteFactory* factory_;  // borrowed -- App owns the DWrite factory
+    IDWriteFontFallback* fontFallback_ = nullptr;  // borrowed -- App owns it
 
     // Created on first use rather than in the constructor, and OWNED, which is why
     // this class now has a destructor at all. It replaces App::textAnalyzer, a native

@@ -1,5 +1,10 @@
 #include "image_api.h"
 
+// For QtBitmap and QtRenderTarget, which decodeImageFileToBitmap needs. image_api.h
+// forward-declares Bitmap and RenderTarget instead of including render_api.h, so each
+// backend pulls in its own -- which is the arrangement that note in the header describes.
+#include "render_qt.h"
+
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -16,6 +21,7 @@
 #include <QtGlobal>
 
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <cstring>
 
@@ -126,6 +132,35 @@ DecodedImage decodeImageFile(const std::wstring& path) {
         out = DecodedImage();
     }
     return out;
+}
+
+// The Qt half of the local-raster branch. Five lines against the Windows side's sixty,
+// and the asymmetry is the point rather than an accident: Qt's decoder already produces
+// the platform's own image type, so there is no format converter to drive and no device
+// upload to perform. QtBitmap holds its QImage by value and QImage is copy-on-write, so
+// the move below transfers a refcount and copies no pixels -- which is what makes this
+// entry point worth having on Qt too, not only on Direct2D. Routing the same image
+// through decodeImageFile plus RenderTarget::CreateBitmap would cost two copies: one
+// into DecodedImage::pixels, and QImage::copy at render_qt.cpp:323 on the way back out.
+//
+// `target` is checked and then unused, and that is deliberate on both counts. Unused
+// because a QImage needs nothing from a render target; checked because the seam's
+// contract says a mismatched target is a configuration error, and a backend that
+// silently accepted one would let a Qt build limp along holding a Direct2D target until
+// something else noticed. The cast goes to QtRenderTarget rather than away from
+// D2DRenderTarget for a mechanical reason as well as a symmetry one: D2DRenderTarget's
+// typeinfo lives in render_d2d.cpp, which does not compile off Windows, so naming it
+// here would be a link error rather than a check.
+std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
+                                                const std::wstring& path) {
+    assert(dynamic_cast<QtRenderTarget*>(&target) != nullptr &&
+           "a non-Qt RenderTarget reached the Qt image backend");
+    if (!dynamic_cast<QtRenderTarget*>(&target)) return nullptr;
+
+    QImage img;
+    if (!img.load(QString::fromStdWString(path))) return nullptr;
+    if (img.isNull()) return nullptr;
+    return std::make_shared<QtBitmap>(std::move(img));
 }
 
 DecodedImage rasterizeSvg(const void* data, size_t size, float scale,

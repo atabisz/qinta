@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -47,25 +48,45 @@
 // existing behaviour and on Qt by nothing at all. Everything else here is asserted
 // by tests/image_tests.cpp against hand-computed pixel values.
 //
-// WHAT IS NOT IN HERE
+// THE THIRD IMAGE PATH IS NOW IN HERE, AND THE MEMCPY OBJECTION IS WHAT SHAPED IT
 //
-// render.cpp has a THIRD image path -- the local-raster branch of getOrLoadImage --
-// which decodes through WIC straight into an ID2D1Bitmap without ever materializing
-// pixels. It is not routed through this seam, and that is a choice rather than an
-// oversight: going via DecodedImage would add a full-image memcpy to every local
-// image, which is a regression, and a portability seam is not the place to accept
-// one.
+// This section used to be headed "WHAT IS NOT IN HERE" and excluded render.cpp's
+// local-raster branch -- the part of getOrLoadImage that decodes through WIC straight
+// into an ID2D1Bitmap without ever materializing pixels. The exclusion was argued twice
+// and the argument was right both times, so it is quoted rather than deleted:
 //
-// THAT SEAM NOW EXISTS -- RenderTarget::CreateBitmap in render_api.h -- and this entry
-// used to end "it is the natural next consumer once a bitmap-from-pixels seam exists".
-// The premise has changed and the conclusion has not: the memcpy objection is about
-// DECODING through DecodedImage, not about where the bitmap comes from afterwards, so
-// the branch is still excluded for its own reason. What did change is that the branch
-// now feeds a PORTABLE field -- App::ImageEntry::bitmap is a
-// shared_ptr<tinta::Bitmap>, and render.cpp wraps the WIC result in a D2DOwnedBitmap
-// on the spot. So this is one Windows-terminal producer behind a portable type rather
-// than a Windows-terminal path through the cache, and when it is ported, one line
-// changes and nothing downstream of it does.
+//   "going via DecodedImage would add a full-image memcpy to every local image, which
+//    is a regression, and a portability seam is not the place to accept one"
+//   "the memcpy objection is about DECODING through DecodedImage, not about where the
+//    bitmap comes from afterwards"
+//
+// That second sentence is the answer. The objection is against ONE PATH -- decode to a
+// DecodedImage, then upload -- and not against a seam. decodeImageFileToBitmap below
+// does not take that path: each backend decodes straight into its own bitmap type, so
+// the copy the objection is about does not happen on either platform. The branch is
+// ported and the regression is not accepted; the exclusion is answered rather than
+// reversed.
+//
+// MEASURED, because "fewer copies" is the entire justification and it would be worth
+// nothing as an assertion. Direct2D: WIC decoder -> IWICFormatConverter ->
+// CreateBitmapFromWicBitmap, which is the original's own call sequence moved verbatim,
+// so ZERO copies and byte-identical behaviour. Qt: QImage::load straight into a
+// QtBitmap, which holds a QImage by value and is copy-on-write -- also zero. Routing
+// the same image through decodeImageFile instead would cost TWO on Qt, not one: the
+// decode fills a std::vector, and RenderTarget::CreateBitmap then calls
+// QImage::copy on the caller's buffer at render_qt.cpp:323 because it may not alias it.
+//
+// WHAT THIS COSTS, stated because it is a real cost and not a rounding error: the
+// format-set divergence noted on decodeImageFile below now applies to a second entry
+// point, and the two are NOT guaranteed to accept the same files -- one goes through
+// WIC's codecs and Qt's image plugins by way of a pixel buffer, the other by way of
+// each platform's own bitmap. Agreement on PNG is asserted for both in
+// tests/image_tests.cpp; beyond PNG they are two independent decoders and this header
+// does not pretend otherwise.
+//
+// App::ImageEntry::bitmap was already a shared_ptr<tinta::Bitmap>, which is what made
+// this a one-line change at the call site -- the prediction this section used to end
+// with ("when it is ported, one line changes and nothing downstream of it does") held.
 //
 // Paths are std::wstring to match the rest of the tree, on the same reasoning
 // platform_paths.h sets out at length: on Windows these hold UTF-16, on POSIX
@@ -73,6 +94,16 @@
 // prejudge the string migration either way.
 
 namespace tinta {
+
+// Forward declarations rather than #include "render_api.h", and not for compile time.
+// render_api.h has an #error at its top demanding <windows.h> come first on Windows,
+// because RenderTarget::DrawText must see the DrawText macro at every include site or
+// two translation units end up with different virtual functions in the same vtable slot.
+// Including it from here would put that requirement on every consumer of the image seam,
+// including ones that touch no render target at all. A declaration costs nothing and
+// carries no such condition.
+class Bitmap;
+class RenderTarget;
 
 // A decoded raster image in premultiplied BGRA, tightly packed. The invariant,
 // asserted in tests/image_tests.cpp: whenever `ok` is true,
@@ -146,6 +177,34 @@ DecodedImage rasterizeSvg(const void* data, size_t size, float scale,
 // returning `ok == false`.
 DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
                               float& intrinsicW, float& intrinsicH);
+
+// Decode an encoded raster image file DIRECTLY into a backend bitmap, with no pixel
+// buffer in between. Returns nullptr for a missing file, an unrecognized format, or a
+// decode failure -- the same failure set decodeImageFile reports through `ok == false`.
+//
+// This is the local-raster branch of render.cpp's getOrLoadImage, and the long note at
+// the top of this header is why it is a second entry point rather than a caller of
+// decodeImageFile: the copy is the reason, and it is measured there rather than asserted.
+//
+// `target` is where the bitmap comes from and it MUST be the backend's own render target
+// -- the same object App::renderTarget holds. Each implementation downcasts it, which is
+// the same asserted-downcast shape nativeTextLayout uses in text_d2d.h: a Qt target
+// arriving in the Windows implementation is a configuration error and trips rather than
+// silently returning nullptr, because a null return is indistinguishable from an
+// unreadable file and would be diagnosed as one.
+//
+// NOT const, and the asymmetry with every other function here is deliberate: creating a
+// device bitmap is a mutation of the target on Direct2D. The rest of this header is pure.
+//
+// kMaxImageDimension is NOT enforced here, and that is the one place this entry point is
+// weaker than decodeImageFile. Neither backend allocates a pixel buffer on this path --
+// the decoder writes into a device or platform bitmap and enforces its own limits -- so
+// the 17 GB allocation the bound exists to prevent is not reachable by the same route.
+// What a hostile file can still do is ask a GPU for a very large texture. That is the
+// behaviour render.cpp has had all along, moved rather than introduced, and it is worth
+// naming as an accepted risk instead of implying the bound covers both paths.
+std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
+                                                const std::wstring& path);
 
 } // namespace tinta
 

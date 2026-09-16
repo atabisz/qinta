@@ -173,7 +173,11 @@ claim "the seven Windows backends"   "| $expr_backends |"
 claim "  ... and their total"        "$nbackends files, $(c "$raw_backend_lines") lines"
 claim "  ... quoted again in prose"  "$(c "$raw_backend_lines") lines of it today"
 
-echo "-- render.cpp, the blocker"
+# LABEL CORRECTED IN PLACE: this said "render.cpp, the blocker". The file compiles off
+# Windows now, so the label was asserting something false every time the gate ran -- and a
+# label is a claim like any other figure, just one no checker checks. It is still a blocker,
+# but a link-time one: tinta_qt is six math symbols short, not one compile error short.
+echo "-- render.cpp, now a link blocker rather than a compile blocker"
 claim "render.cpp row" "| \`render.cpp\` | $(c "$(lines src/render.cpp)") |"
 
 # Native mentions, under the pattern the README quotes beside the figures. If the

@@ -515,7 +515,7 @@ same session.
 | The cross-CRT heap assertion on the Windows Qt tests | Fixed — **and it had been reporting itself as a pass.** Both Qt test targets inherited the tree-wide static CRT from `CMakeLists.txt:20-22` while `Qt6Cored.dll` uses the dynamic one, so a block allocated by one debug heap was freed by another and `__acrt_first_block == header` fired at `debug_heap.cpp:996`. Diagnosed with `dumpbin -dependents`, not by reasoning about it. The reason it survived is the part worth recording: a **modal** CRT assertion dialog makes `ctest` report one defect two opposite ways — dismissed with Ignore the process exits 0 and ctest says *Passed*, aborted it says *\*\*\*Failed*. `render_api`'s recorded "266 assertions pass on Windows" was obtained the first way. The **durations** were the tell: 63.98s and 28.27s before, 2.19s and 2.07s after — the old numbers were a dialog waiting for a click. Both targets now override `MSVC_RUNTIME_LIBRARY` to `MultiThreaded$<$<CONFIG:Debug>:Debug>DLL` (that spelling and not `MultiThreadedDLLDebug`, which CMake rejects — and the failed *generate* still let the build report exit 0 off the stale cache, so configure's exit code has to be read first), both import `ucrtbased.dll`, and the 266 was re-taken cleanly. **This overrides two TEST targets and deliberately does not pre-empt the product decision underneath it** — see the open question below |
 | Qt entry point — a window that drives tinta's own seams (`main_qt.cpp`, `qt_window.cpp`, `qt_init.cpp`) | Done — **and it is the first pass in this port that cost nothing anywhere else: no file split, no seam cut, no call routed, no Windows half added.** Three new files, 189 lines, and every existing file untouched. `Seated<>::install()` went from **zero** callers to two, which means a template member that had never been instantiated is now the only way the app gets a backend — and the two lifetimes are asymmetric, which is the one design decision in it: `QtTextFactory` is stateless and installed for the process, while `QtRenderTarget` *begins* a `QPainter` in its constructor and ends it in its destructor, so its scope is exactly one paint event. Hence one install function plus an RAII `QtScopedRenderTarget`, not two install calls. **`tests/qt_entry_tests.cpp` is the first test in this tree to paint a tinta window** — 20 assertions, and it exercises the same `QtAppWindow` class the app runs, which is why the class lives in a header at all: `main_d2d.cpp` has the opposite shape and that is precisely why no test on either platform had ever painted a tinta window before. `QWidget::grab()` turned out to paint an **unshown** widget, measured rather than assumed, so the test needs no display and no event loop. The reading that carries the weight is a **count, not a boolean**: non-background pixels inside the text band, 3,698 on Linux and 2,880 on Windows, against a control run with the text factory released that reads **0**. Those two numbers are deliberately never compared to each other — the font substitution differs per platform, and a test asserting they match would be asserting the font database. Two planted defects, each with its failure count written down before the run, failed in exactly the predicted 2 and 1 places; plant 1 is the instructive one, because it proves two of the assertions read **green while nothing is drawn at all**, which is why the `painted > control` comparison exists and not just the two counts. Honest limits: **it draws no document** — see the twelve-cause list above — there are no menus, tabs, input handling, settings load or custom themes, each absent for a stated reason rather than forgotten, and **nobody has looked at the window**; `exit 124` under a timeout proves the process lives, not that a human saw anything |
 
-**To do — 24 files, 28,478 lines**
+**To do — 23 files, 25,313 lines**
 
 **A file LEFT this set this pass, and it is the first one to leave since `file_utils.cpp`.**
 25 → 24 files, 29,929 → 28,413 lines, −1,516. Two terms, derived from `git` across the whole
@@ -589,19 +589,19 @@ better reading but a rising one is not the surprising one.
 
 | Area | Size | Note |
 |---|---|---|
-| `render.cpp` | 3,318 | **Every seam this file needed has now been cut, and what is left is two deliberate exclusions plus one type name.** Three *unguarded* Windows headers — `urlmon.h`, `shlwapi.h`, `d2d1_3.h` — used to stop `g++` at the first one, reporting `errors=1, fatal=1`, which means not-measured rather than one-error-away. The image seam took all three, and the file then read **`fatal=0`, `errors=38`** — 97 → 70 → 47 → 38 across the four passes after that, and read with `fatal` first and `g++`'s exit status before either, because that is the only thing making the number a reading at all. **THAT 38 IS CARRIED, NOT RE-TAKEN, AND THIS ROW NO LONGER CLAIMS IT FOR THE CURRENT TREE.** The instrument behind it was a set of 21 hand-written stub headers built in a scratch directory and never committed; it is not on this machine any more, and a census is only comparable when the instrument is byte-identical, so re-deriving one approximately would produce a delta that mixes this pass with a change in the rig. What *is* re-derived below is the mention count, which needs no compiler: **27 total, 10 live**, down from 38 / 22. **Path geometry is now zero live** — the three remaining `ID2D1PathGeometry`/`ID2D1GeometrySink`/`D2D1_ARC_SEGMENT` mentions in the file are all inside comments explaining what the seam replaced. So is `dwriteFactory`: every layout goes through `app.textFactory`, and the single surviving `CreateTextLayout` string is likewise a comment. **Line breaking is now zero live too**, moved behind the `TextFactory` seam with a `QTextBoundaryFinder` backend. An earlier version of this row claimed "all 18 `createLayout` sites still call `dwriteFactory->CreateTextLayout` directly" and **that was false when it was written** — the `18` was a `grep` count of a string, not of call sites, and the text path was already on the seam. The same false sentence also sat in the completeness section below and survived there three passes longer, which is the argument for correcting a figure in *every* place it appears rather than the place you noticed it. **What remains is now exactly two things, and both are documented refusals rather than unfinished work.** All 10 live mentions fall inside them: the WIC decode for the local-raster path (`:2535-2570`, 7 mentions — routing it through the image seam would add a full-image memcpy to every local image, and `include/image_api.h` carries the argument) and the `IDWriteTextLayout2` font-fallback query (`:79-82`, 3 mentions), which is deliberately *not* pushed into the backend — see the note below the table. Beyond the D2D/DWrite/WIC pattern the file has one Win32 identifier left, the `HWND` parameter of `asyncImageWorker` at `:2412`. **Two clauses that used to sit here are gone and one of them was WRONG WHEN WRITTEN:** Win32 messaging (`PostMessageW`, `SetTimer`) now routes through `requestRepaint` and `win32_api.h` and greps to zero, and bitmap creation went behind `RenderTarget::CreateBitmap` — but that clause named `ID2D1HwndRenderTarget` as one of the two things to move, and `ID2D1HwndRenderTarget` **appears nowhere in `src/render.cpp`** and appears not to have when the sentence was written either. It lives in `include/app.h` and `include/render_d2d.h`. The wording had been carried forward from a backlog note about a different file, which is the failure mode this README keeps warning about in the other direction: a stale figure looks wrong eventually, a stale *identifier* reads as a considered decision forever. The last cut, from 47, was the cheapest kind and worth naming as such: two `UINT` members respelled `unsigned`, seven of the nine errors having been cascade from them. Honest limit, unchanged and important: **no test links `render.cpp`**, so all of these are compiler readings |
+| `render.cpp` | 3,294 | **THIS FILE COMPILES OFF WINDOWS, AND THIS ROW IS THE WRONG PLACE FOR IT — it is still here only because the to-do set's membership is derived mechanically from `tests/portable-sources.txt`'s *link* section and this file is in the compile-only section, which is a real distinction and not a bookkeeping accident. Read the next three sentences together or the figure above misleads.** It compiles: exit 0, `fatal 0`, `errors 0`, and it is on the manifest, asserted by `portable_compile_only` — a target that carries **no Qt include paths at all**, so this is a stronger reading than the census that preceded it. It does **not** link into a Qt app: `tinta_qt` is six symbols short — `mathParse`, `mathBoxWidth`, `mathBoxHeight`, `mathBoxBaseline`, `mathExpandLine`, `mathBoxRetain`, all owned by `src/math_render.cpp`, which does not compile off Windows (34 errors, `IDWriteTextLayout` incomplete) — plus nineteen already-compiling files and two Qt library lines that have to join the target. And nobody has run it: no test links this file on **either** platform, which is the widest compile/run gap in the tree. **The two deliberate exclusions this row used to end on are ANSWERED, not carried.** The WIC decode at `:2535-2570` went behind `tinta::decodeImageFileToBitmap` — its copy argument was measured *true* rather than waved away, and the answer was to accept two copies on the Qt path (`QImage::copy` in `render_qt.cpp`) rather than to keep a Windows API in a portable file. The `IDWriteTextLayout2` fallback QI at `:79-82` was split instead of moved: the *decision* about which layouts get a fallback stayed at the call site, and only the mechanics went into `ApplyFontFallback`. Both were documented refusals with stated reasons, so reversing them was a decision rather than a cleanup. The measurable result: **the file's live `ID2D1`/`IDWrite`/`IWIC`/`D2D1_` mention count is now ZERO** — all 11 remaining matches are comments explaining what the seams replaced, re-derived here and needing no compiler. The one Win32 identifier left is the `HWND` parameter of `asyncImageWorker` at `:2411` and the `LPARAM` cast at `:2432`, and both resolve off Windows through `include/win32_types.h`'s stand-in types, which is why they no longer stop a compile. **THE HISTORICAL 38 IS VOID AND IS NOT RESTATED AS A CURRENT FIGURE.** Its instrument was 21 hand-written stub headers in an uncommitted scratch directory, gone from this machine; a census is comparable only when the instrument is byte-identical, so the 97 → 70 → 47 → 38 series ends there by construction rather than by being beaten. What replaced it is a real compile under the real target, which is a different and better instrument, not a continuation of that series. **Every seam this file needed has now been cut**, and the order they came out in is worth keeping because the early readings were not readings. Three *unguarded* Windows headers — `urlmon.h`, `shlwapi.h`, `d2d1_3.h` — used to stop `g++` at the first one, reporting `errors=1, fatal=1`, which means not-measured rather than one-error-away; the image seam took all three. **Path geometry is zero live**, `dwriteFactory` is zero live, and **line breaking is zero live** — moved behind the `TextFactory` seam with a `QTextBoundaryFinder` backend. An earlier version of this row claimed "all 18 `createLayout` sites still call `dwriteFactory->CreateTextLayout` directly" and **that was false when it was written** — the `18` was a `grep` count of a string, not of call sites, and the text path was already on the seam. The same false sentence also sat in the completeness section below and survived there three passes longer, which is the argument for correcting a figure in *every* place it appears rather than the place you noticed it. **The sentence that used to end this row said "what remains is now exactly two things, and both are documented refusals rather than unfinished work" — a 10-live-mention count split 7 (the WIC decode) and 3 (the fallback QI). Both are gone, so the count is zero, and the two refusals were answered as described at the top of this row rather than quietly dropped.** **Three clauses that used to sit here are gone and one of them was WRONG WHEN WRITTEN:** Win32 messaging (`PostMessageW`, `SetTimer`) now routes through `requestRepaint` and `win32_api.h` and greps to zero, and bitmap creation went behind `RenderTarget::CreateBitmap` — but that clause named `ID2D1HwndRenderTarget` as one of the two things to move, and `ID2D1HwndRenderTarget` **appears nowhere in `src/render.cpp`** and appears not to have when the sentence was written either. It lives in `include/app.h` and `include/render_d2d.h`. The wording had been carried forward from a backlog note about a different file, which is the failure mode this README keeps warning about in the other direction: a stale figure looks wrong eventually, a stale *identifier* reads as a considered decision forever. The last cut of the old series, from 47, was the cheapest kind and worth naming as such: two `UINT` members respelled `unsigned`, seven of the nine errors having been cascade from them. Honest limit, unchanged and the most important sentence in the row: **no test links `render.cpp` on either platform**, so every green here is a compiler reading and none of it is a picture anybody has seen |
 | Window and message loop | 4,349 + 2,276 | `input.cpp`, `main_d2d.cpp` — Win32 message pump → Qt event handling. Both lost `commdlg.h` this pass: `input.cpp` routes its pandoc-locate dialog through the file-picker seam, and `main_d2d.cpp`'s include was simply **dead** — no `commdlg` API appears anywhere in the file |
 | Editor | 3,133 | `editor.cpp`, including IME input via `imm.h` → Qt input methods. `commdlg.h` is gone; `imm.h` at `:2439-2471` is what remains. One line lighter this pass, because `toUtf8` moved out of it into `text_utils.cpp` — `export_html.cpp` needed it and could not reach into the editor for it |
-| Overlays, annotations, math | 4,108 + 1,194 + 852 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction. `tableedit.cpp` used to be the fourth entry here and has left — it compiles off Windows now |
+| Overlays, annotations, math | 4,108 + 1,194 + 861 | No Windows headers left; blocked on the layout seam above and on function-local Direct2D construction. `tableedit.cpp` used to be the fourth entry here and has left — it compiles off Windows now |
 | Exports and printing | 1,563 + 1,018 + 229 | **Three files, not four: `export_html.cpp` has LEFT this row** — it is portable, linked and executed off Windows, and it is in the manifest. `scripts/check-readme-figures.sh` was edited in the same pass so it no longer derives this row from that file, and the comment there says why, because this is the one row that can rot in the *other* direction: a checker that keeps deriving from a freed file asserts a figure that must no longer include it. **`commdlg.h` → `QFileDialog` is DONE for the file dialogs** — all five `OPENFILENAMEW` sites route through `include/file_dialog.h`, and the header is now the only file-dialog `commdlg.h` include under `src/`. `print.cpp` keeps its own for `PRINTDLGW` at `:580`/`:603`, which is a different dialog and a seam nobody has cut. Printing → `QPrinter` is still entirely ahead. They grew rather than shrinking, and deliberately: `export_docx.cpp` and `print.cpp` are the two callers the path geometry seam **did not** route, because they draw through raw device contexts that no `tinta::RenderTarget` wraps, and each now says so at the site. `export_docx.cpp` also carries the write-up of the full-circle slice divergence it is on the wrong side of |
 | Shell integration | 1,719 + 836 + 160 | `shellapi.h` → `QDesktopServices` |
-| Clipboard, misc | 198 | `utils.cpp` → `QClipboard` and `std::filesystem`. **`file_utils.cpp`'s 158 lines left this row this pass** — it was the "paths" half, and it is now portable *and* executed on both platforms |
+| Clipboard, misc | 194 | `utils.cpp` → `QClipboard` and `std::filesystem`. **`file_utils.cpp`'s 158 lines left this row this pass** — it was the "paths" half, and it is now portable *and* executed on both platforms. It is 4 lines lighter than last pass and that is the whole of what left it: `measureText`'s seam overload went to `text_utils_app.cpp`, because a link closure found it was the only symbol `render.cpp` needed out of this file. Porting 198 lines of window title, shell handoff and clipboard to reach one measurement helper would have been the wrong shape |
 | Startpage | 792 | `dwrite_1.h`; also uses `SetCharacterSpacing`, which stays native |
-| Device and factory creation | 689 | `d2d_init.cpp` — `objbase.h`, COM initialisation and the Direct2D device; becomes Qt paint-device setup |
+| Device and factory creation | 706 | `d2d_init.cpp` — `objbase.h`, COM initialisation and the Direct2D device; becomes Qt paint-device setup |
 | Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired: those files report `errors=1, fatal=1`, which means not-measured rather than one-error-away |
 | Qt entry point | — | **Built. This row used to read "`Seated::install()` still has zero callers; blocked behind `render.cpp`", and half of that was wrong: the entry point was blocked behind nothing.** It needed a *measurement* — which objects a Qt `main()` actually pulls — and the measurement came back as nine files rather than the whole tree, because `App` reaches its backends through pointers now. What is still blocked behind `render.cpp` is the **document**, not the window. See the twelve-cause list above |
 | macOS | — | Not attempted. Nothing platform-specific to macOS has been written or measured |
-| The Windows backends themselves | 375 + 767 + 217 + 173 + 65 + 23 + 346 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 1,966 lines, re-derived rather than carried (`text_d2d.cpp` read 635 for a pass after gaining 132 lines of line-breaking backend, and `platform_paths_win32.cpp` read 146 after gaining the FILETIME seam's 27). Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 346 lines, of which a good share is the post-mortem for a segfault it caused (see below). `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
+| The Windows backends themselves | 375 + 805 + 217 + 173 + 65 + 23 + 439 | `render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`, `settings_app.cpp`, `keyboard_win32.cpp`, `image_win32.cpp` — **deleted or replaced, not ported.** 7 files, 2,097 lines, re-derived rather than carried (`text_d2d.cpp` read 635 for a pass after gaining 132 lines of line-breaking backend, and `platform_paths_win32.cpp` read 146 after gaining the FILETIME seam's 27). Registry access becomes `QSettings`, path lookup becomes `QStandardPaths`, and the backends go once Qt covers what they do. `image_win32.cpp` is the newest and the largest single addition to this row: 439 lines, of which a good share is the post-mortem for a segfault it caused (see below). It gained 93 this pass and every one of them is a *good* addition to a row of things to delete — the WIC decode came out of `render.cpp` and landed here, so 56 lines crossed from the file the port is blocked on into a file that gets deleted. `text_d2d.cpp`'s +38 is the same trade in the same direction. `keyboard_win32.cpp`'s 23 lines make the same point more cheaply — every seam's Qt half is progress and its Windows half is more lines to delete later |
 
 The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
 it is worth a note because the reasoning is not visible from the code. Folding
@@ -616,8 +616,11 @@ answer ever changes.
 That last row is the change of goal made arithmetic. These files used to be listed
 separately as "will never move", excluded from the count on the grounds that they were
 the Windows half of a permanent pair. Under one stack there is no permanent Windows half,
-so they are work — **1,966 lines of it today**, across seven files: the five originally
-excluded, plus the two seam backends written since — and they are counted.
+so they are work — **2,097 lines of it today**, across seven files: the five originally
+excluded, plus the two seam backends written since — and they are counted. That is +131 in one
+pass, and the direction is the healthy one: 93 of them arrived in `image_win32.cpp` and 38 in
+`text_d2d.cpp` because the WIC decode and the font-fallback mechanics *left* `render.cpp` to get
+there. Lines moving from a blocked file into a doomed one is progress that makes this row grow.
 
 The *membership* of the to-do set is derived mechanically — every `src/*.cpp` that
 `tests/portable-sources.txt` does not list — so it cannot drift out of step with the manifest
@@ -664,11 +667,11 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 23,470 / 59,934 | **39.2%** |
-| B. `src/*.cpp` files compiling without Windows headers | 42 / 66 | 63.6% |
-| C. Files a *running* test links | 38 / 66 | 57.6% |
-| D. Test targets that *could* move, and do | 27 / 33 | 81.8% |
-| E. All test targets, run off Windows | 27 / 37 | 73.0% |
+| A. Source lines free of the Windows stack | 26,857 / 60,303 | **44.5%** |
+| B. `src/*.cpp` files compiling without Windows headers | 44 / 67 | 65.7% |
+| C. Files a *running* test links | 39 / 67 | 58.2% |
+| D. Test targets that *could* move, and do | 28 / 33 | 84.8% |
+| E. All test targets, run off Windows | 28 / 37 | 75.7% |
 | F. **Platforms running Tinta on the target stack** | 0 / 3 | **0%** |
 | G. Platforms where the Qt frontend builds, links, starts and paints | 2 / 3 | 66.7% |
 
@@ -696,6 +699,43 @@ code **written for Qt** rather than from a Windows file crossing the boundary. T
 the two new headers are denominator-only forever, so basis A's own ceiling *fell*, 86.8% →
 86.7%. Writing a class into a header so a test can construct it is what did that, and it was
 the right trade — it is the reason a test paints a window at all.
+
+**Then basis A moved 39.2% → 44.5%, which is the largest single jump in this port, and it is
+one file.** `src/render.cpp` compiles off Windows: exit 0, `fatal 0`, `errors 0`, under a census
+whose six controls all held on that run. Numerator 23,470 → 26,857 (+3,387) and denominator
+59,934 → 60,303 (+369), and **both sums reconcile against the tree exactly**, which is worth
+saying because a jump this size is precisely where a bookkeeping error would hide. The
+numerator is `render.cpp` 3,294 plus `text_utils_app.cpp` 58 plus the 35 lines `image_qt.cpp`
+gained — nothing else on the manifest changed. The denominator is 147 lines of header, 164 of
+non-manifest source and the same 58, and it includes two *negative* terms: `render.cpp` is 24
+lines shorter than it was, because 56 lines of WIC came out and 32 of comment went in, and
+`utils.cpp` is 4 shorter for the same kind of reason. The ceiling fell again, 86.7% → 86.5%.
+
+**What that 44.5% does NOT mean, and this is the sentence the number is useless without.** The
+option this pass was taken under promised that the Qt window would draw "a REAL parsed document
+instead of a placeholder". **It does not, and compiling `render.cpp` was never going to be
+sufficient for it** — that took a different instrument to see. A *compile* census reads files;
+whether a document can appear is a question about *symbols*, and answering it needed a fixpoint
+link closure over `tinta_qt`: put `render.cpp`'s object on the target's own lifted link line,
+map every unresolved symbol back to the objects that define it, add the ones a real `src/*.cpp`
+owns, and repeat until the set stops shrinking. Depth 1 read 23 unresolved. Depth 2 read **41**,
+because 21 of the newly-visible ones were `mermaidext::detail::build*` — a dispatcher whose arms
+are eleven more files. The fixpoint is: **nineteen more files must join `tinta_qt`, two Qt
+library lines (`Qt6::Svg`, `Qt6::Network`) must be added, and six symbols are genuinely
+blocked.** All nineteen already compile. The six are `mathParse`, `mathBoxWidth`,
+`mathBoxHeight`, `mathBoxBaseline`, `mathExpandLine` and `mathBoxRetain`, all defined in
+`src/math_render.cpp`, which does not compile off Windows (34 errors, `IDWriteTextLayout`
+incomplete). One of those six nearly escaped the reading: the first pass reported `mathParse` as
+*resolved*, because it took only the first object defining each symbol and a **test stub** in
+`export_html_tests` defines it. A blocker masquerading as a satisfied reference is the worst
+shape this instrument can produce, so it now prints every owner and refuses to treat a
+`tests/`-owned definition as a file that could join the app.
+
+**And the nineteen cannot land without `render.cpp` either**, measured the same way with two arms
+differing by one object: `tinta_qt` plus the nineteen but *without* `render.cpp` fails on
+`ensureLayoutComplete`, which `render.cpp` defines and `search.cpp:158` calls. So this is one
+atomic lump, not a staircase — a prediction that it would split cleanly was refuted by the
+measurement that tested it.
 
 **Basis C stopped being hand-kept this pass, and the check is the reconciliation rather than
 the number.** Every previous pass typed that numerator from memory. It is now measured — a
@@ -739,8 +779,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 51,948 lines of the 59,934,
-**basis A's ceiling is 86.7%, not 100%**, and 39.2% should be read against that.
+can never enter the numerator. With `src/*.cpp` totalling 52,170 lines of the 60,303,
+**basis A's ceiling is 86.5%, not 100%**, and 44.5% should be read against that.
 
 That has a small edge worth admitting, because the image-seam pass walked into it too. The
 denominator moved 57,997 → 58,026 *during* that pass: 29 lines, all of them
@@ -958,7 +998,7 @@ every commit rather than carried forward, `render.cpp` reads:
 | `092afcd` image seam | 3,385 | 75 | 60 |
 | `cc292d4` path geometry seam | 3,379 | 55 | 38 |
 | `d1351e8` line-breaking seam | 3,301 | 38 | 22 |
-| current tree | 3,318 | 27 | 10 |
+| current tree | 3,294 | 15 | 0 |
 
 Note the trap, which this table exists to defuse: the same numerals recur at different
 meanings. "75" is a total at one pass and a *live* count at an older pass under a different
@@ -967,9 +1007,23 @@ pattern; "38" is simultaneously the current mention total, the live count two pa
 whole-line `//` comments only; it does not strip trailing or block comments, and saying so is
 cheaper than implying a precision it does not have.
 
-It is a *smaller* blocker than it was: text layout came off DirectWrite entirely, image
-loading came off Windows, geometry and line breaking followed, and what is left is drawing
-and Win32 messaging rather than typesetting or I/O. **The `createLayout` claim that stood here
+**The last row's live count is 0, and a zero at the end of a trajectory is the single easiest
+figure in this document to over-read.** It says the pattern finds no Direct2D, DirectWrite or
+WIC identifier outside a whole-line comment in this one file. It does not say the file draws
+anything on another platform, and it is not the reason the file now compiles — the compile is a
+separate, stronger reading taken under `portable_compile_only`. The 15 that remain are all
+comments recording what each seam replaced, and they are deliberately not deleted: a seam is
+only auditable if the thing it stands in for is still named somewhere. A future pass that
+"cleans up" those comments would drive the total to 0 as well and would be destroying the
+evidence, not finishing the work. The mention count has done its job and this table can stop
+here; the honest successor metric is whether `tinta_qt` links, which it does not yet.
+
+It is a *smaller* blocker than it was, and as of this pass it is a differently-*shaped* one:
+text layout came off DirectWrite entirely, image loading came off Windows, geometry and line
+breaking followed, and the file now compiles. **What is left is not a compile problem at all —
+it is a link problem, and a much smaller one: six math symbols.** That is a real improvement and
+it is also less than it sounds, because six missing symbols still means no window has drawn a
+document. **The `createLayout` claim that stood here
 was not merely stale — it was false when it was written, and it survived here three passes
 after being corrected in the table above.** It read "all 18 `createLayout` sites still call
 `dwriteFactory->CreateTextLayout` directly, so not one paragraph — not even plain text — can be
@@ -986,11 +1040,16 @@ one each in `d2d_init.cpp`, `export_docx.cpp`, `math_render.cpp`, `startpage.cpp
 this list when its diagram `measure` lambda moved onto the text seam, which was a *mirror* of a
 port already in the same file: `wrapLines` at `:165` had been on the seam for spans, 750 lines
 above the lambda still calling DirectWrite directly. A
-`grep` for the call returns 21; the twenty-first is the comment in `render.cpp:90` recording
-the census, which is exactly the kind of match that inflates a count nobody re-derives.
+`grep` for the call returns 22, and **two** of those are comments rather than calls:
+`render.cpp:89`, which records the census, and `text_utils_app.cpp:40`, which records why the
+seam overload and the native one return the same thing. The comment count went from one to two
+in a single pass without anybody touching a call site, and the census comment's line number
+moved from `:90` to `:89` because `render.cpp` got shorter — which is exactly the kind of match
+that inflates a count nobody re-derives, and exactly why the live figure (20) is the one the
+nine-file breakdown above is built from.
 
 Call it roughly a third of the way through by volume, with the hardest single file still
-ahead — and note that the finish line moved out, not in: **1,966 lines of Windows backend are
+ahead — and note that the finish line moved out, not in: **2,097 lines of Windows backend are
 now work rather than furniture**, they grow with every seam before they leave in one piece,
 and re-verifying Windows on a new stack is effort that appears in no line count here.
 

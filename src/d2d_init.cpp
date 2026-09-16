@@ -321,6 +321,23 @@ void updateTextFormats(App& app) {
         }
     }
 
+    // Hand the chain to the text factory so a layout can attach it WITHOUT render.cpp
+    // holding a DirectWrite interface. App still owns and releases it -- the factory
+    // borrows, which is why this is a raw pointer and not a transfer.
+    //
+    // OUTSIDE the `if (!app.fontFallback)` block above on purpose. That block is a
+    // build-once guard, so on the second and every later call to updateTextFormats it
+    // does nothing -- and a factory reseated in between (a device loss recreates the
+    // backend) would never be told. Setting it unconditionally here costs one store per
+    // format update and cannot go stale.
+    //
+    // The static_cast is safe because app.textFactory is seated only from
+    // App::seatTextFactory, which constructs a D2DTextFactory and nothing else. This is
+    // the same downcast-with-a-stated-reason shape as nativeTextLayout, one layer up.
+    if (app.textFactory) {
+        static_cast<D2DTextFactory*>(app.textFactory)->setFontFallback(app.fontFallback);
+    }
+
     updateOverlayFormats(app);
     app.seatTextFormats();
     app.appliedZoomFactor = app.zoomFactor;

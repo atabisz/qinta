@@ -179,6 +179,58 @@ editrail.cpp
 # are the Excel-paste path. They are assertable the moment that link debt is settled.
 tableedit.cpp
 
+# text_utils_app.cpp arrives 2026-09-16, and it is the smallest line on this manifest:
+# ONE function, 18 lines of body, measureText's tinta::TextFormat* overload, split out of
+# src/utils.cpp -- which is `fatal error: windows.h` off Windows and stays that way.
+#
+# HOW IT WAS FOUND, because it is a different instrument from every other line here. Not
+# a compile census: a LINK reading. src/render.cpp was compiled with tinta_qt's own
+# lifted flags, its object was put on tinta_qt's own lifted link line, and the 23
+# unresolved symbols were mapped back to the objects that define them. Exactly one came
+# out of utils.cpp. Porting a 198-line Windows feature file -- window title, shell
+# handoff, clipboard, path canonicalisation -- to reach one measurement helper would have
+# been the wrong shape entirely, and no compile census could have told me that, because a
+# compile census reads files and this question is about symbols.
+#
+# COMPILE-ONLY and it belongs in this section, not below. Nothing in the tree executes
+# measureText on either platform -- a grep of tests/ for the name returns nothing, which
+# is itself a correction: src/utils.cpp claimed tests/text_factory_tests.cpp asserted the
+# two overloads agree, and that test calls neither. It asserts the two FACTORIES agree,
+# from which this follows only while both bodies stay thin.
+text_utils_app.cpp
+
+# render.cpp arrives 2026-09-16 and it is the LARGEST line on this manifest -- 3,294
+# lines, the single biggest file in the tree, and the one every other blocker in this
+# port has routed through for the whole of it. It earns the line the same way every
+# other name here does and no other way: a non-Windows compiler accepts the file, exit
+# 0 / fatal 0 / errors 0, under a census whose six controls all held on that run.
+#
+# WHAT IT COST was two documented refusals, answered rather than reversed. Both were
+# recorded in the code with reasons, and the reasons survived:
+#
+#   * The WIC decode at the old :2535-2570 said routing local images through
+#     tinta::DecodedImage would add a full-image copy to every one of them. That was
+#     measured and it is true -- two copies on Qt, because of QImage::copy in
+#     render_qt.cpp. So the decode went behind a SEPARATE entry point,
+#     tinta::decodeImageFileToBitmap, implemented once per backend, and the copy count
+#     is zero on both. The refusal's argument is intact; only the 56 lines moved.
+#   * The IDWriteTextLayout2 font-fallback QI at :79-82 said the decision of WHICH
+#     layouts get a fallback chain belongs at the call site, not in the backend. It
+#     still does. ApplyFontFallback moved the mechanics and left the decision where it
+#     was.
+#
+# READ THIS LINE FOR WHAT IT IS. It says the file compiles. It does NOT say a Qt build
+# draws a document, and the difference was measured rather than left implied: a fixpoint
+# link closure over tinta_qt puts nineteen more already-compiling files and two Qt
+# library lines between here and that, plus SIX symbols that are genuinely blocked --
+# mathParse, mathBoxWidth, mathBoxHeight, mathBoxBaseline, mathExpandLine and
+# mathBoxRetain, all in src/math_render.cpp, which does not compile off Windows.
+#
+# COMPILE-ONLY, and this is the widest such gap in the file: no test links render.cpp on
+# EITHER platform, so nothing here has ever executed. That was true before this line and
+# it is still true after it.
+render.cpp
+
 # The two that are left of the three that arrived together, found by a census rather
 # than by porting work: g++ -fsyntax-only over every file NOT listed in this
 # manifest, which turned up six at zero errors. Two of the six had passing tests
@@ -412,8 +464,16 @@ export_html.cpp
 # native call had to be routed. That is the first slice in this port for which that
 # is true, and it is what the header work above bought.
 #
-# THE THING THEY DO NOT DO is render a document, because src/render.cpp does not
-# compile off Windows. That list is measured too: 23 of the 24 src/ files outside
+# THE THING THEY DO NOT DO is render a document. The reason given here used to be
+# "because src/render.cpp does not compile off Windows" and THAT IS NO LONGER THE
+# REASON -- it compiles, and it is on this manifest now, below. Corrected in place
+# rather than deleted, because the sentence's conclusion outlived its premise and a
+# reader who only sees the new premise would think the blocker had gone with it. The
+# reason today is a LINK reason, not a compile one: tinta_qt is six symbols short, all
+# of them in src/math_render.cpp, which still does not compile off Windows. That is a
+# smaller gap and a differently-shaped one, and it took a link closure to see at all,
+# because a compile census reads files and this question is about symbols.
+# That list is measured too: 23 of the 24 src/ files outside
 # this manifest fail a syntax-only non-Windows compile, on 12 distinct first causes.
 # README.md carries it. src/settings_app.cpp is the 24th -- it compiles off Windows
 # already, and the probe asserts it is NOT built, which is now a deliberate exclusion

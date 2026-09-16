@@ -552,6 +552,38 @@ void D2DTextLayout::SetTypography(const tinta::Typography& typography,
     native->Release();
 }
 
+// MOVED VERBATIM from render.cpp's applyEmojiFallback, which was the last native
+// reach-through in that file's text path and the reason render.cpp could not compile
+// off Windows at line 81. Every line of the QI, the SetFontFallback and the Release is
+// the original's; what changed is which file it lives in.
+//
+// The refusal that kept it in render.cpp is NOT reversed -- see text_api.h's comment on
+// ApplyFontFallback. That refusal is about which layouts receive a chain, and this
+// method receives one only when a caller asks. render.cpp still asks at exactly the one
+// site it asked at before.
+//
+// Two guards, and they are the two the original had, in the same order: no layout, and
+// no chain. The chain is read through the slot HERE rather than captured at
+// construction, which is what makes "no chain built yet" behave the way
+// `if (!app.fontFallback) return;` behaved.
+//
+// A layout that does not support IDWriteTextLayout2 is left alone, silently, as before.
+// That is not dead code on a modern SDK -- it is the original's own tolerance for an
+// older DirectWrite, and removing it would be a behaviour change smuggled in under a
+// move.
+void D2DTextLayout::ApplyFontFallback() {
+    if (!layout_) return;
+    IDWriteFontFallback* fallback = fallbackSlot_ ? *fallbackSlot_ : nullptr;
+    if (!fallback) return;
+
+    IDWriteTextLayout2* layout2 = nullptr;
+    if (SUCCEEDED(layout_->QueryInterface(__uuidof(IDWriteTextLayout2),
+            reinterpret_cast<void**>(&layout2)))) {
+        layout2->SetFontFallback(fallback);
+        layout2->Release();
+    }
+}
+
 // --- D2DTextFactory ---------------------------------------------------------
 
 std::unique_ptr<tinta::TextFormat> D2DTextFactory::CreateTextFormat(
@@ -593,7 +625,13 @@ std::unique_ptr<tinta::TextLayout> D2DTextFactory::CreateTextLayout(
     // factory_ is handed on so the layout can implement SetTypography; see the
     // constructor comment in text_d2d.h, which also records that this is one of THREE
     // construction sites and not the one it first claimed.
-    return std::make_unique<D2DTextLayout>(layout, factory_);
+    //
+    // &fontFallback_ is the SLOT, not its value, so a layout made before
+    // updateTextFormats built the chain still finds it once it exists. Every layout this
+    // factory makes can therefore reach the chain, and only the one call site that calls
+    // ApplyFontFallback() attaches it -- which is the line between this and the change
+    // render.cpp:54-76 declined.
+    return std::make_unique<D2DTextLayout>(layout, factory_, &fontFallback_);
 }
 
 std::unique_ptr<tinta::InlineObject> D2DTextFactory::CreateEllipsisTrimmingSign(

@@ -51,39 +51,38 @@ struct LayoutInfo {
     float height = 0.0f;
 };
 
-// THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE'S TEXT PATH, and it is here rather
-// than inside D2DTextFactory::CreateTextLayout on purpose.
+// THE DECISION IS STILL HERE. THE DIRECTWRITE IS NOT.
 //
-// Emoji and CJK fallback is a DirectWrite concept: an IDWriteFontFallback chain built
-// in d2d_init.cpp and attached to each layout through an IDWriteTextLayout2 QI. The
-// obvious tidy-up is to move it into the backend factory so every layout it makes
-// gets one. Measured, that is a behaviour change well outside this commit: 15 sites
-// already create through app.textFactory -- utils.cpp's measureText, tabs.cpp,
-// overlays.cpp, main_d2d.cpp, export_html.cpp, editrail.cpp -- and NOT ONE has ever
-// had a fallback (`git log -S SetFontFallback -- src/utils.cpp` returns nothing).
-// Several of them measure text, so handing them a fallback silently changes measured
-// widths, and therefore the layout, in a commit whose subject is the seam.
+// This used to open "THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE'S TEXT PATH" and
+// hold an IDWriteTextLayout2 QI, an IDWriteFontFallback and a Release. Those five lines
+// were the reason this file could not compile off Windows at line 81, and they now live
+// in D2DTextLayout::ApplyFontFallback, moved verbatim.
 //
-// So the fallback stays attached to exactly the layouts that already had it, and this
-// is the one place to delete when that question is answered on its own terms. It also
-// replaces three copies of the same QI block, which is why the reach-through is now
-// countable: one site instead of three.
+// THE REFUSAL THAT KEPT THEM HERE IS NOT REVERSED, and the difference is worth being
+// exact about, because "it moved into the backend" is precisely what that refusal said
+// not to do. What it said not to do was fold the chain into
+// D2DTextFactory::CreateTextLayout, so that every layout the factory makes gets one:
+// 15 sites already create through app.textFactory -- utils.cpp's measureText, tabs.cpp,
+// overlays.cpp, main_d2d.cpp, export_html.cpp, editrail.cpp -- and NOT ONE has ever had
+// a fallback (`git log -S SetFontFallback -- src/utils.cpp` returns nothing). Several of
+// them measure text, so handing them a chain silently moves measured widths and
+// therefore layout.
 //
-// nativeTextLayout() asserts the handle really came from the DirectWrite backend, so
-// a Qt layout arriving here trips rather than silently skipping. That is the right
-// failure: this file calls ID2D1 and IDWriteTextLayout2 directly, and does not pretend
-// to be portable. (It no longer includes urlmon.h -- that moved to the image seam --
-// so the reason stands on the native calls alone, which is where it always belonged.)
+// That is still true and still refused. The factory now HOLDS the chain and does not
+// apply it; a layout gets one only where a caller asks, and this function is the one
+// caller in the tree. The 15 sites call CreateTextLayout and nothing else, so their
+// widths cannot move -- which is a stronger guarantee than the old arrangement gave,
+// because it is now enforced by which method a caller calls rather than by which file
+// the QI happens to sit in.
+//
+// `app` is no longer read. The null-chain guard that used to be `!app.fontFallback` is
+// inside the backend now, where the chain is, and reads it at the same moment this did.
+// The parameter stays because all three call sites pass it and because dropping it is a
+// signature change with no portability content.
 static void applyEmojiFallback(App& app, tinta::TextLayout* layout) {
-    if (!layout || !app.fontFallback) return;
-    IDWriteTextLayout* native = nativeTextLayout(layout);
-    if (!native) return;
-    IDWriteTextLayout2* layout2 = nullptr;
-    if (SUCCEEDED(native->QueryInterface(__uuidof(IDWriteTextLayout2),
-            reinterpret_cast<void**>(&layout2)))) {
-        layout2->SetFontFallback(app.fontFallback);
-        layout2->Release();
-    }
+    (void)app;
+    if (!layout) return;
+    layout->ApplyFontFallback();
 }
 
 // ONE overload now, where there were two. The native-format version existed only to
@@ -2489,7 +2488,23 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
     App::ImageEntry entry;
     entry.failed = true;  // assume failure
 
-    if (!app.wicFactory || !app.renderTarget) {
+    // WAS `!app.wicFactory || !app.renderTarget`, and dropping the first half is a
+    // behaviour change rather than a tidy-up, so it is argued rather than done quietly.
+    //
+    // It HAD to go: app.wicFactory is a Windows-only COM pointer that is permanently
+    // null on Qt, so this test would have failed every image in the Qt build while
+    // compiling perfectly -- exactly the class of silent breakage a seam is supposed to
+    // prevent. The null test itself compiles off Windows (app.h forward-declares the COM
+    // types), which is why the census never flagged it and why it needed finding by hand.
+    //
+    // What is lost on Windows, stated precisely: this used to refuse the decode when the
+    // App's process-lifetime WIC factory was missing. It no longer looks, because the
+    // decode no longer uses that factory -- decodeImageFileToBitmap creates its own. So
+    // the case this half covered now fails one level down, inside the backend, and
+    // returns nullptr, which lands on the same `entry.failed = true` the caller already
+    // set. Same outcome by a different route, and the surviving test names the one thing
+    // this function actually still needs.
+    if (!app.renderTarget) {
         app.storeImageCacheEntry(src, std::move(entry));
         return app.imageCache[src];
     }
@@ -2531,59 +2546,20 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
         }
     }
 
-    // Load via WIC
-    IWICBitmapDecoder* decoder = nullptr;
-    HRESULT hr = app.wicFactory->CreateDecoderFromFilename(widePath.c_str(), nullptr,
-        GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
-    if (FAILED(hr) || !decoder) {
-        app.storeImageCacheEntry(src, std::move(entry));
-        return app.imageCache[src];
-    }
-
-    IWICBitmapFrameDecode* frame = nullptr;
-    hr = decoder->GetFrame(0, &frame);
-    if (FAILED(hr) || !frame) {
-        decoder->Release();
-        app.storeImageCacheEntry(src, std::move(entry));
-        return app.imageCache[src];
-    }
-
-    IWICFormatConverter* converter = nullptr;
-    hr = app.wicFactory->CreateFormatConverter(&converter);
-    if (FAILED(hr) || !converter) {
-        frame->Release();
-        decoder->Release();
-        app.storeImageCacheEntry(src, std::move(entry));
-        return app.imageCache[src];
-    }
-
-    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom);
-    if (FAILED(hr)) {
-        converter->Release();
-        frame->Release();
-        decoder->Release();
-        app.storeImageCacheEntry(src, std::move(entry));
-        return app.imageCache[src];
-    }
-
-    ID2D1Bitmap* bitmap = nullptr;
-    hr = app.nativeRenderTarget->CreateBitmapFromWicBitmap(converter, nullptr, &bitmap);
-    converter->Release();
-    frame->Release();
-    decoder->Release();
-
-    if (SUCCEEDED(hr) && bitmap) {
-        // D2DOwnedBitmap, not the seam's CreateBitmap: this is the local-raster branch
-        // that image_api.h deliberately leaves off the seam, because decoding through
-        // tinta::DecodedImage would add a full-image memcpy to every local image.
-        // CreateBitmapFromWicBitmap hands over the only reference, so the wrapper takes
-        // it -- which is what lets a Windows-terminal producer feed an ImageEntry whose
-        // field is now portable. When this branch is ported, this is the line that
-        // changes and nothing downstream of it does.
-        auto owned = std::make_shared<D2DOwnedBitmap>(bitmap);
-        tinta::SizeF size = owned->GetSize();
-        entry.bitmap = std::move(owned);
+    // Decode straight into a backend bitmap. The 56 lines of WIC that used to sit here
+    // -- decoder, frame, format converter, CreateBitmapFromWicBitmap, and the four
+    // release-and-bail ladders between them -- are now tinta::decodeImageFileToBitmap,
+    // implemented once per backend. The sequence moved verbatim rather than being
+    // rewritten, and the previous comment on this branch predicted the shape of this
+    // change exactly: "when this branch is ported, this is the line that changes and
+    // nothing downstream of it does." It was one line out. Nothing downstream changed.
+    //
+    // Still NOT the seam's CreateBitmap, and for the reason image_api.h now argues at
+    // length: going through tinta::DecodedImage would add a full-image copy to every
+    // local image on Direct2D and two on Qt. A separate entry point is what avoids it.
+    if (auto bitmap = tinta::decodeImageFileToBitmap(*app.renderTarget, widePath)) {
+        tinta::SizeF size = bitmap->GetSize();
+        entry.bitmap = std::move(bitmap);
         entry.width = (int)size.width;
         entry.height = (int)size.height;
         entry.failed = false;

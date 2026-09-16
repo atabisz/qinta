@@ -611,6 +611,30 @@ public:
     // learned "your ligatures were declined" has nothing it could do about it,
     // and the divergence belongs in a test rather than in a return value.
     virtual void SetTypography(const Typography& typography, TextRange range) = 0;
+
+    // Attach the platform's font-fallback chain -- emoji and CJK -- to THIS layout.
+    //
+    // THIS METHOD IS NOT THE CHANGE THE REFUSAL AT render.cpp:54-76 DECLINED, and the
+    // distinction is the whole reason it is shaped this way. That refusal is about
+    // WHICH LAYOUTS get a fallback: folding the chain into CreateTextLayout would hand
+    // one to 15 sites that have never had one, several of which MEASURE text, so
+    // measured widths and therefore layout would move. That argument is untouched here
+    // -- this seam moves the DirectWrite MECHANICS out of render.cpp and leaves the
+    // decision exactly where it was. The factory may hold the chain; only a caller that
+    // calls this method applies it, and today exactly one call site does.
+    //
+    // No argument, because the chain is a platform object with no portable spelling and
+    // a caller has nothing to say about it beyond "yes". A backend with no chain to
+    // apply, or none built yet, does nothing -- which is what render.cpp's
+    // `if (!app.fontFallback) return;` already meant.
+    //
+    // Qt honours this by doing NOTHING, and that is a real implementation rather than a
+    // stub: QFontDatabase resolves missing glyphs through its own fallback list during
+    // shaping, so there is no chain to attach and no call that would attach one. A
+    // divergence worth stating: the two platforms will not pick the same substitute
+    // font, which is the same reason qt_entry_tests never compares its Linux and
+    // Windows pixel counts to each other.
+    virtual void ApplyFontFallback() = 0;
 };
 
 // Object creation, which render_api.h deliberately left out of the drawing seam

@@ -198,6 +198,15 @@ public:
         ++typographyCalls_;
     }
 
+    // COUNTED, not ignored, and the count is the only reason this fake is a better
+    // instrument here than either real backend. The whole argument for
+    // ApplyFontFallback being a separate method is that a layout gets a fallback chain
+    // only when a caller ASKS -- so what needs asserting is a call count, and on Qt the
+    // real implementation is an empty body that no pixel and no metric can distinguish
+    // from never having been called at all.
+    void ApplyFontFallback() override { ++fallbackCalls_; }
+    int fallbackCalls() const { return fallbackCalls_; }
+
     const tinta::Typography& lastTypography() const { return lastTypography_; }
     tinta::TextRange lastTypographyRange() const { return lastTypographyRange_; }
     int typographyCalls() const { return typographyCalls_; }
@@ -219,6 +228,7 @@ private:
     tinta::Typography lastTypography_{};
     tinta::TextRange lastTypographyRange_{};
     int typographyCalls_ = 0;
+    int fallbackCalls_ = 0;
 };
 
 inline std::wstring wide(const char* s) {

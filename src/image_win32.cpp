@@ -9,7 +9,15 @@
 #include <d2d1.h>
 #include <d2d1_3.h>
 
+// After <windows.h>, and that ordering is load-bearing rather than stylistic:
+// render_d2d.h pulls in render_api.h, which hard-errors unless the DrawText macro is
+// already in scope. It is included at all for D2DRenderTarget and D2DOwnedBitmap, which
+// decodeImageFileToBitmap needs at the bottom of this file. image_api.h itself stays
+// clear of it and only forward-declares -- see the note there for why that matters.
+#include "render_d2d.h"
+
 #include <algorithm>
+#include <cassert>
 #include <cmath>
 #include <fstream>
 
@@ -120,7 +128,13 @@ private:
 // rasterized SVG. It buys a uniform return type across all three entry points and a
 // result a test can assert on without a render target, and SVGs are small and cached
 // after first load. Said plainly rather than left to be discovered: the local-raster
-// path in render.cpp is NOT routed here for exactly this reason.
+// path is NOT routed through THIS HELPER for exactly this reason.
+//
+// Corrected in place rather than deleted, because the sentence above used to read "the
+// local-raster path in render.cpp is NOT routed here" and half of that is now false: the
+// path IS in this file, as decodeImageFileToBitmap at the bottom. What survives is the
+// part that mattered -- it does not come through copyOutPixels, and it never will,
+// because bypassing this copy is the entire reason it is a separate entry point.
 bool copyOutPixels(IWICBitmap* bitmap, UINT w, UINT h, DecodedImage& out) {
     out.pixels.resize(static_cast<size_t>(w) * h * 4);
     if (FAILED(bitmap->CopyPixels(nullptr, w * 4,
@@ -341,6 +355,85 @@ DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
                       std::istreambuf_iterator<char>());
     if (bytes.empty()) return DecodedImage();
     return rasterizeSvg(bytes.data(), bytes.size(), scale, intrinsicW, intrinsicH);
+}
+
+// The local-raster branch, moved out of render.cpp:2533-2589 as a call sequence rather
+// than rewritten. Every HRESULT test, every Release, and the order of the three releases
+// relative to CreateBitmapFromWicBitmap are the original's; what changed is where the WIC
+// factory and the render target come from, and nothing else.
+//
+// THE TWO SUBSTITUTIONS, EACH WITH WHAT IT COSTS
+//
+// 1. app.wicFactory -> ImagingScope. render.cpp used the App's process-lifetime factory,
+//    created once in initD2D. This creates one per call, which is the same trade
+//    fetchToTempFile and decodeImageFile above already made and for the same reason: a
+//    factory reached through App is a factory this file cannot see. The cost is one
+//    CoCreateInstance against a full image decode -- and the apartment is not optional
+//    padding, because the original ran on the UI thread where one already existed and
+//    this function has no way to know who is calling it.
+//
+// 2. app.nativeRenderTarget -> the seam's own target, downcast. The original named
+//    ID2D1HwndRenderTarget, but CreateBitmapFromWicBitmap is declared on
+//    ID2D1RenderTarget, so the HWND-shaped type was never needed for this call -- it was
+//    just the pointer that happened to be in reach. Taking the base interface is what
+//    lets the reach-through disappear from render.cpp instead of moving.
+//
+// A missing bitmap and a failed decode are both nullptr, deliberately: the caller sets
+// entry.failed = true up front and only clears it on success, so a single failure return
+// preserves the original's behaviour for all four of its early exits.
+std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
+                                                const std::wstring& path) {
+    // Asserted, not tolerated -- the same shape as nativeTextLayout in text_d2d.cpp, and
+    // image_api.h says why: nullptr here is indistinguishable from an unreadable file, so
+    // a Qt target arriving in the Windows backend would be diagnosed as a broken image.
+    assert(dynamic_cast<D2DRenderTarget*>(&target) != nullptr &&
+           "a non-Direct2D RenderTarget reached the Direct2D image backend");
+    auto* d2dTarget = dynamic_cast<D2DRenderTarget*>(&target);
+    if (!d2dTarget || !d2dTarget->native()) return nullptr;
+
+    ImagingScope scope(false);
+    IWICImagingFactory* wic = scope.wic();
+    if (!wic) return nullptr;
+
+    IWICBitmapDecoder* decoder = nullptr;
+    HRESULT hr = wic->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                WICDecodeMetadataCacheOnDemand, &decoder);
+    if (FAILED(hr) || !decoder) return nullptr;
+
+    IWICBitmapFrameDecode* frame = nullptr;
+    hr = decoder->GetFrame(0, &frame);
+    if (FAILED(hr) || !frame) {
+        decoder->Release();
+        return nullptr;
+    }
+
+    IWICFormatConverter* converter = nullptr;
+    hr = wic->CreateFormatConverter(&converter);
+    if (FAILED(hr) || !converter) {
+        frame->Release();
+        decoder->Release();
+        return nullptr;
+    }
+
+    hr = converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
+                               WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        converter->Release();
+        frame->Release();
+        decoder->Release();
+        return nullptr;
+    }
+
+    ID2D1Bitmap* bitmap = nullptr;
+    hr = d2dTarget->native()->CreateBitmapFromWicBitmap(converter, nullptr, &bitmap);
+    converter->Release();
+    frame->Release();
+    decoder->Release();
+
+    if (FAILED(hr) || !bitmap) return nullptr;
+    // CreateBitmapFromWicBitmap hands over the only reference, so the wrapper takes it.
+    return std::make_shared<D2DOwnedBitmap>(bitmap);
 }
 
 } // namespace tinta

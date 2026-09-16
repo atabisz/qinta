@@ -13,26 +13,22 @@
 // never needed any of that moved to src/text_utils.cpp, where a non-Windows
 // compiler builds them and tests/text_utils_tests.cpp executes them.
 
-// The seam overload is now the IMPLEMENTATION rather than an adapter that unwrapped
-// its argument and called the native one. It builds and measures its layout entirely
-// through tinta::, so nothing in this function names a DirectWrite type.
+// THE SEAM OVERLOAD HAS LEFT THIS FILE -- it is src/text_utils_app.cpp now, and that
+// file argues why at length. The short version, because a reader looking for it here
+// deserves better than silence: a linker reading of tinta_qt's closure found this
+// function was the ONLY symbol render.cpp needed out of utils.cpp, and utils.cpp is
+// `fatal error: windows.h` off Windows. Moving eighteen lines that already named no
+// DirectWrite type was cheaper than porting a Windows feature file to reach them.
 //
-// The native overload below is kept, not left behind: 4 call sites still hold an
-// app.native*Format and have nothing to hand this one. The two are therefore required
-// to agree, and that is asserted rather than assumed -- see tests/text_factory_tests.cpp.
-float measureText(App& app, const std::wstring& text, tinta::TextFormat* format) {
-    if (!app.textFactory || !format) return 0;
-    std::unique_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
-        text.c_str(), (uint32_t)text.length(), format, 10000.0f, 100.0f);
-    if (!layout) return 0;
-
-    // RAII, because tinta::TextLayout OWNS its native (text_d2d.h) -- the manual
-    // Release the native path below still needs is gone here, not merely moved.
-    tinta::TextMetrics metrics{};
-    layout->GetMetrics(&metrics);
-    return metrics.widthIncludingTrailingWhitespace;
-}
-
+// The native overload below stayed, and staying is the point rather than the leftover:
+// 4 call sites still hold an app.native*Format and have nothing to hand the seam
+// version.
+//
+// This comment used to claim the two overloads' agreement was asserted by
+// tests/text_factory_tests.cpp. CORRECTED while moving the seam half: that test calls
+// neither overload. It asserts the layer beneath -- the two FACTORIES returning identical
+// TextMetrics -- from which the overloads' agreement follows only while both bodies stay
+// thin. src/text_utils_app.cpp carries the full version of this correction.
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),

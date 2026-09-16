@@ -761,7 +761,16 @@ void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
         // box sets font features today, so this argument is currently unused here --
         // it is passed because the parameter is required, and it is required so that a
         // site like this one cannot quietly become a layout that ignores typography.
-        r.layout = std::make_shared<D2DTextLayout>(run.layout, app.dwriteFactory);
+        //
+        // nullptr for the fallback SLOT, deliberately, and it is not the same kind of
+        // "unused" as the argument above. A maths box's runs are laid out by
+        // math_render.cpp itself against maths fonts, and no call site has ever handed
+        // one to applyEmojiFallback -- so this layout has no fallback source, and
+        // ApplyFontFallback() on it does nothing. Passing app.fontFallback here would
+        // give maths runs a chain they have never had, which is the same class of
+        // silent behaviour change the refusal at render.cpp:54-76 is about.
+        r.layout = std::make_shared<D2DTextLayout>(run.layout, app.dwriteFactory,
+                                                   nullptr);
         r.pos = tinta::pointF(x + run.x, y + run.y);
         // Whole-box bounds keep viewport culling conservative and correct
         r.bounds = tinta::rectF(x, y, x + box->width, y + box->height);

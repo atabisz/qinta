@@ -184,6 +184,19 @@ public:
     void SetTypography(const tinta::Typography& typography,
                        tinta::TextRange range) override;
 
+    // Inline, and empty, and that is the IMPLEMENTATION rather than a stub awaiting
+    // one -- see text_api.h for why. Qt resolves missing glyphs through
+    // QFontDatabase's own fallback list during shaping, so there is no chain object to
+    // attach and no call that would attach one; the correct Qt spelling of "give this
+    // layout an emoji and CJK fallback" is to do nothing, because it already has one.
+    //
+    // It is deliberately NOT marked as invalidating the cached run below. Every other
+    // setter on this class invalidates, so a reader is entitled to wonder: nothing
+    // about the layout changed, so a rebuilt measurement would return the same
+    // metrics, and invalidating here would cost a reshape per call for no difference.
+    // That asymmetry is the one thing about this method worth a comment.
+    void ApplyFontFallback() override {}
+
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the
     // pen-versus-brush handling and the Clip translation, and the two copies would

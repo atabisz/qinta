@@ -235,6 +235,11 @@ set(SOURCES
     src/text_utils_app.cpp
     src/search.cpp
     src/render.cpp
+    # The document paint pass, lifted out of main_d2d.cpp's WM_PAINT handler so a Qt
+    # window can run the same 332 lines. Listed for BOTH platforms and both app
+    # targets, which is the property that makes the extraction checkable: if Windows
+    # and Qt ever draw a document differently, they are not sharing this file.
+    src/paint_document.cpp
     src/file_utils.cpp
     src/overlays.cpp
     src/context_menu.cpp
@@ -348,6 +353,39 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
     TINTA_VERSION_MINOR=${PROJECT_VERSION_MINOR}
     TINTA_VERSION_PATCH=${PROJECT_VERSION_PATCH})
 
+# TINTA_D2D_BACKEND: "this target links the Direct2D/DirectWrite backend", which is a
+# DIFFERENT QUESTION from _WIN32 and the difference is now load bearing.
+#
+# FOUND BY A LINK FAILURE, not by design. src/paint_document.cpp guarded its two native
+# spots with #ifdef _WIN32, which was correct for every target that existed when it was
+# written, because Windows and Direct2D were the same thing here. tinta_qt broke that: it
+# is a WINDOWS target with NO D2D backend, so _WIN32 was defined, the colour-emoji branch
+# compiled, and the link came back
+#
+#   paint_document.obj : error LNK2019: unresolved external symbol nativeTextLayout
+#
+# out of src/text_d2d.cpp, which tinta_qt correctly does not compile. The dashed-stroke
+# block was worse and would NOT have shown up at link at all -- it resolves through
+# d2d1.lib and app.d2dFactory, so under tinta_qt it would have dereferenced a null
+# factory at the first dashed mermaid connector.
+#
+# This is the shape of the whole port's endgame, arriving early: every `#ifdef _WIN32` in
+# a file that BOTH stacks compile is asking about the OS when it means to ask about the
+# backend. Only paint_document.cpp is converted here, because it is the only such file
+# with native spots inside it today. When src/render_d2d.cpp and src/text_d2d.cpp are
+# deleted, this definition and both of its branches go with them.
+#
+# Gated on TINTA_LEGACY_D2D so OFF turns the macro off too -- otherwise the flag would
+# leave paint_document.cpp still compiling calls into backends the flag just removed, and
+# the flag's whole job is to make that inventory honest.
+#
+# The INPUT_TEST_SOURCES targets inherit this through
+# $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>, which is why it is set here rather than
+# repeated on each of them.
+if(TINTA_LEGACY_D2D)
+    target_compile_definitions(tinta PRIVATE TINTA_D2D_BACKEND)
+endif()
+
 endif()  # WIN32 — app target
 
 # --- THE QT APPLICATION: the target the whole port is aimed at ------------------
@@ -359,39 +397,120 @@ endif()  # WIN32 — app target
 # a Qt target that only exists off Windows would let the two stacks drift, and
 # drifting is the thing the goal rules out.
 #
-# WHAT IT IS TODAY: a shell. It opens a window, clears to the theme background and
-# draws one line of text through the portable render seam. It does NOT render a
-# document, and the list of what stands in the way is measured rather than guessed --
-# see README.md, and src/qt_window.h's own comment.
+# WHAT IT IS TODAY: it renders a document. It parses markdown and lays it out through
+# the portable render and text seams, which is the thing this target existed to reach.
+# The sentence here used to read "a shell -- it opens a window, clears to the theme
+# background and draws one line of text ... It does NOT render a document", and that
+# is corrected rather than deleted because the shape of what changed is the useful
+# part: the blocker was never one file, and it was never a compile problem at the end.
 #
-# THE SOURCE LIST IS THE MEASURED LINK CLOSURE, not a guess and not everything
-# portable. On 2026-09-16 a scratch probe built the 39 portable objects into an
-# archive, linked a Qt main() against it, and read the link map: constructing an App
-# and painting through the seam pulls exactly six of them -- config_dir, markdown,
-# platform_paths_qt, themes, render_qt, text_qt. markdown.cpp is the surprising one
-# and the map named the reason: App holds a qmd::MarkdownParser BY VALUE, so merely
-# constructing an App references its constructor, which references md_parse. That is
-# the third time this tree has learned that fact from a linker rather than from
-# reading (see the comment on selection_tests below, and tests/portable-sources.txt).
+# THE SOURCE LIST IS A MEASURED LINK CLOSURE, and it has now been measured twice with
+# two different answers, which is the whole lesson of this target.
 #
-# So md4c is on the link line for a target that parses nothing. Deliberate.
+#   FIRST READING (2026-09-16, the shell): a scratch probe built the 39 portable
+#   objects into an archive, linked a Qt main() against it and read the link map.
+#   Constructing an App and painting through the seam pulls exactly six -- config_dir,
+#   markdown, platform_paths_qt, themes, render_qt, text_qt. markdown.cpp was the
+#   surprise and the map named the reason: App holds a qmd::MarkdownParser BY VALUE,
+#   so constructing an App references its constructor, which references md_parse.
+#   That is the third time this tree learned that fact from a linker rather than from
+#   reading (see selection_tests below, and tests/portable-sources.txt).
+#
+#   SECOND READING (rendering a real document): a FIXPOINT closure, because depth-1
+#   and depth-2 are both wrong answers to this question. Adding render.cpp leaves 23
+#   undefined symbols; resolving those leaves 41, the 21 new ones all
+#   mermaidext::detail::build* from eleven further files -- resolving a symbol ADDS
+#   symbols, so any fixed-depth reading is a lower bound wearing the clothes of an
+#   answer. The fixpoint converged 23 -> 41 -> 20 in three rounds, and classified the
+#   20: fourteen live in installed Qt shared libraries (checked with nm -D, not
+#   guessed) and are satisfied by the two library lines below, and SIX were genuinely
+#   blocked -- mathParse, mathBoxWidth, mathBoxHeight, mathBoxBaseline,
+#   mathExpandLine, mathBoxRetain, all owned by src/math_render.cpp.
+#
+# A PREDICTION OF MINE WAS REFUTED HERE AND THE SOURCE LIST IS THE SHAPE OF THE
+# REFUTATION. I expected a staircase: land the nineteen already-compiling files
+# first, deal with math later. Two arms measured it and the answer is no --
+# ensureLayoutComplete(App&) is DEFINED in render.cpp and called from search.cpp:158,
+# so the nineteen and render.cpp are one atomic lump. There is no smaller first step
+# than all of this at once plus an answer on math.
+#
+# src/math_stub.cpp IS THAT ANSWER, AND IT IS TEMPORARY. It supplies the six symbols
+# so this target links today; equations render as their own LaTeX source through the
+# fallback include/math_render.h already documents and render.cpp already implements
+# at :439, :519 and :895. It is deleted when src/math_render.cpp compiles off Windows,
+# and that file says the same thing at its own end.
+#
+# So md4c is on the link line for a target that now genuinely parses. The Svg and
+# Network lines are not optional decoration either: they carry fourteen of the twenty
+# residual symbols, from image_qt.cpp's QSvgRenderer and QNetworkAccessManager.
+
+# THE QT APP'S SOURCE CLOSURE, IN A VARIABLE BECAUSE TWO TARGETS MUST SHARE IT.
+#
+# tinta_qt below is the application; qt_entry_tests far down in the test section is the
+# only thing that PAINTS it and reads pixels back. Those two have to link the same
+# files or the test stops being a test of the app -- and the comment on that target has
+# claimed "the same measured closure as tinta_qt, minus main_qt.cpp" since it was
+# written, on nothing but my promise to keep two hand-maintained lists in step.
+#
+# This makes the claim structural instead. The lists cannot drift, because there is one
+# list. That matters more now than it did when both were short: the closure is 28 files
+# and a file added to the app but not the test would produce a green test over code the
+# app links and the test does not.
+#
+# Deliberately at unconditional scope rather than inside the Qt guard below, so the
+# test section can read it without depending on the order of two independent if()s.
+set(TINTA_QT_APP_SOURCES
+    src/qt_window.cpp
+    src/qt_init.cpp
+    src/render_qt.cpp
+    src/text_qt.cpp
+    src/themes.cpp
+    src/markdown.cpp
+    src/config_dir.cpp
+    ${PLATFORM_PATHS_SOURCE}
+    # --- the fixpoint closure's nineteen, plus render.cpp and the math stub ---
+    # Every line below is a symbol the closure demanded, not a file that looked
+    # relevant. The mermaid* run is eleven files and they arrive as a group
+    # because mermaidext::detail::build* is how mermaid.cpp reaches each diagram
+    # kind -- dropping any one of them is a link error, not a missing feature.
+    src/render.cpp
+    # The document paint pass. NOT part of the fixpoint closure's twenty, because it
+    # did not exist when that closure was measured -- it is the code this slice cut out
+    # of src/main_d2d.cpp so that something other than a Win32 WM_PAINT could call it.
+    src/paint_document.cpp
+    src/math_stub.cpp
+    src/image_qt.cpp
+    src/inline_style.cpp
+    src/mermaid.cpp
+    src/mermaid_block.cpp
+    src/mermaid_c4.cpp
+    src/mermaid_charts.cpp
+    src/mermaid_charts2.cpp
+    src/mermaid_ext.cpp
+    src/mermaid_gantt.cpp
+    src/mermaid_git.cpp
+    src/mermaid_grid.cpp
+    src/mermaid_narrative.cpp
+    src/mermaid_pie.cpp
+    src/mermaid_seq.cpp
+    src/mermaid_uml.cpp
+    src/search.cpp
+    src/syntax.cpp
+    src/text_utils.cpp
+    src/text_utils_app.cpp
+)
+
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
     add_executable(tinta_qt WIN32
         src/main_qt.cpp
-        src/qt_window.cpp
-        src/qt_init.cpp
-        src/render_qt.cpp
-        src/text_qt.cpp
-        src/themes.cpp
-        src/markdown.cpp
-        src/config_dir.cpp
-        ${PLATFORM_PATHS_SOURCE}
+        ${TINTA_QT_APP_SOURCES}
     )
     target_include_directories(tinta_qt PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(tinta_qt PRIVATE md4c Qt6::Core Qt6::Gui Qt6::Widgets)
+    target_link_libraries(tinta_qt PRIVATE md4c
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
@@ -898,18 +1017,30 @@ if(BUILD_TESTING)
         #   COMPILES off Windows: measured, exit 0 / fatal 0 / errors 0, under a census
         #   whose six controls all held. That is what this target asserts.
         #
-        #   LINKS into a Qt app: NOT YET, and the residue is exactly six symbols --
-        #   mathParse, mathBoxWidth, mathBoxHeight, mathBoxBaseline, mathExpandLine and
-        #   mathBoxRetain, all owned by src/math_render.cpp, which does not compile off
-        #   Windows. Measured by a fixpoint link closure, not estimated: nineteen other
-        #   files and two Qt library lines also have to join tinta_qt, and every one of
-        #   those nineteen already compiles.
+        #   LINKS into a Qt app: YES, AS OF THIS COMMIT, and the sentence here used to
+        #   say "NOT YET" with the residue named -- six symbols owned by
+        #   src/math_render.cpp, which still does not compile off Windows. What changed
+        #   is not math: src/math_stub.cpp supplies those six, and the nineteen other
+        #   files the fixpoint named joined tinta_qt with two Qt library lines. Both
+        #   halves of the old claim are kept above rather than deleted, because the
+        #   residue is still six and the file that resolves them is still a stub.
         #
-        #   RUNS: nobody has watched it. No test links this file on any platform.
+        #   RUNS: YES, AS OF THIS COMMIT, and this is the reading that was missing
+        #   longest. tests/qt_entry_tests.cpp links this file, lays out a parsed
+        #   document through it and counts the pixels that changed -- so "nobody has
+        #   watched it", which stood here and in README for several spans, is now false.
         #
         # The distance between "compiles" and "links" is the whole reason this target
-        # exists, and this file is the sharpest example of it in the tree.
+        # exists. This file used to be the sharpest example of it in the tree and is
+        # now the example of it being CLOSED -- which is why the target keeps the file:
+        # a Qt-free compile is still a stronger reading than the Qt-linked test, and
+        # losing it would mean nothing checks that render.cpp needs no Qt.
         src/render.cpp
+        # The document paint pass, here for exactly the reading above: it is linked into
+        # two Qt targets, and this target is what asserts it does not NEED Qt. Cheap
+        # (one extra compile) and it is the only instrument that would catch a Qt
+        # include drifting into a file whose whole point is that both backends run it.
+        src/paint_document.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)
@@ -1629,6 +1760,18 @@ if(BUILD_TESTING)
         # so a change that breaks the shell breaks this test, which is the point of
         # sharing the window class rather than reimplementing it in the test.
         #
+        # "The same closure" is now literally the same CMake variable
+        # (TINTA_QT_APP_SOURCES, defined beside tinta_qt) rather than a second list I
+        # promised to keep in step. It stopped being a promise worth making when the
+        # closure went from 8 files to 28.
+        #
+        # AND THIS IS NOW THE TEST THAT LINKS src/render.cpp. Until this commit no test
+        # on EITHER platform did -- the widest compile/run gap in the tree, and the
+        # honest limit printed at the end of README's render.cpp row for several spans.
+        # A file that compiles and links but is never executed has been asserted to
+        # nothing; what closes that is below, where the test parses a document, lays it
+        # out through render.cpp and counts the pixels that changed.
+        #
         # Widgets, not just Core and Gui: QtAppWindow is a QWidget and the test needs
         # QApplication. The guard is therefore narrower than the enclosing
         # Qt6_FOUND, for the same reason image_tests' is -- a partial Qt install
@@ -1636,19 +1779,16 @@ if(BUILD_TESTING)
         if(Qt6Widgets_FOUND)
             add_executable(qt_entry_tests
                 tests/qt_entry_tests.cpp
-                src/qt_window.cpp
-                src/qt_init.cpp
-                src/render_qt.cpp
-                src/text_qt.cpp
-                src/themes.cpp
-                src/markdown.cpp
-                src/config_dir.cpp
-                ${PLATFORM_PATHS_SOURCE}
+                ${TINTA_QT_APP_SOURCES}
             )
             target_include_directories(qt_entry_tests PRIVATE
                 include ${md4c_SOURCE_DIR}/src)
+            # Svg and Network arrive with the closure, not with the test: image_qt.cpp's
+            # QSvgRenderer and QNetworkAccessManager carry fourteen of the twenty
+            # residual symbols the fixpoint left. Same two lines as tinta_qt, for the
+            # same measured reason.
             target_link_libraries(qt_entry_tests PRIVATE
-                md4c Qt6::Core Qt6::Gui Qt6::Widgets)
+                md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
             if(WIN32)
                 target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
                 target_link_libraries(qt_entry_tests PRIVATE shell32)

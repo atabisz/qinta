@@ -35,8 +35,22 @@ namespace tinta {
 class RenderTarget;
 }
 
-// Installs every backend whose lifetime is the process: today just the text
-// factory. Call once, after QApplication exists and before the first paint.
+// Installs every backend whose lifetime is the process: the text factory, the brush,
+// and the sixteen cached DOCUMENT text formats. Call once, after QApplication exists
+// and before the first paint.
+//
+// The brush joined this list when the window started drawing documents -- the paint
+// pass reads App::brush at every drawing site -- and it belongs on the
+// process-lifetime side because QtBrush holds a colour and no device.
+//
+// THE FORMATS ARE THE THIRD THING AND THEY WERE FOUND BY A CRASH, which is worth
+// recording at the declaration rather than only at the definition. On Windows they come
+// from updateTextFormats in src/d2d_init.cpp, a file with no non-Windows half, so off
+// Windows App had a text factory and every one of app.textFormat,
+// app.headingFormats[0..5], app.codeFormat and the bold/italic combinations null. The
+// first document handed to a Qt window segfaulted in src/render.cpp:378 on the null.
+// Only the DOCUMENT formats are created; the ~25 chrome formats are still null off
+// Windows, and src/qt_init.cpp lists them.
 //
 // QApplication has to exist first. QtTextFactory itself constructs nothing Qt on
 // its own, but the QFont/QTextLayout work every TextFormat it hands out performs

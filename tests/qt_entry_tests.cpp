@@ -18,6 +18,12 @@
 //      indistinguishable from a window that painted correctly unless the pixels are
 //      read, and the colours here come from the real theme table rather than from
 //      constants chosen to be easy.
+//   4. A PARSED DOCUMENT DRAWN THROUGH src/render.cpp AND src/paint_document.cpp.
+//      This is the reason the file grew past run 3, and it is the first execution of
+//      either file on EITHER platform outside the tinta binary itself. Until it
+//      existed, render.cpp -- 3,294 lines, the largest file in the tree -- was on
+//      tests/portable-sources.txt as compile-only, and the paint pass lived inside
+//      main_d2d.cpp's WM_PAINT where no test could reach it.
 //
 // THE CONTROL IS THE POINT OF THE THIRD RUN. "Some pixels in the text band differ
 // from the background" is only evidence that text was drawn if the same measurement
@@ -25,6 +31,27 @@
 // no text factory the window paints background only, and the band must be flat. Then
 // it is re-installed and grabbed a third time, which also asserts installation is
 // re-callable rather than a one-shot.
+//
+// THE DOCUMENT RUNS NEED THEIR OWN CONTROLS, and a different kind, because both
+// branches of paintEvent draw dark text on the theme background. A pixel count alone
+// cannot tell a rendered document from the placeholder line, so three things
+// discriminate rather than one:
+//
+//   * QtAppWindow::documentPainted() -- which branch the window took, reported by the
+//     window rather than inferred from pixels. It exists for this test and the header
+//     says so.
+//   * TWO DISJOINT BANDS. placeholderRect() is centred; the document band is the top
+//     quarter. The disjointness is ASSERTED, not trusted to the arithmetic, and each
+//     run reads both bands. A document must light the top band and the placeholder
+//     must not.
+//   * A whole-image inequality against run 1. If the document run produced the
+//     placeholder image, every count below could still pass.
+//
+// Run 5 clears App::root and requires the placeholder back at run 1's exact count.
+// Run 6 sets the document and releases the factory, which must leave BOTH bands flat
+// -- weaker than it looks, and stated as such: paintEvent's factory guard sits before
+// the branch, so run 6 proves the document's pixels are text through the seam and not
+// that the document branch itself is factory-dependent.
 #include <QApplication>
 #include <QFontDatabase>
 #include <QImage>
@@ -33,11 +60,26 @@
 #include <cstdio>
 
 #include "app.h"
+#include "document.h"
 #include "geometry.h"
 #include "qt_init.h"
 #include "qt_window.h"
 
 namespace {
+
+// The document fixture. DELIBERATELY WITHOUT MATHS: src/math_render.cpp does not
+// compile off Windows and src/math_stub.cpp stands in for it, so an equation here would
+// be asserting the stub's box arithmetic and reading as a rendered formula. A heading, a
+// paragraph and a fenced code block exercise three different layout paths and three
+// different text formats, which is what this run is for.
+const char kMarkdown[] =
+    "# Heading one\n"
+    "\n"
+    "A paragraph of ordinary text, long enough to be more than one glyph wide.\n"
+    "\n"
+    "```cpp\n"
+    "int x = 1;\n"
+    "```\n";
 
 int g_checks = 0;
 int g_failures = 0;
@@ -86,6 +128,16 @@ QImage grabWindow(QtAppWindow& window) {
     return window.grab().toImage().convertToFormat(QImage::Format_RGB32);
 }
 
+// Where a document's first lines land: the top quarter of the window. Chosen to be
+// DISJOINT from placeholderRect(), which is centred, so the two measurements cannot
+// both be reading the same glyphs. main() asserts the disjointness rather than
+// trusting this comment -- placeholderRect's band half-height is a constant in
+// src/qt_window.cpp and a reword there would silently overlap these two.
+tinta::RectF documentBand(const QtAppWindow& window) {
+    return tinta::RectF{0.0f, 0.0f, static_cast<float>(window.width()),
+                        static_cast<float>(window.height()) * 0.25f};
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -119,6 +171,42 @@ int main(int argc, char** argv) {
           "installQtBackends put a Qt text factory in App's storage -- Seated<TextFactory>::install()");
     check(app.renderTarget == nullptr,
           "installQtBackends did NOT install a render target: that is one paint event's business");
+    check(app.brush != nullptr,
+          "installQtBackends put a brush in App's storage -- paintDocumentLayout returns early without one");
+
+    // THE FORMATS, ASSERTED BY NAME rather than left to the document run to discover.
+    // These were all null off Windows until src/qt_init.cpp created them, and the way
+    // that was found was a segfault at src/render.cpp:378 -- so the assertion goes here,
+    // where the reason a null is fatal is one line away.
+    check(app.textFormat != nullptr, "the body text format exists");
+    // AND THE PIXEL ASSERTIONS BELOW DO NOT COVER THIS, measured: the plant that removed
+    // all six heading formats failed exactly these two checks and nothing else, because
+    // layoutHeading falls back to app.textFormat and the document still draws. So a
+    // by-name check is not redundant with a pixel count here -- it is the only guard.
+    check(app.headingFormats[0] != nullptr && app.headingFormats[5] != nullptr,
+          "all six heading levels have a format -- layoutHeading indexes this array directly");
+    check(app.codeFormat != nullptr && app.boldFormat != nullptr && app.italicFormat != nullptr &&
+              app.boldItalicFormat != nullptr && app.codeBoldFormat != nullptr &&
+              app.codeItalicFormat != nullptr && app.codeBoldItalicFormat != nullptr &&
+              app.supSubFormat != nullptr,
+          "the code, bold, italic and nested-span formats exist too");
+    // GUARDED, and the guard was put here by a planted control rather than by foresight.
+    // The plant removed the six heading formats and this line SEGFAULTED on the null
+    // instead of failing -- and a run that crashes prints no FAIL line at all, so the
+    // harness reported zero failures for a plant it was supposed to catch. An assertion
+    // that cannot survive the absence of the thing it asserts is not an assertion.
+    check(app.headingFormats[0] && app.textFormat &&
+              app.headingFormats[0]->GetFontSize() > app.textFormat->GetFontSize(),
+          "an h1 is larger than body text, so the formats carry their d2d_init sizes and not one default");
+
+    // A MEASUREMENT, not a null check, and the distinction is the point. A zero space
+    // width collapses every inter-word gap in the document; it still draws, still counts
+    // pixels, and looks almost right, so no pixel assertion below would have caught it.
+    std::printf("space_widths=%.3f,%.3f,%.3f,%.3f\n", app.spaceWidthText, app.spaceWidthBold,
+                app.spaceWidthItalic, app.spaceWidthCode);
+    check(app.spaceWidthText > 0.0f && app.spaceWidthBold > 0.0f &&
+              app.spaceWidthItalic > 0.0f && app.spaceWidthCode > 0.0f,
+          "the four cached space widths were measured through the seam and are non-zero");
 
     QtAppWindow window(app);
     window.resize(600, 400);
@@ -127,6 +215,15 @@ int main(int argc, char** argv) {
     std::printf("band=%.1f,%.1f..%.1f,%.1f\n", band.left, band.top, band.right, band.bottom);
     check(band.left >= 0.0f && band.top >= 0.0f && band.right <= 600.0f && band.bottom <= 400.0f,
           "the placeholder band lies inside the window");
+
+    const tinta::RectF docBand = documentBand(window);
+    std::printf("doc_band=%.1f,%.1f..%.1f,%.1f\n", docBand.left, docBand.top, docBand.right,
+                docBand.bottom);
+    // The one assertion that makes every document/placeholder comparison below mean
+    // anything. If these bands overlapped, "the document band lit up" and "the
+    // placeholder band lit up" would be partly the same reading.
+    check(docBand.bottom <= band.top,
+          "the document band and the placeholder band are disjoint, so the two counts measure different pixels");
 
     // --- Run 1: the real thing --------------------------------------------------
     const QImage painted = grabWindow(window);
@@ -157,9 +254,23 @@ int main(int argc, char** argv) {
     check(paintedDiff > 0,
           "pixels in the band differ from the background, so DrawText through the seam drew glyphs");
 
+    // App holds no document yet, so this is the placeholder branch -- asserted rather
+    // than assumed, because it is the baseline every document assertion below is read
+    // against.
+    check(!window.documentPainted(),
+          "with no document in App the window reports the placeholder branch, not a document");
+    const int paintedDocBand = nonBackgroundPixels(painted, docBand, bg);
+    std::printf("doc_band_non_background_placeholder=%d\n", paintedDocBand);
+    check(paintedDocBand == 0,
+          "the placeholder leaves the document band flat, so a count there later can only be a document");
+
     // --- Run 2: the control, with no text factory -------------------------------
     releaseQtBackends(app);
     check(app.textFactory == nullptr, "releaseQtBackends cleared the text factory");
+    check(app.textFormat == nullptr && app.headingFormats[0] == nullptr,
+          "releaseQtBackends dropped the document formats too, so nothing outlives the factory that made it");
+    check(app.spaceWidthText == 0.0f,
+          "and the measured space widths went with them rather than staying as stale numbers");
 
     const int paintsBeforeControl = window.paintCount();
     const QImage control = grabWindow(window);
@@ -182,10 +293,83 @@ int main(int argc, char** argv) {
     check(repaintedDiff == paintedDiff,
           "the re-installed factory draws the same glyph pixels as the first, so install/release is symmetric");
 
+    // --- Run 4: a parsed document, drawn through render.cpp and paint_document.cpp --
+    //
+    // The window does the layout itself (QtAppWindow::paintDocument calls
+    // layoutDocument when the run list is empty or the size changed), so this run
+    // exercises the path src/main_qt.cpp will take rather than a layout the test
+    // arranged beforehand. That is why nothing here calls layoutDocument directly.
+    const qmd::ParseResult doc = app.parser.parse(kMarkdown);
+    check(doc.success, "the fixture markdown parses");
+    check(doc.root != nullptr, "the parse produced a root element");
+    app.root = doc.root;
+
+    // A DELTA, not an absolute. App::drawCalls is zeroed once per frame by
+    // src/main_d2d.cpp:102, which is Windows-only chrome this stack does not run, so the
+    // counter accumulates across grabs here. Reading it as a total would have passed for
+    // the wrong reason after run 1.
+    const size_t drawCallsBefore = app.drawCalls;
+    const QImage documentImage = grabWindow(window);
+    std::printf("layout_text_runs=%zu layout_rects=%zu draw_calls_delta=%zu\n",
+                app.layoutTextRuns.size(), app.layoutRects.size(),
+                app.drawCalls - drawCallsBefore);
+
+    check(window.documentPainted(),
+          "the window took the DOCUMENT branch: layoutDocument and paintDocumentLayout both ran");
+    check(!app.layoutTextRuns.empty(),
+          "layoutDocument produced text runs, so render.cpp executed off the Windows path");
+    check(app.drawCalls > drawCallsBefore,
+          "paintDocumentLayout reached its drawing sites, so the pass drew rather than returning early");
+
+    const int documentDocBand = nonBackgroundPixels(documentImage, docBand, bg);
+    std::printf("doc_band_non_background_document=%d\n", documentDocBand);
+    check(documentDocBand > 0,
+          "the document band carries non-background pixels, which only a document draws there");
+    check(documentDocBand > paintedDocBand,
+          "and it carries MORE than the placeholder run did, which was zero");
+
+    // The strongest single discriminator in the file: if the document branch had somehow
+    // produced the placeholder, every count above could still pass.
+    check(documentImage != painted,
+          "the document image is not the placeholder image, pixel for pixel");
+
+    // --- Run 5: the control, document cleared -----------------------------------
+    app.root = nullptr;
+    const QImage clearedImage = grabWindow(window);
+    check(!window.documentPainted(),
+          "CONTROL: with App::root cleared the window falls back to the placeholder branch");
+    const int clearedDocBand = nonBackgroundPixels(clearedImage, docBand, bg);
+    std::printf("doc_band_non_background_cleared=%d\n", clearedDocBand);
+    check(clearedDocBand == 0,
+          "CONTROL: the document band is flat again, so the count in run 4 measured the DOCUMENT");
+    check(nonBackgroundPixels(clearedImage, band, bg) == paintedDiff,
+          "CONTROL: the placeholder returns at run 1's exact count, so drawing a document left no residue");
+
+    // --- Run 6: the control, document present and no text factory ----------------
+    //
+    // WEAKER THAN IT LOOKS, and worth saying so where the assertion is rather than only
+    // in the header: paintEvent's `if (!app_.textFactory) return;` sits BEFORE the branch
+    // choice, so this proves the document band's pixels are text drawn through the seam.
+    // It does not prove the document branch is itself factory-dependent.
+    app.root = doc.root;
+    releaseQtBackends(app);
+    const QImage documentNoFactory = grabWindow(window);
+    check(!window.documentPainted(),
+          "CONTROL: no text factory stops the paint before the branch, document or not");
+    check(nonBackgroundPixels(documentNoFactory, docBand, bg) == 0,
+          "CONTROL: with a document set and no factory the document band is flat");
+    check(nonBackgroundPixels(documentNoFactory, band, bg) == 0,
+          "CONTROL: and so is the placeholder band");
+    check(pixelIs(documentNoFactory, 2, 2, bg, 2),
+          "CONTROL: the window still cleared, so the flat bands are a drawing result and not a dead grab");
+
+    // Idempotent by construction -- install(nullptr) on an empty storage -- and called
+    // here anyway so the file ends in the state every earlier run ended in.
     releaseQtBackends(app);
 
     std::printf("checks=%d failures=%d\n", g_checks, g_failures);
     if (g_failures == 0)
-        std::printf("PASS: a Qt window drives tinta's render seam through App's storage.\n");
+        std::printf("PASS: a Qt window lays out and draws a parsed document through "
+                    "render.cpp and paint_document.cpp, off the Windows path.\n");
     return g_failures == 0 ? 0 : 1;
 }

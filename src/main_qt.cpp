@@ -19,14 +19,21 @@
 //     the call would populate a registry this window never indexes into.
 //   * No command line. Every switch WinMain parses -- --printpages, --exporthtml,
 //     --exportdocx, --exportpdf, --edit, --new, --pos -- lands in a code path that
-//     does not compile off Windows. A file argument is the first one to add, and it
-//     needs the document renderer first.
+//     does not compile off Windows. A file argument is the first one to add, and the
+//     clause that used to end this line -- "and it needs the document renderer first" --
+//     IS NOW DISCHARGED: as of 2026-09-16 tests/qt_entry_tests.cpp parses markdown,
+//     runs layoutDocument through src/render.cpp and paints it through
+//     src/paint_document.cpp, on both platforms. So the renderer is no longer the
+//     blocker; what is missing is four lines here that read argv[1] and put the parse
+//     result in app.root. Until somebody writes them THIS BINARY STILL SHOWS THE
+//     PLACEHOLDER, which is why README.md's basis F is still 0/3 -- a document drawn
+//     only by a test is not a viewer anybody can run.
 //   * No exec() loop features: no menus, no tabs, no input. src/input.cpp is the
 //     deepest Windows file in the tree (344 native mentions at the last census).
 //
 // So this opens a window with the theme background and a line of text in it. That is
 // a shell, and README.md carries the measured list of what stands between it and a
-// document.
+// document -- a list that is now four lines long and lives in the third bullet above.
 #include <QApplication>
 
 #include "app.h"

@@ -173,11 +173,15 @@ claim "the seven Windows backends"   "| $expr_backends |"
 claim "  ... and their total"        "$nbackends files, $(c "$raw_backend_lines") lines"
 claim "  ... quoted again in prose"  "$(c "$raw_backend_lines") lines of it today"
 
-# LABEL CORRECTED IN PLACE: this said "render.cpp, the blocker". The file compiles off
-# Windows now, so the label was asserting something false every time the gate ran -- and a
-# label is a claim like any other figure, just one no checker checks. It is still a blocker,
-# but a link-time one: tinta_qt is six math symbols short, not one compile error short.
-echo "-- render.cpp, now a link blocker rather than a compile blocker"
+# LABEL CORRECTED IN PLACE, TWICE NOW, AND THE SECOND TIME IS THE INTERESTING ONE. It first
+# said "render.cpp, the blocker"; the file started compiling off Windows and the label was
+# then asserting something false on every run, so it became "now a link blocker rather than a
+# compile blocker" with a comment here explaining that tinta_qt was six math symbols short.
+# On 2026-09-16 it stopped being a blocker of either kind: src/math_stub.cpp closed the six
+# symbols, TINTA_QT_APP_SOURCES closed the nineteen files, and qt_entry_tests links and RUNS
+# this file on both platforms. A label is a claim like any other figure -- just one no checker
+# checks, which is exactly why it has now been wrong twice and caught twice by hand.
+echo "-- render.cpp, no longer a blocker of either kind (compiles, links and runs off Windows)"
 claim "render.cpp row" "| \`render.cpp\` | $(c "$(lines src/render.cpp)") |"
 
 # Native mentions, under the pattern the README quotes beside the figures. If the

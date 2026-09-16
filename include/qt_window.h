@@ -12,17 +12,29 @@
 // tree paints into a bitmap instead. tests/qt_entry_tests.cpp constructs this class,
 // grabs it, and reads the pixels back.
 //
-// WHAT IT DRAWS TODAY, said plainly so the class is not read as more than it is: the
-// theme background and one line of placeholder text. It does NOT draw a document,
-// and it cannot yet -- src/render.cpp does not compile off Windows. What stands
-// between this window and a document is a measured list, not a guess: on 2026-09-16
-// a per-file syntax-only census of every src/*.cpp outside
-// tests/portable-sources.txt put 23 of 24 files in the way, on 12 distinct first
-// causes. See README.md for the list.
+// WHAT IT DRAWS TODAY: a DOCUMENT, when App has one, and the placeholder line when it
+// does not. The sentence that stood here until this commit said the opposite -- "it
+// does NOT draw a document, and it cannot yet -- src/render.cpp does not compile off
+// Windows" -- and it was true when written and is now false in both halves.
+// src/render.cpp compiles off Windows (asserted by the portable_compile_only target,
+// which carries no Qt include paths at all), and the document paint pass came out of
+// src/main_d2d.cpp into src/paint_document.cpp so that this class could call it.
 //
-// So this is the SHELL of the Qt frontend, and the two things it proves are that
-// App's seam storage can hold a Qt backend and that a real Qt paint event can drive
-// the abstract render target every drawing site in the tree reads.
+// A CORRECTED COMMENT RATHER THAN A DELETED ONE, deliberately: the old claim named a
+// blocker, the blocker moved, and a reader who remembers the old sentence needs to
+// find out here that it changed rather than wonder whether they misremembered.
+//
+// THE ONE THING NOT PORTED IS MATH. src/math_render.cpp is still Windows-only, so
+// tinta_qt links src/math_stub.cpp in its place and equations render as their own
+// LaTeX source -- the tree's own designed fallback, and that file's header comment is
+// the full account.
+//
+// WHY THE WINDOW LAYS OUT INSIDE paintEvent, which a shipping app should not do:
+// there is no resize path on this stack yet. Windows relayouts on WM_SIZE. Until the
+// Qt side has its own event wiring, the paint is the only place that knows the widget
+// changed size, and a window that paints a stale layout after a resize would look
+// like a broken renderer. Stated here because it is a known temporary and not a
+// design.
 
 #include <QWidget>
 
@@ -52,13 +64,29 @@ public:
     // own arithmetic agrees with itself.
     tinta::RectF placeholderRect() const;
 
+    // Which of the two branches the most recent paint took.
+    //
+    // THIS IS A DISCRIMINATOR, not bookkeeping. Both branches draw dark text on the
+    // theme background, so "pixels in the upper half differ from the background" is
+    // satisfied by a document AND by a placeholder line that happens to be wide
+    // enough. A pixel test with no way to tell the branches apart would report the
+    // placeholder as a rendered document, which is precisely the class of false green
+    // this tree keeps finding in its own instruments.
+    bool documentPainted() const { return documentPainted_; }
+
 protected:
     void paintEvent(QPaintEvent* event) override;
 
 private:
+    // Relayouts if App's viewport disagrees with the widget, then draws the cached
+    // layout through the seam. Returns false if there is nothing to draw, which is
+    // what selects the placeholder.
+    bool paintDocument();
+
     App& app_;
     int paintCount_ = 0;
     bool renderTargetInstalled_ = false;
+    bool documentPainted_ = false;
 };
 
 #endif // TINTA_QT_WINDOW_H

@@ -25,6 +25,7 @@
 #include "syntax.h"
 #include "search.h"
 #include "render.h"
+#include "paint_document.h"
 #include "file_utils.h"
 #include "overlays.h"
 #include "annotations.h"
@@ -276,338 +277,32 @@ void render(App& app) {
 
 render_document:
 
-    // Apply a saved reading position once the layout can reach it (#77)
-    if (app.pendingScrollRestore >= 0.0f &&
-        (app.layoutComplete ||
-         app.contentHeight >= app.pendingScrollRestore + app.height)) {
-        app.scrollY = app.pendingScrollRestore;
-        app.targetScrollY = app.pendingScrollRestore;
-        app.pendingScrollRestore = -1.0f;
-    }
+    // THE DOCUMENT PAINT PASS, WHICH USED TO BE 332 LINES OF THIS FUNCTION.
+    //
+    // It is src/paint_document.cpp now, and it moved for one reason: a Qt window
+    // needs it, and it was locked inside the least portable file in the tree. What it
+    // draws did not change -- the body over there is character-for-character what ran
+    // here, and if a pixel moves on Windows the extraction is wrong. That file's
+    // header comment names the two spots that are still behind #ifdef _WIN32.
+    const DocumentViewport documentViewport = prepareDocumentViewport(app);
 
-    // Clamp scroll values
-    float documentWidth = documentViewportWidth(app);
-    float maxScrollX = std::max(0.0f, app.contentWidth - documentWidth);
-    float maxScrollY = std::max(0.0f, app.contentHeight - app.height);
-    app.scrollX = std::max(0.0f, std::min(app.scrollX, maxScrollX));
-    app.scrollY = std::max(0.0f, std::min(app.scrollY, maxScrollY));
+    // The four values the chrome BELOW this pass still reads, re-declared under the
+    // names they had before the extraction: documentWidth at 7 later sites,
+    // cullMargin at 4, viewportTop and viewportBottom at 2 each. Aliasing them keeps
+    // this a relocation rather than a 15-site edit, and const rather than float
+    // because nothing below assigns them -- which was measured, not assumed.
+    //
+    // maxScrollX and maxScrollY are deliberately NOT aliased. A grep said they leaked
+    // too; both later occurrences are inner-scope re-declarations in the scrollbar
+    // code (:571, and :503 from a different extent), so they shadow rather than read,
+    // and aliasing them would have added two shadowed variables for a dependency that
+    // does not exist.
+    const float documentWidth = documentViewport.documentWidth;
+    const float viewportTop = documentViewport.top;
+    const float viewportBottom = documentViewport.bottom;
+    const float cullMargin = documentViewport.cullMargin;
 
-    // Render cached layout (document coordinates -> screen)
-    const float viewportTop = app.scrollY;
-    const float viewportBottom = app.scrollY + app.height;
-    const float viewportLeft = app.scrollX;
-    const float viewportRight = app.scrollX + documentWidth;
-    const float cullMargin = 100.0f;
-
-    for (const auto& rect : app.layoutRects) {
-        if (rect.rect.bottom < viewportTop - cullMargin ||
-            rect.rect.top > viewportBottom + cullMargin) {
-            continue;
-        }
-        if (rect.rect.right < viewportLeft - cullMargin ||
-            rect.rect.left > viewportRight + cullMargin) {
-            continue;
-        }
-        app.brush->SetColor(rect.color);
-        app.renderTarget->FillRectangle(
-            tinta::rectF(rect.rect.left - app.scrollX, rect.rect.top - app.scrollY,
-                       rect.rect.right - app.scrollX, rect.rect.bottom - app.scrollY),
-            app.brush);
-        app.drawCalls++;
-    }
-
-    // Dashed stroke is a factory object: create once, reuse every frame
-    if (!app.dashedStrokeStyle &&
-        std::any_of(
-            app.layoutConnectors.begin(), app.layoutConnectors.end(),
-            [](const App::LayoutConnector& connector) { return connector.dashed; })) {
-        D2D1_STROKE_STYLE_PROPERTIES properties = {
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_LINE_JOIN_MITER,
-            10.0f,
-            D2D1_DASH_STYLE_DASH,
-            0.0f,
-        };
-        app.d2dFactory->CreateStrokeStyle(
-            properties, nullptr, 0, &app.nativeDashedStrokeStyle);
-    }
-    tinta::StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle;
-
-    for (const auto& connector : app.layoutConnectors) {
-        if (connector.bounds.bottom < viewportTop - cullMargin ||
-            connector.bounds.top > viewportBottom + cullMargin ||
-            connector.bounds.right < viewportLeft - cullMargin ||
-            connector.bounds.left > viewportRight + cullMargin ||
-            connector.points.size() < 2) {
-            continue;
-        }
-
-        app.brush->SetColor(connector.color);
-        for (size_t i = 1; i < connector.points.size(); i++) {
-            const auto& from = connector.points[i - 1];
-            const auto& to = connector.points[i];
-            app.renderTarget->DrawLine(
-                tinta::pointF(from.x - app.scrollX, from.y - app.scrollY),
-                tinta::pointF(to.x - app.scrollX, to.y - app.scrollY),
-                app.brush, connector.stroke,
-                connector.dashed ? dashedStrokeStyle : nullptr);
-            app.drawCalls++;
-        }
-
-        if (connector.directed) {
-            const auto& tip = connector.points.back();
-            const auto& previous = connector.points[connector.points.size() - 2];
-            float dx = tip.x - previous.x;
-            float dy = tip.y - previous.y;
-            float length = std::sqrt(dx * dx + dy * dy);
-            if (length > 0.001f) {
-                dx /= length;
-                dy /= length;
-                float wing = connector.arrowSize * 0.5f;
-                tinta::PointF left = tinta::pointF(
-                    tip.x - dx * connector.arrowSize + dy * wing,
-                    tip.y - dy * connector.arrowSize - dx * wing);
-                tinta::PointF right = tinta::pointF(
-                    tip.x - dx * connector.arrowSize - dy * wing,
-                    tip.y - dy * connector.arrowSize + dx * wing);
-                tinta::PointF screenTip =
-                    tinta::pointF(tip.x - app.scrollX, tip.y - app.scrollY);
-                app.renderTarget->DrawLine(
-                    screenTip,
-                    tinta::pointF(left.x - app.scrollX, left.y - app.scrollY),
-                    app.brush, connector.stroke);
-                app.renderTarget->DrawLine(
-                    screenTip,
-                    tinta::pointF(right.x - app.scrollX, right.y - app.scrollY),
-                    app.brush, connector.stroke);
-                app.drawCalls += 2;
-            }
-        }
-    }
-    // Draws a cached polygon geometry (built lazily in local space) at the
-    // shape's screen position via a translation transform
-    auto drawPolygon = [&](const tinta::PointF* localPoints, size_t count,
-                           App::LayoutShape& shape) {
-        if (count < 3) return;
-
-        // THE ONE LAZY BUILDER of the six. The other five run at layout time; this
-        // one runs inside the paint loop, which is why the failure path returns
-        // without drawing rather than falling through -- an empty geometry here
-        // would be re-attempted every frame.
-        //
-        // AddLines is kept as the array call rather than unrolled into a loop: the
-        // seam carries both because a shape census (not a name census) found this
-        // exact form at 10 of 26 sites, and the Qt backend does the loop instead.
-        if (!shape.geometry) {
-            std::unique_ptr<tinta::PathSink> sink = app.renderTarget->BeginPath();
-            if (!sink) return;
-            sink->BeginFigure(localPoints[0]);
-            sink->AddLines(localPoints + 1, static_cast<uint32_t>(count - 1));
-            sink->EndFigure();
-            shape.geometry = sink->Close();
-            if (!shape.geometry) return;
-        }
-
-        tinta::Matrix3x2F previous;
-        app.renderTarget->GetTransform(&previous);
-        app.renderTarget->SetTransform(
-            tinta::matrixTranslation(shape.rect.left - app.scrollX,
-                                          shape.rect.top - app.scrollY) * previous);
-        if (shape.fill.a > 0.0f) {
-            app.brush->SetColor(shape.fill);
-            app.renderTarget->FillGeometry(shape.geometry.get(), app.brush);
-            app.drawCalls++;
-        }
-        if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-            app.brush->SetColor(shape.stroke);
-            app.renderTarget->DrawGeometry(
-                shape.geometry.get(), app.brush, shape.strokeWidth);
-            app.drawCalls++;
-        }
-        app.renderTarget->SetTransform(previous);
-    };
-
-    for (auto& shape : app.layoutShapes) {
-        if (shape.rect.bottom < viewportTop - cullMargin ||
-            shape.rect.top > viewportBottom + cullMargin ||
-            shape.rect.right < viewportLeft - cullMargin ||
-            shape.rect.left > viewportRight + cullMargin) {
-            continue;
-        }
-
-        tinta::RectF rect = tinta::rectF(
-            shape.rect.left - app.scrollX,
-            shape.rect.top - app.scrollY,
-            shape.rect.right - app.scrollX,
-            shape.rect.bottom - app.scrollY);
-
-        if (shape.type == App::LayoutShapeType::Path) {
-            // Geometry was built eagerly at layout time in local space
-            if (!shape.geometry) continue;
-            tinta::Matrix3x2F previous;
-            app.renderTarget->GetTransform(&previous);
-            app.renderTarget->SetTransform(
-                tinta::matrixTranslation(shape.rect.left - app.scrollX,
-                                              shape.rect.top - app.scrollY) *
-                previous);
-            if (shape.fill.a > 0.0f) {
-                app.brush->SetColor(shape.fill);
-                app.renderTarget->FillGeometry(shape.geometry.get(), app.brush);
-                app.drawCalls++;
-            }
-            if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-                app.brush->SetColor(shape.stroke);
-                app.renderTarget->DrawGeometry(
-                    shape.geometry.get(), app.brush, shape.strokeWidth);
-                app.drawCalls++;
-            }
-            app.renderTarget->SetTransform(previous);
-            continue;
-        }
-
-        if (shape.type == App::LayoutShapeType::Diamond) {
-            float w = shape.rect.right - shape.rect.left;
-            float h = shape.rect.bottom - shape.rect.top;
-            tinta::PointF points[] = {
-                tinta::pointF(w * 0.5f, 0),
-                tinta::pointF(w, h * 0.5f),
-                tinta::pointF(w * 0.5f, h),
-                tinta::pointF(0, h * 0.5f),
-            };
-            drawPolygon(points, 4, shape);
-            continue;
-        }
-
-        if (shape.type == App::LayoutShapeType::Hexagon) {
-            float w = shape.rect.right - shape.rect.left;
-            float h = shape.rect.bottom - shape.rect.top;
-            float inset = w * 0.18f;
-            tinta::PointF points[] = {
-                tinta::pointF(inset, 0),
-                tinta::pointF(w - inset, 0),
-                tinta::pointF(w, h * 0.5f),
-                tinta::pointF(w - inset, h),
-                tinta::pointF(inset, h),
-                tinta::pointF(0, h * 0.5f),
-            };
-            drawPolygon(points, 6, shape);
-            continue;
-        }
-
-        app.brush->SetColor(shape.fill);
-        if (shape.type == App::LayoutShapeType::Ellipse) {
-            tinta::Ellipse ellipse = tinta::ellipse(
-                tinta::pointF(
-                    (rect.left + rect.right) * 0.5f,
-                    (rect.top + rect.bottom) * 0.5f),
-                (rect.right - rect.left) * 0.5f,
-                (rect.bottom - rect.top) * 0.5f);
-            if (shape.fill.a > 0.0f) {
-                app.renderTarget->FillEllipse(ellipse, app.brush);
-                app.drawCalls++;
-            }
-            if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-                app.brush->SetColor(shape.stroke);
-                app.renderTarget->DrawEllipse(
-                    ellipse, app.brush, shape.strokeWidth);
-                app.drawCalls++;
-            }
-            continue;
-        }
-
-        if (shape.type == App::LayoutShapeType::RoundedRectangle ||
-            shape.type == App::LayoutShapeType::Stadium) {
-            float radius = shape.type == App::LayoutShapeType::Stadium
-                ? (rect.bottom - rect.top) * 0.5f
-                : shape.radius;
-            tinta::RoundedRect rounded = tinta::roundedRect(rect, radius, radius);
-            if (shape.fill.a > 0.0f) {
-                app.renderTarget->FillRoundedRectangle(rounded, app.brush);
-                app.drawCalls++;
-            }
-            if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-                app.brush->SetColor(shape.stroke);
-                app.renderTarget->DrawRoundedRectangle(
-                    rounded, app.brush, shape.strokeWidth);
-                app.drawCalls++;
-            }
-            continue;
-        }
-
-        if (shape.fill.a > 0.0f) {
-            app.renderTarget->FillRectangle(rect, app.brush);
-            app.drawCalls++;
-        }
-        if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-            app.brush->SetColor(shape.stroke);
-            app.renderTarget->DrawRectangle(
-                rect, app.brush, shape.strokeWidth);
-            app.drawCalls++;
-        }
-    }
-
-    // Render images (bitmaps)
-    // const& is preserved, and it now costs nothing to preserve. This comment used
-    // to explain that LayoutBitmap::seam() was "const over mutable storage precisely
-    // so this loop does not have to give up its constness to draw" -- that accessor
-    // and its mutable Seated storage are gone. The field is a
-    // shared_ptr<tinta::Bitmap>, so .get() on a const element is const already.
-    for (const auto& bmp : app.layoutBitmaps) {
-        if (!bmp.bitmap) continue;
-        if (bmp.destRect.bottom < viewportTop - cullMargin ||
-            bmp.destRect.top > viewportBottom + cullMargin) continue;
-        if (bmp.destRect.right < viewportLeft - cullMargin ||
-            bmp.destRect.left > viewportRight + cullMargin) continue;
-        app.renderTarget->DrawBitmap(bmp.bitmap.get(),
-            tinta::rectF(bmp.destRect.left - app.scrollX,
-                         bmp.destRect.top - app.scrollY,
-                         bmp.destRect.right - app.scrollX,
-                         bmp.destRect.bottom - app.scrollY));
-        app.drawCalls++;
-    }
-
-    for (const auto& run : app.layoutTextRuns) {
-        if (run.bounds.bottom < viewportTop - cullMargin ||
-            run.bounds.top > viewportBottom + cullMargin) {
-            continue;
-        }
-        if (run.bounds.right < viewportLeft - cullMargin ||
-            run.bounds.left > viewportRight + cullMargin) {
-            continue;
-        }
-        app.brush->SetColor(run.color);
-        tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
-        if (app.deviceContext) {
-            // Stays native, deliberately. app.deviceContext is the colour-emoji path
-            // and has no seam equivalent (see its declaration in app.h), so this is
-            // the one call that needs the layout back as an IDWriteTextLayout*.
-            app.deviceContext->DrawTextLayout(drawPos, nativeTextLayout(run.layout.get()),
-                app.nativeBrush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-        } else {
-            // Onto the seam, which is one of the 26 DrawTextLayout sites render_api.h
-            // was sized for. It could not move before this commit: the layout was a
-            // native pointer, and passing it here would have needed a wrapper built
-            // per frame per run.
-            app.renderTarget->DrawTextLayout(drawPos, run.layout.get(), app.brush);
-        }
-        app.drawCalls++;
-    }
-
-    for (const auto& line : app.layoutLines) {
-        float minY = std::min(line.p1.y, line.p2.y);
-        float maxY = std::max(line.p1.y, line.p2.y);
-        if (maxY < viewportTop - cullMargin || minY > viewportBottom + cullMargin) {
-            continue;
-        }
-        app.brush->SetColor(line.color);
-        app.renderTarget->DrawLine(
-            tinta::pointF(line.p1.x - app.scrollX, line.p1.y - app.scrollY),
-            tinta::pointF(line.p2.x - app.scrollX, line.p2.y - app.scrollY),
-            app.brush, line.stroke);
-        app.drawCalls++;
-    }
+    paintDocumentLayout(app, documentViewport);
 
     // Render code block copy button on hover
     if (app.hoveredCodeBlock >= 0 && app.hoveredCodeBlock < (int)app.codeBlocks.size()) {

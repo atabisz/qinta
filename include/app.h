@@ -1665,8 +1665,29 @@ struct App {
     // refcount traffic. Deliberately NOT the shape to copy for an owning wrapper.
     //
     // const, with mutable storage, because lightboxImageRect takes a const App&.
+    //
+    // THE GUARD IS TINTA_D2D_BACKEND, NOT _WIN32, for the reason CMakeLists.txt spells out
+    // where that macro is defined: an `#ifdef _WIN32` in a header that BOTH stacks compile
+    // is asking about the OS when it means to ask about the backend. These three accessors
+    // are the second instance of that mistake, after src/paint_document.cpp, and they were
+    // found the same way -- by a link failure rather than by reading. Under
+    // -DTINTA_LEGACY_D2D=OFF, qinta is a WINDOWS target with no D2D backend, so _WIN32 was
+    // defined, `seat<D2DBitmap>` instantiated, and four objects that have nothing to do with
+    // Direct2D (tabs, overlays, startpage, editrail) each came back with
+    //
+    //   error LNK2001: unresolved external symbol D2DBitmap::GetSize
+    //
+    // out of src/render_d2d.cpp, which qinta correctly does not compile. Those four are pure
+    // CALLERS -- none of them names a D2D type -- which is why the fix belongs here, in the
+    // one header they share, and not in any of them.
+    //
+    // Returning nullptr when the backend is absent is not a new behaviour, it is the SAME
+    // behaviour this file already had off Windows, and the callers already handle it (each
+    // one passes the pointer to a draw helper that skips a null bitmap). So a Windows qinta
+    // now draws these three chrome icons exactly as a Linux qinta does: not at all, pending
+    // a Qt path. That is the honest state rather than a regression.
     tinta::Bitmap* titleIconBitmap() const {
-#ifdef _WIN32
+#ifdef TINTA_D2D_BACKEND
         return titleIconBitmapStorage.seat<D2DBitmap>(nativeTitleIconBitmap);
 #else
         titleIconBitmapStorage.reset();
@@ -1674,7 +1695,7 @@ struct App {
 #endif
     }
     tinta::Bitmap* startPageIconBitmap() const {
-#ifdef _WIN32
+#ifdef TINTA_D2D_BACKEND
         return startPageIconBitmapStorage.seat<D2DBitmap>(nativeStartPageIconBitmap);
 #else
         startPageIconBitmapStorage.reset();
@@ -1684,7 +1705,7 @@ struct App {
     // No lightboxBitmap() accessor: the member of that name IS a tinta::Bitmap
     // holder now, so .get() is the whole accessor. Its Seated storage went with it.
     tinta::Bitmap* linkPeekBitmap() const {
-#ifdef _WIN32
+#ifdef TINTA_D2D_BACKEND
         return linkPeekBitmapStorage.seat<D2DBitmap>(nativeLinkPeekBitmap);
 #else
         linkPeekBitmapStorage.reset();

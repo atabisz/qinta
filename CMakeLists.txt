@@ -416,9 +416,20 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
 #
 # This is the shape of the whole port's endgame, arriving early: every `#ifdef _WIN32` in
 # a file that BOTH stacks compile is asking about the OS when it means to ask about the
-# backend. Only paint_document.cpp is converted here, because it is the only such file
-# with native spots inside it today. When src/render_d2d.cpp and src/text_d2d.cpp are
-# deleted, this definition and both of its branches go with them.
+# backend. When src/render_d2d.cpp and src/text_d2d.cpp are deleted, this definition and
+# both of its branches go with them.
+#
+# TWO FILES ARE CONVERTED NOW, not one. This comment used to claim paint_document.cpp was
+# "the only such file with native spots inside it today", which was already false when it
+# was written: include/app.h's three bitmap accessors -- titleIconBitmap,
+# startPageIconBitmap, linkPeekBitmap -- had the same _WIN32 guard around a
+# `seat<D2DBitmap>` call, and being in a HEADER they leaked the mistake into every
+# translation unit that called them. Four objects with no Direct2D in them (tabs, overlays,
+# startpage, editrail) each came back with `unresolved external symbol D2DBitmap::GetSize`.
+# Corrected in place rather than deleted, because the wrong sentence is the useful part: a
+# stale count in a comment reads as a considered decision about the files it excludes, which
+# is strictly worse than reading as an omission. Nothing in this tree greps a prose count,
+# so the next one will go stale the same way.
 #
 # Gated on TINTA_LEGACY_D2D so OFF turns the macro off too -- otherwise the flag would
 # leave paint_document.cpp still compiling calls into backends the flag just removed, and
@@ -1235,7 +1246,17 @@ if(BUILD_TESTING)
         src/render_d2d.cpp src/text_d2d.cpp)
     target_include_directories(bitmap_seam_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
     target_link_libraries(bitmap_seam_tests PRIVATE md4c shell32 d2d1 dwrite)
-    target_compile_definitions(bitmap_seam_tests PRIVATE UNICODE _UNICODE)
+    # TINTA_D2D_BACKEND because this target COMPILES src/render_d2d.cpp two lines up, so the
+    # macro's own definition -- "this target links the Direct2D/DirectWrite backend" -- is
+    # simply true of it. It was missing, and that only became visible when include/app.h's
+    # three bitmap accessors moved off #ifdef _WIN32 onto this macro: the accessors then took
+    # the null branch here and the test reported exactly 10 failures, predicted in advance and
+    # itemised -- the three "holds the native it was given", the three "follows a replaced
+    # native", the three "keeps its own native", and the distinct-ADDRESS check, which fails
+    # because three nullptrs compare equal. Worth recording that the four assertions in
+    # nullNativeYieldsNullSeam kept PASSING throughout, trivially, everything being null: they
+    # read like coverage of this seam and would not have noticed its removal.
+    target_compile_definitions(bitmap_seam_tests PRIVATE UNICODE _UNICODE TINTA_D2D_BACKEND)
     add_test(NAME bitmap_seam COMMAND bitmap_seam_tests)
 
     # Unlike bitmap_seam_tests, this one uses REAL DirectWrite objects -- it can,

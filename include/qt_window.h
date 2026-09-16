@@ -35,11 +35,30 @@
 // changed size, and a window that paints a stale layout after a resize would look
 // like a broken renderer. Stated here because it is a known temporary and not a
 // design.
+//
+// THAT COMMENT IS NOW HALF FALSE AND THE HALF THAT SURVIVES IS THE IMPORTANT ONE.
+// There IS event wiring on this stack: wheelEvent and keyPressEvent scroll, and Ctrl+O
+// opens a second document. The layout still happens inside paintEvent, and the reason
+// has changed from "nothing else runs" to "syncViewport is called from three places and
+// only the paint knows a relayout is affordable". A resizeEvent override is still owed.
+//
+// WHAT INPUT THIS WINDOW HANDLES, and the ceiling on it: scrolling and open. That is
+// two of the several hundred behaviours src/input.cpp implements -- no selection, no
+// search, no tabs, no editor, no zoom. The scroll POLICY is not here either; it is
+// src/scroll.cpp, which links off Windows, so this class holds the Qt-to-policy
+// translation and nothing a non-Qt test cannot reach. The one thing that MUST live here
+// is setFocusPolicy: a QWidget defaults to Qt::NoFocus and therefore never receives a
+// key event at all, which no pixel test and no probe in this tree could have caught --
+// keyPressEvent is reachable from a test with sendEvent whether the widget can be
+// focused or not, so the test asserts the focus policy separately and on purpose.
 
 #include <QWidget>
+#include <string>
 
 #include "geometry.h"
 
+class QKeyEvent;
+class QWheelEvent;
 struct App;
 
 class QtAppWindow final : public QWidget {
@@ -74,10 +93,40 @@ public:
     // this tree keeps finding in its own instruments.
     bool documentPainted() const { return documentPainted_; }
 
+    // Load `path` into the App, retitle the window and repaint. Returns false and
+    // changes NOTHING if the file will not open, which is loadDocumentFromPath's
+    // contract and the reason a failed Ctrl+O leaves the document you were reading on
+    // screen instead of an empty window.
+    //
+    // PUBLIC AND SEPARATE FROM THE DIALOG ON PURPOSE. promptOpenDocument below shows a
+    // modal file dialog, so no test can call it without a human clicking; everything
+    // that happens AFTER the dialog returns is in here, where a test drives it with a
+    // path it wrote itself. main() takes this same path for argv[1], so the argument
+    // and the menu cannot drift apart -- which is the defect main_d2d.cpp has, where
+    // the load logic is two lambdas inside WinMain and the Qt side had to write its own.
+    bool openDocument(const std::string& path);
+
+    // Ctrl+O. Shows platform::requestOpenPath's dialog and hands the result to
+    // openDocument. One line of untestable surface, by construction.
+    void promptOpenDocument();
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
+    // Copy the widget's size into App's viewport. Returns whether it CHANGED, which is
+    // what selects a relayout.
+    //
+    // Called from the input handlers as well as the paint, and that is not tidiness:
+    // every scroll maximum is derived from app.height, so a wheel event arriving before
+    // the first paint would clamp against a stale height -- 0 on a window that has
+    // never painted -- and scroll nowhere. The bug it prevents is "the first scroll
+    // after launch does nothing", which is exactly the kind of thing that gets
+    // diagnosed as a scroll-step problem.
+    bool syncViewport();
+
     // Relayouts if App's viewport disagrees with the widget, then draws the cached
     // layout through the seam. Returns false if there is nothing to draw, which is
     // what selects the placeholder.

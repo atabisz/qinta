@@ -55,11 +55,19 @@
 #include <QApplication>
 #include <QFontDatabase>
 #include <QImage>
+#include <QKeyEvent>
 #include <QPixmap>
+#include <QPoint>
+#include <QPointF>
+#include <QString>
+#include <QWheelEvent>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <string>
 
 #include "app.h"
 #include "document.h"
@@ -83,6 +91,29 @@ const char kMarkdown[] =
     "```cpp\n"
     "int x = 1;\n"
     "```\n";
+
+// A document TALLER THAN THE WINDOW, which is the precondition every scroll assertion
+// in runs 8-10 depends on. kMarkdown above is three short blocks: it lays out to less
+// than 400 pixels, so app.contentHeight - app.height is negative, every maximum clamps
+// to zero, and a scroll test on it would pass by measuring nothing at all. That is the
+// single most likely way this file could go green while testing nothing, so the
+// precondition is ASSERTED (app.contentHeight > app.height) before anything is scrolled.
+//
+// Built from a repeated block rather than written out, because the only property that
+// matters is height, and 40 headed sections is unambiguously past 400 pixels at any
+// plausible font size. The heading numbers differ per section so the pixels differ per
+// scroll position -- a document of forty identical paragraphs would look the same at
+// every offset and defeat the image comparisons.
+std::string tallMarkdown() {
+    std::string out;
+    for (int i = 1; i <= 40; i++) {
+        out += "## Section " + std::to_string(i) + "\n\n";
+        out += "Paragraph " + std::to_string(i) +
+               " of the tall fixture, with enough words in it to wrap and to differ from "
+               "its neighbours when the view scrolls.\n\n";
+    }
+    return out;
+}
 
 int g_checks = 0;
 int g_failures = 0;
@@ -139,6 +170,41 @@ QImage grabWindow(QtAppWindow& window) {
 tinta::RectF documentBand(const QtAppWindow& window) {
     return tinta::RectF{0.0f, 0.0f, static_cast<float>(window.width()),
                         static_cast<float>(window.height()) * 0.25f};
+}
+
+// A wheel event delivered the way Qt delivers one, through the event system rather than
+// by calling wheelEvent directly.
+//
+// THROUGH sendEvent ON PURPOSE. Calling window.wheelEvent(&ev) would not compile from
+// here -- it is protected -- and if it were public it would skip the dispatch that makes
+// this a test of the wiring rather than of the handler body. What it does NOT exercise is
+// focus: a posted event reaches the widget whether or not it can hold focus, which is why
+// the focus policy is asserted separately and explicitly.
+//
+// notches is in the same unit src/scroll.h takes: POSITIVE IS WHEEL UP. Qt wants eighths
+// of a degree, so 120 per notch, and the sign is passed straight through.
+void sendWheel(QtAppWindow& window, float notches, Qt::KeyboardModifiers mods = Qt::NoModifier,
+               bool horizontalAxis = false) {
+    const int delta = static_cast<int>(notches * 120.0f);
+    const QPoint angle = horizontalAxis ? QPoint(delta, 0) : QPoint(0, delta);
+    const QPointF local(static_cast<qreal>(window.width()) / 2.0,
+                        static_cast<qreal>(window.height()) / 2.0);
+    QWheelEvent ev(local, QPointF(window.mapToGlobal(local.toPoint())), QPoint(0, 0), angle,
+                   Qt::NoButton, mods, Qt::NoScrollPhase, false);
+    QApplication::sendEvent(&window, &ev);
+}
+
+void sendKey(QtAppWindow& window, int key, Qt::KeyboardModifiers mods = Qt::NoModifier) {
+    QKeyEvent ev(QEvent::KeyPress, key, mods);
+    QApplication::sendEvent(&window, &ev);
+}
+
+// float equality, at the tolerance the arithmetic deserves. Every value asserted below is
+// a sum of at most a few multiples of 50 or 60, so anything further out than this is a
+// different number and not a rounding difference. Written as a helper because an
+// exact == on a float would be the wrong claim and a `> 0` would be the wrong test.
+bool sameScroll(float actual, float expected) {
+    return std::abs(actual - expected) < 0.01f;
 }
 
 }  // namespace
@@ -380,13 +446,20 @@ int main(int argc, char** argv) {
     app.root = nullptr;
     app.sourceText.clear();
 
-    // THE CACHED LAYOUT HAS TO GO OR THE PIXEL EQUALITY BELOW PROVES NOTHING.
+    // THE CACHED LAYOUT HAS TO GO OR THE PIXEL EQUALITY BELOW PROVES NOTHING, and this
+    // test used to do it itself with two clear() calls right here. It does not any more,
+    // because loadDocumentFromPath now clears the cache as part of replacing App::root --
+    // and the difference between those two arrangements is the whole point of the change.
+    //
     // QtAppWindow::paintDocument relayouts only when the run list is empty or the widget
-    // resized, and neither is true here -- run 4's runs are still in App and the window is
-    // the same size. So without this the grab would redraw run 4's layout, the counts would
-    // match, and the assertion would be comparing the file's parse against nothing at all.
-    app.layoutTextRuns.clear();
-    app.layoutRects.clear();
+    // resized, and neither is true at this line: run 4's runs are still in App and the
+    // window is the same size. A test that cleared the cache itself would therefore pass
+    // whether the loader invalidated anything or not, and the application -- which has no
+    // such line -- would draw the OLD document after Ctrl+O. So the compensation is gone
+    // and the behaviour is asserted instead, below.
+    check(!app.layoutTextRuns.empty(),
+          "run 4's layout is still cached at this point, so the assertion after the load is "
+          "about the loader and not about an already-empty vector");
 
     const std::filesystem::path tmp =
         std::filesystem::temp_directory_path() / "tinta_qt_entry_fixture.md";
@@ -448,9 +521,255 @@ int main(int argc, char** argv) {
           "side shows as the start page");
     check(app.sourceText.empty(), "and app.sourceText is empty, not stale from the last load");
 
+    // --- Run 8: SCROLLING -- the thing basis F is scored on ----------------------
+    //
+    // Every run above draws the first screenful of a document and stops. This one moves
+    // it, which is what makes the difference between a render and a viewer, and it is
+    // driven through QApplication::sendEvent rather than by calling the scroll functions
+    // -- so what is under test is the WIRING (a QWheelEvent's units and sign, the key
+    // table, the modifier branches) and not arithmetic a unit test could reach.
+    //
+    // THE PRECONDITION IS ASSERTED BEFORE ANYTHING IS SCROLLED. On a document shorter
+    // than the window every maximum is zero, every scroll clamps to the top, and every
+    // assertion in this run would pass while measuring nothing whatever. That is the most
+    // likely false green available here, so the fixture is deliberately tall and the
+    // check below is the one that makes the rest decidable.
+    const std::filesystem::path tallPath =
+        std::filesystem::temp_directory_path() / "tinta_qt_entry_tall.md";
+    {
+        std::ofstream out(tallPath, std::ios::binary);
+        out << tallMarkdown();
+    }
+    const std::string tallUtf8 = tallPath.u8string();
+
+    check(window.openDocument(tallUtf8),
+          "QtAppWindow::openDocument loaded the tall fixture -- the SAME entry point main() "
+          "takes for argv[1] and Ctrl+O takes after the dialog, so neither can drift");
+    check(window.windowTitle().contains(QStringLiteral("tinta_qt_entry_tall")),
+          "and it retitled the window from the path, which is how the running app says which "
+          "file is open");
+    check(sameScroll(app.scrollY, 0.0f), "a freshly opened document starts at the top");
+    check(app.layoutTextRuns.empty(),
+          "and it invalidated the cached layout, which is the assertion that replaced this "
+          "test's own two clear() calls in run 7 -- without it a second document draws the "
+          "first document's runs");
+
+    const QImage topImage = grabWindow(window);
+    check(window.documentPainted(), "and the window painted it as a document");
+
+    const float scale = app.contentScale;
+    std::printf("content_height=%.1f app_height=%d content_scale=%.2f\n", app.contentHeight,
+                app.height, scale);
+    check(app.contentHeight > static_cast<float>(app.height),
+          "PRECONDITION: the tall fixture is taller than the window, so there is somewhere to "
+          "scroll. Every check below measures nothing at all if this one fails");
+
+    const float maxScrollY = std::max(0.0f, app.contentHeight - static_cast<float>(app.height));
+    const float wheelStep = 60.0f * scale;
+    const float lineStep = 50.0f * scale;
+    const float pageStep = static_cast<float>(app.height) * 0.8f;
+
+    sendWheel(window, -1.0f);
+    std::printf("scroll_after_one_notch=%.2f expected=%.2f\n", app.scrollY, wheelStep);
+    check(sameScroll(app.scrollY, wheelStep),
+          "one wheel notch DOWN moves the document by 60 device-independent pixels, which is "
+          "src/input.cpp:884's number reached through Qt's eighths-of-a-degree units");
+    check(sameScroll(app.targetScrollY, app.scrollY),
+          "and the target and the live offset agree, because the smooth-scroll animation the "
+          "two members imply is not switched on in either stack");
+
+    const QImage scrolledImage = grabWindow(window);
+    check(scrolledImage != topImage,
+          "THE PIXELS MOVED. A scroll that changes app.scrollY and leaves the image alone is a "
+          "scroll the paint pass ignored, and no assertion on app.scrollY alone can tell those "
+          "two apart");
+    check(nonBackgroundPixels(scrolledImage, docBand, bg) > 0,
+          "and the top band still carries document pixels, so the view scrolled rather than "
+          "running off the end of the content");
+
+    sendKey(window, Qt::Key_Home);
+    check(sameScroll(app.scrollY, 0.0f), "Home returns to the top");
+    check(grabWindow(window) == topImage,
+          "AND THE WINDOW IS PIXEL-FOR-PIXEL WHAT IT WAS BEFORE THE SCROLL. A round trip is the "
+          "one shape that cannot pass on a paint pass that draws something plausible at every "
+          "offset");
+
+    sendWheel(window, 1.0f);
+    check(sameScroll(app.scrollY, 0.0f),
+          "CONTROL: a wheel notch UP at the top clamps at zero instead of going negative");
+    check(grabWindow(window) == topImage,
+          "CONTROL: and the image is unchanged, so the clamp holds in the paint and not only in "
+          "the arithmetic");
+
+    sendWheel(window, -1000.0f);
+    std::printf("scroll_after_1000_notches=%.2f max_scroll=%.2f\n", app.scrollY, maxScrollY);
+    check(sameScroll(app.scrollY, maxScrollY),
+          "CONTROL: a thousand notches land exactly on contentHeight - height and not one pixel "
+          "further, so the clamp is a maximum rather than a slowdown");
+    const QImage bottomImage = grabWindow(window);
+    check(bottomImage != topImage, "the end of the document is a different picture from its top");
+    check(nonBackgroundPixels(bottomImage, docBand, bg) > 0,
+          "and there are still document pixels in the top band at the very bottom of the "
+          "document, which is what distinguishes a clamp from scrolling into empty space");
+
+    // The key table. Each of these is a number COPIED from src/input.cpp rather than
+    // chosen, and the pair below is the reason they are asserted one at a time: the wheel
+    // moves 60 and the arrow keys move 50. Harmonising them would look like a cleanup.
+    sendKey(window, Qt::Key_Home);
+    sendKey(window, Qt::Key_Down);
+    check(sameScroll(app.scrollY, lineStep),
+          "the Down arrow steps 50 device-independent pixels -- a DIFFERENT number from the "
+          "wheel's 60, from src/input.cpp:3966");
+    sendKey(window, Qt::Key_Up);
+    check(sameScroll(app.scrollY, 0.0f), "and the Up arrow steps back by the same amount");
+    sendKey(window, Qt::Key_J);
+    check(sameScroll(app.scrollY, lineStep),
+          "J scrolls down like the Down arrow -- the vi bindings are src/input.cpp:3943's, not "
+          "an addition made in the port");
+    sendKey(window, Qt::Key_K);
+    check(sameScroll(app.scrollY, 0.0f), "and K scrolls up");
+    sendKey(window, Qt::Key_PageDown);
+    std::printf("scroll_after_page_down=%.2f expected=%.2f\n", app.scrollY, pageStep);
+    check(sameScroll(app.scrollY, pageStep),
+          "Page Down moves 80% of the WINDOW height, so a page is a screenful and not a step");
+    sendKey(window, Qt::Key_Space);
+    check(sameScroll(app.scrollY, std::min(2.0f * pageStep, maxScrollY)),
+          "Space is a second Page Down, which is src/input.cpp:3973's binding");
+    sendKey(window, Qt::Key_PageUp);
+    check(sameScroll(app.scrollY, std::min(2.0f * pageStep, maxScrollY) - pageStep),
+          "and Page Up moves one page back");
+    sendKey(window, Qt::Key_End);
+    check(sameScroll(app.scrollY, maxScrollY),
+          "End jumps to the bottom, through ensureLayoutComplete -- the only scroll target that "
+          "cannot be computed from the layout already in hand");
+    sendKey(window, Qt::Key_Home);
+    check(sameScroll(app.scrollY, 0.0f), "and Home comes back to the top");
+
+    // THE HORIZONTAL AXIS, AND THE ONE PLACE THIS PORT DELIBERATELY DOES NOT COPY WINDOWS.
+    // src/input.cpp:3959 does `targetScrollX += dpi(60)` with no upper clamp and leaves
+    // src/paint_document.cpp to clamp the visible offset, so on Windows targetScrollX grows
+    // past the end of the content and several Lefts do nothing afterwards. src/scroll.cpp
+    // clamps both axes at every site. The tall fixture wraps to the window, so the maximum
+    // here is ZERO and this assertion reads the divergence directly: it is satisfied by the
+    // clamped behaviour and fails on Windows' arithmetic.
+    const float maxScrollX = std::max(0.0f, app.contentWidth - documentViewportWidth(app));
+    sendKey(window, Qt::Key_Right);
+    std::printf("content_width=%.1f viewport_width=%.1f max_scroll_x=%.2f scroll_x=%.2f\n",
+                app.contentWidth, documentViewportWidth(app), maxScrollX, app.scrollX);
+    check(sameScroll(app.scrollX, std::min(60.0f * scale, maxScrollX)),
+          "the Right arrow clamps the HORIZONTAL offset against the content width. THE ONE "
+          "DELIBERATE DIVERGENCE from src/input.cpp, which clamps this axis at zero only -- so "
+          "this check fails on the behaviour it was ported from, on purpose");
+    check(sameScroll(app.targetScrollX, app.scrollX),
+          "and targetScrollX is clamped too, which is the half Windows leaves growing");
+    sendKey(window, Qt::Key_Left);
+    check(sameScroll(app.scrollX, 0.0f), "and Left clamps at zero");
+
+    // CONTROL: the two modifier branches. Ctrl+O is NOT sent from here and must not be:
+    // promptOpenDocument calls QFileDialog::exec, which blocks until a human clicks, so a
+    // test that sent it would hang the suite rather than fail it. What is testable is that
+    // the modifier branch is taken at all, and Ctrl+J is the discriminating key -- if the
+    // switch ran before the modifier check, Ctrl+J would scroll.
+    sendKey(window, Qt::Key_J, Qt::ControlModifier);
+    check(sameScroll(app.scrollY, 0.0f),
+          "CONTROL: Ctrl+J does not scroll, so the modifier branch is checked BEFORE the key "
+          "table and Ctrl+O's neighbours cannot move the document");
+    sendWheel(window, -1.0f, Qt::ControlModifier);
+    check(sameScroll(app.scrollY, 0.0f),
+          "CONTROL: Ctrl+wheel does not scroll either. It is ZOOM on Windows "
+          "(src/input.cpp:874) and unimplemented here, and doing nothing is the honest "
+          "behaviour -- scrolling would be the wrong gesture rather than a missing one");
+
+    sendWheel(window, -1.0f, Qt::ShiftModifier);
+    check(sameScroll(app.scrollY, 0.0f),
+          "Shift+wheel does not scroll VERTICALLY: it is the horizontal gesture, from "
+          "src/input.cpp:875");
+    check(sameScroll(app.scrollX, std::min(60.0f * scale, maxScrollX)),
+          "it moves the horizontal offset instead -- zero here, because the content wraps to "
+          "the window, which is the same clamp the Right arrow hit above");
+    sendKey(window, Qt::Key_Home);
+
+    // NOTHING ABOVE TESTS THIS, and that is the point of asserting it separately.
+    // QApplication::sendEvent delivers to a widget whether or not it can hold focus, so
+    // every key check in this run would pass on a window that never receives a single key
+    // in the running application -- and QWidget's default IS Qt::NoFocus. There is no
+    // pixel, no probe and no assertion above that can see the difference.
+    check(window.focusPolicy() != Qt::NoFocus,
+          "the window can take keyboard focus, so the key table above is reachable in the "
+          "application and not only through sendEvent");
+
+    // --- Run 9: A SECOND DOCUMENT, which is basis F's other half ------------------
+    //
+    // Ctrl+O's dialog cannot be driven from a test; everything after it can, and this is
+    // it. TWO DEFECTS SHARE ONE ASSERTION at the end, and neither is visible without it.
+    check(window.openDocument(tmpUtf8), "the short document opens again over the tall one");
+    const QImage shortFresh = grabWindow(window);
+    check(window.documentPainted(), "and paints as a document");
+    std::printf("content_height_short=%.1f\n", app.contentHeight);
+
+    check(window.openDocument(tallUtf8), "the tall document opens again");
+    // THIS PAIR FOUND A REAL DEFECT AND IS THE REASON THE LOAD SETS app.layoutDirty.
+    // contentHeight is read BEFORE the End key and asserted to be zero rather than the
+    // short document's 316.8: a load that clears the run vectors and leaves the previous
+    // document's geometry behind makes every clamp arithmetic about the wrong document,
+    // and the failure is silent because the number is plausible. Then End -- which is the
+    // ONLY scroll target that cannot be computed from the layout already in hand, so it
+    // is the only one that has to force a layout -- lands on this document's maximum.
+    check(sameScroll(app.contentHeight, 0.0f),
+          "the load left no geometry from the document before it, so a scroll arriving before "
+          "the first paint cannot clamp against the wrong document's height");
+    sendKey(window, Qt::Key_End);
+    std::printf("end_before_any_paint: scroll_y=%.2f content_height=%.1f runs=%zu expected=%.2f\n",
+                app.scrollY, app.contentHeight, app.layoutTextRuns.size(), maxScrollY);
+    check(sameScroll(app.scrollY, maxScrollY),
+          "and End scrolled to the bottom WITH NO PAINT IN BETWEEN, so ensureLayoutComplete "
+          "actually laid the document out. Every other End in this file runs after a paint has "
+          "already built the layout, which is why they all passed while this one failed");
+    check(!app.layoutTextRuns.empty(),
+          "and the layout it forced is a real one, not an empty pass that merely cleared the "
+          "dirty flag");
+    grabWindow(window);
+
+    check(window.openDocument(tmpUtf8), "and now the short document opens over a SCROLLED tall one");
+    // BEFORE ANY PAINT. src/paint_document.cpp clamps app.scrollY against the new
+    // document's height on the next paint, which would hide a missing reset entirely --
+    // the image comparison below cannot see this defect, only this line can.
+    check(sameScroll(app.scrollY, 0.0f),
+          "the load reset the scroll offset itself, BEFORE a paint had a chance to clamp it "
+          "against the new document's height and hide the omission");
+    check(app.layoutTextRuns.empty(), "and dropped the tall document's cached layout");
+
+    const QImage shortAfterTall = grabWindow(window);
+    check(shortAfterTall == shortFresh,
+          "A SHORT DOCUMENT OPENED AFTER A SCROLLED TALL ONE IS PIXEL-FOR-PIXEL THE SAME AS "
+          "OPENING IT FRESH. This is the whole of Ctrl+O in one comparison: it fails if the "
+          "loader leaves the previous layout cached, because QtAppWindow::paintDocument "
+          "relayouts only on a resize or an empty run list");
+
+    // --- Run 10: the viewport sync in the INPUT path, not the paint path ----------
+    //
+    // app.width and app.height used to be assigned in exactly one place -- inside
+    // QtAppWindow::paintDocument -- and every scroll maximum is derived from app.height. So
+    // a key or wheel event arriving after a resize and before the next paint would clamp
+    // against the OLD height. THE ABSENCE OF A GRAB IN THIS RUN IS THE INSTRUMENT: with one,
+    // the paint would sync the viewport and the assertion would pass either way.
+    check(window.openDocument(tallUtf8), "the tall document is back for the resize check");
+    grabWindow(window);
+    window.resize(600, 700);
+    check(window.height() == 700, "the widget is 700 tall now");
+    sendKey(window, Qt::Key_End);  // deliberately no grab between the resize and this line
+    std::printf("app_height_after_resize=%d content_height=%.1f scroll_y=%.2f\n", app.height,
+                app.contentHeight, app.scrollY);
+    check(app.height == 700,
+          "the KEY HANDLER synced App's viewport from the widget with no paint in between");
+    check(sameScroll(app.scrollY, std::max(0.0f, app.contentHeight - 700.0f)),
+          "and End landed on a maximum computed from the new height -- 300 pixels away from "
+          "where the stale one would have put it");
+
     std::error_code rmEc;
     std::filesystem::remove(tmp, rmEc);
     std::filesystem::remove(emptyPath, rmEc);
+    std::filesystem::remove(tallPath, rmEc);
 
     // Idempotent by construction -- install(nullptr) on an empty storage -- and called
     // here anyway so the file ends in the state every earlier run ended in.

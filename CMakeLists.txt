@@ -491,6 +491,19 @@ set(TINTA_QT_APP_SOURCES
     # rows.
     src/file_utils.cpp
     src/document.cpp
+    # The scroll policy, and the file dialog Ctrl+O opens. src/scroll.cpp is portable and
+    # links off Windows; it holds the numbers src/input.cpp holds, in the one place both
+    # stacks can reach, so the Qt window carries the translation from a QWheelEvent and
+    # nothing else.
+    #
+    # src/file_dialog_qt.cpp is named DIRECTLY rather than through
+    # ${PLATFORM_FILE_DIALOG_SOURCE}, and that is the port's stated goal showing up in
+    # the build for the first time: on Windows that variable resolves to
+    # src/file_dialog_win32.cpp, and tinta_qt must not take the Win32 half of a seam it
+    # has a Qt half for. The legacy `tinta` target still links the Win32 half. No target
+    # links both, so there is no duplicate symbol.
+    src/scroll.cpp
+    src/file_dialog_qt.cpp
     src/image_qt.cpp
     src/inline_style.cpp
     src/mermaid.cpp
@@ -1053,6 +1066,13 @@ if(BUILD_TESTING)
         # (one extra compile) and it is the only instrument that would catch a Qt
         # include drifting into a file whose whole point is that both backends run it.
         src/paint_document.cpp
+        # The scroll policy, here for the same reason and with a sharper edge on it. The
+        # file exists so that src/input.cpp can call it once input.cpp ports, and
+        # input.cpp will never link Qt -- so a QWheelEvent or a Qt::KeyboardModifier
+        # drifting into scroll.cpp would quietly make the shared policy unshareable.
+        # THIS TARGET IS THE ONLY THING THAT WOULD CATCH THAT: qt_entry_tests links Qt,
+        # so it cannot tell the difference.
+        src/scroll.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     if(WIN32)

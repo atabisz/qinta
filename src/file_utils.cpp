@@ -221,5 +221,52 @@ bool loadDocumentFromPath(App& app, const std::string& path) {
     app.root = result.root;
     app.parseTimeUs = result.parseTimeUs;
     app.sourceText = content;
+
+    // THE CACHED LAYOUT BELONGS TO THE DOCUMENT THAT JUST GOT REPLACED, AND NOTHING
+    // DOWNSTREAM NOTICES ON ITS OWN. QtAppWindow::paintDocument relayouts only when the
+    // widget resized or the run list is empty, so opening a SECOND file into a window
+    // that has already painted would draw the first file's runs against the second
+    // file's root -- a window that ignores Ctrl+O, which reads as a broken dialog rather
+    // than a stale cache. The Windows path gets this for free from app.layoutDirty,
+    // which its message loop checks every frame and this stack has no equivalent of yet.
+    //
+    // Invalidating HERE rather than in the caller, because the rule belongs to the
+    // assignment above: anything that replaces app.root has invalidated the layout, and
+    // a caller that has to remember to invalidate is a caller that will forget. Asserted
+    // in tests/qt_entry_tests.cpp by loading two different documents in a row and
+    // reading the pixels, which is the only shape of test that fails if this is missed.
+    //
+    // THE FLAG IS NOT OPTIONAL AND THE PARAGRAPH ABOVE IS WHERE I LEARNED IT. This code
+    // called clearLayoutCache() alone first, and the sentence above already named
+    // app.layoutDirty as the mechanism that does this job properly -- while the code did
+    // not set it. clearLayoutCache() empties the run vectors and touches neither
+    // layoutDirty nor layoutComplete nor contentHeight (include/app.h:1395), so
+    // render.cpp:3275's ensureLayoutComplete saw a layout that was neither dirty nor
+    // incomplete and RETURNED WITHOUT LAYING ANYTHING OUT. The End key then clamped
+    // against a contentHeight belonging to the document before this one -- 316.8 against
+    // a 6164-pixel document -- and landed at the top instead of the bottom, silently.
+    // qt_entry_tests run 9 caught it, and only because it presses End after a load with
+    // no paint in between; every earlier End in that file ran after a paint had already
+    // rebuilt the layout, so they all passed on a stale-but-correct value.
+    app.clearLayoutCache();
+    app.layoutDirty = true;
+
+    // And the geometry those two flags describe, zeroed rather than left at the previous
+    // document's figures. Nothing downstream requires this -- layoutDocument overwrites
+    // both -- but a scroll arriving between this load and the next layout clamps against
+    // whatever is here, and clamping a new document against the LAST one's height puts
+    // the view somewhere unrelated to either. Zero clamps it to the top, which is where
+    // a freshly opened document belongs and what include/scroll.h already documents as
+    // the pre-layout behaviour.
+    app.contentHeight = 0.0f;
+    app.contentWidth = 0.0f;
+
+    // A new document starts at the top. Both members, because the pair is what the
+    // scroll policy reads and writes -- see include/scroll.h.
+    app.scrollY = 0.0f;
+    app.scrollX = 0.0f;
+    app.targetScrollY = 0.0f;
+    app.targetScrollX = 0.0f;
+
     return true;
 }

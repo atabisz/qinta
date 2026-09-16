@@ -15,6 +15,22 @@
 // the whole reason the header hoists the filter encodings out where they CAN be
 // asserted -- so no test constructs one. The application will have one when tinta's
 // window becomes a QWidget, which is the same cutover that makes `owner` meaningful.
+//
+// THAT LAST SENTENCE PREDICTED ONE CUTOVER AND THERE WERE TWO. The first half arrived:
+// tinta_qt has a QApplication and QtAppWindow is a QWidget, and Ctrl+O in it reaches
+// requestOpenPath below -- so this file is now REACHED BY THE RUNNING APPLICATION and
+// not only compiled. The second half did not: `owner` is still an HWND at the seam and
+// still nullptr here, so the dialog remains application-modal. Having a QWidget to pass
+// is necessary for honouring `owner` and is not sufficient, because the seam's type is
+// the obstacle. Corrected in place rather than deleted, because the prediction being
+// half right is the useful part.
+//
+// This file is also the first place tinta_qt takes the Qt backend of a seam ON WINDOWS
+// TOO -- CMakeLists.txt lists it in TINTA_QT_APP_SOURCES directly instead of through
+// ${PLATFORM_FILE_DIALOG_SOURCE}, which resolves to the Win32 half there. That is the
+// stated goal of the port rather than a build convenience: one stack on all three
+// platforms. The legacy `tinta` target still links the Win32 half, and nothing links
+// both, so there is no duplicate symbol to worry about.
 
 #include "file_dialog.h"
 

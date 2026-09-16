@@ -498,6 +498,26 @@ paint_document.cpp
 # leaving it linked would silently shadow the real implementation.
 math_stub.cpp
 
+# --- The scroll policy, compiled AND RUN off Windows ---------------------------
+#
+# scroll.cpp. The wheel, arrow-key, page, Home and End arithmetic for the document
+# view, and the clamp all five share. Compiled, linked and RUN off Windows by
+# qt_entry_tests, and compiled with NO Qt at all by portable_compile_only.
+#
+# THE SECOND READING IS THE ONE WITH TEETH, and the reason differs from
+# paint_document.cpp's. This file exists so that src/input.cpp -- 344 native mentions
+# deep and not portable -- can call it instead of keeping its own copy of these
+# numbers, and input.cpp will never link Qt. A QWheelEvent or a Qt::KeyboardModifier
+# drifting in here would compile fine in both Qt targets and quietly make the shared
+# policy unshareable, which is exactly the failure the Qt-free compile catches and the
+# Qt-linked test cannot.
+#
+# WHAT IT DOES NOT CLAIM: that the Windows build uses it. src/input.cpp still holds the
+# same numbers at eleven sites and is untouched by this slice, so the two copies exist
+# and this file is the one with a test on it. Routing input.cpp here is the deletion
+# that makes the claim whole, and it is not done.
+scroll.cpp
+
 # --- The Qt frontend: the entry point the whole port is aimed at ---------------
 #
 # These three are a DIFFERENT KIND of entry from everything above. Every other line

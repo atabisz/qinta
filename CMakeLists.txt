@@ -479,6 +479,18 @@ set(TINTA_QT_APP_SOURCES
     # of src/main_d2d.cpp so that something other than a Win32 WM_PAINT could call it.
     src/paint_document.cpp
     src/math_stub.cpp
+    # The command line's two files, and the LINKER is what added them rather than a
+    # reading of the include graph. src/main_qt.cpp's one new call --
+    # loadDocumentFromPath, in file_utils.cpp -- came back `undefined reference` from
+    # main_qt.cpp:(.text.startup), and file_utils.cpp in turn wants parseDocument out of
+    # document.cpp, which nothing on this stack had ever needed: the test parsed with
+    # app.parser.parse() directly and the window never loaded anything. Two files for one
+    # call, and neither was predictable from the fact that both were already portable --
+    # being in tests/portable-sources.txt says a file COMPILES off Windows, never that
+    # anything LINKS it, which is the whole reason README.md's bases B and C are separate
+    # rows.
+    src/file_utils.cpp
+    src/document.cpp
     src/image_qt.cpp
     src/inline_style.cpp
     src/mermaid.cpp

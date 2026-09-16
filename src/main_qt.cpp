@@ -17,26 +17,45 @@
 //   * No loadCustomThemes(). It is portable and it would work, and it would change
 //     nothing: without a settings load the theme index stays App's own default, so
 //     the call would populate a registry this window never indexes into.
-//   * No command line. Every switch WinMain parses -- --printpages, --exporthtml,
-//     --exportdocx, --exportpdf, --edit, --new, --pos -- lands in a code path that
-//     does not compile off Windows. A file argument is the first one to add, and the
-//     clause that used to end this line -- "and it needs the document renderer first" --
-//     IS NOW DISCHARGED: as of 2026-09-16 tests/qt_entry_tests.cpp parses markdown,
-//     runs layoutDocument through src/render.cpp and paints it through
-//     src/paint_document.cpp, on both platforms. So the renderer is no longer the
-//     blocker; what is missing is four lines here that read argv[1] and put the parse
-//     result in app.root. Until somebody writes them THIS BINARY STILL SHOWS THE
-//     PLACEHOLDER, which is why README.md's basis F is still 0/3 -- a document drawn
-//     only by a test is not a viewer anybody can run.
+//   * A FILE ARGUMENT AND NOTHING ELSE. argv[1], if it is there, is opened as a
+//     document; every switch WinMain parses -- --printpages, --exporthtml,
+//     --exportdocx, --exportpdf, --edit, --new, --pos -- still lands in a code path
+//     that does not compile off Windows, so none of them is accepted here.
+//
+//     TWO CLAIMS THAT USED TO END THIS BULLET ARE BOTH DISCHARGED, and the second one
+//     was WRONG rather than merely stale. "It needs the document renderer first" went
+//     when tests/qt_entry_tests.cpp began laying out and painting a parsed document on
+//     both platforms. What replaced it -- "what is missing is four lines here that read
+//     argv[1] and put the parse result in app.root" -- was an estimate I never checked,
+//     and checking it is what killed it: the load logic on the Windows side is two
+//     lambdas INSIDE WinMain (src/main_d2d.cpp:1765 and :1777), so there was no
+//     function to call, and the second of them opens its stream with the MSVC wide-path
+//     ifstream extension that does not compile off Windows at all. The real cost was a
+//     new portable function, loadDocumentFromPath in src/file_utils.cpp, and the four
+//     lines below are what is left of the estimate once that existed.
+//
+//     A FIGURE INSIDE A COMMENT IS STILL A CLAIM. This one read as a considered
+//     estimate for exactly one commit and was never measured until somebody tried to
+//     spend it.
 //   * No exec() loop features: no menus, no tabs, no input. src/input.cpp is the
 //     deepest Windows file in the tree (344 native mentions at the last census).
 //
-// So this opens a window with the theme background and a line of text in it. That is
-// a shell, and README.md carries the measured list of what stands between it and a
-// document -- a list that is now four lines long and lives in the third bullet above.
+// So `tinta_qt some.md` opens a window with that document drawn in it, and `tinta_qt`
+// with no argument opens the same window showing the placeholder line. The sentence
+// that stood here said "this opens a window with the theme background and a line of
+// text in it. That is a shell" -- true until this commit, and the reason it is
+// corrected rather than deleted is that it named the limit README.md's basis F
+// measures, so a reader who remembers it needs to be told here that it moved.
+//
+// WHAT IT IS STILL NOT is a viewer: no menus, no tabs, no input, no scrolling, no
+// resize relayout outside paintEvent, and no maths (src/math_stub.cpp draws equations
+// as their own LaTeX source). One document, drawn once, and you can close the window.
 #include <QApplication>
 
+#include <cstdio>
+
 #include "app.h"
+#include "file_utils.h"
 #include "qt_init.h"
 #include "qt_window.h"
 
@@ -55,9 +74,26 @@ int main(int argc, char** argv) {
     // Before the window, because the first paint can arrive during show().
     installQtBackends(app);
 
+    // BEFORE the window too, and that ordering is load-bearing: QtAppWindow chooses its
+    // branch from App::root at paint time, and the first paint can arrive inside show().
+    // Loading afterwards would work by luck -- the placeholder for one frame, then a
+    // repaint nobody requested.
+    //
+    // A FAILED LOAD IS NOT FATAL. App::root stays null, the window shows the placeholder,
+    // and the reason goes to stderr. That matches the Windows side, where a file that
+    // will not open lands on the start page rather than refusing to launch.
+    QString title = QStringLiteral("tinta");
+    if (argc > 1) {
+        if (loadDocumentFromPath(app, argv[1])) {
+            title = QStringLiteral("%1 - tinta").arg(QString::fromLocal8Bit(argv[1]));
+        } else {
+            std::fprintf(stderr, "tinta: cannot open '%s'\n", argv[1]);
+        }
+    }
+
     QtAppWindow window(app);
     window.resize(1000, 700);
-    window.setWindowTitle(QStringLiteral("tinta"));
+    window.setWindowTitle(title);
     window.show();
 
     const int rc = QApplication::exec();

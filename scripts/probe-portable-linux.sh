@@ -470,6 +470,62 @@ else
     check 1 "tinta_qt links off Windows (no link line found -- was the target dropped, or main_qt.cpp made compile-only?)"
 fi
 
+note 'Qt frontend launch'
+# THE ONLY INSTRUMENT IN THE TREE THAT REACHES main(). tests/qt_entry_tests.cpp covers
+# QtAppWindow and loadDocumentFromPath -- everything main_qt.cpp calls -- but not
+# main_qt.cpp itself, because a test cannot enter a function that runs QApplication::exec().
+# So the command line's own branch (argv[1] present, argv[1] missing) had no coverage at
+# all, and this block is the cheapest thing that gives it any.
+#
+# EXIT 124 IS THE PASS. `timeout` kills a process that is still running and reports 124;
+# anything else means the binary exited on its own, which for a GUI app means it died. The
+# control is the other direction: a binary that exits immediately reads 0, so 124 is
+# distinguishable from both a crash (139, 134, 1) and a clean early return.
+#
+# WHAT IT DOES NOT PROVE, said here rather than only in the README: nobody saw a window.
+# 124 means the process lived for three seconds with a document loaded. The pixels are
+# qt_entry_tests' job and the picture is a human's.
+if [ -x "$BUILD_DIR/tinta_qt" ] && command -v timeout > /dev/null 2>&1; then
+    qt_fixture="$(mktemp -t tinta-probe-XXXXXX.md)"
+    printf '# Heading\n\nSome **bold** prose and `code`.\n' > "$qt_fixture"
+
+    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/tinta_qt" "$qt_fixture" \
+        > "$BUILD_DIR.qtlaunch.log" 2>&1
+    qt_rc=$?
+    echo "tinta_qt with a document: exit $qt_rc (124 = still running when killed)"
+    if [ "$qt_rc" = "124" ]; then
+        check 0 "tinta_qt stays up with a document loaded off argv[1], so the load path does not crash it"
+    else
+        check 1 "tinta_qt stays up with a document loaded off argv[1] (exit $qt_rc, not 124 -- see $BUILD_DIR.qtlaunch.log)"
+    fi
+    if grep -q 'cannot open' "$BUILD_DIR.qtlaunch.log"; then
+        check 1 "CONTROL: a document that EXISTS must not print 'cannot open' (it did -- the load failed and the window fell back to the placeholder)"
+    else
+        check 0 "CONTROL: a document that exists produces no 'cannot open', so the 124 above is a LOADED document and not a silent fallback"
+    fi
+
+    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/tinta_qt" "$qt_fixture.nope" \
+        > "$BUILD_DIR.qtmissing.log" 2>&1
+    qt_missing_rc=$?
+    echo "tinta_qt with a missing path: exit $qt_missing_rc"
+    if [ "$qt_missing_rc" = "124" ]; then
+        check 0 "a MISSING path still opens a window rather than refusing to launch, which is what the Windows side does"
+    else
+        check 1 "a missing path still opens a window (exit $qt_missing_rc, not 124)"
+    fi
+    if grep -q "cannot open" "$BUILD_DIR.qtmissing.log"; then
+        check 0 "and says so on stderr -- the one branch of main() no unit test can reach"
+    else
+        check 1 "and says so on stderr (no 'cannot open' line in $BUILD_DIR.qtmissing.log)"
+    fi
+
+    rm -f "$qt_fixture"
+else
+    # NOT a skip that reads as a pass: a missing binary or a missing timeout is a
+    # failed assertion, because both are things this probe is supposed to have.
+    check 1 "tinta_qt is executable and timeout(1) is available (cannot probe the launch without both)"
+fi
+
 note 'Tests'
 # ctest exits 0 on an EMPTY selection, so the count is asserted before the
 # result. Without this, a configure that produced no tests at all would report a

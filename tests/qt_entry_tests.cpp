@@ -58,9 +58,12 @@
 #include <QPixmap>
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 
 #include "app.h"
 #include "document.h"
+#include "file_utils.h"
 #include "geometry.h"
 #include "qt_init.h"
 #include "qt_window.h"
@@ -362,6 +365,92 @@ int main(int argc, char** argv) {
           "CONTROL: and so is the placeholder band");
     check(pixelIs(documentNoFactory, 2, 2, bg, 2),
           "CONTROL: the window still cleared, so the flat bands are a drawing result and not a dead grab");
+
+    // --- Run 7: the path main() actually takes -- a file on disk ------------------
+    //
+    // Runs 4-6 set App::root from a parse of a string literal. main() does not have a
+    // string literal; it has argv[1]. This run exercises loadDocumentFromPath, which is
+    // the ONLY line of main() that is not a constructor call or a seam install, so it is
+    // the only line of main() a test can reach at all.
+    //
+    // A REAL FILE RATHER THAN A FAKE ONE. The whole point of the function is the file
+    // read -- parseDocument already had four years of Windows use behind it -- so a test
+    // that injected the content would assert everything except the part that is new.
+    installQtBackends(app);
+    app.root = nullptr;
+    app.sourceText.clear();
+
+    // THE CACHED LAYOUT HAS TO GO OR THE PIXEL EQUALITY BELOW PROVES NOTHING.
+    // QtAppWindow::paintDocument relayouts only when the run list is empty or the widget
+    // resized, and neither is true here -- run 4's runs are still in App and the window is
+    // the same size. So without this the grab would redraw run 4's layout, the counts would
+    // match, and the assertion would be comparing the file's parse against nothing at all.
+    app.layoutTextRuns.clear();
+    app.layoutRects.clear();
+
+    const std::filesystem::path tmp =
+        std::filesystem::temp_directory_path() / "tinta_qt_entry_fixture.md";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out << kMarkdown;
+    }
+    check(std::filesystem::exists(tmp), "the fixture file was written");
+
+    // u8string() and not string(): loadDocumentFromPath takes UTF-8, because every
+    // std::string path in this tree is UTF-8 (toWide is what widens them). path::string()
+    // hands back the NATIVE narrow encoding, which on Windows is the ACP -- identical here,
+    // since the temp directory is ASCII on both hosts, and that is exactly why it would be
+    // the wrong call to make: it would work by luck and break on the first accented
+    // username. In C++17 u8string() returns std::string, so no conversion is needed.
+    const std::string tmpUtf8 = tmp.u8string();
+    check(loadDocumentFromPath(app, tmpUtf8),
+          "loadDocumentFromPath opened the file and parsed it");
+    check(app.root != nullptr, "and put a root element in App, which is what main() needs");
+    check(app.sourceText == std::string(kMarkdown),
+          "and app.sourceText holds the file's bytes, which is annotationsParseSource' input "
+          "for when annotations.cpp ports");
+
+    const QImage fromFileImage = grabWindow(window);
+    check(window.documentPainted(),
+          "the window took the DOCUMENT branch for a document that came off DISK");
+    const int fromFileDocBand = nonBackgroundPixels(fromFileImage, docBand, bg);
+    std::printf("doc_band_non_background_from_file=%d\n", fromFileDocBand);
+    check(fromFileDocBand == documentDocBand,
+          "and it draws the SAME pixels as the in-memory parse of the same bytes, so the file "
+          "read is byte-exact rather than merely successful");
+
+    // CONTROL: a path that is not there. This is the branch main() reports to stderr, and
+    // the assertion that matters is not the false -- it is that App is UNTOUCHED, because a
+    // loader that cleared root on failure would blank a document the user was reading.
+    // `auto` and not `const auto*`: App::root is a qmd::ElementPtr, which markdown.h:54
+    // makes a std::shared_ptr<Element>. The pointer spelling was a guess off main_d2d.cpp's
+    // usage -- `app.root = result.root` reads exactly the same either way -- and g++ refused
+    // to deduce it, which is the compiler doing the reading I did not. The copy is also what
+    // makes the assertion below meaningful: it holds the document alive independently, so a
+    // loader that reset root would be caught rather than compared against a dangling value.
+    const auto rootBefore = app.root;
+    const std::string missing = tmpUtf8 + ".does-not-exist";
+    check(!loadDocumentFromPath(app, missing),
+          "CONTROL: a missing path returns false rather than throwing or succeeding");
+    check(app.root == rootBefore,
+          "CONTROL: and leaves App::root exactly as it was, so a failed open loses nothing");
+
+    // CONTROL: a real file that is not markdown-parseable is NOT a thing that exists --
+    // md4c accepts any byte sequence -- so the empty file is the nearest case, and it is
+    // asserted to SUCCEED. That is the designed behaviour (an empty document is the start
+    // page on the Windows side), and stating it here stops a later reader from "fixing" it.
+    const std::filesystem::path emptyPath =
+        std::filesystem::temp_directory_path() / "tinta_qt_entry_empty.md";
+    { std::ofstream out(emptyPath, std::ios::binary); }
+    const std::string emptyUtf8 = emptyPath.u8string();
+    check(loadDocumentFromPath(app, emptyUtf8),
+          "an EMPTY file loads successfully, which is the same empty document the Windows "
+          "side shows as the start page");
+    check(app.sourceText.empty(), "and app.sourceText is empty, not stale from the last load");
+
+    std::error_code rmEc;
+    std::filesystem::remove(tmp, rmEc);
+    std::filesystem::remove(emptyPath, rmEc);
 
     // Idempotent by construction -- install(nullptr) on an empty storage -- and called
     // here anyway so the file ends in the state every earlier run ended in.

@@ -315,18 +315,16 @@ EditorGeom editorGeom(const App& app) {
     float y = chromeTopHeight(app) + dpi(app, 60.0f);
 
     float textH = dpi(app, 64.0f);
-    if (app.dwriteFactory && app.folderBrowserFormat) {
-        IDWriteTextLayout* layout = nullptr;
+    if (app.textFactory && app.folderBrowserFormat) {
         const std::wstring& text = app.annotEditorText;
-        app.dwriteFactory->CreateTextLayout(
-            text.c_str(), (UINT32)text.size(), nativeTextFormat(app.folderBrowserFormat),
-            w - pad * 2, 10000.0f, &layout);
-        if (layout) layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        auto layout = app.textFactory->CreateTextLayout(
+            text.c_str(), (uint32_t)text.size(), app.folderBrowserFormat,
+            w - pad * 2, 10000.0f);
+        if (layout) layout->SetWordWrapping(tinta::WordWrapping::Wrap);
         if (layout) {
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             layout->GetMetrics(&m);
             textH = std::max(textH, m.height + dpi(app, 8.0f));
-            layout->Release();
         }
     }
     textH = std::min(textH, dpi(app, 240.0f));
@@ -662,7 +660,7 @@ void renderAnnotations(App& app) {
     // text is off-screen
     if (app.hoveredAnnotation >= 0 &&
         app.hoveredAnnotation < (int)app.annotations.size() &&
-        !app.annotEditorOpen && app.folderBrowserFormat && app.dwriteFactory) {
+        !app.annotEditorOpen && app.folderBrowserFormat && app.textFactory) {
         const auto& a = app.annotations[app.hoveredAnnotation];
         float w = dpi(app, 300.0f);
         float pad = dpi(app, 10.0f);
@@ -671,14 +669,13 @@ void renderAnnotations(App& app) {
         std::wstring note = toWide(a.note);
         if (note.empty()) note = L" ";
 
-        IDWriteTextLayout* noteLayout = nullptr;
-        app.dwriteFactory->CreateTextLayout(
-            note.c_str(), (UINT32)note.size(), nativeTextFormat(app.folderBrowserFormat),
-            w - pad * 2 - dpi(app, 4.0f), 10000.0f, &noteLayout);
-        if (noteLayout) noteLayout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        auto noteLayout = app.textFactory->CreateTextLayout(
+            note.c_str(), (uint32_t)note.size(), app.folderBrowserFormat,
+            w - pad * 2 - dpi(app, 4.0f), 10000.0f);
+        if (noteLayout) noteLayout->SetWordWrapping(tinta::WordWrapping::Wrap);
         float noteH = dpi(app, 18.0f);
         if (noteLayout) {
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             noteLayout->GetMetrics(&m);
             noteH = m.height;
         }
@@ -744,11 +741,10 @@ void renderAnnotations(App& app) {
             app.brush);
         if (noteLayout) {
             app.brush->SetColor(app.theme.text);
-            app.nativeRenderTarget->DrawTextLayout(
+            app.renderTarget->DrawTextLayout(
                 tinta::pointF(px + pad + dpi(app, 4.0f),
                               py + pad + quoteH + dpi(app, 4.0f)),
-                noteLayout, app.nativeBrush);
-            noteLayout->Release();
+                noteLayout.get(), app.brush);
         }
     }
 }
@@ -1015,7 +1011,7 @@ bool annotationEditorContains(const App& app, float x, float y) {
 
 void renderAnnotationEditor(App& app) {
     if (!app.annotEditorOpen || !app.renderTarget || !app.brush ||
-        !app.folderBrowserFormat || !app.dwriteFactory) {
+        !app.folderBrowserFormat || !app.textFactory) {
         return;
     }
     EditorGeom g = editorGeom(app);
@@ -1065,11 +1061,10 @@ void renderAnnotationEditor(App& app) {
     float ty = g.textArea.top + dpi(app, 4.0f);
     float tw = g.textArea.right - g.textArea.left - dpi(app, 12.0f);
     const std::wstring& text = app.annotEditorText;
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(
-        text.c_str(), (UINT32)text.size(), nativeTextFormat(app.folderBrowserFormat),
-        tw, 10000.0f, &layout);
-    if (layout) layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    auto layout = app.textFactory->CreateTextLayout(
+        text.c_str(), (uint32_t)text.size(), app.folderBrowserFormat,
+        tw, 10000.0f);
+    if (layout) layout->SetWordWrapping(tinta::WordWrapping::Wrap);
     if (text.empty()) {
         const wchar_t* hint = tr(app, "annot.note_hint");
         tinta::Color hintColor = app.theme.text;
@@ -1084,18 +1079,17 @@ void renderAnnotationEditor(App& app) {
     float caretX = tx, caretY = ty, caretH = dpi(app, 16.0f);
     if (layout) {
         app.brush->SetColor(app.theme.text);
-        app.nativeRenderTarget->DrawTextLayout(tinta::pointF(tx, ty), layout,
-                                         app.nativeBrush);
-        DWRITE_HIT_TEST_METRICS m{};
-        FLOAT cx = 0, cy = 0;
-        if (SUCCEEDED(layout->HitTestTextPosition(
-                (UINT32)std::min(app.annotEditorCaret, text.size()), FALSE,
-                &cx, &cy, &m))) {
+        app.renderTarget->DrawTextLayout(tinta::pointF(tx, ty), layout.get(),
+                                         app.brush);
+        tinta::HitTestMetrics m{};
+        float cx = 0, cy = 0;
+        if (layout->HitTestTextPosition(
+                (uint32_t)std::min(app.annotEditorCaret, text.size()), false,
+                &cx, &cy, &m)) {
             caretX = tx + cx;
             caretY = ty + cy;
             caretH = m.height > 0 ? m.height : caretH;
         }
-        layout->Release();
     }
     if (app.cursorBlinkOn) {
         app.brush->SetColor(app.theme.text);

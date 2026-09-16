@@ -167,20 +167,128 @@ single-file Windows viewer with no web runtime.
 
 ## Building
 
-Requires Windows with Visual Studio 2019+ and CMake 3.15+.
+All three platforms build from the same CMake project, and they are not equally proven. The
+state per platform, before any commands:
+
+| Platform | Target | State |
+|----------|--------|-------|
+| Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
+| Windows | `tinta_qt` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
+| Linux | `tinta_qt` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
+| macOS | `tinta_qt` — Qt 6 | **Nobody has ever configured, built or launched this.** The recipe below is derived from the build system, not witnessed. |
+
+There is **no CI** in this repo, so a date in that table means somebody ran it that day and
+nothing re-runs it for you. Where a command below is unverified it says so on the spot, rather
+than sitting in the same voice as one that was measured.
+
+The Direct2D and DirectWrite build is the one that works today, and also the one being
+replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
+and how to measure what still depends on it.
+
+### Windows
+
+Visual Studio 2019+ and CMake 3.15+. `cmake` is not necessarily on `PATH` in an ordinary shell:
+on a Visual Studio install it lives under
+`Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
+adds for you.
 
 ```bash
-mkdir build
-cd build
-cmake ..
-cmake --build . --config Release
+# the Direct2D and DirectWrite build: the one that works today
+cmake -S . -B build
+cmake --build build --config Release
+./build/Release/tinta.exe README.md
+
+# the Qt build, where Qt is not on the default search path
+cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
+cmake --build build-qtwin --target tinta_qt --config Release
+./build-qtwin/Release/tinta_qt.exe README.md
 ```
 
-The executable will be at `build/Release/tinta.exe`.
+**`tinta_qt.exe` does not find Qt's own DLLs by itself**, and that is the first thing to go
+wrong rather than an edge case: launched with nothing else done it dies before `main()`, naming
+`Qt6Core.dll` — `Qt6Cored.dll` from a Debug build. The exact wording is the shell's, not the
+program's: measured in git-bash it reads `error while loading shared libraries: Qt6Core.dll`, and
+another shell will phrase the same missing DLL its own way. Put
+`C:\Qt\6.8.3\msvc2022_64\bin` on `PATH` in the shell you launch it from, or run Qt's
+`windeployqt` against the binary once. The exit codes are readings, not guesses: `127` without
+that directory on `PATH`, `124` under `timeout 5` with it, and the legacy `tinta.exe` reads `124`
+through the same harness — so `124` means *still running* rather than being what this harness
+returns for everything.
 
-This is the Direct2D and DirectWrite build, and it is the one that works today. It is
-also the one being replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag)
-for what that means and how to measure what still depends on it.
+### Linux
+
+g++ 13+, CMake 3.15+, and Qt 6. Measured on Ubuntu 24.04.2 under WSL with g++ 13.3.0,
+CMake 3.28.3 and Qt 6.4.2.
+
+```bash
+sudo apt install g++ cmake qt6-base-dev qt6-svg-dev
+
+cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux -j"$(nproc)"
+(cd build-linux && ctest --output-on-failure)
+
+./build-linux/tinta_qt README.md                      # a real window, with that file drawn in it
+./build-linux/tinta_qt                                # no argument: the placeholder line
+QT_QPA_PLATFORM=offscreen ./build-linux/tinta_qt      # headless: starts, paints, no window
+```
+
+**`qt6-svg-dev` is not optional, despite how the CMake reads.** Svg and Network are asked for as
+`OPTIONAL_COMPONENTS` deliberately — so that a partial Qt install loses one test target and says
+which one, instead of making `Qt6_FOUND` false and silently deleting every Qt target — but
+`tinta_qt` itself links `Qt6::Svg` (`CMakeLists.txt:568-569`), and linking a component that
+`find_package` looked for and did not find is a **configure-time error, not a skip**. Measured
+both ways on a scratch project: linking an absent component fails the configure with `but the
+target was not found`, and linking a present one reaches `Generating done`. `qt6-base-dev`
+carries Core, Gui, Widgets and Network; Svg is the one that needs a package of its own. Widgets
+is not skippable either, and fails loudly on purpose: `QFileDialog` is the only non-Windows
+implementation of the file-picker seam, so its absence is a `FATAL_ERROR` that names itself
+rather than an undefined symbol at link time.
+
+All three run lines above read `124` under `timeout 5`, meaning the process was still alive when
+the timeout killed it. A path that cannot be opened prints `tinta: cannot open '<path>'` and
+**still** opens the window on the placeholder — so a bad argument reads `124` as well, and is
+not a refusal to launch.
+
+### macOS — derived from the build system, never run
+
+**No macOS machine has configured, built or launched this project.** Nothing in this subsection
+is a reading; all of it is read off `CMakeLists.txt` and the sources. It is here because
+"untried" and "unsupported" are different claims and the build system makes the first one true:
+there are **zero** `APPLE`, `Darwin` and `clang` branches in `CMakeLists.txt`, against 61
+`WIN32` gates in the same file, so macOS is not a special case in it — it takes the same generic
+non-Windows path Linux takes.
+
+```bash
+# UNVERIFIED, every line. Qt 6 by whatever route you install it; point CMake at its prefix.
+cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/qt6
+cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
+(cd build-mac && ctest --output-on-failure)
+./build-mac/tinta_qt README.md
+```
+
+What is known about that recipe from the build system, as opposed to from running it:
+
+- **The Qt requirement is identical to Linux's**, because it is literally the same `else()`
+  branch: Core and Gui or the configure stops, Widgets or it stops again, and Svg and Network
+  for `tinta_qt` to link at all.
+- **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
+  `MACOSX_BUNDLE` — zero occurrences of it in the file — so `tinta_qt` builds as a command-line
+  binary there. Running it from a terminal is what the build system describes; a double-clickable
+  `.app` is not, because nothing creates one.
+- **The two macOS code paths that do exist have never been compiled.**
+  `src/platform_paths_qt.cpp` branches on `__APPLE__` in three places and labels each as
+  unmeasured: `_NSGetExecutablePath` for the executable directory, and
+  `~/Library/Application Support` for the config base — the latter deliberately *not*
+  `QStandardPaths`, whose generic config location is `~/Library/Preferences` on macOS and would
+  move the settings file. Those are the first lines to suspect if a first macOS build misbehaves.
+- **The compiler has never been clang.** Every measurement in this README is g++ 13.3.0, and
+  `clang++` is not installed on the machine they were taken on, so "untested with clang" is a
+  measured absence rather than something nobody got round to. Apple clang is the macOS default
+  and will have its own opinions about this code.
+- **The repo's own portability probe will not run there as written.**
+  `scripts/probe-portable-linux.sh` calls `mktemp --suffix=.cpp` and
+  `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` rejects. The `linux` in the
+  filename is load-bearing.
 
 ## Cross-platform port (Windows / macOS / Linux)
 
@@ -297,47 +405,43 @@ made testing files that take an `App&` possible at all.
 
 ### Building and testing off Windows
 
-Requires g++ 13+, CMake 3.15+, and Qt 6 for the Qt-backed targets. Verified on Ubuntu
-24.04 under WSL with g++ 13.3.0, CMake 3.28.3 and Qt 6.4.2. Nothing here has been built
-with clang or on macOS — that is untested, not known-good.
+**The per-platform recipes now live in [Building](#building)** — Windows, Linux, and the
+unwitnessed macOS one, each with its run lines — and are deliberately not repeated here, because
+a second copy of a build recipe is a second thing to keep true. This section is what those
+commands do not tell you: which requirements are hard, which are not, and what the tests pin.
+Nothing here has been built with clang or on macOS — that is untested, not known-good.
 
-```bash
-sudo apt install g++ cmake qt6-base-dev
-
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
-cmake --build build-linux -j"$(nproc)"
-(cd build-linux && ctest --output-on-failure)
-```
-
-Qt is currently **opt-in**: CMake looks for it with
-`find_package(Qt6 QUIET COMPONENTS Core Gui)` and skips the targets that need it when it is
-absent. **Two sentences that used to follow here said Qt was absent on Windows and that
-making it a hard requirement was blocked on installing it. Both are now false and are
-corrected rather than deleted**, because the shape of the error is the useful part: they were
-true when written, the pass that installed Qt 6.8.3 on Windows updated the figures it touched
-and left the prose two sections away standing, and a stale *capability* claim reads as a
-considered limitation forever. Qt is installed on the Windows machine this is developed on,
-and Windows builds every Qt target including the frontend. What still blocks the requirement
-becoming hard is not an install — it is the twelve build failures in the next section.
+Qt is **opt-in on Windows and mandatory everywhere else**, which the wording here had as a flat
+"opt-in" for several spans. `find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS
+Widgets)` does skip the targets that need Qt when it is absent — on Windows, where the Direct2D
+build needs none of it. Off Windows that same absence is a `FATAL_ERROR`
+(`CMakeLists.txt:87-93`), and a missing Widgets is another, because the path, keyboard, image and
+file-dialog seams have no non-Qt half there. The flat version was true of the whole file when the
+only Qt targets were tests; it stopped being true as the seams collapsed onto Qt, and it is
+corrected rather than deleted because a stale *capability* claim reads as a considered limitation
+forever. **Two sentences that used to follow here said Qt was absent on Windows and that making
+it a hard requirement was blocked on installing it. Both are also false and also kept**, for the
+same reason: they were true when written, the pass that installed Qt 6.8.3 on Windows updated the
+figures it touched and left the prose two sections away standing. Qt is installed on the Windows
+machine this is developed on, and Windows builds every Qt target including the frontend. What
+still blocks the requirement becoming hard *on Windows* is not an install — it is the twelve
+build failures in the next section.
 
 The headless targets pin `QT_QPA_PLATFORM` themselves, and it is pinned **per platform, not
-once**: `offscreen` off Windows, `windows` on Windows, from one `TINTA_QPA_PLATFORM` variable
-at `CMakeLists.txt:1524`. That asymmetry is measured, not stylistic — the offscreen plugin on
+once**: `offscreen` off Windows, `windows` on Windows, from one `TINTA_QPA_PLATFORM` variable in
+`CMakeLists.txt` — cited by name because the line number that stood here was wrong by nearly
+three hundred lines, and a `file:line` in prose is a claim with an expiry that no gate watches.
+That asymmetry is measured, not stylistic — the offscreen plugin on
 Windows has **no font database**, so a text assertion there measures a fabricated metric
 rather than a glyph. `minimal` is used nowhere, for the same reason and more so, and running
 with no platform plugin at all aborts under WSL.
 
 ```bash
-# the Qt frontend, on either platform
+# just the frontend, without the test targets, on any of the three platforms
 cmake --build build-linux --target tinta_qt
-./build-linux/tinta_qt README.md                      # a real window, with that file drawn in it
-./build-linux/tinta_qt                                # no argument: the placeholder line
-QT_QPA_PLATFORM=offscreen ./build-linux/tinta_qt      # headless: starts, paints, no window
-
-# on Windows, where Qt is not on the default search path
-cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
-cmake --build build-qtwin --target tinta_qt --config Debug
 ```
+
+The launch lines, and the exit codes they were read at, are in [Building](#building) per platform.
 
 **One argument and no switches**, which is deliberate rather than unfinished: every flag
 `WinMain` accepts — `--printpages`, `--exporthtml`, `--exportdocx`, `--exportpdf`, `--edit`,
@@ -1336,6 +1440,13 @@ tinta.exe /register
 
 Or simply drag and drop a `.md` or `.mmd` file onto the window.
 
+**Every line above is the Windows `tinta.exe`.** The Qt binary is `tinta_qt` (`tinta_qt.exe` on
+Windows) and takes **one path and no switches at all** — see
+[Building](#building) for how to launch it per platform, and
+[Building and testing off Windows](#building-and-testing-off-windows) for why the switches are
+refused there rather than accepted and ignored. `/register` and file association are Windows-only
+by nature: there is nothing to register on the other two.
+
 To copy a document's full path, right-click the document or its tab (the filename
 in the title bar when only one file is open) and choose
 **Copy file path**, beside **Reveal in Explorer**. The tab menu copies the clicked
@@ -1408,7 +1519,12 @@ HTML and DOCX exports. Native printing keeps Tinta's existing light print palett
 ## Dependencies
 
 - [MD4C](https://github.com/mity/md4c) - Fast markdown parser (fetched automatically by CMake)
-- Windows Direct2D/DirectWrite (system libraries)
+- Windows Direct2D/DirectWrite (system libraries) — the `tinta` target only, and the stack being
+  replaced
+- Qt 6 — the `tinta_qt` target on all three platforms. **Core** and **Gui** are required off
+  Windows and the configure stops without them; **Widgets** likewise, for the file-picker seam;
+  **Svg** and **Network** are asked for optionally but are needed for `tinta_qt` itself to link.
+  On Debian and Ubuntu that is `qt6-base-dev` plus `qt6-svg-dev`.
 
 ## License
 

@@ -422,9 +422,18 @@ void renderFolderBrowser(App& app) {
     float anim = app.folderBrowserAnimation;
 
     // Floating card inside the slide envelope (t13 design 13b)
+    // Two unread aliases of g.panelWidth and g.panelX used to sit here, left over from
+    // the extraction of folderBrowserMetrics -- the rest of this function reads `g.`
+    // directly. They were this file's ONLY warnings and were deferred once on the
+    // grounds that family 1 would rewrite this function; it has, so they go.
+    //
+    // Worth recording how they were counted, because the count was misleading twice
+    // over. MSVC reported 14 C4189 for them and 13 in the slice before, which reads
+    // like a defect appearing -- but it is 7 reports of one local plus 7 of the other,
+    // the multiplicity coming from the targets that compile this file, so neither 13
+    // nor 14 was ever a defect count. Two locals, both already dead before this slice
+    // touched anything.
     FolderBrowserMetrics g = folderBrowserMetrics(app);
-    float panelWidth = g.panelWidth;
-    float panelX = g.panelX;
     tinta::RectF card = tinta::rectF(g.cardLeft, g.cardTop, g.cardRight, g.cardBottom);
     float radius = dpi(app, 12.0f);
     promptChipShadow(app, card, radius);
@@ -457,15 +466,23 @@ void renderFolderBrowser(App& app) {
 
         auto textWidth = [&](const std::wstring& s) {
             float w = 0.0f;
-            IDWriteTextLayout* layout = nullptr;
-            if (app.dwriteFactory && SUCCEEDED(app.dwriteFactory->CreateTextLayout(
-                    s.c_str(), (UINT32)s.length(), nativeTextFormat(browserFormat),
-                    1000000.0f, g.headerH, &layout)) && layout) {
-                DWRITE_TEXT_METRICS metrics;
-                if (SUCCEEDED(layout->GetMetrics(&metrics))) {
-                    w = metrics.widthIncludingTrailingWhitespace;
-                }
-                layout->Release();
+            // The outer SUCCEEDED() collapses into the null test -- the seam reports a
+            // failed creation as a null unique_ptr, which is what this caller already
+            // tested for. The INNER one does not collapse, it disappears: GetMetrics
+            // returns void here, not a status, because a layout that exists always has
+            // metrics. I first wrote this as `if (layout->GetMetrics(&metrics))` out of
+            // habit and the compiler rejected it, which is the good outcome -- had the
+            // seam returned bool-by-convenience the habit would have compiled and the
+            // false branch would have been unreachable code nobody ever questioned.
+            auto layout = app.textFactory
+                ? app.textFactory->CreateTextLayout(
+                      s.c_str(), (uint32_t)s.length(), browserFormat,
+                      1000000.0f, g.headerH)
+                : nullptr;
+            if (layout) {
+                tinta::TextMetrics metrics{};
+                layout->GetMetrics(&metrics);
+                w = metrics.widthIncludingTrailingWhitespace;
             }
             return w;
         };
@@ -1083,22 +1100,20 @@ void renderToc(App& app) {
         }
 
         // Active filter, right-aligned before the cross
-        if (!app.tocFilter.empty() && app.dwriteFactory) {
-            IDWriteTextLayout* filterLayout = nullptr;
-            app.dwriteFactory->CreateTextLayout(
-                app.tocFilter.c_str(), (UINT32)app.tocFilter.size(),
-                nativeTextFormat(tocNormal), panelWidth, headerHeight, &filterLayout);
+        if (!app.tocFilter.empty() && app.textFactory) {
+            auto filterLayout = app.textFactory->CreateTextLayout(
+                app.tocFilter.c_str(), (uint32_t)app.tocFilter.size(),
+                tocNormal, panelWidth, headerHeight);
             if (filterLayout) {
-                DWRITE_TEXT_METRICS fm{};
+                tinta::TextMetrics fm{};
                 filterLayout->GetMetrics(&fm);
                 tinta::Color filterColor = app.theme.accent;
                 filterColor.a = anim;
                 app.brush->SetColor(filterColor);
-                app.nativeRenderTarget->DrawTextLayout(
+                app.renderTarget->DrawTextLayout(
                     tinta::pointF(cardRight - padding - dpi(app, 38.0f) - fm.width,
                                   headerY + dpi(app, 1.0f)),
-                    filterLayout, app.nativeBrush);
-                filterLayout->Release();
+                    filterLayout.get(), app.brush);
             }
         }
 
@@ -1858,7 +1873,7 @@ void renderThemeChooser(App& app) {
                 tinta::roundedRect(chip, dpi(app, 4.0f), dpi(app, 4.0f)),
                 app.brush);
             if (codeFormat) {
-                nativeTextFormat(codeFormat)->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                codeFormat->SetTextAlignment(tinta::TextAlignment::Center);
                 tinta::Color codeColor = themeInlineCodeColor(t);
                 codeColor.a = anim;
                 app.brush->SetColor(codeColor);
@@ -2010,20 +2025,20 @@ void renderHelpOverlay(App& app) {
         tinta::swprintf(version, std::size(version), L"v%d.%d.%d",
                    TINTA_VERSION_MAJOR, TINTA_VERSION_MINOR,
                    TINTA_VERSION_PATCH);
-        IDWriteTextLayout* verLayout = nullptr;
-        app.dwriteFactory->CreateTextLayout(
-            version, (UINT32)wcslen(version), nativeTextFormat(app.tocFormat),
-            panelWidth - dpi(app, 22.0f), dpi(app, 20.0f), &verLayout);
+        auto verLayout = app.textFactory
+            ? app.textFactory->CreateTextLayout(
+                  version, (uint32_t)wcslen(version), app.tocFormat,
+                  panelWidth - dpi(app, 22.0f), dpi(app, 20.0f))
+            : nullptr;
         if (verLayout) {
             // Shared formats may carry another overlay's alignment; pin it
-            verLayout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            verLayout->SetTextAlignment(tinta::TextAlignment::Trailing);
             tinta::Color verColor = app.theme.text;
             verColor.a = 0.45f * anim;
             app.brush->SetColor(verColor);
-            app.nativeRenderTarget->DrawTextLayout(
-                tinta::pointF(panelX, panelY + dpi(app, 18.0f)), verLayout,
-                app.nativeBrush);
-            verLayout->Release();
+            app.renderTarget->DrawTextLayout(
+                tinta::pointF(panelX, panelY + dpi(app, 18.0f)), verLayout.get(),
+                app.brush);
         }
     }
 
@@ -2288,21 +2303,19 @@ void renderContextMenu(App& app) {
             tinta::rectF(x + inset, textY, x + w - inset, top + itemH), app.brush);
 
         std::wstring hintText = shortcutLabel(entry);
-        if (!hintText.empty()) {
-            IDWriteTextLayout* hint = nullptr;
-            app.dwriteFactory->CreateTextLayout(
-                hintText.c_str(), (UINT32)hintText.size(),
-                nativeTextFormat(format), 1000.0f, itemH, &hint);
+        if (!hintText.empty() && app.textFactory) {
+            auto hint = app.textFactory->CreateTextLayout(
+                hintText.c_str(), (uint32_t)hintText.size(),
+                format, 1000.0f, itemH);
             if (hint) {
-                DWRITE_TEXT_METRICS metrics{};
+                tinta::TextMetrics metrics{};
                 hint->GetMetrics(&metrics);
                 tinta::Color hintColor = app.theme.text;
                 hintColor.a = 0.4f * anim;
                 app.brush->SetColor(hintColor);
-                app.nativeRenderTarget->DrawTextLayout(
+                app.renderTarget->DrawTextLayout(
                     tinta::pointF(x + w - inset - metrics.width, textY),
-                    hint, app.nativeBrush);
-                hint->Release();
+                    hint.get(), app.brush);
             }
         }
 
@@ -2550,23 +2563,27 @@ void renderPrintPreview(App& app) {
         }
     }
 
-    IDWriteTextFormat* nativeUiFmt = nullptr;
-    IDWriteTextFormat* nativeBtnFmt = nullptr;
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * ui, L"en-us", &nativeUiFmt);
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * ui, L"en-us", &nativeBtnFmt);
-
     // Two formats created for this one overlay and freed on the way out. The
-    // wrapper the seam needs is also what owns them: D2DTextFormat releases in
-    // its destructor, which is why the explicit Release pair at the end of this
-    // function is gone rather than kept alongside.
-    D2DTextFormat uiFmtStorage{nativeUiFmt};
-    D2DTextFormat btnFmtStorage{nativeBtnFmt};
-    tinta::TextFormat* uiFmt = nativeUiFmt ? &uiFmtStorage : nullptr;
-    tinta::TextFormat* btnFmt = nativeBtnFmt ? &btnFmtStorage : nullptr;
+    // wrapper the seam needs is also what owns them: the returned unique_ptr
+    // releases in its destructor, which is why the explicit Release pair at the
+    // end of this function is gone rather than kept alongside.
+    //
+    // The two raw names below are deliberate rather than lazy. `uiFmt` and
+    // `btnFmt` have a dozen consumers further down this function, all of them
+    // already taking a tinta::TextFormat*, so keeping the raw spelling for the
+    // BORROWED pointer and letting the unique_ptr hold the OWNED one leaves every
+    // consumer untouched -- and .get() on a null unique_ptr is null, so the
+    // `if (uiFmt)` tests below keep their exact previous meaning.
+    auto uiFmtStorage = app.textFactory
+        ? app.textFactory->CreateTextFormat(L"Segoe UI", tinta::FontWeight::Normal,
+              tinta::FontStyle::Normal, tinta::FontStretch::Normal, 13.0f * ui, L"en-us")
+        : nullptr;
+    auto btnFmtStorage = app.textFactory
+        ? app.textFactory->CreateTextFormat(L"Segoe UI", tinta::FontWeight::SemiBold,
+              tinta::FontStyle::Normal, tinta::FontStretch::Normal, 13.0f * ui, L"en-us")
+        : nullptr;
+    tinta::TextFormat* uiFmt = uiFmtStorage.get();
+    tinta::TextFormat* btnFmt = btnFmtStorage.get();
 
     int pageCount = (int)app.printPreviewBounds.size() - 1;
     if (uiFmt) {
@@ -2711,11 +2728,11 @@ void settingsChip(App& app, float& x, float y, const wchar_t* label, bool active
                   int action, float anim, tinta::TextFormat* fmt) {
     float h = dpi(app, 24.0f);
     float padX = dpi(app, 12.0f);
-    IDWriteTextLayout* tl = nullptr;
-    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label),
-                                        nativeTextFormat(fmt), 500.0f, h, &tl);
+    auto tl = app.textFactory
+        ? app.textFactory->CreateTextLayout(label, (uint32_t)wcslen(label), fmt, 500.0f, h)
+        : nullptr;
     float textW = dpi(app, 40.0f);
-    if (tl) { DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m); textW = m.width; }
+    if (tl) { tinta::TextMetrics m{}; tl->GetMetrics(&m); textW = m.width; }
     float w = textW + padX * 2;
     tinta::RoundedRect rr = tinta::roundedRect(tinta::rectF(x, y, x + w, y + h),
                                              dpi(app, 5.0f), dpi(app, 5.0f));
@@ -2732,9 +2749,8 @@ void settingsChip(App& app, float& x, float y, const wchar_t* label, bool active
         app.brush->SetColor(c);
     }
     if (tl) {
-        app.nativeRenderTarget->DrawTextLayout(
-            tinta::pointF(x + padX, y + (h - dpi(app, 17.0f)) / 2), tl, app.nativeBrush);
-        tl->Release();
+        app.renderTarget->DrawTextLayout(
+            tinta::pointF(x + padX, y + (h - dpi(app, 17.0f)) / 2), tl.get(), app.brush);
     }
     app.settingsHits.push_back({tinta::rectF(x, y, x + w, y + h), action});
     x += w + dpi(app, 8.0f);
@@ -3621,21 +3637,25 @@ void renderCreateRefDialog(App& app) {
 
     // Row 2: the resolved target path, quiet and end-trimmed
     if (app.signalSmallFormat) {
-        IDWriteTextLayout* pl = nullptr;
-        app.dwriteFactory->CreateTextLayout(
-            path.c_str(), (UINT32)path.size(), nativeTextFormat(app.signalSmallFormat),
-            r.right - pad - (ib.right + dpi(app, 9.0f)), dpi(app, 14.0f), &pl);
+        auto pl = app.textFactory
+            ? app.textFactory->CreateTextLayout(
+                  path.c_str(), (uint32_t)path.size(), app.signalSmallFormat,
+                  r.right - pad - (ib.right + dpi(app, 9.0f)), dpi(app, 14.0f))
+            : nullptr;
         if (pl) {
-            pl->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-            DWRITE_TRIMMING trimOpt{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-            pl->SetTrimming(&trimOpt, nullptr);
+            pl->SetWordWrapping(tinta::WordWrapping::NoWrap);
+            // A reference rather than a pointer, which is the one place the seam's
+            // spelling differs from DirectWrite's beyond the type names: the trimming
+            // options are read during the call and never retained, so a pointer only
+            // ever meant "here is a struct" and never "here is an owner".
+            tinta::Trimming trimOpt{tinta::TrimmingGranularity::Character, 0, 0};
+            pl->SetTrimming(trimOpt, nullptr);
             tinta::Color c = base.text; c.a = 0.5f;
             app.brush->SetColor(c);
-            app.nativeRenderTarget->DrawTextLayout(
+            app.renderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               r.top + dpi(app, 34.0f)),
-                pl, app.nativeBrush);
-            pl->Release();
+                pl.get(), app.brush);
         }
     }
 
@@ -3966,25 +3986,28 @@ void renderThemeEditor(App& app) {
 
         const wchar_t* fam = app.themeEditorFont.empty()
             ? L"Segoe UI" : app.themeEditorFont.c_str();
-        IDWriteTextFormat* nativeH = nullptr; IDWriteTextFormat* nativeB = nullptr;
-        IDWriteTextFormat* nativeM = nullptr;
-        app.dwriteFactory->CreateTextFormat(fam, nullptr, DWRITE_FONT_WEIGHT_BOLD,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 20.0f),
-            L"en-us", &nativeH);
-        app.dwriteFactory->CreateTextFormat(fam, nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 13.5f),
-            L"en-us", &nativeB);
-        app.dwriteFactory->CreateTextFormat(L"Consolas", nullptr, DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, dpi(app, 12.5f),
-            L"en-us", &nativeM);
-        // Owning wrappers rather than three Release calls: the seam takes the
-        // wrapper, and D2DTextFormat frees the native when this block exits.
-        D2DTextFormat hStorage{nativeH};
-        D2DTextFormat bStorage{nativeB};
-        D2DTextFormat mStorage{nativeM};
-        tinta::TextFormat* h = nativeH ? &hStorage : nullptr;
-        tinta::TextFormat* b = nativeB ? &bStorage : nullptr;
-        tinta::TextFormat* m = nativeM ? &mStorage : nullptr;
+        // Owning handles rather than three Release calls: the seam returns the owner,
+        // and it frees the backend object when this block exits. Same borrowed/owned
+        // split as the print-preview block -- `h`, `b` and `m` keep their raw spelling
+        // because the twenty-odd draw calls below already take a tinta::TextFormat*.
+        auto hStorage = app.textFactory
+            ? app.textFactory->CreateTextFormat(fam, tinta::FontWeight::Bold,
+                  tinta::FontStyle::Normal, tinta::FontStretch::Normal,
+                  dpi(app, 20.0f), L"en-us")
+            : nullptr;
+        auto bStorage = app.textFactory
+            ? app.textFactory->CreateTextFormat(fam, tinta::FontWeight::Normal,
+                  tinta::FontStyle::Normal, tinta::FontStretch::Normal,
+                  dpi(app, 13.5f), L"en-us")
+            : nullptr;
+        auto mStorage = app.textFactory
+            ? app.textFactory->CreateTextFormat(L"Consolas", tinta::FontWeight::Normal,
+                  tinta::FontStyle::Normal, tinta::FontStretch::Normal,
+                  dpi(app, 12.5f), L"en-us")
+            : nullptr;
+        tinta::TextFormat* h = hStorage.get();
+        tinta::TextFormat* b = bStorage.get();
+        tinta::TextFormat* m = mStorage.get();
 
         float sx = spec.left + dpi(app, 18.0f);
         float sw2 = spec.right - dpi(app, 18.0f) - sx;
@@ -4051,16 +4074,21 @@ void renderThemeEditor(App& app) {
                 app.renderTarget->FillRectangle(
                     tinta::rectF(list.left + 1, ry, list.right - 1, ry + rowH), app.brush);
             }
-            IDWriteTextFormat* nativeFf = nullptr;
-            app.dwriteFactory->CreateTextFormat(fam.c_str(), nullptr,
-                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL, dpi(app, 14.0f), L"en-us", &nativeFf);
-            D2DTextFormat ffStorage{nativeFf};
-            tinta::TextFormat* ff = nativeFf ? &ffStorage : nullptr;
+            // The template site for family 1, and the one that shows why the family is
+            // cheaper than its error count suggests: this block ALREADY ended at a
+            // tinta::TextFormat* and ALREADY drew through the portable DrawText. The
+            // native format, the D2DTextFormat adapter and the null-test existed only
+            // to manufacture that pointer from a native factory, so wiring the seam
+            // deletes four lines rather than translating them.
+            auto ff = app.textFactory
+                ? app.textFactory->CreateTextFormat(
+                      fam.c_str(), tinta::FontWeight::Normal, tinta::FontStyle::Normal,
+                      tinta::FontStretch::Normal, dpi(app, 14.0f), L"en-us")
+                : nullptr;
             tinta::Color tc = base.text; tc.a = selected ? 1.0f : 0.8f;
             app.brush->SetColor(tc);
             if (ff) {
-                app.renderTarget->DrawText(fam.c_str(), (UINT32)fam.size(), ff,
+                app.renderTarget->DrawText(fam.c_str(), (UINT32)fam.size(), ff.get(),
                     tinta::rectF(list.left + dpi(app, 12.0f), ry + dpi(app, 3.0f),
                                 list.right - dpi(app, 8.0f), ry + rowH), app.brush);
             }

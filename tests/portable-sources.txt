@@ -585,3 +585,23 @@ scrollbar.cpp
 qt_init.cpp
 qt_window.cpp
 main_qt.cpp
+
+# overlays.cpp. THE LARGEST FILE IN THIS MANIFEST -- 4,140 lines, ahead of render.cpp --
+# and it is here for the narrowest of the three readings this manifest can carry. Being
+# listed says a file COMPILES off Windows. It says nothing about LINKS and nothing about
+# RUNS, and for this file both of those are still NO: its callees reach into
+# windows.h-fatal files, and nothing executes an overlay off Windows because input.cpp
+# has not ported.
+#
+# The count above it is why the number in the last paragraph moved: 23 of 24 becomes
+# 22 of 23, and the file-count bases in README.md all shifted with it.
+#
+# One measurement note worth keeping, because it is the reason this line is trustworthy
+# and not just hopeful. The census reported this file clean on its FIRST run after the
+# edit, which by this tree's own rule is a warning rather than a result -- the census
+# plants its controls into a scratch file, so a clean subject and an unread subject look
+# identical. The discriminating control was a plant in THIS file: two undeclared
+# DirectWrite names in two different functions, predicted as exactly 2 before the read
+# (g++ reports an undeclared name once per function), read back as exactly 2, then
+# restored and verified byte-exact by sha256 rather than by eye.
+overlays.cpp

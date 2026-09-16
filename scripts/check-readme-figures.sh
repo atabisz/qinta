@@ -147,7 +147,14 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # lives in and names its neighbours in the output.
 claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
 claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
-claim "overlays, annot., math" "| $(c "$(lines src/overlays.cpp)") + $(c "$(lines src/annotations.cpp)") + $(c "$(lines src/math_render.cpp)") |"
+claim "annot., math"          "| $(c "$(lines src/annotations.cpp)") + $(c "$(lines src/math_render.cpp)") |"
+# overlays.cpp is now DELIBERATELY absent too, by the same rule the export_html.cpp note
+# below states -- it reached 0 errors and joined the manifest, so it left the to-do table
+# and therefore left this row. It is the second file to exercise that rule, and the first
+# to exercise it in the direction the note warns about: the row kept asserting overlays'
+# line count for exactly as long as it took to run this gate, and the gate is the only
+# thing that noticed. Had the row been hand-written rather than derived, the stale figure
+# would have read as a current measurement.
 # export_html.cpp is DELIBERATELY absent from this row: it left the to-do set when it
 # reached 0 errors and joined tests/portable-sources.txt, so deriving the row from it
 # would keep asserting a README figure that must no longer include it. This row is

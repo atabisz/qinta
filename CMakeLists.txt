@@ -1114,6 +1114,32 @@ if(BUILD_TESTING)
         # drifting in, it is a Direct2D one that was always there and that nothing had
         # ever asked about. This target is what asks.
         src/scrollbar.cpp
+        # THE LARGEST FILE THIS PORT HAS MOVED -- 4,153 lines, past render.cpp, and the
+        # reading it earns is narrower than its size suggests, so state it in the same
+        # three parts render.cpp above is stated in:
+        #
+        #   COMPILES off Windows: measured, exit 0 / fatal 0 / errors 0, census controls
+        #   all holding, AND with a plant in this file specifically -- two undeclared
+        #   DirectWrite names in two different functions, counted as exactly 2 and
+        #   restored byte-exact. That plant is the only thing separating "clean" from
+        #   "the census never read this file", because the census's own control plants
+        #   into a scratch file rather than into the subject.
+        #
+        #   LINKS into a Qt app: NOT CLAIMED, and deliberately not attempted in this
+        #   commit. Its callees include tr(), dpi() and the theme helpers, several of
+        #   which still live in windows.h-fatal files, so the closure is a separate
+        #   reading with its own fixpoint -- exactly the render.cpp lesson, which took
+        #   three linker readings to settle.
+        #
+        #   RUNS: NO. Nothing executes an overlay off Windows. The overlays are
+        #   keyboard- and mouse-driven chrome and input.cpp has not ported.
+        #
+        # What made it affordable was that the file was already half-ported: 530 sites
+        # already drew through app.brush and app.renderTarget, and the eleven remaining
+        # native blocks reached for app.nativeRenderTarget/app.nativeBrush ONLY because
+        # they were holding a native IDWriteTextLayout. Wiring the text factory deleted
+        # the adapters rather than translating them.
+        src/overlays.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as tinta_qt above: a version number is not a platform fact.

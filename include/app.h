@@ -259,8 +259,17 @@ struct App {
     // Editor paint-path line layouts, keyed by line start offset. Cleared on
     // any text/format/width/wrap change; between changes the 500 ms cursor
     // blink and idle repaints stop reshaping every visible line.
+    //
+    // THE CACHE OWNS ITS LAYOUTS, and that is why this member is a unique_ptr
+    // while cachedEditorLineLayout() hands back a bare pointer. Those two
+    // functions in editor.cpp used to have the SAME return type and OPPOSITE
+    // ownership -- createEditorLineLayout's caller had to Release and
+    // cachedEditorLineLayout's caller had to not -- a distinction that lived
+    // only in a comment. Now the types say it: one returns unique_ptr, the
+    // other a borrowed raw pointer, and the eviction and clear paths below drop
+    // a layout by erasing the entry rather than by remembering to release it.
     struct EditorCachedLayout {
-        IDWriteTextLayout* layout = nullptr;
+        std::unique_ptr<tinta::TextLayout> layout;
         size_t len = 0;
         unsigned long long lastUsed = 0;
     };
@@ -268,9 +277,6 @@ struct App {
     unsigned long long editorLayoutUseClock = 0;
     static constexpr size_t EDITOR_LAYOUT_CACHE_MAX = 256;
     void clearEditorLineLayoutCache() {
-        for (auto& [start, entry] : editorLineLayoutCache) {
-            releaseNative(entry.layout);
-        }
         editorLineLayoutCache.clear();
         editorLayoutUseClock = 0;
     }

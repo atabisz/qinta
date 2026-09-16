@@ -621,7 +621,12 @@ public:
     // measured widths and therefore layout would move. That argument is untouched here
     // -- this seam moves the DirectWrite MECHANICS out of render.cpp and leaves the
     // decision exactly where it was. The factory may hold the chain; only a caller that
-    // calls this method applies it, and today exactly one call site does.
+    // calls this method applies it, and today exactly TWO call sites do: render.cpp:85
+    // and editor.cpp:92. It was one when this method shipped, and the second arrived by
+    // discharging editor.cpp's own deferral -- createEditorLineLayout had a
+    // QueryInterface(IDWriteTextLayout2) block whose stated blocker was that this seam
+    // did not exist. It does, so the block became this call. A count in a comment has an
+    // expiry and nothing in the tree watches it: re-grep rather than trusting this line.
     //
     // No argument, because the chain is a platform object with no portable spelling and
     // a caller has nothing to say about it beyond "yes". A backend with no chain to

@@ -244,8 +244,10 @@ public:
     // HOLDING THE CHAIN IS NOT APPLYING IT, and that sentence is the whole reason this
     // setter is allowed to exist without reopening the refusal at render.cpp:54-76.
     // Every layout this factory makes now has a route to the chain; only a layout whose
-    // caller calls ApplyFontFallback() gets one attached, and exactly one call site in
-    // the tree does. The 15 sites the refusal is about call CreateTextLayout and
+    // caller calls ApplyFontFallback() gets one attached, and exactly two call sites in
+    // the tree do -- render.cpp:85 and editor.cpp:92, the second having arrived when
+    // createEditorLineLayout's own QI block was retired onto this seam. It was one when
+    // this comment was written. The 15 sites the refusal is about call CreateTextLayout and
     // nothing else, so their measured widths cannot move.
     //
     // BORROWED. App owns the chain and releases it in its own teardown; this class must

@@ -66,46 +66,52 @@ static float editorTextX(const App& app) {
     return dpi(app, 48.0f) + editorGutterWidth(app);
 }
 
-static IDWriteTextLayout* createEditorLineLayout(App& app, size_t lineStart, size_t lineLen) {
-    if (!app.dwriteFactory || !app.editorTextFormat || lineLen == 0) return nullptr;
+// OWNS what it returns, which is now visible in the signature. Its paint-path
+// sibling below does NOT -- see the note on App::EditorCachedLayout.
+static std::unique_ptr<tinta::TextLayout> createEditorLineLayout(App& app,
+                                                                size_t lineStart,
+                                                                size_t lineLen) {
+    if (!app.textFactory || !app.editorTextFormat || lineLen == 0) return nullptr;
     float maxWidth = editorWrapOn(app) ? editorTextMaxWidth(app) : 1e7f;
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(
-        app.editorText.data() + lineStart, (UINT32)lineLen,
-        nativeTextFormat(app.editorTextFormat), maxWidth, 1e7f, &layout);
+    auto layout = app.textFactory->CreateTextLayout(
+        app.editorText.data() + lineStart, (uint32_t)lineLen,
+        app.editorTextFormat, maxWidth, 1e7f);
     // The shared editor format is NO_WRAP; the wrap toggle overrides per layout
     if (layout && editorWrapOn(app)) {
-        layout->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        layout->SetWordWrapping(tinta::WordWrapping::Wrap);
     }
     // Language-aware CJK fallback (#48): without this the editor pane falls
     // back through the system chain and shows Japanese-variant glyphs for
-    // Chinese text (#81 "门") while the preview beside it renders correctly
-    if (layout && app.fontFallback) {
-        IDWriteTextLayout2* layout2 = nullptr;
-        if (SUCCEEDED(layout->QueryInterface(__uuidof(IDWriteTextLayout2),
-                reinterpret_cast<void**>(&layout2)))) {
-            layout2->SetFontFallback(app.fontFallback);
-            layout2->Release();
-        }
-    }
+    // Chinese text (#81 "门") while the preview beside it renders correctly.
+    //
+    // No `app.fontFallback` guard any more, and dropping it is not a loosening:
+    // ApplyFontFallback is documented to do nothing when the backend has no
+    // chain, or none built yet, which is exactly what that guard meant. The Qt
+    // backend implements it as a genuine no-op because QFontDatabase resolves
+    // missing glyphs during shaping.
+    if (layout) layout->ApplyFontFallback();
     return layout;
 }
 
-// Paint-path variant: returns a cached layout owned by the cache — callers
-// must NOT release it. The cache is cleared on any text/format/width change.
-static IDWriteTextLayout* cachedEditorLineLayout(App& app, size_t lineStart, size_t lineLen) {
+// Paint-path variant: returns a BORROWED pointer to a layout owned by the
+// cache. The type says so now -- a raw pointer beside the sibling above's
+// unique_ptr -- where before both returned IDWriteTextLayout* and only a
+// comment distinguished "you must Release this" from "you must not".
+static tinta::TextLayout* cachedEditorLineLayout(App& app, size_t lineStart,
+                                                 size_t lineLen) {
     auto it = app.editorLineLayoutCache.find(lineStart);
     if (it != app.editorLineLayoutCache.end()) {
         if (it->second.len == lineLen) {
             it->second.lastUsed = ++app.editorLayoutUseClock;
-            return it->second.layout;
+            return it->second.layout.get();
         }
-        if (it->second.layout) it->second.layout->Release();
         app.editorLineLayoutCache.erase(it);
     }
-    IDWriteTextLayout* layout = createEditorLineLayout(app, lineStart, lineLen);
-    app.editorLineLayoutCache[lineStart] = {
-        layout, lineLen, ++app.editorLayoutUseClock};
+    auto& entry = app.editorLineLayoutCache[lineStart];
+    entry.layout = createEditorLineLayout(app, lineStart, lineLen);
+    entry.len = lineLen;
+    entry.lastUsed = ++app.editorLayoutUseClock;
+    tinta::TextLayout* layout = entry.layout.get();
 
     if (app.editorLineLayoutCache.size() > App::EDITOR_LAYOUT_CACHE_MAX) {
         auto victim = app.editorLineLayoutCache.end();
@@ -118,7 +124,6 @@ static IDWriteTextLayout* cachedEditorLineLayout(App& app, size_t lineStart, siz
             }
         }
         if (victim != app.editorLineLayoutCache.end()) {
-            if (victim->second.layout) victim->second.layout->Release();
             app.editorLineLayoutCache.erase(victim);
         }
     }
@@ -127,28 +132,31 @@ static IDWriteTextLayout* cachedEditorLineLayout(App& app, size_t lineStart, siz
 
 // Caret x,y within a (possibly wrapped) line layout for the caret placed
 // before column `col`
-static void editorCaretXY(IDWriteTextLayout* layout, size_t col, float& x, float& y) {
+static void editorCaretXY(tinta::TextLayout* layout, size_t col, float& x, float& y) {
     x = 0.0f;
     y = 0.0f;
     if (!layout) return;
-    FLOAT hx = 0, hy = 0;
-    DWRITE_HIT_TEST_METRICS m{};
-    HRESULT hr = (col == 0)
-        ? layout->HitTestTextPosition(0, FALSE, &hx, &hy, &m)
-        : layout->HitTestTextPosition((UINT32)(col - 1), TRUE, &hx, &hy, &m);
-    if (SUCCEEDED(hr)) {
+    float hx = 0, hy = 0;
+    tinta::HitTestMetrics m{};
+    // The seam returns bool, so this is `ok` and not SUCCEEDED(ok): SUCCEEDED of
+    // a false is TRUE, false being 0 and 0 being S_OK, so wrapping it would read
+    // every failure as success and publish an uninitialised caret position.
+    bool ok = (col == 0)
+        ? layout->HitTestTextPosition(0, false, &hx, &hy, &m)
+        : layout->HitTestTextPosition((uint32_t)(col - 1), true, &hx, &hy, &m);
+    if (ok) {
         x = hx;
         y = hy;
     }
 }
 
 // X offset of the caret placed before column `col`, relative to the text origin.
-static float editorColToX(const App& app, IDWriteTextLayout* layout, size_t col) {
+static float editorColToX(const App& app, tinta::TextLayout* layout, size_t col) {
     if (col == 0) return 0.0f;
     if (layout) {
-        FLOAT x = 0, y = 0;
-        DWRITE_HIT_TEST_METRICS m{};
-        if (SUCCEEDED(layout->HitTestTextPosition((UINT32)(col - 1), TRUE, &x, &y, &m)))
+        float x = 0, y = 0;
+        tinta::HitTestMetrics m{};
+        if (layout->HitTestTextPosition((uint32_t)(col - 1), true, &x, &y, &m))
             return x;
     }
     float charWidth = app.editorCharWidth > 0 ? app.editorCharWidth
@@ -247,14 +255,18 @@ static void rebuildEditorRowMetrics(App& app) {
         // for the common short line.
         size_t rows = 1;
         if (lineLen > 0 && (float)lineLen * charWidth * 2.0f > maxTextWidth) {
-            IDWriteTextLayout* layout =
+            auto layout =
                 createEditorLineLayout(app, app.editorLineStarts[i], lineLen);
             if (layout) {
-                DWRITE_TEXT_METRICS tm{};
-                if (SUCCEEDED(layout->GetMetrics(&tm)) && tm.lineCount > 0) {
+                // The seam's GetMetrics returns void where DirectWrite returned an
+                // HRESULT, so there is no SUCCEEDED() to test. The lineCount > 0
+                // guard already carried the whole behaviour: a failed call left tm
+                // zero-initialised and this branch was skipped either way.
+                tinta::TextMetrics tm{};
+                layout->GetMetrics(&tm);
+                if (tm.lineCount > 0) {
                     rows = tm.lineCount;
                 }
-                layout->Release();
             }
         }
         app.editorRowStarts.push_back(app.editorRowStarts.back() + rows);
@@ -303,19 +315,19 @@ static void editorMoveCursorVertical(App& app, bool down) {
     size_t line = getLineFromPos(app, app.editorCursorPos);
     size_t col = app.editorCursorPos - app.editorLineStarts[line];
 
-    IDWriteTextLayout* layout = createEditorLineLayout(
+    auto layout = createEditorLineLayout(
         app, app.editorLineStarts[line], getLineLength(app, line));
     float cx = 0, cy = 0;
-    editorCaretXY(layout, col, cx, cy);
+    editorCaretXY(layout.get(), col, cx, cy);
     if (app.editorDesiredCol < 0) {
         app.editorDesiredX = cx;
         app.editorDesiredCol = 0;  // wrap mode uses the flag only; x is authoritative
     }
 
-    auto hitCol = [&](IDWriteTextLayout* lay, float x, float y, size_t lineLen) {
+    auto hitCol = [&](tinta::TextLayout* lay, float x, float y, size_t lineLen) {
         if (!lay) return (size_t)0;
-        BOOL trailing = FALSE, inside = FALSE;
-        DWRITE_HIT_TEST_METRICS m{};
+        bool trailing = false, inside = false;
+        tinta::HitTestMetrics m{};
         lay->HitTestPoint(x, y, &trailing, &inside, &m);
         size_t c = (size_t)m.textPosition + (trailing ? (size_t)m.length : 0);
         return std::min(c, lineLen);
@@ -323,15 +335,20 @@ static void editorMoveCursorVertical(App& app, bool down) {
 
     bool moved = false;
     if (layout) {
-        DWRITE_TEXT_METRICS tm{};
-        float layoutHeight = SUCCEEDED(layout->GetMetrics(&tm)) ? tm.height : lineHeight;
+        // GetMetrics is void on the seam, so the HRESULT fallback to lineHeight has
+        // to be expressed as a value test. A zero height is the only way a backend
+        // that could not measure can now report itself, and it is what a failed
+        // DirectWrite call left behind, so this fires in exactly the old cases.
+        tinta::TextMetrics tm{};
+        layout->GetMetrics(&tm);
+        float layoutHeight = tm.height > 0.0f ? tm.height : lineHeight;
         float targetY = cy + (down ? lineHeight : -lineHeight) + lineHeight * 0.5f;
         if (targetY >= 0.0f && targetY < layoutHeight) {
             app.editorCursorPos = app.editorLineStarts[line] +
-                hitCol(layout, app.editorDesiredX, targetY, getLineLength(app, line));
+                hitCol(layout.get(), app.editorDesiredX, targetY,
+                       getLineLength(app, line));
             moved = true;
         }
-        layout->Release();
     }
 
     if (!moved) {
@@ -339,19 +356,19 @@ static void editorMoveCursorVertical(App& app, bool down) {
         if (!hasAdjacent) return;
         size_t adjacent = down ? line + 1 : line - 1;
         size_t adjacentLen = getLineLength(app, adjacent);
-        IDWriteTextLayout* adjacentLayout = createEditorLineLayout(
+        auto adjacentLayout = createEditorLineLayout(
             app, app.editorLineStarts[adjacent], adjacentLen);
         float targetY = lineHeight * 0.5f;
         if (!down && adjacentLayout) {
             // entering from below: land on the LAST visual row
-            DWRITE_TEXT_METRICS tm{};
-            if (SUCCEEDED(adjacentLayout->GetMetrics(&tm))) {
+            tinta::TextMetrics tm{};
+            adjacentLayout->GetMetrics(&tm);
+            if (tm.height > 0.0f) {
                 targetY = tm.height - lineHeight * 0.5f;
             }
         }
         app.editorCursorPos = app.editorLineStarts[adjacent] +
-            hitCol(adjacentLayout, app.editorDesiredX, targetY, adjacentLen);
-        if (adjacentLayout) adjacentLayout->Release();
+            hitCol(adjacentLayout.get(), app.editorDesiredX, targetY, adjacentLen);
     }
 }
 
@@ -583,11 +600,11 @@ static void editorEnsureCursorVisible(App& app) {
     float cursorY;
     if (editorWrapOn(app)) {
         ensureEditorRowMetrics(app);
-        IDWriteTextLayout* layout = createEditorLineLayout(
+        auto layout = createEditorLineLayout(
             app, app.editorLineStarts[line], getLineLength(app, line));
         float cx = 0, cy = 0;
-        editorCaretXY(layout, app.editorCursorPos - app.editorLineStarts[line], cx, cy);
-        if (layout) layout->Release();
+        editorCaretXY(layout.get(),
+                      app.editorCursorPos - app.editorLineStarts[line], cx, cy);
         size_t rowStart = (line < app.editorRowStarts.size()) ? app.editorRowStarts[line] : line;
         cursorY = padding + rowStart * lineHeight + cy;
     } else {
@@ -608,11 +625,11 @@ static void editorEnsureCursorVisible(App& app) {
     if (editorWrapOn(app)) {
         app.editorScrollX = 0.0f;
     } else {
-        IDWriteTextLayout* layout = createEditorLineLayout(
+        auto layout = createEditorLineLayout(
             app, app.editorLineStarts[line], getLineLength(app, line));
         float cx = 0, cy = 0;
-        editorCaretXY(layout, app.editorCursorPos - app.editorLineStarts[line], cx, cy);
-        if (layout) layout->Release();
+        editorCaretXY(layout.get(),
+                      app.editorCursorPos - app.editorLineStarts[line], cx, cy);
         float viewW = editorTextMaxWidth(app) - dpi(app, 12.0f);  // caret + scrollbar slack
         float margin = dpi(app, 8.0f);
         if (cx < app.editorScrollX + margin) {
@@ -1092,7 +1109,7 @@ void openFileDialog(App& app, HWND hwnd) {
 void renderQuickNoteEmptyState(App& app) {
     if (!quickNoteEmptyStateActive(app) || !app.editorShowPreview) return;
     tinta::TextFormat* format = app.folderBrowserFormat;
-    if (!format || !app.renderTarget || !app.brush || !app.dwriteFactory)
+    if (!format || !app.renderTarget || !app.brush || !app.textFactory)
         return;
 
     float paneX = documentViewportX(app);
@@ -1102,18 +1119,14 @@ void renderQuickNoteEmptyState(App& app) {
     const wchar_t* label = tr(app, "empty.open_button");
     const wchar_t* chip = L"Ctrl+O";
 
-    IDWriteTextLayout* labelLayout = nullptr;
-    IDWriteTextLayout* chipLayout = nullptr;
-    app.dwriteFactory->CreateTextLayout(label, (UINT32)wcslen(label), nativeTextFormat(format),
-                                        2000.0f, 100.0f, &labelLayout);
-    app.dwriteFactory->CreateTextLayout(chip, (UINT32)wcslen(chip), nativeTextFormat(format),
-                                        2000.0f, 100.0f, &chipLayout);
-    if (!labelLayout || !chipLayout) {
-        if (labelLayout) labelLayout->Release();
-        if (chipLayout) chipLayout->Release();
-        return;
-    }
-    DWRITE_TEXT_METRICS lm{}, cm{};
+    auto labelLayout = app.textFactory->CreateTextLayout(
+        label, (uint32_t)wcslen(label), format, 2000.0f, 100.0f);
+    auto chipLayout = app.textFactory->CreateTextLayout(
+        chip, (uint32_t)wcslen(chip), format, 2000.0f, 100.0f);
+    // Both Release() calls in the old early-out are gone rather than translated:
+    // the unique_ptrs free whichever of the two did get built.
+    if (!labelLayout || !chipLayout) return;
+    tinta::TextMetrics lm{}, cm{};
     labelLayout->GetMetrics(&lm);
     chipLayout->GetMetrics(&cm);
 
@@ -1162,8 +1175,8 @@ void renderQuickNoteEmptyState(App& app) {
     // Label
     float labelX = ix + iconW + dpi(app, 10.0f);
     app.brush->SetColor(app.theme.text);
-    app.nativeRenderTarget->DrawTextLayout(
-        tinta::pointF(labelX, cy - lm.height * 0.5f), labelLayout, app.nativeBrush);
+    app.renderTarget->DrawTextLayout(
+        tinta::pointF(labelX, cy - lm.height * 0.5f), labelLayout.get(), app.brush);
 
     // Ctrl+O keycap chip
     float chipX = labelX + lm.width + dpi(app, 12.0f);
@@ -1179,31 +1192,27 @@ void renderQuickNoteEmptyState(App& app) {
     tinta::Color chipText = app.theme.text;
     chipText.a = 0.55f;
     app.brush->SetColor(chipText);
-    app.nativeRenderTarget->DrawTextLayout(
+    app.renderTarget->DrawTextLayout(
         tinta::pointF(chipX + dpi(app, 8.0f), cy - cm.height * 0.5f),
-        chipLayout, app.nativeBrush);
-    labelLayout->Release();
-    chipLayout->Release();
+        chipLayout.get(), app.brush);
 
     // Hint lines, centered under the button
     const char* hintKeys[2] = { "empty.hint1", "empty.hint2" };
     float hintY = btn.bottom + dpi(app, 18.0f);
     for (const char* key : hintKeys) {
         const wchar_t* hint = tr(app, key);
-        IDWriteTextLayout* layout = nullptr;
-        app.dwriteFactory->CreateTextLayout(hint, (UINT32)wcslen(hint),
-                                            nativeTextFormat(format), 2000.0f, 100.0f, &layout);
+        auto layout = app.textFactory->CreateTextLayout(
+            hint, (uint32_t)wcslen(hint), format, 2000.0f, 100.0f);
         if (layout) {
-            DWRITE_TEXT_METRICS hm{};
+            tinta::TextMetrics hm{};
             layout->GetMetrics(&hm);
             tinta::Color muted = app.theme.text;
             muted.a = 0.5f;
             app.brush->SetColor(muted);
-            app.nativeRenderTarget->DrawTextLayout(
-                tinta::pointF(cx - hm.width * 0.5f, hintY), layout,
-                app.nativeBrush);
+            app.renderTarget->DrawTextLayout(
+                tinta::pointF(cx - hm.width * 0.5f, hintY), layout.get(),
+                app.brush);
             hintY += hm.height + dpi(app, 4.0f);
-            layout->Release();
         }
     }
 }
@@ -2439,10 +2448,9 @@ void editorPositionImeWindow(App& app, HWND hwnd) {
     size_t lineLen = getLineLength(app, line);
     size_t col = std::min(app.editorCursorPos - lineStart, lineLen);
 
-    IDWriteTextLayout* layout = createEditorLineLayout(app, lineStart, lineLen);
+    auto layout = createEditorLineLayout(app, lineStart, lineLen);
     float xOff = 0, yOff = 0;
-    editorCaretXY(layout, col, xOff, yOff);
-    if (layout) layout->Release();
+    editorCaretXY(layout.get(), col, xOff, yOff);
 
     float lineHeight = app.editorTextFormat ? app.editorTextFormat->GetFontSize() * 1.5f : 20.0f;
     float padding = dpi(app, 8.0f);
@@ -2500,12 +2508,11 @@ static size_t editorPosFromClick(App& app, int x, int y) {
     adjustedX = std::max(0.0f, adjustedX);
 
     size_t col;
-    IDWriteTextLayout* layout = createEditorLineLayout(app, lineStart, lineLen);
+    auto layout = createEditorLineLayout(app, lineStart, lineLen);
     if (layout) {
-        BOOL trailing = FALSE, inside = FALSE;
-        DWRITE_HIT_TEST_METRICS m{};
+        bool trailing = false, inside = false;
+        tinta::HitTestMetrics m{};
         layout->HitTestPoint(adjustedX, localY, &trailing, &inside, &m);
-        layout->Release();
         // trailing hit means the click was past the glyph's midpoint: the
         // caret goes after the full character (m.length covers surrogate pairs)
         col = (size_t)m.textPosition + (trailing ? (size_t)m.length : 0);
@@ -2778,22 +2785,29 @@ static void editorFillCaretLine(App& app, float lineY, float rowsHeight,
         app.brush);
 }
 
-static void editorFillRangeRects(App& app, IDWriteTextLayout* layout,
+static void editorFillRangeRects(App& app, tinta::TextLayout* layout,
                                  float originX, float originY,
                                  size_t rangeStart, size_t rangeLen,
                                  const tinta::Color& color) {
     if (!layout || rangeLen == 0) return;
-    UINT32 count = 0;
-    layout->HitTestTextRange((UINT32)rangeStart, (UINT32)rangeLen, 0, 0,
+    uint32_t count = 0;
+    // The count-probe pass. Its return value is ignored here exactly as the
+    // HRESULT was: DirectWrite answers this shape with E_NOT_SUFFICIENT_BUFFER
+    // and a filled-in count, and text_d2d.cpp:410-416 forwards the count for
+    // that reason, so a `false` here is the expected reading and not a failure.
+    layout->HitTestTextRange((uint32_t)rangeStart, (uint32_t)rangeLen, 0, 0,
                              nullptr, 0, &count);
     if (count == 0) return;
-    std::vector<DWRITE_HIT_TEST_METRICS> metrics(count);
-    if (FAILED(layout->HitTestTextRange((UINT32)rangeStart, (UINT32)rangeLen,
-                                        0, 0, metrics.data(), count, &count))) {
+    std::vector<tinta::HitTestMetrics> metrics(count);
+    // FAILED(x) could NOT be carried across the seam: FAILED takes an HRESULT
+    // and `false` is 0, which is S_OK, so FAILED(false) is FALSE and every
+    // failure would have read as success. `!x` is the translation.
+    if (!layout->HitTestTextRange((uint32_t)rangeStart, (uint32_t)rangeLen,
+                                  0, 0, metrics.data(), count, &count)) {
         return;
     }
     app.brush->SetColor(color);
-    for (UINT32 i = 0; i < count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         app.renderTarget->FillRectangle(
             tinta::rectF(originX + metrics[i].left, originY + metrics[i].top,
                         originX + metrics[i].left + metrics[i].width,
@@ -2844,7 +2858,7 @@ static void renderEditorWrapped(App& app, float editorWidth) {
 
         size_t lineStart = app.editorLineStarts[i];
         size_t lineLen = getLineLength(app, i);
-        IDWriteTextLayout* lineLayout = cachedEditorLineLayout(app, lineStart, lineLen);
+        tinta::TextLayout* lineLayout = cachedEditorLineLayout(app, lineStart, lineLen);
 
         // Caret-line wash + gutter number (design t11)
         if (i == curLine && i + 1 < app.editorRowStarts.size()) {
@@ -2899,8 +2913,8 @@ static void renderEditorWrapped(App& app, float editorWidth) {
         // Line text
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
-            app.nativeRenderTarget->DrawTextLayout(
-                tinta::pointF(textX, lineY), lineLayout, app.nativeBrush);
+            app.renderTarget->DrawTextLayout(
+                tinta::pointF(textX, lineY), lineLayout, app.brush);
         }
 
         // Caret
@@ -3003,7 +3017,7 @@ void renderEditor(App& app, float editorWidth) {
         // One DirectWrite layout per visible line: reused for highlight
         // metrics and drawing so overlays always match the actual glyphs
         // (CJK and other full-width characters are wider than charWidth)
-        IDWriteTextLayout* lineLayout = cachedEditorLineLayout(app, lineStart, lineLen);
+        tinta::TextLayout* lineLayout = cachedEditorLineLayout(app, lineStart, lineLen);
 
         // Caret-line wash (design t11); the gutter number comes after the
         // gutter repaint below so it sits above slid text
@@ -3066,8 +3080,8 @@ void renderEditor(App& app, float editorWidth) {
         // Line text
         if (lineLayout) {
             app.brush->SetColor(app.theme.text);
-            app.nativeRenderTarget->DrawTextLayout(
-                tinta::pointF(textBase, lineY), lineLayout, app.nativeBrush);
+            app.renderTarget->DrawTextLayout(
+                tinta::pointF(textBase, lineY), lineLayout, app.brush);
         }
 
     }
@@ -3077,7 +3091,7 @@ void renderEditor(App& app, float editorWidth) {
         size_t curCol = getColFromPos(app, app.editorCursorPos);
         size_t curLineStart = app.editorLineStarts[curLine];
         size_t curLineLen = getLineLength(app, curLine);
-        IDWriteTextLayout* curLayout = cachedEditorLineLayout(app, curLineStart, curLineLen);
+        tinta::TextLayout* curLayout = cachedEditorLineLayout(app, curLineStart, curLineLen);
         float curX = textBase + editorColToX(app, curLayout, std::min(curCol, curLineLen));
         float curY = chromeTopHeight(app) + padding + curLine * lineHeight - app.editorScrollY;
 

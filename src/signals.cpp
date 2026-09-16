@@ -200,34 +200,37 @@ void runCloseAction(App& app, int closeAction) {
 }
 
 // One text layout with the emphasis range bolded
-IDWriteTextLayout* chipTextLayout(App& app, const App::SignalChip& chip,
-                                  tinta::TextFormat* fmt, float maxW,
-                                  float maxH, float* outWidth) {
+//
+// OWNS what it returns. The previous shape handed back a raw IDWriteTextLayout*
+// and left each of the two callers to Release() it, which is the ownership
+// question the old comment here deferred: the answer is that a factory-like
+// function returning a fresh object should own it, so the callers now hold a
+// unique_ptr and their Release() calls are gone rather than translated. That is
+// not a leak fix -- neither caller had an early exit between the call and its
+// Release -- it is the same lifetime expressed where the compiler can check it.
+//
+// This is the tree's only genuine SUB-RANGE SetFontWeight caller, which is why
+// the seam's signature is ranged rather than whole-layout.
+std::unique_ptr<tinta::TextLayout> chipTextLayout(App& app,
+                                                  const App::SignalChip& chip,
+                                                  tinta::TextFormat* fmt,
+                                                  float maxW, float maxH,
+                                                  float* outWidth) {
     std::wstring full = chip.text;
     if (!chip.emph.empty()) full += chip.emph;
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(full.c_str(), (UINT32)full.size(),
-                                        nativeTextFormat(fmt), maxW, maxH,
-                                        &layout);
+    auto layout = app.textFactory->CreateTextLayout(
+        full.c_str(), (uint32_t)full.size(), fmt, maxW, maxH);
     if (layout && !chip.emph.empty()) {
-        // STILL NATIVE, AND THE SEAM METHOD EXISTS -- what blocks it is this
-        // function's RETURN TYPE, not the styling. text_api.h now has
-        // SetFontWeight(FontWeight, TextRange), and this is the tree's only genuine
-        // SUB-RANGE caller, which is why the seam's signature is ranged rather than
-        // whole-layout. Calling it needs a tinta::TextLayout, which means the layout
-        // this function hands back must become one, which means its callers and their
-        // Release() calls move too. That is a conversion slice with its own
-        // ownership question, not a line change here.
-        DWRITE_TEXT_RANGE range{(UINT32)chip.text.size(),
-                                (UINT32)chip.emph.size()};
-        layout->SetFontWeight(DWRITE_FONT_WEIGHT_SEMI_BOLD, range);
+        tinta::TextRange range{(uint32_t)chip.text.size(),
+                               (uint32_t)chip.emph.size()};
+        layout->SetFontWeight(tinta::FontWeight::SemiBold, range);
     }
     if (layout) {
-        layout->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        DWRITE_TRIMMING trim{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-        layout->SetTrimming(&trim, nullptr);
+        layout->SetWordWrapping(tinta::WordWrapping::NoWrap);
+        tinta::Trimming trim{tinta::TrimmingGranularity::Character, 0, 0};
+        layout->SetTrimming(trim, nullptr);
         if (outWidth) {
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             layout->GetMetrics(&m);
             *outWidth = std::min(m.widthIncludingTrailingWhitespace, maxW);
         }
@@ -313,7 +316,11 @@ void signalTuckPassive(App& app) {
 }
 
 void renderSignalChips(App& app) {
-    if (!app.dwriteFactory || !app.folderBrowserFormat) return;
+    // Guards on the SEAM handle, not the native one. Safe rather than cosmetic:
+    // d2d_init.cpp:64-75 seats the text factory only when dwriteFactory is
+    // non-null, so the two are null together -- and this file no longer uses the
+    // native field, so testing it would be testing something unrelated.
+    if (!app.textFactory || !app.folderBrowserFormat) return;
     if (app.showPrintPreview || app.showLightbox) return;
 
     // Drain integration: hover holds, pins keep, expiry starts the tuck
@@ -411,16 +418,13 @@ void renderSignalChips(App& app) {
                        app.signalUnseen);
             tinta::Color bink = app.theme.background;
             app.brush->SetColor(bink);
-            IDWriteTextLayout* bl = nullptr;
-            app.dwriteFactory->CreateTextLayout(n, (UINT32)wcslen(n),
-                                                nativeTextFormat(app.signalSmallFormat), bw,
-                                                bw, &bl);
+            auto bl = app.textFactory->CreateTextLayout(
+                n, (uint32_t)wcslen(n), app.signalSmallFormat, bw, bw);
             if (bl) {
-                bl->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                bl->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                app.nativeRenderTarget->DrawTextLayout(
-                    tinta::pointF(badge.left, badge.top), bl, app.nativeBrush);
-                bl->Release();
+                bl->SetTextAlignment(tinta::TextAlignment::Center);
+                bl->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
+                app.renderTarget->DrawTextLayout(
+                    tinta::pointF(badge.left, badge.top), bl.get(), app.brush);
             }
         }
         app.signalBellRect = bell;
@@ -483,8 +487,7 @@ void renderSignalChips(App& app) {
         bool hovered = c.id == app.signalHoverChip;
         float textMax = dpi(app, 250.0f);
         float textW = 0.0f;
-        IDWriteTextLayout* layout =
-            chipTextLayout(app, c, fmt, textMax, chipH, &textW);
+        auto layout = chipTextLayout(app, c, fmt, textMax, chipH, &textW);
         float extras = dpi(app, 20.0f) + (hovered || c.pinned ? dpi(app, 18.0f) : 0.0f);
         float chipW = pad + iconBox + dpi(app, 9.0f) + textW + dpi(app, 10.0f) +
                       extras + pad * 0.6f;
@@ -525,12 +528,12 @@ void renderSignalChips(App& app) {
         // Text with the bold tail
         if (layout) {
             app.brush->SetColor(inkAt(app, 0.92f * alpha));
-            DWRITE_TEXT_METRICS m{};
+            tinta::TextMetrics m{};
             layout->GetMetrics(&m);
-            app.nativeRenderTarget->DrawTextLayout(
+            app.renderTarget->DrawTextLayout(
                 tinta::pointF(ib.right + dpi(app, 9.0f),
                               r.top + (chipH - m.height) * 0.5f),
-                layout, app.nativeBrush);
+                layout.get(), app.brush);
         }
 
         // Pin (hover or pinned) then the cross
@@ -597,7 +600,6 @@ void renderSignalChips(App& app) {
                     app.brush);
             }
         }
-        if (layout) layout->Release();
         c.rect = r;
         y = r.top - gap;
     }
@@ -702,15 +704,14 @@ void renderSignalChips(App& app) {
             // Title line + parked-context subtitle
             App::SignalChip flat = c;
             flat.traySub.clear();
-            IDWriteTextLayout* tl = chipTextLayout(
-                app, flat, fmt, textRight - ib.right - dpi(app, 9.0f),
-                rowH, nullptr);
+            auto tl = chipTextLayout(app, flat, fmt,
+                                     textRight - ib.right - dpi(app, 9.0f),
+                                     rowH, nullptr);
             if (tl) {
                 app.brush->SetColor(inkAt(app, 0.9f));
-                app.nativeRenderTarget->DrawTextLayout(
+                app.renderTarget->DrawTextLayout(
                     tinta::pointF(ib.right + dpi(app, 9.0f), ry + dpi(app, 5.0f)),
-                    tl, app.nativeBrush);
-                tl->Release();
+                    tl.get(), app.brush);
             }
             if (!c.traySub.empty() && app.signalSmallFormat) {
                 app.brush->SetColor(inkAt(app, 0.45f));

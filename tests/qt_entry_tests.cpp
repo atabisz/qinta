@@ -537,7 +537,7 @@ int main(int argc, char** argv) {
           "about the loader and not about an already-empty vector");
 
     const std::filesystem::path tmp =
-        std::filesystem::temp_directory_path() / "tinta_qt_entry_fixture.md";
+        std::filesystem::temp_directory_path() / "qinta_entry_fixture.md";
     {
         std::ofstream out(tmp, std::ios::binary);
         out << kMarkdown;
@@ -588,7 +588,7 @@ int main(int argc, char** argv) {
     // asserted to SUCCEED. That is the designed behaviour (an empty document is the start
     // page on the Windows side), and stating it here stops a later reader from "fixing" it.
     const std::filesystem::path emptyPath =
-        std::filesystem::temp_directory_path() / "tinta_qt_entry_empty.md";
+        std::filesystem::temp_directory_path() / "qinta_entry_empty.md";
     { std::ofstream out(emptyPath, std::ios::binary); }
     const std::string emptyUtf8 = emptyPath.u8string();
     check(loadDocumentFromPath(app, emptyUtf8),
@@ -610,7 +610,7 @@ int main(int argc, char** argv) {
     // likely false green available here, so the fixture is deliberately tall and the
     // check below is the one that makes the rest decidable.
     const std::filesystem::path tallPath =
-        std::filesystem::temp_directory_path() / "tinta_qt_entry_tall.md";
+        std::filesystem::temp_directory_path() / "qinta_entry_tall.md";
     {
         std::ofstream out(tallPath, std::ios::binary);
         out << tallMarkdown();
@@ -620,7 +620,7 @@ int main(int argc, char** argv) {
     check(window.openDocument(tallUtf8),
           "QtAppWindow::openDocument loaded the tall fixture -- the SAME entry point main() "
           "takes for argv[1] and Ctrl+O takes after the dialog, so neither can drift");
-    check(window.windowTitle().contains(QStringLiteral("tinta_qt_entry_tall")),
+    check(window.windowTitle().contains(QStringLiteral("qinta_entry_tall")),
           "and it retitled the window from the path, which is how the running app says which "
           "file is open");
     check(sameScroll(app.scrollY, 0.0f), "a freshly opened document starts at the top");

@@ -26,7 +26,7 @@
 # The flags are therefore the flags that a future port of the file would
 # actually get, including Qt's include paths and this tree's -std=gnu++17.
 #
-# The template target is tinta_qt on purpose: it is the Qt frontend, so it is
+# The template target is qinta on purpose: it is the Qt frontend, so it is
 # the target these files have to land in for the port to mean anything. Reading
 # flags from a test target would measure a slightly different world.
 #
@@ -34,7 +34,7 @@
 # portable build already compiles is measured with ITS OWN lifted command; the template
 # is used only for files that have no command of their own, which is the entire
 # non-portable census by definition. See flags_for below for the reading that forced the
-# change -- one manifest file was being failed by tinta_qt's include path rather than by
+# change -- one manifest file was being failed by qinta's include path rather than by
 # anything about the file.
 #
 # ---------------------------------------------------------------------------
@@ -90,8 +90,8 @@ set -u -o pipefail
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${TINTA_LINUX_BUILD_DIR:-${HOME}/.cache/tinta-linux-build}"
 MANIFEST="$SOURCE_DIR/tests/portable-sources.txt"
-TEMPLATE_SOURCE="src/markdown.cpp"   # on the manifest, compiled by tinta_qt
-TEMPLATE_OBJECT="CMakeFiles/tinta_qt.dir/src/markdown.cpp.o"
+TEMPLATE_SOURCE="src/markdown.cpp"   # on the manifest, compiled by qinta
+TEMPLATE_OBJECT="CMakeFiles/qinta.dir/src/markdown.cpp.o"
 
 mode="census"
 only_file=""
@@ -132,7 +132,7 @@ fi
 template="$(grep -F -- "-o $TEMPLATE_OBJECT -c" "$BUILD_LOG" | head -1)"
 if [ -z "$template" ]; then
     echo "REFUSED: no compile line for $TEMPLATE_OBJECT in the build log."
-    echo "         Was the build verbose (VERBOSE=1), and did tinta_qt configure?"
+    echo "         Was the build verbose (VERBOSE=1), and did qinta configure?"
     exit 3
 fi
 
@@ -189,10 +189,10 @@ fi
 # One template's flags cannot stand in for the whole tree, and the failure was not
 # hypothetical: src/image_qt.cpp is on the portable manifest, includes
 # QNetworkAccessManager and QSvgRenderer, and is the only source in the build compiled
-# into image_tests rather than tinta_qt -- so it gets -isystem .../QtNetwork and
-# .../QtSvg, which tinta_qt's flags do not carry. Measured against the template it read
+# into image_tests rather than qinta -- so it gets -isystem .../QtNetwork and
+# .../QtSvg, which qinta's flags do not carry. Measured against the template it read
 # `fatal 1, QNetworkAccessManager: No such file or directory`, which is a fact about
-# tinta_qt's include path and nothing at all about that file's portability. It compiles
+# qinta's include path and nothing at all about that file's portability. It compiles
 # cleanly in the real build, every day.
 #
 # So: a file that the PORTABLE build actually compiles is measured with ITS OWN lifted

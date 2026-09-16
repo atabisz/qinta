@@ -443,7 +443,7 @@ fi
 
 # And the two frontend files on that test's LINK line, which is a different question
 # from the manifest. src/qt_init.cpp and src/qt_window.cpp are both listed above, and
-# src/tinta_qt compiles both -- so the manifest reads them as compiled whether or not
+# src/qinta compiles both -- so the manifest reads them as compiled whether or not
 # any test links them. The revert shape the manifest cannot see is exactly that: leave
 # them in the app target, drop them from the test, and the comparison stays green with
 # nothing executing a line of either.
@@ -460,14 +460,14 @@ for frontend in qt_init qt_window; do
 done
 
 # The APPLICATION has to link, not just compile. src/main_qt.cpp is on the manifest,
-# so dropping the tinta_qt target would show up as MISSING -- but moving main_qt.cpp
+# so dropping the qinta target would show up as MISSING -- but moving main_qt.cpp
 # into portable_compile_only would satisfy the manifest exactly while leaving the port
 # with no runnable frontend at all. Only the link line tells those apart, and the whole
 # goal -- one stack on every platform -- is the thing that quietly stops being true.
-if grep -qE -- '-o tinta_qt( |$)' "$BUILD_DIR.build.log"; then
-    check 0 "tinta_qt LINKS off Windows, so the Qt frontend is a runnable binary and not a compile-only file set"
+if grep -qE -- '-o qinta( |$)' "$BUILD_DIR.build.log"; then
+    check 0 "qinta LINKS off Windows, so the Qt frontend is a runnable binary and not a compile-only file set"
 else
-    check 1 "tinta_qt links off Windows (no link line found -- was the target dropped, or main_qt.cpp made compile-only?)"
+    check 1 "qinta links off Windows (no link line found -- was the target dropped, or main_qt.cpp made compile-only?)"
 fi
 
 note 'Qt frontend launch'
@@ -485,18 +485,18 @@ note 'Qt frontend launch'
 # WHAT IT DOES NOT PROVE, said here rather than only in the README: nobody saw a window.
 # 124 means the process lived for three seconds with a document loaded. The pixels are
 # qt_entry_tests' job and the picture is a human's.
-if [ -x "$BUILD_DIR/tinta_qt" ] && command -v timeout > /dev/null 2>&1; then
+if [ -x "$BUILD_DIR/qinta" ] && command -v timeout > /dev/null 2>&1; then
     qt_fixture="$(mktemp -t tinta-probe-XXXXXX.md)"
     printf '# Heading\n\nSome **bold** prose and `code`.\n' > "$qt_fixture"
 
-    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/tinta_qt" "$qt_fixture" \
+    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/qinta" "$qt_fixture" \
         > "$BUILD_DIR.qtlaunch.log" 2>&1
     qt_rc=$?
-    echo "tinta_qt with a document: exit $qt_rc (124 = still running when killed)"
+    echo "qinta with a document: exit $qt_rc (124 = still running when killed)"
     if [ "$qt_rc" = "124" ]; then
-        check 0 "tinta_qt stays up with a document loaded off argv[1], so the load path does not crash it"
+        check 0 "qinta stays up with a document loaded off argv[1], so the load path does not crash it"
     else
-        check 1 "tinta_qt stays up with a document loaded off argv[1] (exit $qt_rc, not 124 -- see $BUILD_DIR.qtlaunch.log)"
+        check 1 "qinta stays up with a document loaded off argv[1] (exit $qt_rc, not 124 -- see $BUILD_DIR.qtlaunch.log)"
     fi
     if grep -q 'cannot open' "$BUILD_DIR.qtlaunch.log"; then
         check 1 "CONTROL: a document that EXISTS must not print 'cannot open' (it did -- the load failed and the window fell back to the placeholder)"
@@ -504,10 +504,10 @@ if [ -x "$BUILD_DIR/tinta_qt" ] && command -v timeout > /dev/null 2>&1; then
         check 0 "CONTROL: a document that exists produces no 'cannot open', so the 124 above is a LOADED document and not a silent fallback"
     fi
 
-    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/tinta_qt" "$qt_fixture.nope" \
+    QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/qinta" "$qt_fixture.nope" \
         > "$BUILD_DIR.qtmissing.log" 2>&1
     qt_missing_rc=$?
-    echo "tinta_qt with a missing path: exit $qt_missing_rc"
+    echo "qinta with a missing path: exit $qt_missing_rc"
     if [ "$qt_missing_rc" = "124" ]; then
         check 0 "a MISSING path still opens a window rather than refusing to launch, which is what the Windows side does"
     else
@@ -523,7 +523,7 @@ if [ -x "$BUILD_DIR/tinta_qt" ] && command -v timeout > /dev/null 2>&1; then
 else
     # NOT a skip that reads as a pass: a missing binary or a missing timeout is a
     # failed assertion, because both are things this probe is supposed to have.
-    check 1 "tinta_qt is executable and timeout(1) is available (cannot probe the launch without both)"
+    check 1 "qinta is executable and timeout(1) is available (cannot probe the launch without both)"
 fi
 
 note 'Tests'

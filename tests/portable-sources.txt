@@ -184,8 +184,8 @@ tableedit.cpp
 # src/utils.cpp -- which is `fatal error: windows.h` off Windows and stays that way.
 #
 # HOW IT WAS FOUND, because it is a different instrument from every other line here. Not
-# a compile census: a LINK reading. src/render.cpp was compiled with tinta_qt's own
-# lifted flags, its object was put on tinta_qt's own lifted link line, and the 23
+# a compile census: a LINK reading. src/render.cpp was compiled with qinta's own
+# lifted flags, its object was put on qinta's own lifted link line, and the 23
 # unresolved symbols were mapped back to the objects that define them. Exactly one came
 # out of utils.cpp. Porting a 198-line Windows feature file -- window title, shell
 # handoff, clipboard, path canonicalisation -- to reach one measurement helper would have
@@ -442,10 +442,10 @@ export_html.cpp
 #     was.
 #
 # WHAT UNBLOCKED THE RUN was a link closure, not more porting. The compile-only note said
-# a fixpoint closure over tinta_qt put "nineteen more already-compiling files and two Qt
+# a fixpoint closure over qinta put "nineteen more already-compiling files and two Qt
 # library lines" plus SIX blocked symbols between here and a drawn document, all six in
 # src/math_render.cpp. Nineteen files and two library lines are CMake, and they are now
-# one variable, TINTA_QT_APP_SOURCES, shared by tinta_qt and qt_entry_tests. The six
+# one variable, QINTA_APP_SOURCES, shared by qinta and qt_entry_tests. The six
 # symbols are src/math_stub.cpp, which is not a port and says so in its own header: it
 # parses nothing and returns a box sized to the raw source, so an equation renders as its
 # own text. READ THAT AS THE LIMIT IT IS -- everything qt_entry_tests asserts about a
@@ -471,9 +471,9 @@ render.cpp
 #
 # THEY ARE SPELLED #ifdef TINTA_D2D_BACKEND, AND THIS LINE SAID `#ifdef _WIN32` UNTIL A
 # LINK FAILURE CORRECTED IT. Both guards were _WIN32 when the file was cut, which was true
-# of every target that existed at the time. tinta_qt is a WINDOWS target with NO Direct2D
+# of every target that existed at the time. qinta is a WINDOWS target with NO Direct2D
 # backend, so _WIN32 was defined, the colour-emoji arm compiled, and the link came back
-# `unresolved external symbol nativeTextLayout` out of a file tinta_qt correctly does not
+# `unresolved external symbol nativeTextLayout` out of a file qinta correctly does not
 # compile. The dashed block was worse: it resolves through d2d1.lib, so it would have
 # LINKED and then dereferenced a null app.d2dFactory at the first dashed connector -- a
 # runtime crash instead of a build error. The macro is defined on the `tinta` target only,
@@ -566,7 +566,7 @@ scrollbar.cpp
 # THEY RENDER A DOCUMENT AS OF 2026-09-16, and the sentence that stood here said they
 # did not. It is worth reading what it said, because it was corrected twice and each
 # correction shrank the gap rather than closing it: first "because src/render.cpp does not
-# compile off Windows", then "a LINK reason, not a compile one: tinta_qt is six symbols
+# compile off Windows", then "a LINK reason, not a compile one: qinta is six symbols
 # short, all of them in src/math_render.cpp". Both premises were true when written. The
 # six symbols are now src/math_stub.cpp, so the LINK is closed and the MATHS is not --
 # which is the third shape of the same gap and is recorded under render.cpp above rather

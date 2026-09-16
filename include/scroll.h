@@ -4,7 +4,7 @@
 // THE DOCUMENT SCROLL POLICY, IN A PORTABLE FILE, BECAUSE IT IS THE ONE THING
 // STANDING IN FRONT OF README.md's HEADLINE BASIS.
 //
-// tinta_qt has drawn a document since the argv[1] slice and you could not move it, so
+// qinta has drawn a document since the argv[1] slice and you could not move it, so
 // every file longer than the window showed its top and refused the rest. That is why
 // basis F reads 0/3 and not because nothing renders.
 //

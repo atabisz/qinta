@@ -40,7 +40,7 @@
 //   * No exec() loop features: no menus, no tabs, no input. src/input.cpp is the
 //     deepest Windows file in the tree (344 native mentions at the last census).
 //
-// So `tinta_qt some.md` opens a window with that document drawn in it, and `tinta_qt`
+// So `qinta some.md` opens a window with that document drawn in it, and `qinta`
 // with no argument opens the same window showing the placeholder line. The sentence
 // that stood here said "this opens a window with the theme background and a line of
 // text in it. That is a shell" -- true until this commit, and the reason it is

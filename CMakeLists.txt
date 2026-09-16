@@ -14,12 +14,12 @@ project(tinta VERSION 3.6.7 LANGUAGES C CXX)
 # expanded to `target_compile_definitions(<target> PRIVATE )`. CMake accepts that silently:
 # no warning, no error, a configure and a build that both succeed, and three version errors
 # still in the census. Caught only because the re-measurement script greps the definition off
-# tinta_qt's actual compile line and printed "NO VERSION DEFINES ON THE LINE". A single
+# qinta's actual compile line and printed "NO VERSION DEFINES ON THE LINE". A single
 # source of truth placed inside a platform guard is not one.
 #
-# Applied to tinta, tinta_qt and portable_compile_only rather than inherited via
+# Applied to tinta, qinta and portable_compile_only rather than inherited via
 # $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>, which some test targets below do use: that
-# expression would also drag TINTA_D2D_BACKEND onto tinta_qt, and tinta_qt is precisely the
+# expression would also drag TINTA_D2D_BACKEND onto qinta, and qinta is precisely the
 # target that must NOT have it.
 set(TINTA_VERSION_DEFINITIONS
     TINTA_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
@@ -187,7 +187,7 @@ endif()
 #
 # It used to say that turning the option off "does not produce a Qt Windows build,
 # it produces no Windows build at all". That is now FALSE, and measurably so: with
-# -DTINTA_LEGACY_D2D=OFF the tinta_qt target compiles, links with zero LNK2019 and
+# -DTINTA_LEGACY_D2D=OFF the qinta target compiles, links with zero LNK2019 and
 # produces a binary that launches and stays up (negative-controlled by taking the Qt
 # DLLs off PATH, which turns the same binary into a 127). So a Windows build without
 # a line of Direct2D in it EXISTS. What fails with the option off is the `tinta`
@@ -198,7 +198,7 @@ endif()
 # C:/Qt/6.8.3/msvc2022_64 and configure finds it.
 #
 # So the reason the default stays ON is no longer a missing dependency, it is
-# FEATURE PARITY: tinta_qt renders and scrolls a document but has no input
+# FEATURE PARITY: qinta renders and scrolls a document but has no input
 # handling, no editor and no search, so deleting the backend today would delete the
 # working product to keep the more portable one. That is a product call, not a
 # build-system one.
@@ -403,15 +403,15 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
 #
 # FOUND BY A LINK FAILURE, not by design. src/paint_document.cpp guarded its two native
 # spots with #ifdef _WIN32, which was correct for every target that existed when it was
-# written, because Windows and Direct2D were the same thing here. tinta_qt broke that: it
+# written, because Windows and Direct2D were the same thing here. qinta broke that: it
 # is a WINDOWS target with NO D2D backend, so _WIN32 was defined, the colour-emoji branch
 # compiled, and the link came back
 #
 #   paint_document.obj : error LNK2019: unresolved external symbol nativeTextLayout
 #
-# out of src/text_d2d.cpp, which tinta_qt correctly does not compile. The dashed-stroke
+# out of src/text_d2d.cpp, which qinta correctly does not compile. The dashed-stroke
 # block was worse and would NOT have shown up at link at all -- it resolves through
-# d2d1.lib and app.d2dFactory, so under tinta_qt it would have dereferenced a null
+# d2d1.lib and app.d2dFactory, so under qinta it would have dereferenced a null
 # factory at the first dashed mermaid connector.
 #
 # This is the shape of the whole port's endgame, arriving early: every `#ifdef _WIN32` in
@@ -491,10 +491,10 @@ endif()  # WIN32 — app target
 
 # THE QT APP'S SOURCE CLOSURE, IN A VARIABLE BECAUSE TWO TARGETS MUST SHARE IT.
 #
-# tinta_qt below is the application; qt_entry_tests far down in the test section is the
+# qinta below is the application; qt_entry_tests far down in the test section is the
 # only thing that PAINTS it and reads pixels back. Those two have to link the same
 # files or the test stops being a test of the app -- and the comment on that target has
-# claimed "the same measured closure as tinta_qt, minus main_qt.cpp" since it was
+# claimed "the same measured closure as qinta, minus main_qt.cpp" since it was
 # written, on nothing but my promise to keep two hand-maintained lists in step.
 #
 # This makes the claim structural instead. The lists cannot drift, because there is one
@@ -504,7 +504,7 @@ endif()  # WIN32 — app target
 #
 # Deliberately at unconditional scope rather than inside the Qt guard below, so the
 # test section can read it without depending on the order of two independent if()s.
-set(TINTA_QT_APP_SOURCES
+set(QINTA_APP_SOURCES
     src/qt_window.cpp
     src/qt_init.cpp
     src/render_qt.cpp
@@ -548,7 +548,7 @@ set(TINTA_QT_APP_SOURCES
     # src/file_dialog_qt.cpp is named DIRECTLY rather than through
     # ${PLATFORM_FILE_DIALOG_SOURCE}, and that is the port's stated goal showing up in
     # the build for the first time: on Windows that variable resolves to
-    # src/file_dialog_win32.cpp, and tinta_qt must not take the Win32 half of a seam it
+    # src/file_dialog_win32.cpp, and qinta must not take the Win32 half of a seam it
     # has a Qt half for. The legacy `tinta` target still links the Win32 half. No target
     # links both, so there is no duplicate symbol.
     src/scroll.cpp
@@ -575,27 +575,27 @@ set(TINTA_QT_APP_SOURCES
 )
 
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
-    add_executable(tinta_qt WIN32
+    add_executable(qinta WIN32
         src/main_qt.cpp
-        ${TINTA_QT_APP_SOURCES}
+        ${QINTA_APP_SOURCES}
     )
-    target_include_directories(tinta_qt PRIVATE
+    target_include_directories(qinta PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(tinta_qt PRIVATE md4c
+    target_link_libraries(qinta PRIVATE md4c
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
     # OUTSIDE the if(WIN32) below, deliberately: the version numbers are not a platform
     # fact, and every UNICODE definition in this file is guarded, so the tempting place to
     # add these is the one place they would silently not apply off Windows.
-    target_compile_definitions(tinta_qt PRIVATE ${TINTA_VERSION_DEFINITIONS})
+    target_compile_definitions(qinta PRIVATE ${TINTA_VERSION_DEFINITIONS})
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
         # go away at the cutover this target exists to reach: the path seam collapses
         # onto src/platform_paths_qt.cpp, which is written to be correct on all three.
-        target_compile_definitions(tinta_qt PRIVATE UNICODE _UNICODE)
-        target_link_libraries(tinta_qt PRIVATE shell32)
+        target_compile_definitions(qinta PRIVATE UNICODE _UNICODE)
+        target_link_libraries(qinta PRIVATE shell32)
         # Dynamic CRT, the same override and the same measured reason as the Qt test
         # targets far below: Qt cannot be linked against the static CRT, and mixing the
         # two debug heaps in one process trips an assertion in Qt's own allocations.
@@ -606,12 +606,12 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
         # it either -- `tinta` above is untouched and still static -- but the two cannot
         # both survive the cutover, and which one gives way is Alex's call, not this
         # file's. README.md carries the three options.
-        set_property(TARGET tinta_qt PROPERTY
+        set_property(TARGET qinta PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     endif()
-    message(STATUS "Qt6 ${Qt6_VERSION} found -- tinta_qt (the Qt shell) enabled")
+    message(STATUS "Qt6 ${Qt6_VERSION} found -- qinta (the Qt shell) enabled")
 else()
-    message(STATUS "Qt6 with Widgets not found -- tinta_qt skipped")
+    message(STATUS "Qt6 with Widgets not found -- qinta skipped")
 endif()
 
 if(BUILD_TESTING)
@@ -1077,7 +1077,7 @@ if(BUILD_TESTING)
         src/editrail.cpp
         src/tableedit.cpp
         # src/text_utils_app.cpp -- one function, measureText's seam overload, split out
-        # of the windows.h-fatal src/utils.cpp because a linker reading of tinta_qt's
+        # of the windows.h-fatal src/utils.cpp because a linker reading of qinta's
         # closure found it was the ONLY symbol render.cpp needed from that file.
         #
         # COMPILE-ONLY, and that is a stated gap rather than a quiet one. NOTHING in this
@@ -1099,7 +1099,7 @@ if(BUILD_TESTING)
         #   say "NOT YET" with the residue named -- six symbols owned by
         #   src/math_render.cpp, which still does not compile off Windows. What changed
         #   is not math: src/math_stub.cpp supplies those six, and the nineteen other
-        #   files the fixpoint named joined tinta_qt with two Qt library lines. Both
+        #   files the fixpoint named joined qinta with two Qt library lines. Both
         #   halves of the old claim are kept above rather than deleted, because the
         #   residue is still six and the file that resolves them is still a stub.
         #
@@ -1160,7 +1160,7 @@ if(BUILD_TESTING)
         src/overlays.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
-    # Unconditional, same argument as tinta_qt above: a version number is not a platform fact.
+    # Unconditional, same argument as qinta above: a version number is not a platform fact.
     target_compile_definitions(portable_compile_only PRIVATE ${TINTA_VERSION_DEFINITIONS})
     if(WIN32)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
@@ -1875,12 +1875,12 @@ if(BUILD_TESTING)
         # tree draws through. This target closes it by constructing the same
         # QtAppWindow src/main_qt.cpp runs, grabbing it, and reading the pixels.
         #
-        # It links the same measured closure as tinta_qt above, minus main_qt.cpp --
+        # It links the same measured closure as qinta above, minus main_qt.cpp --
         # so a change that breaks the shell breaks this test, which is the point of
         # sharing the window class rather than reimplementing it in the test.
         #
         # "The same closure" is now literally the same CMake variable
-        # (TINTA_QT_APP_SOURCES, defined beside tinta_qt) rather than a second list I
+        # (QINTA_APP_SOURCES, defined beside qinta) rather than a second list I
         # promised to keep in step. It stopped being a promise worth making when the
         # closure went from 8 files to 28.
         #
@@ -1898,13 +1898,13 @@ if(BUILD_TESTING)
         if(Qt6Widgets_FOUND)
             add_executable(qt_entry_tests
                 tests/qt_entry_tests.cpp
-                ${TINTA_QT_APP_SOURCES}
+                ${QINTA_APP_SOURCES}
             )
             target_include_directories(qt_entry_tests PRIVATE
                 include ${md4c_SOURCE_DIR}/src)
             # Svg and Network arrive with the closure, not with the test: image_qt.cpp's
             # QSvgRenderer and QNetworkAccessManager carry fourteen of the twenty
-            # residual symbols the fixpoint left. Same two lines as tinta_qt, for the
+            # residual symbols the fixpoint left. Same two lines as qinta, for the
             # same measured reason.
             target_link_libraries(qt_entry_tests PRIVATE
                 md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)

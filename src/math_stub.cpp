@@ -3,10 +3,10 @@
 // src/math_render.cpp measures LaTeX with DirectWrite and draws it with Direct2D.
 // It does not compile off Windows -- 34 errors, first cause an incomplete
 // IDWriteTextLayout -- and it is 861 lines. Until it is ported, this file supplies
-// the six symbols the portable renderer needs, so that tinta_qt links and draws a
+// the six symbols the portable renderer needs, so that qinta links and draws a
 // real document TODAY instead of waiting on the math port.
 //
-// A link closure over tinta_qt measured the residue exactly: mathParse,
+// A link closure over qinta measured the residue exactly: mathParse,
 // mathBoxWidth, mathBoxHeight, mathBoxBaseline, mathExpandLine, mathBoxRetain --
 // six symbols, all owned by math_render.cpp, and nothing else in the whole
 // twenty-file closure was blocked. This file is that list and nothing more; it
@@ -60,7 +60,7 @@
 // written out even though the assert "should" make it unreachable.
 //
 // DELETING THIS FILE IS THE GOAL. It goes when math_render.cpp compiles off Windows,
-// and the CMake comment on tinta_qt says the same thing at the other end.
+// and the CMake comment on qinta says the same thing at the other end.
 
 #include "math_render.h"
 

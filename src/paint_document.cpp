@@ -8,10 +8,10 @@
 
 // TINTA_D2D_BACKEND, NOT _WIN32, AND THAT DISTINCTION COST A LINK FAILURE. All three
 // guards in this file said `#ifdef _WIN32` when they were written, which was true of
-// every target that existed then. tinta_qt is a WINDOWS target with no Direct2D backend,
+// every target that existed then. qinta is a WINDOWS target with no Direct2D backend,
 // so _WIN32 was defined, the colour-emoji branch below compiled, and the link came back
 // `unresolved external symbol nativeTextLayout` out of src/text_d2d.cpp -- a file
-// tinta_qt correctly does not compile. The dashed block further down was worse: it
+// qinta correctly does not compile. The dashed block further down was worse: it
 // resolves through d2d1.lib, so it would have LINKED and then dereferenced a null
 // app.d2dFactory at the first dashed mermaid connector.
 //
@@ -153,7 +153,7 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         app.seatDashedStrokeStyle();
 #else
         // No factory and no native pointer without the Direct2D backend, so the marker
-        // stands in. THIS ARM RUNS ON WINDOWS TOO, under tinta_qt -- it is not the
+        // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
         // "non-Windows" arm any more, and reading it as one is how the guard came to be
         // spelled _WIN32 in the first place.
         //
@@ -430,7 +430,7 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
             // Windows as a forward-declared pointer that is always null, so the runtime
             // shape is identical either way; what the #ifdef buys is that an incomplete
             // ID2D1DeviceContext is never dereferenced at COMPILE time -- and, since the
-            // guard became TINTA_D2D_BACKEND, that tinta_qt never references
+            // guard became TINTA_D2D_BACKEND, that qinta never references
             // nativeTextLayout, which is what its link failure was.
             //
             // Onto the seam, which is one of the 26 DrawTextLayout sites render_api.h

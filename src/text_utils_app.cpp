@@ -9,7 +9,7 @@
 //
 // WHY ONE FUNCTION EARNS A TRANSLATION UNIT, measured rather than asserted. The Qt
 // frontend's link closure was read with a linker on 2026-09-16: render.cpp was compiled
-// with tinta_qt's own flags, dropped onto tinta_qt's own link line, and the 23 unresolved
+// with qinta's own flags, dropped onto qinta's own link line, and the 23 unresolved
 // symbols were mapped back to the objects that define them. Twenty-two of the twenty-three
 // came from files that are already portable or from math_render.cpp. Exactly ONE came from
 // src/utils.cpp -- this function -- and utils.cpp is `fatal error: windows.h` off Windows,

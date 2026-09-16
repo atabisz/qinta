@@ -25,7 +25,7 @@
 // find out here that it changed rather than wonder whether they misremembered.
 //
 // THE ONE THING NOT PORTED IS MATH. src/math_render.cpp is still Windows-only, so
-// tinta_qt links src/math_stub.cpp in its place and equations render as their own
+// qinta links src/math_stub.cpp in its place and equations render as their own
 // LaTeX source -- the tree's own designed fallback, and that file's header comment is
 // the full account.
 //

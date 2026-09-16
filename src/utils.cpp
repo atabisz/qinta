@@ -15,7 +15,7 @@
 
 // THE SEAM OVERLOAD HAS LEFT THIS FILE -- it is src/text_utils_app.cpp now, and that
 // file argues why at length. The short version, because a reader looking for it here
-// deserves better than silence: a linker reading of tinta_qt's closure found this
+// deserves better than silence: a linker reading of qinta's closure found this
 // function was the ONLY symbol render.cpp needed out of utils.cpp, and utils.cpp is
 // `fatal error: windows.h` off Windows. Moving eighteen lines that already named no
 // DirectWrite type was cheaper than porting a Windows feature file to reach them.

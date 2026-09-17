@@ -20,12 +20,27 @@
 
 #include "export.h"
 
+#include "win32_api.h"
+#include "keyboard.h"
+#include "portable_str.h"
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <algorithm>
 #include <chrono>
+#include <cwchar>
+
+// <imm.h> IS THE ONLY WINDOWS HEADER THIS FILE STILL NEEDS, AND IT IS GUARDED
+// RATHER THAN DELETED -- unlike drafts.cpp's <shlobj.h>, which was dead weight.
+// It has one real caller: editorPositionImeWindow, 35 lines, six identifiers.
+// Measured before the guard was written: with the header stubbed, g++ read the
+// file end to end and reported 55 errors on 40 lines -- so for as long as this
+// include was unguarded, every published figure about this file's portability
+// was a proxy for a number nobody had. A fatal include stops the read.
+#ifdef _WIN32
 #include <imm.h>
+#endif
 
 #define TIMER_EDITOR_REPARSE 2
 
@@ -763,7 +778,7 @@ static void scheduleReparse(App& app) {
         std::wstring fname = (lastSep != std::wstring::npos) ? wpath.substr(lastSep + 1) : wpath;
         if (fname.empty()) fname = tr(app, "title.untitled");  // quick note
         std::wstring title = L"Tinta - * " + fname;
-        SetWindowTextW(app.hwnd, title.c_str());
+        setWindowTitle(app.hwnd, title.c_str());
     }
     // No preview pane — nothing to keep in sync until it's shown again
     if (!app.editorShowPreview) return;
@@ -929,7 +944,7 @@ void enterEditMode(App& app) {
 
     // Load raw file content
     std::wstring widePath = toWide(app.currentFile);
-    std::ifstream file(widePath, std::ios::binary);
+    std::ifstream file(std::filesystem::path(widePath), std::ios::binary);
     if (!file) return;
 
     std::stringstream buf;
@@ -1002,7 +1017,15 @@ void exitEditMode(App& app) {
     // note has no file — reset the viewer to an empty document instead of
     // leaving the discarded text rendered.
     std::wstring widePath = toWide(app.currentFile);
-    std::ifstream file(widePath);
+    // BRACES ON THE TEMPORARY, NOT PARENTHESES, AND THE REASON IS A BUG THIS SLICE
+    // WROTE AND THE COMPILER CAUGHT. `std::ifstream file(std::filesystem::path(widePath));`
+    // is C++'s most vexing parse: the inner parentheses are read as a parameter
+    // declaration, so `file` is declared as a FUNCTION taking a path, and the `if (file)`
+    // below would test a function pointer -- always true. That is a parse, not a
+    // platform behaviour, so it broke Windows identically and silently. The other three
+    // stream sites in this file pass a second argument, which is why only this one was
+    // exposed. Braces cannot be read as a declarator, so they close it.
+    std::ifstream file{std::filesystem::path(widePath)};
     if (app.currentFile.empty()) {
         auto result = parseDocument(app.parser, std::string(), app.currentFile);
         if (result.success) {
@@ -1219,7 +1242,7 @@ void saveEditorFile(App& app, HWND hwnd) {
     std::wstring widePath = toWide(app.currentFile);
     bool useCRLF = false;
     {
-        std::ifstream check(widePath, std::ios::binary);
+        std::ifstream check(std::filesystem::path(widePath), std::ios::binary);
         if (check) {
             char buf[4096];
             check.read(buf, sizeof(buf));
@@ -1245,7 +1268,7 @@ void saveEditorFile(App& app, HWND hwnd) {
         utf8 = std::move(crlf);
     }
 
-    std::ofstream out(widePath, std::ios::binary);
+    std::ofstream out(std::filesystem::path(widePath), std::ios::binary);
     if (out) {
         out.write(utf8.data(), utf8.size());
         out.close();
@@ -1314,7 +1337,10 @@ void saveFileAs(App& app, HWND hwnd) {
     if (!promptSaveAsPath(app, hwnd)) return;  // sets currentFile on OK
     std::wstring src = toWide(previous);
     std::wstring dst = toWide(app.currentFile);
-    bool ok = CopyFileW(src.c_str(), dst.c_str(), FALSE) != 0;
+    std::error_code copyEc;
+    bool ok = std::filesystem::copy_file(
+        std::filesystem::path(src), std::filesystem::path(dst),
+        std::filesystem::copy_options::overwrite_existing, copyEc);
     if (!ok) {
         app.currentFile = previous;
         signalPushKey(app, SIG_ERROR, SIGI_WARNING, "toast.save_failed");
@@ -1393,8 +1419,8 @@ void confirmExitAction(App& app, HWND hwnd, int action) {
 }
 
 void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
-    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool ctrl = platform::isCtrlDown();
+    bool shift = platform::isShiftDown();
 
     // The insert menu closes on Esc; any other key falls through to the
     // editor after dismissing it
@@ -1581,8 +1607,29 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             case 'N':
                 // Notepad model: Ctrl+N opens a fresh note tab (this
                 // buffer parks in its tab), Ctrl+Shift+N a new window
+                // ANSWERING utils.h's QUESTION AT THE SITE, WHICH IS WHERE IT SAID THE
+                // ANSWER BELONGED. launchQuickNoteWindow is declared only under
+                // _WIN32, deliberately, so that an off-Windows caller is a compile
+                // error here rather than a link failure or a silent no-op half. This
+                // slice is that caller, and the answer is: Ctrl+Shift+N does NOTHING
+                // off Windows yet.
+                //
+                // IT DELIBERATELY DOES NOT FALL THROUGH TO tabOpenQuickNote below.
+                // That would make Ctrl+Shift+N behave as Ctrl+N -- a new tab where the
+                // user asked for a new window -- which is a wrong picture rather than a
+                // gap, and the exact class of silent success win32_api.h refuses. A
+                // shortcut that does nothing is visible; one that does the neighbouring
+                // thing is not.
+                //
+                // What is actually missing is not this call: it is a Qt-side parser for
+                // the command-line flags the relaunch passes, which main_qt.cpp has no
+                // equivalent of. That is one piece of work serving THREE callers --
+                // this one, input.cpp:3632, and tabs.cpp:1650 -- so it belongs in its
+                // own slice, not smuggled into an editor port.
                 if (shift) {
+#ifdef _WIN32
                     launchQuickNoteWindow();
+#endif
                 } else {
                     app.swallowCharsUntil =
                         std::chrono::steady_clock::now() +
@@ -1628,7 +1675,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // A bitmap without text (a screenshot) saves as PNG beside
                 // the document and pastes as its markdown link
                 if (paste.empty() && !app.currentFile.empty() &&
-                    IsClipboardFormatAvailable(CF_BITMAP)) {
+                    platform::clipboardHasImage()) {
                     namespace fs = std::filesystem;
                     fs::path doc(toWide(app.currentFile));
                     std::wstring stem = doc.stem().wstring();
@@ -1636,7 +1683,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     fs::path target;
                     for (int i = 1; i < 100; i++) {
                         wchar_t suffix[24];
-                        swprintf_s(suffix, _countof(suffix),
+                        tinta::swprintf(suffix, std::size(suffix),
                                    L"-img-%02d.png", i);
                         std::wstring candidate = stem + suffix;
                         fs::path p = doc.parent_path() / candidate;
@@ -1664,7 +1711,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     if (app.editorHasSelection) editorDeleteSelection(app);
                     // Excel range copies arrive as TSV: paste them as a
                     // markdown table (#181). Ctrl+Shift+V pastes raw.
-                    if (!(GetKeyState(VK_SHIFT) & 0x8000) &&
+                    if (!platform::isShiftDown() &&
                         tsvLooksLikeTable(paste)) {
                         paste = padTableForInsert(
                             app, tsvToMarkdownTable(paste), app.editorCursorPos);
@@ -1952,7 +1999,7 @@ static ListMarkerInfo parseListMarker(const std::wstring& text,
         }
         if (d + 1 >= text.size() || text[d + 1] != L' ') return info;
         info.ordered = true;
-        info.number = _wtoi(text.substr(i, d - i).c_str());
+        info.number = (int)std::wcstol(text.substr(i, d - i).c_str(), nullptr, 10);
         info.delim = text[d];
         i = d + 2;
     }
@@ -2340,9 +2387,9 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
 
     if (ch == 9) { // Tab
         // Ctrl+I arrives as the Tab control character: keydown handled it
-        if (GetKeyState(VK_CONTROL) & 0x8000) return;
+        if (platform::isCtrlDown()) return;
         bool assists = app.editorAssists;
-        bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        bool shift = platform::isShiftDown();
         if (shift && !assists) return;
         if (shift) {
             // Shift+Tab: outdent the caret line by up to 4 spaces / a tab
@@ -2426,7 +2473,27 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
 
 // Place the IME composition window at the caret so candidate lists for
 // CJK input appear where the user is typing instead of the window corner.
+//
+// THE WHOLE FUNCTION IS THE <imm.h> SURFACE, WHICH IS WHY THE GUARD IS HERE AND NOT
+// AROUND SIX SCATTERED LINES. Six identifiers -- HIMC, ImmGetContext,
+// COMPOSITIONFORM, CFS_POINT, ImmSetCompositionWindow, ImmReleaseContext -- one
+// occurrence each, all of them below, and every statement between them exists only
+// to fill the COMPOSITIONFORM. So there is no portable half to keep.
+//
+// OFF WINDOWS THIS IS A MISSING FEATURE, NOT AN EQUIVALENCE, and the direction it
+// fails in is worth naming: CJK composition still WORKS, because the platform's
+// input method owns it -- what is lost is the candidate list's POSITION, which
+// reverts to wherever the input method puts it by default rather than following the
+// caret. A degraded placement, not a broken editor, and nothing is corrupted.
+//
+// It stays a no-op rather than gaining a Qt arm because Qt's answer is not a call at
+// this site at all: QWidget::inputMethodQuery(Qt::ImCursorRectangle) is a widget
+// OVERRIDE that Qt pulls when it needs the rectangle, so the caret geometry computed
+// below would move into that override on a widget this tree does not have yet. That
+// makes it the same blocker win32_api.h records twice -- no window object on the Qt
+// side -- and writing a Qt arm here would put the code in a place Qt never calls.
 void editorPositionImeWindow(App& app, HWND hwnd) {
+#ifdef _WIN32
     if (!app.editMode || app.editorLineStarts.empty()) return;
     HIMC himc = ImmGetContext(hwnd);
     if (!himc) return;
@@ -2460,6 +2527,10 @@ void editorPositionImeWindow(App& app, HWND hwnd) {
                                app.editorScrollY + lineHeight);
     ImmSetCompositionWindow(himc, &cf);
     ImmReleaseContext(hwnd, himc);
+#else
+    (void)app;
+    (void)hwnd;
+#endif
 }
 
 // --- Mouse handling ---
@@ -2542,7 +2613,7 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
         app.editorScrollbarDragging = true;
         app.editorScrollbarDragStartY = (float)y;
         app.editorScrollbarDragStartScroll = app.editorScrollY;
-        SetCapture(hwnd);
+        captureMouse(hwnd);
         requestRepaint(hwnd);
         return;
     }
@@ -2554,7 +2625,7 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
             app.draggingSeparator = true;
             app.separatorDragStartX = (float)x;
             app.separatorDragStartRatio = app.editorSplitRatio;
-            SetCapture(hwnd);
+            captureMouse(hwnd);
             return;
         }
     }
@@ -2562,7 +2633,7 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
     // Only handle clicks in the editor pane (left side)
     if (x > editorWidth) return;
 
-    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool shift = platform::isShiftDown();
     size_t clickPos = editorPosFromClick(app, x, y);
 
     // Detect double/triple click
@@ -2626,7 +2697,7 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
             app.editorHasSelection = false;
         }
         app.editorSelecting = true;
-        SetCapture(hwnd);
+        captureMouse(hwnd);
     }
 
     app.editorDesiredCol = -1;
@@ -2636,17 +2707,17 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
 void handleEditorMouseUp(App& app, HWND hwnd, int x, int y) {
     if (app.editorScrollbarDragging) {
         app.editorScrollbarDragging = false;
-        ReleaseCapture();
+        releaseMouse();
         return;
     }
     if (app.draggingSeparator) {
         app.draggingSeparator = false;
-        ReleaseCapture();
+        releaseMouse();
         return;
     }
     if (app.editorSelecting) {
         app.editorSelecting = false;
-        ReleaseCapture();
+        releaseMouse();
         if (app.editorSelStart == app.editorSelEnd) {
             app.editorHasSelection = false;
         }
@@ -2658,14 +2729,14 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
 
     // Insert-menu hover: rows highlight, parents open their submenu
     if (editCtxMouseMove(app, x, y)) {
-        SetCursor(LoadCursor(nullptr, IDC_ARROW));
+        setCursorShape(CursorShape::Arrow);
         return;
     }
 
     // Rail hover (design t8/t11)
     if (editRailMouseMove(app, hwnd, x, y)) {
-        SetCursor(LoadCursor(nullptr,
-                             app.editRailHover ? IDC_HAND : IDC_ARROW));
+        setCursorShape(app.editRailHover ? CursorShape::Hand
+                                         : CursorShape::Arrow);
         return;
     }
 
@@ -2685,8 +2756,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
     }
 
     if (app.draggingSeparator) {
-        static HCURSOR cursorSizeWE = LoadCursor(nullptr, IDC_SIZEWE);
-        SetCursor(cursorSizeWE);
+        setCursorShape(CursorShape::SizeWE);
         float dx = (float)x - app.separatorDragStartX;
         float newRatio = app.separatorDragStartRatio + dx / app.width;
         app.editorSplitRatio = std::max(0.2f, std::min(0.8f, newRatio));
@@ -2697,8 +2767,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
     }
 
     if (app.editorSelecting) {
-        static HCURSOR cursorIBeam = LoadCursor(nullptr, IDC_IBEAM);
-        SetCursor(cursorIBeam);
+        setCursorShape(CursorShape::IBeam);
         size_t pos = editorPosFromClick(app, x, y);
         app.editorSelEnd = pos;
         app.editorCursorPos = pos;
@@ -2707,17 +2776,20 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
         return;
     }
 
-    // Cursor shape: the seam column is the split handle
-    static HCURSOR cursorSizeWE = LoadCursor(nullptr, IDC_SIZEWE);
-    static HCURSOR cursorIBeam = LoadCursor(nullptr, IDC_IBEAM);
-    static HCURSOR cursorArrow = LoadCursor(nullptr, IDC_ARROW);
-
+    // Cursor shape: the seam column is the split handle.
+    //
+    // cursorArrow was declared here and NEVER USED -- the arrow case falls
+    // through to handleMouseMove, as the comment at the end of this function
+    // says. Deleted with the statics rather than carried, because a
+    // `static HCURSOR` nobody reads is dead either way and MSVC was already
+    // reporting it under C4189 in the same family of warnings this tree cleaned
+    // out of overlays.cpp.
     if (app.editorShowPreview && (float)x >= editorWidth &&
         (float)x < editorWidth + editSeamWidth(app)) {
-        SetCursor(cursorSizeWE);
+        setCursorShape(CursorShape::SizeWE);
         return;
     } else if (x < editorWidth) {
-        SetCursor(cursorIBeam);
+        setCursorShape(CursorShape::IBeam);
         return;
     }
     // Preview pane cursor is handled by the normal handleMouseMove.
@@ -2725,7 +2797,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
 
 void handleEditorMouseWheel(App& app, HWND hwnd, float delta) {
     // Shift+wheel pans long unwrapped lines horizontally (#77)
-    if (!editorWrapOn(app) && (GetKeyState(VK_SHIFT) & 0x8000)) {
+    if (!editorWrapOn(app) && platform::isShiftDown()) {
         app.editorScrollX = std::max(0.0f, app.editorScrollX - delta * dpi(app, 60.0f));
         requestRepaint(hwnd);
         return;
@@ -2747,14 +2819,14 @@ static void editorDrawLineNumber(App& app, size_t lineIdx, float lineY,
                                  float lineHeight, bool isCaretLine) {
     if (!app.editorGutterFormat) return;
     wchar_t num[16];
-    int len = swprintf_s(num, _countof(num), L"%u",
+    int len = tinta::swprintf(num, std::size(num), L"%u",
                          (unsigned)(lineIdx + 1));
     if (len <= 0) return;
     float railW = dpi(app, 48.0f);
     tinta::Color c = isCaretLine ? app.theme.accent : app.theme.text;
     c.a = isCaretLine ? 0.8f : 0.3f;
     app.brush->SetColor(c);
-    app.renderTarget->DrawTextW(
+    app.renderTarget->DrawText(
         num, (UINT32)len, app.editorGutterFormat,
         tinta::rectF(railW, lineY,
                     railW + editorGutterWidth(app) - dpi(app, 8.0f),

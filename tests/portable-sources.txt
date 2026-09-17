@@ -381,6 +381,101 @@ signals.cpp
 # on Windows this file already reaches windows.h through drafts.h -> app.h -> <d2d1.h>.
 drafts.cpp
 
+# editor.cpp -- 2026-09-17, and the entry the three above were all waiting on. saveEditorFile
+# was signals.cpp's last blocker and enterRecoveredDraft was drafts.cpp's, both here.
+#
+# READ THIS ONE FOR THE SIZING LESSON, WHICH IS THE THIRD DIFFERENT SHAPE IN THREE ENTRIES.
+# utils.cpp above was sized too small by wc -l. drafts.cpp was sized correctly by compiling
+# it once. This file could not be sized AT ALL until this pass -- `#include <imm.h>` was
+# fatal, so the census never read a line of it and every published figure about its
+# portability was a proxy for a number nobody had.
+#
+# AND COMPILING IT ONCE WAS NOT ENOUGH EITHER. Stubbed: 55 errors on 40 lines, seven
+# families. Routed: 7 more errors. Routed again: 0. **55 -> 7 -> 0**, and the first pass's
+# family list was wrong in FOUR places -- it missed a whole family
+# (IsClipboardFormatAvailable), overstated VK_* by an order of magnitude, sent WM_CLOSE to
+# the wrong header, and called launchQuickNoteWindow a non-issue. So the rule drafts.cpp
+# wrote -- an error count is not a cause count -- gets a second half here: a cause list from
+# ONE PASS is not a census, because a family that only appears once the families in front of
+# it are gone cannot be counted before they are.
+#
+# FIVE FAMILIES WENT TO DESTINATIONS THAT ALREADY EXISTED, which is what this manifest keeps
+# demonstrating and what makes each port cheaper than the last:
+#   * 7 GetKeyState sites -> include/keyboard.h's isShiftDown/isCtrlDown. All 7 were the
+#     identical `(GetKeyState(VK_X) & 0x8000)` predicate, which is the shape that seam was cut
+#     from -- it took 2 of 17 sites when it was built and this is the rest of its editor half.
+#     The README's figure for this, written when it could NOT be measured, said 7. It is 7.
+#   * 4 wide-path ifstream/ofstream -> std::filesystem::path, the route file_utils.cpp:190
+#     documents. Third file to use it. **One of the four broke, and it is the most instructive
+#     line in this entry** -- see the vexing-parse paragraph below.
+#   * swprintf_s x2 with _countof x2 -> tinta::swprintf(buf, std::size(buf), ...), the COUNT
+#     form rather than the array overload drafts.cpp used, because keeping the explicit count
+#     is the closer carry and dropping it would be a tidy-up inside a port.
+#   * _wtoi -> std::wcstol with an explicit (int) cast: the target field is `int`, and an
+#     implicit narrowing would be a new Windows warning rather than a carry.
+#   * SetWindowTextW -> win32_api.h::setWindowTitle; CopyFileW -> std::filesystem::copy_file.
+#     CopyFileW's third argument was FALSE = bFailIfExists, so overwrite_existing is what the
+#     code already did and not a widening of it.
+#
+# ONE SEAM-GAP RATHER THAN A WINDOWS CALL: app.renderTarget->DrawTextW was corrected to
+# DrawText. render_api.h:21 had already predicted this exact site by name, and explains why it
+# compiled for so long -- <winuser.h>'s UNICODE macro rewrites DrawText to DrawTextW at the
+# declaration AND the call alike, so on Windows the source change is a no-op in the object
+# code. Off Windows there is no macro and the seam's real name is the only one there is.
+#
+# THREE PIECES OF NEW SURFACE, AND EACH WAS JUSTIFIED BEFORE IT WAS WRITTEN:
+#   * setCursorShape / captureMouse / releaseMouse in win32_api.h, for 26 cursor sites and 6
+#     capture sites. Measured tree-wide FIRST, because two inlines for one caller would be
+#     over-built: 133 sites across four files, and input.cpp holds 87 of them to this file's
+#     39. They serve the next slice more than this one. captureMouse's off-Windows no-op is
+#     the FINAL answer rather than a placeholder -- Qt grabs the mouse implicitly between
+#     press and release -- and that is only safe because the bracket was measured: all 3
+#     captures here are inside handleEditorMouseDown and all 3 releases inside
+#     handleEditorMouseUp.
+#   * WM_CLOSE in win32_types.h, beside WM_APP and with the same Windows-side static_assert
+#     against the real SDK. A constant, so the types header rather than the calls header.
+#   * platform::clipboardHasImage in the clipboard seam -- the AVAILABILITY question only.
+#     The data half (CF_DIB, the registered "PNG" format, the CF_BITMAP read and its WIC
+#     decode) stays in export_docx.cpp, because moving it would drag Direct2D and WIC types
+#     through a header that has none. **This is the first thing in this port whose off-Windows
+#     arm is REAL rather than a documented no-op**: QMimeData::hasImage answers it directly.
+#     The two platforms' format sets are not identical and the site says so.
+#
+# ONLY THREE VK_ CODES WERE MISSING, against a first-pass estimate that read like 26 edits.
+# keymap.h already held 18 -- including THREE of the four arrow keys, with the gap at 0x26.
+# That gap was VK_UP, and it was absent because no file measured before today named it, which
+# is that header's no-site-no-declaration rule working rather than an oversight.
+#
+# <imm.h> IS GUARDED, NOT DELETED -- the opposite call to drafts.cpp's <shlobj.h> directly
+# above, and the difference is the whole rule: shlobj.h had no caller at all, imm.h has a real
+# one. editorPositionImeWindow IS the entire IME surface -- six identifiers, one occurrence
+# each, one 35-line function -- so the guard went round the function rather than round six
+# scattered lines. Off Windows CJK composition still WORKS, because the platform's input
+# method owns it; what is lost is the candidate window's POSITION, which stops following the
+# caret. A degraded placement, not a broken editor. Qt's answer is not a call at this site at
+# all but a QWidget::inputMethodQuery override, so writing a Qt arm here would put the code
+# somewhere Qt never looks.
+#
+# THE MOST USEFUL THING IN THIS ENTRY IS A BUG THE PORT ITSELF WROTE. Routing the third stream
+# site produced `std::ifstream file(std::filesystem::path(widePath));` -- C++'s most vexing
+# parse. The inner parentheses read as a parameter declaration, so `file` is a FUNCTION, and
+# the `if (file)` eleven lines below tests a function pointer that is always true. It is a
+# PARSE, not a platform behaviour, so it broke the Windows build identically and in silence;
+# the off-Windows compile is what surfaced it. And only ONE of the four sites was exposed,
+# because the other three pass a second argument and so cannot be read as a declarator -- a
+# mechanical edit that was correct three times for a reason unrelated to the edit. Braces on
+# the temporary close it, and the site carries the explanation.
+#
+# COMPILE-ONLY, AND launchQuickNoteWindow IS WHAT MAKES THAT PRECISE. utils.h:37 declares it
+# under _WIN32 on purpose, so that an off-Windows caller is a compile error "at the site that
+# wants it, which is where the question actually needs answering". This file is that caller.
+# The site answers it: Ctrl+Shift+N does NOTHING off Windows yet, and deliberately does not
+# fall through to the tabOpenQuickNote branch beside it -- that would give the user a new TAB
+# where they asked for a new WINDOW, which is a wrong picture rather than a visible gap. What
+# is missing is a Qt-side parser for the flags the relaunch passes, one piece of work serving
+# three callers (here, input.cpp:3632, tabs.cpp:1650), so it is its own slice.
+editor.cpp
+
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside
 # paint_document.cpp. The note that used to sit here ended "COMPILE-ONLY, and this is the
 # widest such gap in the file: no test links render.cpp on EITHER platform, so nothing

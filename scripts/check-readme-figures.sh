@@ -146,7 +146,20 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # Grouped exactly as the table groups them, so one rotted component fails the row it
 # lives in and names its neighbours in the output.
 claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
-claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
+# editor.cpp is now DELIBERATELY absent, the EIGHTH file to exercise the rule the
+# export_html.cpp note below states -- it compiles off Windows and joined the manifest, so its
+# 3,207 lines left the to-do set and therefore left here. It is the largest single departure this
+# gate has processed, ahead of overlays.cpp's 4,153 only because that one left before this claim
+# existed to be deleted.
+#
+# IT IS THE FOURTH CONSECUTIVE INSTANCE OF THE SIZE-ROW TRAP, AND THE FIRST WHERE THE GROWTH IS
+# SMALL ENOUGH TO SHOW WHAT THE TRAP ACTUALLY SCALES WITH. 3,135 -> 3,207, +72 lines, +2.3% --
+# against drafts.cpp's +74%, signals.cpp's +5.4% and utils.cpp's +5.6%. The write-up of a port is
+# roughly proportional to the number of DECISIONS in it, not to the size of the file, so the
+# relative growth shrinks as the file grows while the absolute figure stays in the same tens of
+# lines. A reader who took +74% as the rule would predict 5,400 lines here and be wrong by 2,200.
+# The direction is the property; the magnitude is not.
+#
 # annotations.cpp is DELIBERATELY absent from here as of 2026-09-17, by the same rule the
 # export_html.cpp note below states: it left the to-do set, so a derived claim about its line
 # count would keep asserting a README figure that must no longer exist. It is the FOURTH file

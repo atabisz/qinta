@@ -42,6 +42,21 @@
 // include/keyboard.h now owns. Adding a code with no site behind it was refused for
 // the same reason six scalars were refused from win32_types.h -- a declaration with
 // no error behind it is a claim nothing tests.
+//
+// THREE MORE ON 2026-09-17, from src/editor.cpp, and one of them is worth pointing at:
+// VK_UP. This block already held VK_LEFT (0x25), VK_RIGHT (0x27) and VK_DOWN (0x28) --
+// THREE of the four arrow keys, with the gap at 0x26 -- because no site measured before
+// today named VK_UP. editor.cpp names it once. That gap is the same
+// no-site-no-declaration rule working correctly rather than an oversight, and it is
+// recorded because a sorted list with one value missing from a run of four looks like a
+// typo to the next reader; it was a measurement.
+//
+// The other two are VK_PRIOR (0x21) and VK_NEXT (0x22) -- Page Up and Page Down, the
+// SDK's names, which do not resemble the keys and so are easy to mistake for each
+// other. Their static_asserts pin the literals in that order deliberately: transposing
+// them would compile, would pass any test that only checks a code is DEFINED, and would
+// scroll the editor the wrong way. Same argument the VK_LEFT/VK_RIGHT swap experiment
+// below records.
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -52,9 +67,12 @@
 #define VK_CONTROL 0x11
 #define VK_ESCAPE 0x1B
 #define VK_SPACE 0x20
+#define VK_PRIOR 0x21
+#define VK_NEXT 0x22
 #define VK_END 0x23
 #define VK_HOME 0x24
 #define VK_LEFT 0x25
+#define VK_UP 0x26
 #define VK_RIGHT 0x27
 #define VK_DOWN 0x28
 #define VK_DELETE 0x2E
@@ -71,9 +89,12 @@ static_assert(VK_SHIFT == 0x10, "VK_SHIFT must match the Windows virtual-key cod
 static_assert(VK_CONTROL == 0x11, "VK_CONTROL must match the Windows virtual-key code");
 static_assert(VK_ESCAPE == 0x1B, "VK_ESCAPE must match the Windows virtual-key code");
 static_assert(VK_SPACE == 0x20, "VK_SPACE must match the Windows virtual-key code");
+static_assert(VK_PRIOR == 0x21, "VK_PRIOR (Page Up) must match the Windows virtual-key code");
+static_assert(VK_NEXT == 0x22, "VK_NEXT (Page Down) must match the Windows virtual-key code");
 static_assert(VK_END == 0x23, "VK_END must match the Windows virtual-key code");
 static_assert(VK_HOME == 0x24, "VK_HOME must match the Windows virtual-key code");
 static_assert(VK_LEFT == 0x25, "VK_LEFT must match the Windows virtual-key code");
+static_assert(VK_UP == 0x26, "VK_UP must match the Windows virtual-key code");
 static_assert(VK_RIGHT == 0x27, "VK_RIGHT must match the Windows virtual-key code");
 static_assert(VK_DOWN == 0x28, "VK_DOWN must match the Windows virtual-key code");
 static_assert(VK_DELETE == 0x2E, "VK_DELETE must match the Windows virtual-key code");

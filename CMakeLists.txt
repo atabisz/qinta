@@ -1341,6 +1341,50 @@ if(BUILD_TESTING)
         # function; the header's only job was dragging in windows.h, which this file already
         # reaches on Windows through drafts.h -> app.h -> <d2d1.h>.
         src/drafts.cpp
+        # src/editor.cpp -- 3,135 lines, the file the three lines above were all waiting on:
+        # saveEditorFile blocked signals.cpp and enterRecoveredDraft blocked drafts.cpp.
+        #
+        # ITS SURFACE HAD NEVER BEEN READ UNTIL THIS PASS, and the comment above says why:
+        # `#include <imm.h>` was fatal, so every figure this project published about this
+        # file was a proxy. Stubbed and compiled with the build's own flags it read 55
+        # errors on 40 lines. **That was not the whole story either.** Routed, it read 7
+        # more, then 0 -- 55 -> 7 -> 0 -- so the honest sizing of this file took two passes
+        # and the first pass's seven-family list was wrong in four places. An error count is
+        # not a cause count, and a cause list from one pass is not a census.
+        #
+        # Five families went to destinations the tree already had: 7 GetKeyState sites to
+        # include/keyboard.h's isShiftDown/isCtrlDown, 4 wide-path fstream constructors
+        # through std::filesystem::path, 2 swprintf_s + 2 _countof to tinta::swprintf with
+        # std::size, _wtoi to std::wcstol, SetWindowTextW to win32_api.h::setWindowTitle,
+        # CopyFileW to std::filesystem::copy_file (its FALSE was bFailIfExists, so
+        # overwrite_existing is the carry), and RenderTarget::DrawTextW to the seam's real
+        # name DrawText -- a rename only, since <winuser.h>'s UNICODE macro rewrites the
+        # token straight back on Windows, exactly as render_api.h documents.
+        #
+        # THREE THINGS NEEDED NEW SURFACE, all of it narrow. The cursor and mouse-capture
+        # families (26 + 6 sites) became setCursorShape/captureMouse/releaseMouse inlines in
+        # win32_api.h -- justified by RECURRENCE and measured before being built: 133 such
+        # sites tree-wide, and input.cpp holds 87 of them to editor.cpp's 39, so they serve
+        # the NEXT slice more than this one. WM_CLOSE became a constant in win32_types.h
+        # beside WM_APP, with the same Windows-side static_assert. And the clipboard seam
+        # gained clipboardHasImage -- the availability question only, never the image data.
+        #
+        # ONLY THREE VK_ CODES WERE ACTUALLY MISSING, against a first-pass estimate of 26
+        # edits: keymap.h already defined 18, including THREE of the four arrow keys. The gap
+        # at 0x26 was VK_UP, absent because no file measured before today named it.
+        #
+        # <imm.h> was GUARDED, not deleted -- the opposite call to drafts.cpp's <shlobj.h>,
+        # and for the opposite reason: it has a real caller. editorPositionImeWindow is the
+        # entire IME surface, six identifiers with one occurrence each in one 35-line
+        # function, so the guard went round the function. Off Windows CJK composition still
+        # works; what is lost is the candidate window's POSITION.
+        #
+        # COMPILE-ONLY, and the one symbol that makes that precise is launchQuickNoteWindow:
+        # utils.h declares it under _WIN32 deliberately, so that an off-Windows caller is a
+        # compile error at the site. This file is that caller and the site now answers it --
+        # Ctrl+Shift+N does nothing off Windows, and deliberately does NOT fall through to
+        # the new-tab branch beside it, which would be a wrong picture rather than a gap.
+        src/editor.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

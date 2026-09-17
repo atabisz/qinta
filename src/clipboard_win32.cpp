@@ -16,6 +16,13 @@
 // so is the honest version: export_docx.cpp still holds the IMAGE half (CF_DIB, a
 // registered L"PNG" format, and a CF_BITMAP read). Those are deliberately outside
 // this seam, per the header's census.
+//
+// AMENDED 2026-09-17, because the sentence above stopped being exactly true: one bit
+// of the image half is now here -- clipboardHasImage, the AVAILABILITY question and
+// nothing else. The data half is unchanged and still lives in export_docx.cpp. The
+// distinction is not a technicality: asking whether a format is on the clipboard needs
+// no handle, no lock and no decoder, so it costs this header nothing, whereas reading
+// the bitmap would drag WIC and Direct2D types through it.
 
 #include "clipboard.h"
 
@@ -67,6 +74,14 @@ bool setClipboardText(const std::wstring& text) {
     if (!copied) GlobalFree(hMem);  // ownership transfers only on success
     CloseClipboard();
     return copied;
+}
+
+bool clipboardHasImage() {
+    // No OpenClipboard, and that is the API rather than an omission:
+    // IsClipboardFormatAvailable is explicitly documented as usable without opening
+    // the clipboard, which is why it can be a one-liner. editor.cpp:1649 called it
+    // exactly this way, so this is a carry with no change at all.
+    return IsClipboardFormatAvailable(CF_BITMAP) != 0;
 }
 
 }  // namespace platform

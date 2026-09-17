@@ -168,4 +168,92 @@ inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM
 #endif
 }
 
+// --- Mouse cursor shape -------------------------------------------------------
+//
+// Set the mouse cursor to one of the four shapes this tree uses.
+//
+// THIS ONE ENTERS ON THE FIRST ARM OF THE RULE ABOVE BY A WIDE MARGIN, and the
+// margin is why it takes a SHAPE instead of a handle. Measured across src/*.cpp
+// with comments stripped: 58 SetCursor, 13 LoadCursor, 10 HCURSOR and 14 IDC_*,
+// spread over four files -- input.cpp 52 SetCursor alone, editor.cpp 6, plus
+// LoadCursor in main_d2d.cpp. A seam taking an HCURSOR would have moved one call
+// and left HCURSOR, LoadCursor and every IDC_* constant in the caller, which is
+// most of what makes those files unreadable off Windows. Only four distinct
+// shapes are ever asked for, so the shape is the thing to name.
+//
+// THE STATIC CACHES MOVED IN HERE, AND THAT IS THE ONE THING IN THIS SLICE THAT
+// IS NOT A STRAIGHT CARRY -- so it is stated rather than left to be discovered.
+// Callers were inconsistent: editor.cpp:2688 and :2711-2713 cached in a
+// `static HCURSOR`, while :2661 and :2667 called LoadCursor afresh on every
+// mouse-move. Both spellings are correct, because LoadCursor on a system cursor
+// returns a SHARED handle that the caller neither owns nor destroys -- so the
+// consolidation changes no lifetime and no observable behaviour, and the only
+// difference is that two per-mouse-move lookups became one-time ones. If that
+// mattered it would be a bug fix; it does not, which is why it is recorded here
+// as a consolidation and nowhere else as an improvement.
+//
+// Off Windows this does nothing, and it is a REAL gap rather than a cosmetic one:
+// the split-pane handle and the text area stop announcing that they are draggable
+// or clickable. The Qt path is QWidget::setCursor with Qt::ArrowCursor,
+// PointingHandCursor, IBeamCursor and SplitHCursor -- a direct four-way mapping
+// that needs a widget the App struct does not hold yet, which is the same
+// blocker setWindowTitle records above.
+enum class CursorShape { Arrow, Hand, IBeam, SizeWE };
+
+inline void setCursorShape(CursorShape shape) {
+#ifdef _WIN32
+    // Loaded once per shape. See the note above on why this is safe: these are
+    // shared system handles, not owned resources.
+    static HCURSOR arrow = LoadCursor(nullptr, IDC_ARROW);
+    static HCURSOR hand = LoadCursor(nullptr, IDC_HAND);
+    static HCURSOR ibeam = LoadCursor(nullptr, IDC_IBEAM);
+    static HCURSOR sizewe = LoadCursor(nullptr, IDC_SIZEWE);
+    switch (shape) {
+        case CursorShape::Hand: SetCursor(hand); break;
+        case CursorShape::IBeam: SetCursor(ibeam); break;
+        case CursorShape::SizeWE: SetCursor(sizewe); break;
+        case CursorShape::Arrow:
+        default: SetCursor(arrow); break;
+    }
+#else
+    (void)shape;
+#endif
+}
+
+// --- Mouse capture ------------------------------------------------------------
+//
+// Route mouse messages to this window until the button is released, so a drag
+// that leaves the window keeps tracking. 9 SetCapture and 12 ReleaseCapture
+// sites across input.cpp, editor.cpp and tabs.cpp.
+//
+// THIS IS THE ONE ENTRY IN THIS HEADER WHOSE OFF-WINDOWS NO-OP IS THE FINAL
+// ANSWER RATHER THAN A PLACEHOLDER, and that is worth stating because every
+// other function here promises a Qt implementation later. Qt grabs the mouse
+// IMPLICITLY between press and release: a widget that receives a press receives
+// every subsequent move and the release, inside its bounds or outside them,
+// with no call at all. So the Qt path needs nothing here, and the empty arm
+// below is correct rather than owed.
+//
+// That claim is only safe because the call sites match the implicit grab's
+// bracket exactly, which was measured rather than assumed: in editor.cpp all
+// three SetCapture calls are inside handleEditorMouseDown and all three
+// ReleaseCapture calls inside handleEditorMouseUp. A site that captured outside
+// a press -- on hover, or across a message -- would NOT be covered by Qt's
+// implicit grab and would need QWidget::grabMouse, so the next file routed
+// through here should re-measure that bracket rather than inherit this
+// paragraph.
+inline void captureMouse(HWND hwnd) {
+#ifdef _WIN32
+    SetCapture(hwnd);
+#else
+    (void)hwnd;
+#endif
+}
+
+inline void releaseMouse() {
+#ifdef _WIN32
+    ReleaseCapture();
+#endif
+}
+
 #endif  // TINTA_WIN32_API_H

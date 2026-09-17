@@ -117,6 +117,7 @@ static_assert(offsetof(WINDOWPLACEMENT, length) == 0 &&
                       3 * sizeof(unsigned int) + 2 * sizeof(POINT) + sizeof(RECT),
               "off-Windows WINDOWPLACEMENT stands in with the SDK's field order and size");
 static_assert(WM_APP == 0x8000, "off-Windows WM_APP stands in as 0x8000");
+static_assert(WM_CLOSE == 0x0010, "off-Windows WM_CLOSE stands in as 0x0010");
 
 // The scalar spellings, pinned the same way. is_same rather than sizeof, because
 // these are the cases where the exact type is checkable and a matching size is not
@@ -174,6 +175,20 @@ struct WINDOWPLACEMENT {
 // have on Windows. They are only ever compared against each other, but matching
 // the SDK keeps a debugger session on either platform reading the same.
 #define WM_APP 0x8000
+
+// WM_CLOSE is the one SDK message id the tree names as a LITERAL rather than
+// deriving, and it arrives here for the same reason WM_APP did: four sites post it
+// -- editor.cpp, input.cpp and tabs.cpp x2 -- all four through
+// win32_api.h::postWindowMessage, whose off-Windows arm returns false. So the
+// constant has to COMPILE off Windows even though nothing will ever deliver it.
+//
+// That is the whole of its off-Windows meaning, and it is worth being blunt about:
+// this number does not close a window here. It is an argument to a call that
+// honestly fails, so the value only has to be the SDK's for a debugger and a log
+// line to read the same on both platforms -- which is exactly the WM_APP argument
+// above, and why the Windows branch static_asserts it against the real SDK rather
+// than trusting this line.
+#define WM_CLOSE 0x0010
 
 // The SDK's names for plain scalars. Nothing Win32 about any of them except the
 // spelling, which is why they can stand in exactly rather than approximately --

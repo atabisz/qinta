@@ -14,12 +14,37 @@
 //
 // <winuser.h>:8268 does `#define DrawText DrawTextW` under UNICODE, and every
 // tinta target compiles with UNICODE defined. That macro rewrites the token
-// everywhere it appears afterwards -- the DECLARATION below as well as all 107
+// everywhere it appears afterwards -- the DECLARATION below as well as all 109
 // call sites -- so a translation unit that has seen <windows.h> declares
 // `RenderTarget::DrawTextW` and calls `DrawTextW`, which is self-consistent and
 // works. Direct2D relies on exactly this: ID2D1RenderTarget::DrawText is spelled
-// plainly in d2d1.h, and src/editor.cpp:2767 already calls it as `DrawTextW`
-// having reached it through the macro.
+// plainly in d2d1.h and reached through the macro.
+//
+// THIS COMMENT USED TO CITE src/editor.cpp:2767 AS THE SITE THAT "already calls it
+// as DrawTextW", AND THAT CITATION IS NOW WRONG RATHER THAN MERELY MOVED --
+// corrected 2026-09-18 when editor.cpp was ported. The site now spells the call
+// `DrawText`, which is the seam's real name, because off Windows there is no macro
+// to rewrite it and the file has to compile there. **The change is a no-op in
+// Windows object code**: the macro rewrites `DrawText` to `DrawTextW` at that call
+// site exactly as it rewrites the declaration below, so both spellings produce the
+// same symbol on Windows and only one of them produces any symbol off it. Kept as a
+// correction rather than a deletion because a stale FIGURE reads as wrong
+// eventually while a stale IDENTIFIER reads as a considered decision forever.
+//
+// The 109 above is re-measured, and the counting rule is published with it so the
+// next reader can re-take it rather than trust it: `(->|\.)DrawText\s*\(` under src/
+// and include/ reads 109, plus the 5 declarations and definitions of the method
+// itself, which is the 114 a bare `\bDrawText\s*\(` returns. It read 107 before this
+// edit, and **the delta is deliberately not attributed**, because the earlier
+// figure's counting rule was never written down -- two call sites arriving and a
+// slightly different regex are indistinguishable from here, and guessing which
+// would be inventing a measurement.
+//
+// ONE `DrawTextW` REMAINS IN THE TREE AND IT IS NOT A STALE SPELLING:
+// src/tabs.cpp:1481 calls the raw GDI DrawTextW on a memory DC, which is a
+// different function from a different API that happens to share a name with this
+// seam's method. A sweep that "finished the rename" by rewriting it would break the
+// Windows build, so it is named here to stop that happening.
 //
 // The hazard is a MIXTURE. A Windows TU that includes this header WITHOUT
 // <windows.h> declares `DrawText` instead, so the two TUs disagree about the name

@@ -125,6 +125,36 @@ std::wstring clipboardText();
 // whatever the user had copied, from a code path that thought it was doing nothing.
 bool setClipboardText(const std::wstring& text);
 
+// Does the clipboard currently hold an IMAGE? Not the image itself -- just the
+// availability question.
+//
+// THE NARROWNESS IS THE POINT, because this header's census deliberately left the
+// image half of the clipboard outside the seam and src/clipboard_win32.cpp says so.
+// This admits exactly one bit of it and no more: `IsClipboardFormatAvailable(CF_BITMAP)`
+// with nothing read. The DATA half -- CF_DIB, the registered L"PNG" format, the
+// CF_BITMAP handle read, and the WIC decode they feed -- stays in export_docx.cpp,
+// because moving it would drag ID2D1/WIC types through a header that has none.
+//
+// TWO SITES, WHICH IS ALSO WHY THIS IS THE NARROW VERSION. editor.cpp:1649 asks the
+// question, and export_docx.cpp:1545 -- the first line of clipboardImageToPngFile,
+// the function editor.cpp goes on to call -- asks it again. The editor's check is
+// therefore REDUNDANT with its callee's, and it is being routed rather than deleted:
+// dropping it would leave editor.cpp running up to 100 fs::exists calls hunting for a
+// free `-img-NN.png` filename before the callee refused, on every plain-text paste.
+// Same outcome, different work, so removing it is a behaviour change and not a
+// simplification.
+//
+// OFF WINDOWS THIS IS REAL, NOT A NO-OP, and it is the first thing in this port's
+// Windows-facing surface that can say that: QClipboard's mime data answers hasImage()
+// directly. So unlike the cursor and capture inlines, there is nothing owed here
+// later. What the caller then does with a true answer off Windows is a separate
+// question and currently ends at clipboardImageToPngFile, which is Windows-only --
+// which is a LINK fact about that file, not a gap in this one.
+//
+// False on any failure, matching clipboardText's empty-for-anything-wrong: the
+// caller's existing else-branch is an ordinary text paste, which is exactly right.
+bool clipboardHasImage();
+
 // --- The three transformations, split out so they can be asserted --------------
 
 // annotations.cpp:361's rule: the two-character sequence CRLF becomes LF, and a

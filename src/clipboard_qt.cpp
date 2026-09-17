@@ -35,6 +35,7 @@
 
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QMimeData>
 #include <QString>
 
 namespace platform {
@@ -55,6 +56,25 @@ bool setClipboardText(const std::wstring& text) {
     if (!clipboard) return false;
     clipboard->setText(QString::fromStdWString(text));
     return true;  // see the header note: Qt gives us nothing better than this
+}
+
+// THE ONE FUNCTION IN THIS FILE THAT IS NOT WEAKER THAN THE WINDOWS HALF, which is
+// worth saying after the two paragraphs at the top of this file that are. Windows
+// asks whether CF_BITMAP is available; QMimeData::hasImage asks whether the clipboard
+// carries an image, and both answer the same question the one caller has -- "is there
+// a picture to paste instead of text".
+//
+// The formats behind the two answers are NOT the same set, and that is the honest
+// caveat rather than a defect: hasImage() is true for anything Qt can hand back as an
+// image, which on X11 includes image/png where CF_BITMAP is a DIB handle. So a
+// clipboard holding a PNG but no device-independent bitmap could answer differently on
+// the two platforms. Nothing in this tree depends on the difference -- the caller's
+// only use of a true answer is to attempt a conversion that reports its own failure.
+bool clipboardHasImage() {
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard) return false;
+    const QMimeData* mime = clipboard->mimeData();
+    return mime && mime->hasImage();
 }
 
 }  // namespace platform

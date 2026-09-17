@@ -141,11 +141,18 @@ clipboard_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# FIVE ENTRIES, and the fifth arrived 2026-09-17 alongside the fourth: utils.cpp, at
-# the end of this section. It is the first line in the whole manifest that was earned by
-# SPLITTING a file rather than by porting one -- two functions left src/utils.cpp and
-# nothing that remained had to be rewritten. Its blocker is one symbol in one file, named
-# below, and it was predicted before it was measured.
+# SIX ENTRIES. The fifth and sixth both arrived 2026-09-17, in that order and in the same
+# afternoon, and they are the two at the end of this section: utils.cpp then signals.cpp.
+# utils.cpp is the first line in the whole manifest that was earned by SPLITTING a file
+# rather than by porting one -- two functions left src/utils.cpp and nothing that remained
+# had to be rewritten. Its blocker was one symbol in one file, named below, and it was
+# predicted before it was measured. signals.cpp is the file that held that symbol.
+#
+# THE PAIR IS WORTH READING TOGETHER, because the obvious inference from it is wrong.
+# Porting signals.cpp did NOT promote utils.cpp: signals.cpp arrived with three blockers of
+# its own, so the chain utils.cpp -> signals.cpp -> drafts.cpp/editor.cpp got one link
+# LONGER, not shorter. Closing a named blocker buys a stronger claim for that file only
+# when the blocker's own file arrives with none, and this one did not.
 #
 # annotations.cpp is the fourth.
 #
@@ -273,14 +280,58 @@ text_utils_app.cpp
 # symbols outside the CRT and five of them resolve from files already listed here --
 # toWide (text_utils.cpp), tr (i18n_app.cpp), ensureLayoutComplete (render.cpp),
 # platform::setClipboardText (clipboard_qt.cpp), platform::openExternalUrl
-# (platform_paths_qt.cpp). signalPushKey is the only one that does not, so src/signals.cpp
-# is the single file standing between this line and a linked, run one.
+# (platform_paths_qt.cpp). signalPushKey was the only one that did not.
+#
+# THAT LAST SENTENCE USED TO END "so src/signals.cpp is the single file standing between
+# this line and a linked, run one", and the same afternoon proved the claim badly formed
+# rather than merely stale. src/signals.cpp is now the line below this one, so its symbol
+# resolves -- and utils.cpp is still exactly where it was, because signals.cpp brought
+# three blockers of its own. "The single file standing between" reads as a countdown and
+# there is no countdown: the frontier is a graph, and porting a leaf can add depth. What
+# the sentence should have said, and what the line below now says, is which symbols were
+# unresolved on the day it was measured.
 #
 # WORTH RECORDING BECAUSE I MISREAD IT ONCE IN THE SAME SESSION: ensureLayoutComplete is
 # NOT a second blocker. It lives in render.cpp, the largest file in the tree, which reads
 # like the worst possible dependency and ported two days ago. An undefined-symbol list
 # says nothing about portability on its own; it has to be joined against this file.
 utils.cpp
+
+# signals.cpp -- 2026-09-17. THE SIZE OF THIS PORT WAS THE FINDING. The census reported
+# `fatal shellapi.h`, which is not an error count: g++ stopped at line 7 and never read the
+# other 830 lines, so the file's 837 lines and its "1 error" both said NOT MEASURED. Read
+# properly -- one stub header for shellapi.h, then the build's own flags -- the real surface
+# was 7 errors from 3 causes, about five lines of change. Never size a port from `wc -l` or
+# from a census error count; both are what the compiler managed to say before it gave up.
+#
+# The three causes, and what each one cost:
+#   * two swprintf_s calls -> tinta::swprintf, the array-deducing overload that
+#     include/portable_str.h already had. Both buffers keep their declared size so the
+#     template deduces the same N, and the "9+" branch keeps its now-unused vararg: that is
+#     pre-existing, legal, and tidying it would be improving behaviour under cover of a port.
+#   * ShellExecuteW on the releases URL -> platform::openExternalUrl, ROUTED not rewritten.
+#     The A-vs-W divergence that platform_paths.h documents cannot bite here because the URL
+#     is pure ASCII, which is why the literal loses its L rather than gaining a conversion.
+#   * GetLocalTime -> std::time plus localtime_s / localtime_r behind an #ifdef, NOT a seam.
+#     A seam is two files and a declaration; this is one file-local single-use call, and
+#     include/win32_types.h's own ODR argument is the reason that trade goes this way here.
+#     Local wall time is deliberate -- the park timestamp is shown to the person who parked.
+#
+# COMPILE-ONLY, and this too was PREDICTED BEFORE IT WAS MEASURED: three undefined symbols
+# from two files not on this manifest. `nm -u` on the object reports exactly that --
+# draftsRecoverAll and draftsDiscardAll (drafts.cpp, which dies on <shlobj.h>) and
+# saveEditorFile (editor.cpp, which has no Windows include at all and so has never been
+# read end to end either). The other three resolve from files already listed here:
+# measureText (text_utils_app.cpp), tr (i18n_app.cpp), platform::openExternalUrl
+# (platform_paths_qt.cpp) -- which is also the evidence the new seam call links.
+#
+# TWO WAYS THE FIRST READING OF THAT LIST WAS WRONG, kept because the next person will
+# reach for the same filter: excluding CRT symbols with `grep -v '^_'` leaves 22 of them
+# behind (abort, memcpy, wcslen, localtime_r, the std::string internals), and matching a
+# definer by name PREFIX attributed tr() to mermaid_gantt.cpp because "tr(" is a substring
+# of other symbols. A demangled tree symbol has "(" and no std:: prefix; C library names
+# demangle bare. Match the FULL signature, and the six-symbol list falls out clean.
+signals.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside
 # paint_document.cpp. The note that used to sit here ended "COMPILE-ONLY, and this is the

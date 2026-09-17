@@ -1277,15 +1277,36 @@ if(BUILD_TESTING)
         # -- toWide, tr, ensureLayoutComplete, platform::setClipboardText,
         # platform::openExternalUrl -- resolve from text_utils.cpp, i18n_app.cpp,
         # render.cpp, clipboard_qt.cpp and platform_paths_qt.cpp, every one of which is on
-        # the manifest and linked off Windows. signalPushKey is the only one that is not.
-        # So src/signals.cpp is the single file between this line and a linked one, and
-        # ensureLayoutComplete is specifically NOT a second blocker despite living in the
-        # largest file in the tree -- render.cpp ported already.
+        # the manifest and linked off Windows. signalPushKey is the only one that is not,
+        # and ensureLayoutComplete is specifically NOT a second blocker despite living in
+        # the largest file in the tree -- render.cpp ported already.
+        #
+        # THIS COMMENT USED TO END "so src/signals.cpp is the single file between this line
+        # and a linked one". src/signals.cpp is now the very next entry, and utils.cpp did
+        # not move: signals.cpp arrived with three blockers of its own. The prediction was
+        # right about the symbol and wrong about what closing it would buy, so the wording
+        # is corrected rather than deleted -- "the single file between" assumes the frontier
+        # is a queue, and it is a graph in which porting a leaf can add a level.
         #
         # copyFilePath IS NOT MOVED OUT to close that gap. It would make this file fully
         # linkable and would delete the copy-path feature from the Qt build to make a
         # manifest line read better. The gap is a measurement, not a target.
         src/utils.cpp
+        # src/signals.cpp -- the port whose SIZE was the finding. Its census row read
+        # `fatal shellapi.h` over 837 lines, and both numbers meant NOT MEASURED: g++ quit
+        # at line 7. Stubbing that one header and lifting the build's own flags read the
+        # whole file for the first time -- 7 errors, 3 causes, about five lines. The two
+        # swprintf_s calls went to tinta::swprintf, ShellExecuteW was ROUTED to
+        # platform::openExternalUrl, and GetLocalTime became localtime_s/localtime_r behind
+        # an #ifdef rather than a fourth seam, because a seam is two files and a declaration
+        # and this is one file-local call with one caller.
+        #
+        # COMPILE-ONLY, predicted first and confirmed: three undefined symbols from two
+        # files not on the manifest -- draftsRecoverAll and draftsDiscardAll (src/drafts.cpp,
+        # <shlobj.h>-fatal) and saveEditorFile (src/editor.cpp, which carries no Windows
+        # include at all, so nothing has ever read it end to end either). That is the next
+        # question this list poses, and it is a question, not a plan.
+        src/signals.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

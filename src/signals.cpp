@@ -2,11 +2,13 @@
 #include "drafts.h"
 #include "editor.h"
 #include "i18n.h"
+#include "platform_paths.h"
+#include "portable_str.h"
 #include "utils.h"
 
-#include <shellapi.h>
 #include <algorithm>
 #include <chrono>
+#include <ctime>
 #include <cwchar>
 
 namespace {
@@ -145,11 +147,34 @@ void drawSignalIcon(App& app, int icon, float cx, float cy, float s,
     }
 }
 
+// The tray sub-label's clock. LOCAL wall time, deliberately: it is read by a human
+// beside their own clock, so UTC would be a behaviour change and not a portability
+// one.
+//
+// AN #ifdef HERE RATHER THAN A SEAM, and the asymmetry with the rest of this port is
+// the point. A seam earns its own header when the decision recurs across files --
+// include/win32_types.h says so in its own words, that six copies of a RECT would
+// have been an ODR violation the compiler rejects. This function is file-local (the
+// anonymous namespace opens at the top of this file) and single-use, called only by
+// parkChip below, so a portable_time.h would be a header with one caller and a
+// second place to look.
+//
+// The split is only the reentrant spelling: localtime_s is the MSVC one and
+// localtime_r the POSIX one, and they differ in argument ORDER, which is the whole
+// reason this is not a one-line alias. Plain std::localtime would need no #ifdef at
+// all and is rejected because it returns a pointer to shared storage.
 std::wstring parkTimestamp() {
-    SYSTEMTIME st;
-    GetLocalTime(&st);
+    const std::time_t now = std::time(nullptr);
+    std::tm local{};
+#ifdef _WIN32
+    localtime_s(&local, &now);
+#else
+    localtime_r(&now, &local);
+#endif
     wchar_t buf[8];
-    swprintf_s(buf, L"%02d:%02d", st.wHour, st.wMinute);
+    // tm_hour and tm_min carry the same ranges SYSTEMTIME's wHour and wMinute did,
+    // so the field widths and the buffer are unchanged rather than re-derived.
+    tinta::swprintf(buf, L"%02d:%02d", local.tm_hour, local.tm_min);
     return buf;
 }
 
@@ -169,9 +194,19 @@ void parkChip(App& app, App::SignalChip&& chip) {
 bool runSignalAction(App& app, HWND hwnd, int action) {
     switch (action) {
         case SIGA_OPEN_RELEASE:
-            ShellExecuteW(nullptr, L"open",
-                          L"https://github.com/oipoistar/tinta/releases/latest",
-                          nullptr, nullptr, SW_SHOWNORMAL);
+            // ROUTED, not reimplemented: platform::openExternalUrl is the seam the
+            // utils.cpp slice built for exactly this call shape, already on 17
+            // targets, so this costs no CMake wiring.
+            //
+            // The seam takes a narrow UTF-8 string and its Windows half is
+            // ShellExecute*A*, where this call was ShellExecuteW. platform_paths.h
+            // documents that divergence and deliberately carries it rather than
+            // fixing it -- the A form decodes bytes as the active ANSI codepage. It
+            // cannot bite HERE, because this URL is a pure-ASCII literal, where the
+            // two forms agree byte for byte. That is why the wide literal loses its
+            // L rather than gaining a conversion.
+            platform::openExternalUrl(
+                "https://github.com/oipoistar/tinta/releases/latest");
             app.updateDismissed = true;
             return true;
         case SIGA_RESTORE_DRAFTS:
@@ -414,8 +449,18 @@ void renderSignalChips(App& app) {
             app.renderTarget->FillRoundedRectangle(
                 tinta::roundedRect(badge, bw * 0.5f, bw * 0.5f), app.brush);
             wchar_t n[4];
-            swprintf_s(n, app.signalUnseen > 9 ? L"9+" : L"%d",
-                       app.signalUnseen);
+            // The array overload, which is what this site already used: no count is
+            // passed, and portable_str.h carries that arity precisely because 10 of
+            // the tree's 26 sites rely on MSVC deducing it. The buffer stays [4] so
+            // the template deduces the same N.
+            //
+            // The "9+" branch passes an argument its format has no conversion for.
+            // That is pre-existing and legal for a varargs call -- the extra
+            // argument is ignored -- and it is preserved rather than tidied, because
+            // splitting the branch would be a behaviour-neutral rewrite inside a
+            // portability change.
+            tinta::swprintf(n, app.signalUnseen > 9 ? L"9+" : L"%d",
+                            app.signalUnseen);
             tinta::Color bink = app.theme.background;
             app.brush->SetColor(bink);
             auto bl = app.textFactory->CreateTextLayout(

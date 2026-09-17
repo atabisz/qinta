@@ -183,8 +183,16 @@ claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
 # is the one row that can rot silently in the *other* direction, by keeping a file the
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
 claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/print.cpp)") + $(c "$(lines src/pandoc.cpp)") |"
-claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src/signals.cpp)") + $(c "$(lines src/drafts.cpp)") |"
-# utils.cpp is now DELIBERATELY absent, and it is the FIFTH file to exercise the rule the
+claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src/drafts.cpp)") |"
+# signals.cpp is now DELIBERATELY absent from the row above, the SIXTH file to exercise the
+# rule, and it turned the utils.cpp note below from a lesson into a pattern: the figure moved
+# in the REASSURING direction AGAIN, on the very next pass, for the very same reason. The
+# claim was `wc -l src/signals.cpp` and the port GREW it 837 -> 882 by adding comments
+# recording what left. Twice in two passes, so this is not an artefact of one file -- any row
+# derived from a file's SIZE will grow when the file is finished, because finishing it here
+# means writing down why. The rule below is the fix and it now has six instances.
+#
+# utils.cpp is DELIBERATELY absent, and it is the FIFTH file to exercise the rule the
 # export_html.cpp note above states -- it compiles off Windows and joined the manifest, so it
 # left the to-do set and therefore left here. Its row is the SECOND to empty, after Annotations.
 #
@@ -199,10 +207,14 @@ claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src
 #
 # The other four left on this rule and it is worth keeping the two readings apart, since the
 # manifest keys on compilation: export_html.cpp and math_render.cpp left on the strong
-# compile-link-run claim; overlays.cpp, annotations.cpp and now utils.cpp left on the narrow
-# compile-only one. utils.cpp is one symbol from the strong claim -- signalPushKey, in
-# src/signals.cpp -- and that is named in the README rather than here, because a checker cannot
-# assert it and prose can.
+# compile-link-run claim; overlays.cpp, annotations.cpp, utils.cpp and now signals.cpp left on
+# the narrow compile-only one.
+#
+# THE CLAUSE THAT USED TO END THIS NOTE SAID "utils.cpp is one symbol from the strong claim --
+# signalPushKey, in src/signals.cpp". That symbol is closed and utils.cpp did not move, because
+# src/signals.cpp arrived carrying three undefined symbols of its own (drafts.cpp, editor.cpp).
+# "One symbol from" invited exactly the reading it got -- that closing it would promote the
+# file -- so the shape to write is the symbol and its file, never a distance to the goal.
 claim "startpage"             "| Startpage | $(c "$(lines src/startpage.cpp)") |"
 claim "device and factory"    "| Device and factory creation | $(c "$(lines src/d2d_init.cpp)") |"
 

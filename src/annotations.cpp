@@ -1,5 +1,6 @@
 #include "annotations.h"
 
+#include "clipboard.h"
 #include "editor.h"
 #include "i18n.h"
 #include "signals.h"
@@ -10,6 +11,7 @@
 
 #include <algorithm>
 #include <cwctype>
+#include <filesystem>
 #include <fstream>
 
 namespace {
@@ -177,7 +179,13 @@ void sanitizeForComment(std::string& text) {
 
 void writeSourceAndReload(App& app, HWND hwnd, const std::string& src) {
     if (app.currentFile.empty()) return;
-    std::ofstream out(toWide(app.currentFile), std::ios::binary | std::ios::trunc);
+    // std::filesystem::path, not the bare std::wstring toWide returns. The wide-path
+    // stream constructor is an MSVC extension and libstdc++ rejects it; fs::path is the
+    // standard spelling and keeps the wide path all the way to the OS on Windows, so
+    // non-ASCII filenames still open. Named rather than inline for the most-vexing-parse
+    // reason spelled out at i18n.cpp:1467.
+    const std::filesystem::path filePath(toWide(app.currentFile));
+    std::ofstream out(filePath, std::ios::binary | std::ios::trunc);
     if (!out) return;
     out.write(src.data(), (std::streamsize)src.size());
     out.close();
@@ -358,22 +366,19 @@ void closeEditor(App& app) {
     app.annotPendingQuote.clear();
 }
 
-std::wstring fullClipboardText(HWND hwnd) {
-    std::wstring out;
-    if (!OpenClipboard(hwnd)) return out;
-    if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
-        if (const wchar_t* text = (const wchar_t*)GlobalLock(data)) {
-            out = text;
-            GlobalUnlock(data);
-        }
-    }
-    CloseClipboard();
-    // Normalize line endings for the note buffer
-    size_t pos = 0;
-    while ((pos = out.find(L"\r\n", pos)) != std::wstring::npos) {
-        out.replace(pos, 2, L"\n");
-    }
-    return out;
+// THE HWND IS GONE, and it went at the seam rather than here: include/clipboard.h
+// takes no window handle, because "what text is on the clipboard" has no window in
+// it and QClipboard is application-global. The Windows backend passes nullptr to
+// OpenClipboard, which is safe for a reason that header writes down.
+//
+// normalizeCrLfOnly, NOT normalizeNewlines, and the difference is this site's own
+// behaviour: the loop that used to live here replaced the two-character sequence CRLF
+// with LF and left a LONE CR alone, so a stray carriage return reached the note buffer
+// as a carriage return. editor.cpp's read converts those too. Keeping the weaker rule
+// here preserves what this site did; unifying the two would be an improvement, which
+// is a different commit from a portability seam.
+std::wstring fullClipboardText() {
+    return platform::normalizeCrLfOnly(platform::clipboardText());
 }
 
 void showToast(App& app, const char* key) {
@@ -967,7 +972,7 @@ bool annotationEditorKeyDown(App& app, HWND hwnd, WPARAM key, bool ctrl) {
         }
         case 'V':
             if (ctrl) {
-                std::wstring pasted = fullClipboardText(hwnd);
+                std::wstring pasted = fullClipboardText();
                 text.insert(caret, pasted);
                 caret += pasted.size();
             }
@@ -1183,6 +1188,6 @@ void annotationsCopyForAgent(App& app, HWND hwnd) {
         out += note;
         out += L"\n";
     }
-    copyToClipboard(hwnd, out);
+    platform::setClipboardText(out);
     showToast(app, "toast.agent_copied");
 }

@@ -1,4 +1,5 @@
 #include "utils.h"
+#include "clipboard.h"
 #include "render.h"
 #include "i18n.h"
 #include "signals.h"
@@ -154,27 +155,11 @@ void handleLinkClick(App& app) {
     }
 }
 
-bool copyToClipboard(HWND hwnd, const std::wstring& text) {
-    if (text.empty()) return false;
-    size_t size = (text.length() + 1) * sizeof(wchar_t);
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, size);
-    if (!hMem) return false;
-    wchar_t* dest = (wchar_t*)GlobalLock(hMem);
-    if (!dest) {
-        GlobalFree(hMem);
-        return false;
-    }
-    memcpy(dest, text.c_str(), size);
-    GlobalUnlock(hMem);
-    if (!OpenClipboard(hwnd)) {
-        GlobalFree(hMem);
-        return false;
-    }
-    bool copied = EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, hMem);
-    if (!copied) GlobalFree(hMem);  // ownership transfers only on success
-    CloseClipboard();
-    return copied;
-}
+// copyToClipboard IS GONE. Its body moved to src/clipboard_win32.cpp UNCHANGED and is
+// now the seam's only Windows write -- including the GlobalFree that editor.cpp's
+// near-copy was missing, so this function's careful version is the one that survived.
+// The paragraph at the top of this file still lists "the clipboard" among what is left
+// here; it no longer is, and that sentence is corrected there rather than here.
 
 std::wstring absoluteFilePath(const std::string& path) {
     if (path.empty()) return {};
@@ -189,6 +174,6 @@ std::wstring absoluteFilePath(const std::string& path) {
 }
 
 void copyFilePath(App& app, HWND hwnd, const std::string& path) {
-    if (copyToClipboard(hwnd, absoluteFilePath(path)))
+    if (platform::setClipboardText(absoluteFilePath(path)))
         signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
 }

@@ -147,7 +147,20 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # lives in and names its neighbours in the output.
 claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
 claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
-claim "annotations"           "| Annotations | $(c "$(lines src/annotations.cpp)") |"
+# annotations.cpp is DELIBERATELY absent from here as of 2026-09-17, by the same rule the
+# export_html.cpp note below states: it left the to-do set, so a derived claim about its line
+# count would keep asserting a README figure that must no longer exist. It is the FOURTH file
+# to exercise that rule and the first to leave the table EMPTY -- math_render.cpp, overlays.cpp
+# and tableedit.cpp had already gone, so annotations.cpp was the row's last member and the row
+# now carries a "--" where its size used to be. A row whose figure is gone cannot be derived,
+# which is why this is a comment and not a weaker claim.
+#
+# IT ALSO LEFT ON THE NARROWER OF THE TWO CLAIMS, which matters to whoever re-adds a row here:
+# annotations.cpp COMPILES off Windows and links nowhere, so it sits in the manifest's
+# compile-only section. overlays.cpp set that precedent; export_html.cpp and math_render.cpp
+# left on the stronger compile-link-run reading. The manifest keys on compilation and the
+# to-do set is derived from the manifest, so this table cannot tell the two apart -- the README
+# prose has to, and it does, in the paragraph above the table.
 # math_render.cpp is now DELIBERATELY absent from this row, and it is the THIRD file to
 # exercise the rule the export_html.cpp note below states -- it compiles, links and RUNS off
 # Windows, so it left tests/portable-sources.txt's to-do side and therefore left here. Note
@@ -175,7 +188,48 @@ claim "clipboard, misc"       "| Clipboard, misc | $(c "$(lines src/utils.cpp)")
 claim "startpage"             "| Startpage | $(c "$(lines src/startpage.cpp)") |"
 claim "device and factory"    "| Device and factory creation | $(c "$(lines src/d2d_init.cpp)") |"
 
-backends="render_d2d text_d2d settings_win32 platform_paths_win32 settings_app keyboard_win32 image_win32"
+# THE MEMBERSHIP OF THIS ROW IS DERIVED NOW, AND THE REASON IS A MISS THIS SCRIPT OWNS.
+# It used to be a hand-written list of seven names:
+#
+#     backends="render_d2d text_d2d settings_win32 platform_paths_win32 settings_app
+#               keyboard_win32 image_win32"
+#
+# and it omitted file_dialog_win32.cpp for several passes. The failure was invisible from
+# both ends: the README's line total was CORRECT for the seven files listed, so the row was
+# internally consistent, and this script derived that same total from the same seven names,
+# so the checker agreed with the prose about a set that was missing a member. Deriving a
+# figure from a hand-written membership list buys nothing the list does not already give.
+#
+# So the membership comes off the to-do set by NAME SHAPE -- every file whose stem ends
+# _win32 or _d2d -- which is the naming convention every seam's Windows half in this tree
+# already follows, and which makes the next one join this row by existing. Note the two
+# things the pattern deliberately does NOT catch: d2d_init.cpp, whose stem starts with d2d
+# rather than ending in it and which has its own row, and settings_app.cpp, the one member
+# that predates the convention. That one is still named by hand -- and it is ASSERTED to be
+# in the to-do set below, because a hand-written name that silently stops matching is the
+# failure this comment is about.
+#
+# The expression is SORTED, so the README row is in derivation order rather than arrival
+# order. That loses a small story the old row told and it is the correct trade: an order
+# nothing derives is one more thing that can rot while reading as deliberate.
+#
+# THE PATTERN OVER-CAUGHT ON ITS FIRST RUN and this script's own output is what caught it:
+# main_d2d.cpp ends _d2d.cpp, so it walked into this row and took the total from 2,279 to
+# 4,162, while already being counted in the "Window and message loop" row. It is the Windows
+# *frontend*, not a backend behind a seam, and a name-shape rule cannot tell those apart. So
+# there is one exclusion, by name, and it gets the same guard the one inclusion gets: both
+# hand-written names are asserted to still be in the to-do set, because a hand-written name
+# that silently stops matching is precisely the failure this whole comment is about.
+backends_excluded="main_d2d.cpp"
+backends=$( { printf '%s\n' $todo | grep -E '(_win32|_d2d)\.cpp$' \
+                | grep -vxF "$backends_excluded"; echo settings_app.cpp; } \
+            | sed 's/\.cpp$//' | sort )
+for hand in settings_app.cpp $backends_excluded; do
+    if ! printf '%s\n' $todo | grep -qx "$hand"; then
+        echo "  FAIL backends list       $hand is hand-named here and is NOT in the to-do set"
+        failures=$((failures + 1))
+    fi
+done
 expr_backends=""
 raw_backend_lines=0
 for f in $backends; do
@@ -184,7 +238,7 @@ for f in $backends; do
     expr_backends="${expr_backends:+$expr_backends + }$(c "$n")"
 done
 nbackends=$(printf '%s\n' $backends | grep -c . || true)
-claim "the seven Windows backends"   "| $expr_backends |"
+claim "the Windows backends (derived membership)" "| $expr_backends |"
 claim "  ... and their total"        "$nbackends files, $(c "$raw_backend_lines") lines"
 claim "  ... quoted again in prose"  "$(c "$raw_backend_lines") lines of it today"
 

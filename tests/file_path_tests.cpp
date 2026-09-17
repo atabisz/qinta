@@ -1,3 +1,4 @@
+#include "clipboard.h"
 #include "d2d_init.h"
 #include "input.h"
 #include "overlays.h"
@@ -203,8 +204,8 @@ int main(int argc, char** argv) {
     check(app.activeTab == 0 && app.editorDirty && app.editorText == L"# Unsaved edits\n\n$x^2$\n",
           "copying an inactive path preserves the active editor and unsaved changes");
 
-    check(copyToClipboard(app.hwnd, L"sentinel"), "test clipboard writes Unicode text");
-    check(!copyToClipboard(app.hwnd, L""), "empty clipboard requests do nothing");
+    check(platform::setClipboardText(L"sentinel"), "test clipboard writes Unicode text");
+    check(!platform::setClipboardText(L""), "empty clipboard requests do nothing");
     app.currentFile.clear();
     app.signalChips.clear();
     documentCopy(app);

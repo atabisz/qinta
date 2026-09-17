@@ -29,7 +29,6 @@ void updateWindowTitle(App& app);
 // Ctrl+N: spawns a second Tinta window on an untitled quick note
 void launchQuickNoteWindow();
 void openUrl(const std::string& url);
-bool copyToClipboard(HWND hwnd, const std::wstring& text);
 // Resolve UTF-8 document paths without a MAX_PATH-sized buffer (#203).
 std::wstring absoluteFilePath(const std::string& path);
 void copyFilePath(App& app, HWND hwnd, const std::string& path);

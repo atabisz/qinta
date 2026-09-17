@@ -196,14 +196,44 @@ void populateFolderItems(App& app) {
 // which is the property the extension was there for and the reason the sites cannot
 // simply be narrowed to std::string. Every remaining C58 site can take this shape.
 //
-// ANNOTATIONS ARE DELIBERATELY NOT PARSED HERE, and that is a divergence from
-// main_d2d.cpp rather than an oversight: loadDocumentContent calls
-// annotationsParseSource(app) (issue #126, review annotations derive from the raw
-// source), src/annotations.cpp is not in tests/portable-sources.txt -- 33 native
-// mentions at the last census -- and calling it would make THIS file unportable and
-// take file_utils.cpp out of the manifest with it. app.sourceText is still assigned,
-// so the input that pass needs is present and the call is the only thing missing. When
-// annotations.cpp ports, one line lands here and this paragraph goes with it.
+// ANNOTATIONS ARE STILL DELIBERATELY NOT PARSED HERE, and the paragraph that used to
+// sit here PREDICTED THE WRONG TRIGGER, so it is corrected in place rather than
+// deleted. It said:
+//
+//     "src/annotations.cpp is not in tests/portable-sources.txt -- 33 native mentions
+//      at the last census -- and calling it would make THIS file unportable and take
+//      file_utils.cpp out of the manifest with it. [...] When annotations.cpp ports,
+//      one line lands here and this paragraph goes with it."
+//
+// annotations.cpp DID port, 2026-09-17, and it IS in tests/portable-sources.txt. The
+// line did not land, because compiling and linking are different claims and the old
+// wording conflated them. annotations.cpp sits in the manifest's COMPILE-ONLY section:
+// it compiles clean under g++, and it cannot link into a portable target because it
+// calls handleFileWatchTimer, which lives in input.cpp, which windows.h makes fatal.
+// So it is in no target's link closure -- portable_compile_only is an OBJECT library
+// that nothing links -- and the symbol this call needs does not exist off Windows.
+//
+// MEASURED, NOT REASONED, because this tree has already been burned by an asserted
+// link failure (see the search.cpp note in CMakeLists.txt: "arrived at by attempting
+// the link and reading the errors"). The call and its include were added here, the
+// Linux build was run, and the reading was THREE broken targets rather than the two
+// the old paragraph implied:
+//
+//     undefined reference to `annotationsParseSource(App&)'
+//       CMakeFiles/qinta.dir/src/file_utils.cpp.o
+//       CMakeFiles/qt_entry_tests.dir/src/file_utils.cpp.o
+//       CMakeFiles/file_utils_tests.dir/src/file_utils.cpp.o
+//
+// The third is the one worth naming: file_utils_tests is this file's OWN test, so the
+// cost is not only that qinta stops linking, it is that the file loses the target that
+// asserts it. The object file itself compiled in all three -- the block below is
+// reachable, the input it needs is present, and only the definition is missing.
+//
+// SO THE TRIGGER IS NOT "annotations.cpp compiles", IT IS "annotationsParseSource is
+// in a portable link closure", which needs annotations.cpp's own dependency on
+// input.cpp's file-watch entry point broken first. That is a separate slice and a
+// bigger one than this line. app.sourceText is still assigned above, so when the
+// symbol arrives this stays a one-line change.
 bool loadDocumentFromPath(App& app, const std::string& path) {
     std::ifstream file(std::filesystem::path(toWide(path)), std::ios::binary);
     if (!file) return false;

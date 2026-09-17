@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "clipboard.h"
 #include "file_dialog.h"
 #include "platform_paths.h"
 #include "document.h"
@@ -553,41 +554,28 @@ static size_t editorWordRight(const App& app, size_t pos) {
 
 // --- Clipboard ---
 
-static void editorCopyToClipboard(HWND hwnd, const std::wstring& text) {
-    if (text.empty()) return;
-    if (!OpenClipboard(hwnd)) return;
-    EmptyClipboard();
-    size_t bytes = (text.size() + 1) * sizeof(wchar_t);
-    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
-    if (hMem) {
-        wchar_t* ptr = (wchar_t*)GlobalLock(hMem);
-        memcpy(ptr, text.c_str(), bytes);
-        GlobalUnlock(hMem);
-        SetClipboardData(CF_UNICODETEXT, hMem);
-    }
-    CloseClipboard();
+// THIS FUNCTION'S OLD BODY IS THE ONE PLACE THE SEAM DID NOT PRESERVE BEHAVIOUR,
+// and it is worth naming rather than quietly fixing. It allocated an HGLOBAL and did
+// not free it when SetClipboardData failed, so a refused write orphaned the
+// allocation for the process's lifetime. utils.cpp's copyToClipboard had the same
+// shape and DID free it, with a comment noting ownership transfers only on success.
+// Two implementations that differ only in whether a bug is present cannot both be
+// preserved, so include/clipboard.h's Windows half does what utils.cpp did.
+//
+// Kept as a named wrapper rather than inlined at the four call sites because the name
+// is what those sites read as, and because the empty-text guard it used to hold is now
+// part of the seam's contract -- setClipboardText returns false without touching the
+// clipboard -- which reads better asserted in one place than trusted at four.
+static void editorCopyToClipboard(const std::wstring& text) {
+    platform::setClipboardText(text);
 }
 
-static std::wstring editorGetClipboard(HWND hwnd) {
-    if (!OpenClipboard(hwnd)) return {};
-    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
-    if (!hData) { CloseClipboard(); return {}; }
-    wchar_t* ptr = (wchar_t*)GlobalLock(hData);
-    std::wstring text = ptr ? ptr : L"";
-    GlobalUnlock(hData);
-    CloseClipboard();
-    // Normalize \r\n to \n
-    std::wstring result;
-    result.reserve(text.size());
-    for (size_t i = 0; i < text.size(); i++) {
-        if (text[i] == L'\r') {
-            result += L'\n';
-            if (i + 1 < text.size() && text[i + 1] == L'\n') i++;
-        } else {
-            result += text[i];
-        }
-    }
-    return result;
+// normalizeNewlines, the STRONGER of the two read rules the census found: every CR
+// becomes LF and a following LF is swallowed, so a lone CR becomes a newline here
+// where annotations.cpp leaves it standing. The two sites still disagree, on purpose
+// -- see include/clipboard.h on why the seam carries that rather than picking one.
+static std::wstring editorGetClipboard() {
+    return platform::normalizeNewlines(platform::clipboardText());
 }
 
 // --- Scroll helpers ---
@@ -1623,12 +1611,12 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 return;
             case 'C':
                 if (app.editorHasSelection) {
-                    editorCopyToClipboard(hwnd, editorGetSelectedText(app));
+                    editorCopyToClipboard(editorGetSelectedText(app));
                 }
                 return;
             case 'X':
                 if (app.editorHasSelection) {
-                    editorCopyToClipboard(hwnd, editorGetSelectedText(app));
+                    editorCopyToClipboard(editorGetSelectedText(app));
                     editorDeleteSelection(app);
                     scheduleReparse(app);
                     editorEnsureCursorVisible(app);
@@ -1636,7 +1624,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 }
                 return;
             case 'V': {
-                std::wstring paste = editorGetClipboard(hwnd);
+                std::wstring paste = editorGetClipboard();
                 // A bitmap without text (a screenshot) saves as PNG beside
                 // the document and pastes as its markdown link
                 if (paste.empty() && !app.currentFile.empty() &&
@@ -2178,7 +2166,7 @@ void editorInsertSnippetPublic(App& app, HWND hwnd,
 
 void editorClipboardCut(App& app, HWND hwnd) {
     if (!app.editorHasSelection) return;
-    editorCopyToClipboard(hwnd, editorGetSelectedText(app));
+    editorCopyToClipboard(editorGetSelectedText(app));
     editorDeleteSelection(app);
     rebuildLineStarts(app);
     scheduleReparse(app);
@@ -2188,12 +2176,12 @@ void editorClipboardCut(App& app, HWND hwnd) {
 
 void editorClipboardCopy(App& app, HWND hwnd) {
     if (app.editorHasSelection) {
-        editorCopyToClipboard(hwnd, editorGetSelectedText(app));
+        editorCopyToClipboard(editorGetSelectedText(app));
     }
 }
 
 void editorClipboardPaste(App& app, HWND hwnd) {
-    std::wstring paste = editorGetClipboard(hwnd);
+    std::wstring paste = editorGetClipboard();
     if (paste.empty()) return;
     if (app.editorHasSelection) editorDeleteSelection(app);
     // Same Excel/TSV conversion as Ctrl+V (#181); the rail button has
@@ -2249,7 +2237,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
         bool toReplace = app.searchReplaceMode && app.replaceFieldActive;
         // Ctrl+V arrives here as the SYN control character (#121)
         if (ch == 0x16) {
-            std::wstring pasted = clipboardLine(hwnd);
+            std::wstring pasted = platform::flattenToSingleLine(platform::clipboardText());
             if (!pasted.empty()) {
                 if (toReplace) {
                     app.replaceText += pasted;

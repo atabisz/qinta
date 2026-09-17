@@ -125,9 +125,40 @@ image_qt.cpp
 # dialog and a different seam nobody has cut yet.
 file_dialog_qt.cpp
 
+# clipboard_qt.cpp -- the non-Windows half of include/clipboard.h, the TEXT clipboard.
+# LINKED AND RUN off Windows, by clipboard_tests, which does more than compile it: it
+# writes a sentinel through the seam, reads it back and restores what was there before.
+#
+# Its counterpart src/clipboard_win32.cpp must never appear here; it includes
+# <windows.h> and holds the only raw clipboard calls left in the tree apart from the
+# IMAGE half in src/export_docx.cpp, which is deliberately outside this seam.
+#
+# WHAT clipboard_tests MEASURED RATHER THAN ASSERTED, because the seam does not promise
+# it: whether a CRLF written to the clipboard reads back as a CRLF. Both platforms say
+# PRESERVED -- Windows through CF_UNICODETEXT, and Qt 6.4.2 under the OFFSCREEN QPA
+# plugin, which is the scope of that reading and not a statement about xcb or wayland.
+clipboard_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# THREE ENTRIES. selection.cpp used to head this section and has moved
+# FOUR ENTRIES, and the fourth arrived 2026-09-17: annotations.cpp.
+#
+# annotations.cpp IS THE ONE FILE IN THE CENSUS WHOSE ERROR COUNT MEANT SOMETHING.
+# Every other unported file dies on its first include and reports one fatal, which
+# means NOT MEASURED rather than nearly-there; this one was read end to end and
+# reported nine real errors. The README cause table listed it under a wide-path
+# ofstream, and that was its FIRST cause, not its only one -- the other eight were
+# raw Win32 clipboard calls, and closing them needed a seam that did not exist. Both
+# families are gone and a non-Windows g++ now reports zero, measured against a
+# before-control of nine.
+#
+# IT IS COMPILE-ONLY AND NOT IN QINTA, and the blocker is a link closure rather than
+# anything left in the file: it calls handleFileWatchTimer, which lives in the
+# windows.h-fatal src/input.cpp. So it goes in portable_compile_only, which is what
+# this section is for and all this line claims.
+annotations.cpp
+
+# THREE ENTRIES BEFORE IT. selection.cpp used to head this section and has moved
 # to its own heading below: it is now linked and RUN off Windows by
 # selection_tests. The blocker that kept it here -- App holding the Direct2D
 # backend wrappers BY VALUE, so linking anything that instantiates an App wanted

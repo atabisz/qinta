@@ -1,4 +1,5 @@
 #include "input.h"
+#include "clipboard.h"
 #include "platform_paths.h"
 #include "annotations.h"
 #include "drafts.h"
@@ -346,22 +347,19 @@ static void closeFolderBrowserInput(App& app) {
     updateBlinkTimer(app);
 }
 
-// Single-line clipboard text: newlines and tabs become spaces
-std::wstring clipboardLine(HWND hwnd) {
-    if (!OpenClipboard(hwnd)) return {};
-    std::wstring text;
-    if (HANDLE hData = GetClipboardData(CF_UNICODETEXT)) {
-        if (wchar_t* ptr = (wchar_t*)GlobalLock(hData)) {
-            text = ptr;
-            GlobalUnlock(hData);
-        }
-    }
-    CloseClipboard();
-    for (wchar_t& ch : text) {
-        if (ch == L'\r' || ch == L'\n' || ch == L'\t') ch = L' ';
-    }
-    return text;
-}
+// clipboardLine IS GONE, replaced at all THREE call sites by the seam's own spelling:
+// two here (:3509 and :4143) and one in editor.cpp. The census that scoped this seam
+// said TWO, and the reason it said two is worth keeping: the grep that produced it
+// filtered out `^src/input.cpp:35` to drop this function's own definition at :351, and
+// that pattern also swallows every line from 3500 to 3599 -- where one of the calls
+// lived. A line-number prefix is a prefix, not a line number, and the build is what
+// caught it.
+//
+// The replacement is:
+// platform::flattenToSingleLine(platform::clipboardText()). It was the only one of the
+// three reads that is not a normalization -- it maps CR, LF and TAB each to ONE space,
+// so a CRLF becomes TWO spaces. include/clipboard.h keeps that, and keeping it is the
+// reason the seam hands back raw text instead of normalizing on the way out.
 
 // Trims whitespace and the quotes Explorer's "Copy as path" adds
 static std::wstring cleanPathInput(std::wstring s) {
@@ -1497,7 +1495,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
                     app, std::min(app.selAnchor, app.selFocus),
                     std::max(app.selAnchor, app.selFocus));
                 if (selected.empty()) break;
-                copyToClipboard(hwnd, selected);
+                platform::setClipboardText(selected);
                 app.hasSelection = false;
                 signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
             }
@@ -3101,7 +3099,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         // Releasing anywhere else on a code block must NOT consume the
         // mouse-up: a drag selection ending on the block would never
         // finalize, stay "selecting", and follow the next mouse move
-        copyToClipboard(hwnd, app.codeBlocks[app.hoveredCodeBlock].codeText);
+        platform::setClipboardText(app.codeBlocks[app.hoveredCodeBlock].codeText);
         {
             // The Copied pill keeps its code-block anchor (t13)
             tinta::RectF anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
@@ -3136,7 +3134,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     } else if (tableCopyButtonAt(app, app.mouseX, app.mouseY)) {
         // Table copy button: cells joined by tabs paste into a
         // spreadsheet as a grid
-        copyToClipboard(hwnd, app.tableRects[app.hoveredTable].tsv);
+        platform::setClipboardText(app.tableRects[app.hoveredTable].tsv);
         {
             tinta::RectF anchor = app.tableRects[app.hoveredTable].bounds;
             signalPush(app, SIG_SUCCESS, SIGI_CHECK,
@@ -3501,7 +3499,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 app, std::min(app.selAnchor, app.selFocus),
                 std::max(app.selAnchor, app.selFocus));
             if (selected.empty()) return false;
-            copyToClipboard(hwnd, selected);
+            platform::setClipboardText(selected);
             signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
             app.hasSelection = false;
             requestRepaint(hwnd);
@@ -3516,7 +3514,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     if (app.showFolderBrowser &&
         (app.folderBrowserEditingPath || app.folderBrowserNaming != 0)) {
         if (ctrl && wParam == 'V') {
-            std::wstring pasted = clipboardLine(hwnd);
+            std::wstring pasted = platform::flattenToSingleLine(platform::clipboardText());
             if (!pasted.empty()) {
                 if (app.folderBrowserInputSelectAll) {
                     app.folderBrowserInput.clear();
@@ -3669,7 +3667,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                         app, std::min(app.selAnchor, app.selFocus),
                         std::max(app.selAnchor, app.selFocus));
                     if (!selected.empty()) {
-                        copyToClipboard(hwnd, selected);
+                        platform::setClipboardText(selected);
                         copied = true;
                     }
                     app.hasSelection = false;
@@ -3677,7 +3675,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     // If no selection, copy all
                     std::wstring allText;
                     extractText(app.root, allText);
-                    copyToClipboard(hwnd, allText);
+                    platform::setClipboardText(allText);
                     copied = true;
                 }
                 // Show "Copied!" notification
@@ -4150,7 +4148,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
         wchar_t ch = (wchar_t)wParam;
         // Ctrl+V arrives here as the SYN control character (#121)
         if (ch == 0x16) {
-            std::wstring pasted = clipboardLine(hwnd);
+            std::wstring pasted = platform::flattenToSingleLine(platform::clipboardText());
             if (!pasted.empty()) {
                 app.searchQuery += pasted;
                 resetCursorBlink(app);

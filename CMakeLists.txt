@@ -176,6 +176,28 @@ else()
     set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 endif()
 
+# The clipboard seam (include/clipboard.h): the TEXT half of the system clipboard,
+# selected like the four above.
+#
+# QtGui IS ENOUGH HERE, and the contrast with the seam directly above is the point.
+# QClipboard hangs off QGuiApplication, so this seam needs no module the tree did not
+# already require. Widgets was the price of a file dialog specifically, not the price
+# of having a real second implementation in general -- and reading it as the latter
+# would make every future seam look more expensive than it is.
+#
+# The IMAGE half of the clipboard is NOT part of this seam. src/export_docx.cpp keeps
+# CF_DIB, a registered L"PNG" format and a CF_BITMAP read, because none of the three
+# has a QClipboard shape that is a translation rather than a rewrite, and that file
+# cannot compile off Windows for an unrelated reason anyway. So a build off Windows
+# gets the text half and no image half, which is honest: it is what exists.
+if(WIN32)
+    set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_win32.cpp)
+    set(PLATFORM_CLIPBOARD_LIBS "")
+else()
+    set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_qt.cpp)
+    set(PLATFORM_CLIPBOARD_LIBS Qt6::Core Qt6::Gui)
+endif()
+
 # The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
 # on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
@@ -249,6 +271,11 @@ set(SOURCES
     ${PLATFORM_KEYBOARD_SOURCE}
     ${PLATFORM_IMAGE_SOURCE}
     ${PLATFORM_FILE_DIALOG_SOURCE}
+    # The clipboard seam. On Windows this resolves to src/clipboard_win32.cpp, which
+    # holds the ONLY remaining raw clipboard calls in the tree outside the image half
+    # in src/export_docx.cpp -- src/utils.cpp's copyToClipboard, src/input.cpp's
+    # clipboardLine and src/editor.cpp's two file-local helpers are all gone.
+    ${PLATFORM_CLIPBOARD_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -1108,6 +1135,18 @@ if(BUILD_TESTING)
     # Its two pure functions, tsvLooksLikeTable and tsvToMarkdownTable, need no App and
     # no HWND and are assertable the moment that is settled.
     add_library(portable_compile_only OBJECT
+        # src/annotations.cpp -- COMPILE-ONLY, and the reason is a link closure rather
+        # than a compile problem. It reached 0 errors off Windows once the clipboard seam
+        # landed and its wide-path ofstream became a named fs::path; those were the two
+        # families its census row hid behind one label. What it still cannot do is LINK
+        # into qinta: it calls handleFileWatchTimer, which lives in src/input.cpp, and
+        # input.cpp is windows.h-fatal. So this is the honest home for it -- a
+        # non-Windows compiler reads the file every build, which is what
+        # tests/portable-sources.txt claims and all it claims.
+        #
+        # NOT added to QINTA_APP_SOURCES, deliberately: doing that would trade a green
+        # build for a manifest entry, and the manifest is not a wish list.
+        src/annotations.cpp
         src/editrail.cpp
         src/tableedit.cpp
         # src/text_utils_app.cpp -- one function, measureText's seam overload, split out
@@ -1696,6 +1735,45 @@ if(BUILD_TESTING)
         # Nothing here constructs a QApplication, so it would very likely survive
         # without the variable -- set anyway, because "very likely" is not a reading.
         set_tests_properties(file_dialog PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
+    # include/clipboard.h -- the clipboard seam. Same shape as file_dialog_tests above
+    # and for the same two reasons: the pure part of the header is what can be
+    # asserted, and the backend is on the link line to be COMPILED so that
+    # src/clipboard_qt.cpp can honestly appear in tests/portable-sources.txt.
+    #
+    # UNLIKE file_dialog_tests, THIS ONE ACTUALLY CALLS ITS BACKEND. A test cannot click
+    # a file dialog, but it can put text on a clipboard and read it back, so this target
+    # measures the one property the seam refuses to promise -- whether the platform
+    # normalizes a CRLF on the way through. It is reported as a MEASUREMENT and not
+    # asserted, because asserting it would freeze one platform's behaviour into the
+    # contract, and the two platforms are allowed to differ here.
+    #
+    # It also SAVES AND RESTORES the clipboard, which matters more than it sounds: this
+    # runs on a developer's machine under ctest, and a test that leaves a sentinel
+    # behind has destroyed whatever they had copied, invisibly, until they next paste.
+    add_executable(clipboard_tests
+        tests/clipboard_tests.cpp
+        ${PLATFORM_CLIPBOARD_SOURCE}
+    )
+    target_include_directories(clipboard_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    target_link_libraries(clipboard_tests PRIVATE ${PLATFORM_CLIPBOARD_LIBS})
+    if(WIN32)
+        target_compile_definitions(clipboard_tests PRIVATE UNICODE _UNICODE)
+    else()
+        # The test constructs a QGuiApplication under this define, because QClipboard is
+        # null without one and the round trip would otherwise report "refused" on every
+        # run -- a skip that looks like a platform limitation and is actually a missing
+        # object. The transformation checks do NOT need it and run either way.
+        target_compile_definitions(clipboard_tests PRIVATE TINTA_CLIPBOARD_BACKEND_QT)
+    endif()
+    add_test(NAME clipboard COMMAND clipboard_tests)
+    add_test(NAME clipboard_control COMMAND clipboard_tests --control)
+    if(NOT WIN32)
+        set_tests_properties(clipboard clipboard_control PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 

@@ -184,7 +184,25 @@ claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
 claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/print.cpp)") + $(c "$(lines src/pandoc.cpp)") |"
 claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src/signals.cpp)") + $(c "$(lines src/drafts.cpp)") |"
-claim "clipboard, misc"       "| Clipboard, misc | $(c "$(lines src/utils.cpp)") |"
+# utils.cpp is now DELIBERATELY absent, and it is the FIFTH file to exercise the rule the
+# export_html.cpp note above states -- it compiles off Windows and joined the manifest, so it
+# left the to-do set and therefore left here. Its row is the SECOND to empty, after Annotations.
+#
+# IT IS ALSO THE CLEAREST CASE YET FOR WHY THE RULE IS NOT BOOKKEEPING, because this row's
+# figure moved in the REASSURING direction on the pass that finished the file. The claim was
+# `wc -l src/utils.cpp`, i.e. the size of the file rather than the size of the debt, and the
+# split GREW it 179 -> 189 by adding comments recording what left. So a row that had gone stale
+# by one pass would have asserted 179 against a tree reading 189 and failed here honestly; a row
+# left DERIVED reads 189 and passes, and publishes a bigger number for less remaining work. A
+# derived figure is only as good as what it is a proxy for, and a line count stops being a proxy
+# for remaining work at exactly the moment the file stops being remaining work.
+#
+# The other four left on this rule and it is worth keeping the two readings apart, since the
+# manifest keys on compilation: export_html.cpp and math_render.cpp left on the strong
+# compile-link-run claim; overlays.cpp, annotations.cpp and now utils.cpp left on the narrow
+# compile-only one. utils.cpp is one symbol from the strong claim -- signalPushKey, in
+# src/signals.cpp -- and that is named in the README rather than here, because a checker cannot
+# assert it and prose can.
 claim "startpage"             "| Startpage | $(c "$(lines src/startpage.cpp)") |"
 claim "device and factory"    "| Device and factory creation | $(c "$(lines src/d2d_init.cpp)") |"
 
@@ -237,6 +255,13 @@ for f in $backends; do
     raw_backend_lines=$((raw_backend_lines + n))
     expr_backends="${expr_backends:+$expr_backends + }$(c "$n")"
 done
+# NOTE ON THE CONTROL, since this is the one claim whose components are not all bumped:
+# nbackends deliberately is not, because it is a count of a DERIVED set rather than a
+# measurement of a file, so "bump it by one" would assert a membership that does not exist.
+# The consequence is honest and worth stating: in a control run the "$nbackends files" claim
+# misses on its LINE TOTAL alone, so the file count itself is un-controlled. It is covered by
+# the real run instead -- a membership change moves the additive expression above, which is
+# the strong check, and no coincidence of line counts can hide a file entering or leaving it.
 nbackends=$(printf '%s\n' $backends | grep -c . || true)
 claim "the Windows backends (derived membership)" "| $expr_backends |"
 claim "  ... and their total"        "$nbackends files, $(c "$raw_backend_lines") lines"

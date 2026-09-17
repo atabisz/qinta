@@ -141,7 +141,13 @@ clipboard_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# FOUR ENTRIES, and the fourth arrived 2026-09-17: annotations.cpp.
+# FIVE ENTRIES, and the fifth arrived 2026-09-17 alongside the fourth: utils.cpp, at
+# the end of this section. It is the first line in the whole manifest that was earned by
+# SPLITTING a file rather than by porting one -- two functions left src/utils.cpp and
+# nothing that remained had to be rewritten. Its blocker is one symbol in one file, named
+# below, and it was predicted before it was measured.
+#
+# annotations.cpp is the fourth.
 #
 # annotations.cpp IS THE ONE FILE IN THE CENSUS WHOSE ERROR COUNT MEANT SOMETHING.
 # Every other unported file dies on its first include and reports one fatal, which
@@ -212,7 +218,11 @@ tableedit.cpp
 
 # text_utils_app.cpp arrives 2026-09-16, and it is the smallest line on this manifest:
 # ONE function, 18 lines of body, measureText's tinta::TextFormat* overload, split out of
-# src/utils.cpp -- which is `fatal error: windows.h` off Windows and stays that way.
+# src/utils.cpp -- which was `fatal error: windows.h` off Windows when this was written.
+# "AND STAYS THAT WAY" ENDED THAT SENTENCE AND WAS WRONG: utils.cpp is in the compile-only
+# section of this file now, split rather than ported. Corrected here because the claim was
+# about the future, and the paragraph below -- about the LINK reading that found this one
+# function -- is unaffected and is the part worth keeping.
 #
 # HOW IT WAS FOUND, because it is a different instrument from every other line here. Not
 # a compile census: a LINK reading. src/render.cpp was compiled with qinta's own
@@ -229,6 +239,48 @@ tableedit.cpp
 # two overloads agree, and that test calls neither. It asserts the two FACTORIES agree,
 # from which this follows only while both bodies stay thin.
 text_utils_app.cpp
+
+# utils.cpp. THE WINDOWS FEATURE FILE THIS MANIFEST HAS TWICE PROMISED WOULD NEVER APPEAR
+# HERE -- text_utils.cpp's entry says "utils.cpp keeps the Windows feature half and must
+# never appear here", and text_utils_app.cpp's says it "is `fatal error: windows.h` off
+# Windows and stays that way". Both sentences were true and both have been overtaken;
+# they are left standing above rather than edited, because the reason they were wrong is
+# the useful part.
+#
+# WHAT THEY GOT WRONG WAS THE SHAPE OF THE PROBLEM, not the facts. Both read the file as
+# a Windows feature file with portable helpers to be extracted from it. It was three
+# things, and only two of them were Windows at all:
+#
+#   * measureText(IDWriteTextFormat*) -- moved to src/d2d_init.cpp, whose
+#     updateTextFormats holds all four of its callers in the tree. This is what needed
+#     dwrite.h. Its portable twin was ALREADY in text_utils_app.cpp, so the file had been
+#     unbuildable off Windows for one function nothing but the Direct2D initialiser used.
+#   * launchQuickNoteWindow -- moved to src/quicknote_win32.cpp, which must never appear
+#     here. This is what needed shellapi.h. There is no Qt half and that is deliberate:
+#     it re-launches the executable with `--cascade --new`, and src/main_qt.cpp parses a
+#     file argument and nothing else, so a Qt half would open a plain window in the wrong
+#     place and report success.
+#   * the rest -- two binary searches over layout buckets, a title string, a link click, a
+#     path canonicalisation -- which never needed Windows and is what is on this line.
+#
+# Two calls were routed rather than moved: SetWindowTextW through win32_api.h and
+# ShellExecuteA through platform::openExternalUrl, a new function on the paths seam with
+# both halves written. GetFullPathNameW became absolute().lexically_normal().
+#
+# COMPILE-ONLY, and the reading is unusually clean because it was PREDICTED FIRST and the
+# prediction named one symbol: copyFilePath calls signalPushKey, which lives in
+# src/signals.cpp and is not on this manifest. `nm -u` on the object reports six undefined
+# symbols outside the CRT and five of them resolve from files already listed here --
+# toWide (text_utils.cpp), tr (i18n_app.cpp), ensureLayoutComplete (render.cpp),
+# platform::setClipboardText (clipboard_qt.cpp), platform::openExternalUrl
+# (platform_paths_qt.cpp). signalPushKey is the only one that does not, so src/signals.cpp
+# is the single file standing between this line and a linked, run one.
+#
+# WORTH RECORDING BECAUSE I MISREAD IT ONCE IN THE SAME SESSION: ensureLayoutComplete is
+# NOT a second blocker. It lives in render.cpp, the largest file in the tree, which reads
+# like the worst possible dependency and ported two days ago. An undefined-symbol list
+# says nothing about portability on its own; it has to be joined against this file.
+utils.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside
 # paint_document.cpp. The note that used to sit here ended "COMPILE-ONLY, and this is the
@@ -369,7 +421,13 @@ settings.cpp
 # The text helpers split out of utils.cpp: toWide, toLower, isWordBoundary,
 # slugifyHeading, extractText. Compiled AND run off Windows by
 # text_utils_tests, so this line sits here and not in the compile-only section
-# above. utils.cpp keeps the Windows feature half and must never appear here.
+# above.
+#
+# THE SENTENCE THAT ENDED THIS NOTE IS RETIRED. It read "utils.cpp keeps the Windows
+# feature half and must never appear here", and utils.cpp is now in the compile-only
+# section, which explains what changed. Retired rather than left standing because it was
+# phrased as a RULE: a historical claim that has been overtaken is a useful record, but a
+# prohibition that no longer holds will be obeyed by the next reader.
 text_utils.cpp
 themes.cpp
 

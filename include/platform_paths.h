@@ -113,6 +113,27 @@ std::vector<std::wstring> preferredUiLanguages();
 // every platform anyway.
 void openInDefaultApplication(const std::wstring& path);
 
+// Hand a URL to the desktop's default browser. Fire and forget, for the same
+// reason as openInDefaultApplication: the one caller -- handleLinkClick, on a
+// clicked link in a rendered document -- does not check.
+//
+// SEPARATE FROM openInDefaultApplication, WHICH IS THE NEAR MISS WORTH NAMING.
+// That function's own comment says it "replaces ShellExecuteW on Windows", which
+// makes it look like the reuse, and it is not: it wraps QUrl::fromLocalFile, so
+// `https://example.com` would arrive at the browser as
+// `file:///.../https:/example.com`. Same Win32 call underneath, different
+// argument meaning, so it needs its own name rather than a second caller.
+//
+// std::string rather than the std::wstring the rest of this header uses, because
+// that is what the tree holds: App::hoveredLink is UTF-8 out of the Markdown
+// source, and the call it replaces was ShellExecute*A*. That has a consequence
+// this seam CARRIES rather than fixes -- the A form decodes those bytes as the
+// active ANSI codepage, so a URL with non-ASCII characters is already mangled on
+// Windows today, while the Qt half decodes UTF-8 correctly. The divergence is
+// pre-existing Windows behaviour preserved verbatim, not a new Qt one, and
+// unifying it is a fix with its own test and its own slice.
+void openExternalUrl(const std::string& url);
+
 // Do these two paths name the same file, by the platform's own case rule?
 //
 // This is a seam and not a helper because the answer differs by platform and

@@ -17,18 +17,29 @@ struct InlineSpan {
     bool underline;
 };
 
-float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format);
-// Seam-handle overload. The plumbing below carries tinta::TextFormat* now, and
-// unwrapping once here beats unwrapping at every measure site.
+// The IDWriteTextFormat* overload HAS LEFT THIS HEADER -- it is include/d2d_init.h
+// now, beside the four calls in updateTextFormats that were its only callers. This
+// is the seam-handle version, and it is the one the rest of the tree measures with.
 float measureText(App& app, const std::wstring& text, tinta::TextFormat* format);
 std::wstring_view textViewForRect(const App& app, const App::TextRect& tr);
 
 const App::TextRect* findTextRectAt(const App& app, int x, int y);
 
 void updateWindowTitle(App& app);
-// Ctrl+N: spawns a second Tinta window on an untitled quick note
+// Ctrl+N: spawns a second Tinta window on an untitled quick note.
+//
+// GUARDED, AND THE GUARD IS THE POINT. Defined in src/quicknote_win32.cpp, which
+// explains at length why there is no off-Windows half yet -- the flags it passes
+// have no parser in main_qt.cpp. Declaring it unconditionally would let a portable
+// caller compile and then fail at link time, or worse, tempt a no-op half. Off
+// Windows the name does not exist, so a new caller there is a compile error at the
+// site that wants it, which is where the question actually needs answering.
+#ifdef _WIN32
 void launchQuickNoteWindow();
-void openUrl(const std::string& url);
+#endif
+// openUrl IS GONE. Its ShellExecuteA body is platform::openExternalUrl in
+// include/platform_paths.h, with both halves already written; handleLinkClick below
+// is the only thing that ever called it.
 // Resolve UTF-8 document paths without a MAX_PATH-sized buffer (#203).
 std::wstring absoluteFilePath(const std::string& path);
 void copyFilePath(App& app, HWND hwnd, const std::string& path);

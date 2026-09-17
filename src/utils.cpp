@@ -5,42 +5,35 @@
 #include "signals.h"
 #include "platform_paths.h"
 
-#include <windows.h>
-#include <shellapi.h>
 #include <algorithm>
+#include <filesystem>
 
-// What is left in this file is the Windows FEATURE half: the window title, the
-// shell handoffs, the clipboard and path canonicalisation. The text helpers that
-// never needed any of that moved to src/text_utils.cpp, where a non-Windows
-// compiler builds them and tests/text_utils_tests.cpp executes them.
-
-// THE SEAM OVERLOAD HAS LEFT THIS FILE -- it is src/text_utils_app.cpp now, and that
-// file argues why at length. The short version, because a reader looking for it here
-// deserves better than silence: a linker reading of qinta's closure found this
-// function was the ONLY symbol render.cpp needed out of utils.cpp, and utils.cpp is
-// `fatal error: windows.h` off Windows. Moving eighteen lines that already named no
-// DirectWrite type was cheaper than porting a Windows feature file to reach them.
+// THIS FILE NO LONGER INCLUDES windows.h, AND THE THREE REMOVALS THAT ACHIEVED IT ARE
+// THE WHOLE SLICE. It had read as one Windows feature file for a long time and was
+// actually three things:
 //
-// The native overload below stayed, and staying is the point rather than the leftover:
-// 4 call sites still hold an app.native*Format and have nothing to hand the seam
-// version.
+//   1. measureText(IDWriteTextFormat*) -- a DirectWrite function whose only four
+//      callers are in d2d_init.cpp. Moved there. It is why this file needed dwrite.h.
+//   2. launchQuickNoteWindow -- a self-relaunch passing flags only WinMain parses.
+//      Moved to src/quicknote_win32.cpp, which explains why its Qt half is deferred
+//      rather than written. It is why this file needed shellapi.h.
+//   3. Everything below, which never needed either: two binary searches over layout
+//      buckets, a title string, a link click, and a path canonicalisation.
 //
-// This comment used to claim the two overloads' agreement was asserted by
-// tests/text_factory_tests.cpp. CORRECTED while moving the seam half: that test calls
-// neither overload. It asserts the layer beneath -- the two FACTORIES returning identical
-// TextMetrics -- from which the overloads' agreement follows only while both bodies stay
-// thin. src/text_utils_app.cpp carries the full version of this correction.
-float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),
-        format, 10000.0f, 100.0f, &layout);
-    if (!layout) return 0;
-
-    DWRITE_TEXT_METRICS metrics;
-    layout->GetMetrics(&metrics);
-    layout->Release();
-    return metrics.widthIncludingTrailingWhitespace;
-}
+// Nothing here was rewritten to make that true. The two Win32 calls that remain in
+// spirit are routed rather than removed -- SetWindowTextW through win32_api.h's
+// setWindowTitle, ShellExecuteA through platform::openExternalUrl -- so both still do
+// exactly what they did on Windows.
+//
+// The paragraph this replaces claimed the clipboard was among what is left here. It
+// stopped being true when copyToClipboard moved to src/clipboard_win32.cpp; the
+// correction is here rather than at the bottom of the file where the old note about
+// it sits.
+//
+// The text helpers that never needed Windows moved earlier still, to
+// src/text_utils.cpp and src/text_utils_app.cpp; the latter argues at length about
+// the seam overload that used to sit at the top of this file, including a correction
+// about what tests/text_factory_tests.cpp does and does not prove.
 
 static const App::LineBucket* findLineBucketAt(const App& app, float y) {
     if (app.lineBuckets.empty()) return nullptr;
@@ -101,20 +94,11 @@ void updateWindowTitle(App& app) {
         title = L"Tinta - ";
         title += tr(app, "title.untitled");
     }
-    SetWindowTextW(app.hwnd, title.c_str());
-}
-
-void launchQuickNoteWindow() {
-    wchar_t exePath[MAX_PATH];
-    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return;
-    ShellExecuteW(nullptr, L"open", exePath, L"--cascade --new", nullptr,
-                  SW_SHOWNORMAL);
-}
-
-void openUrl(const std::string& url) {
-    if (!url.empty()) {
-        ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-    }
+    // win32_api.h's seam, not SetWindowTextW: unchanged on Windows, and off Windows
+    // the title computed above is discarded rather than shown. That header carries
+    // the argument for why a one-off call is routed at all, and names
+    // QWidget::setWindowTitle as what closes the gap.
+    setWindowTitle(app.hwnd, title.c_str());
 }
 
 void scrollToHeadingY(App& app, float headingY) {
@@ -151,7 +135,7 @@ void handleLinkClick(App& app) {
     if (app.hoveredLink[0] == '#') {
         scrollToHeadingId(app, app.hoveredLink.substr(1));
     } else {
-        openUrl(app.hoveredLink);
+        platform::openExternalUrl(app.hoveredLink);
     }
 }
 
@@ -161,16 +145,42 @@ void handleLinkClick(App& app) {
 // The paragraph at the top of this file still lists "the clipboard" among what is left
 // here; it no longer is, and that sentence is corrected there rather than here.
 
+// THE .lexically_normal() IS LOAD-BEARING AND IS THE ONE THING HERE THAT COULD HAVE
+// SILENTLY CHANGED BEHAVIOUR, so it gets the comment rather than the two-call
+// GetFullPathNameW dance it replaces.
+//
+// GetFullPathNameW does two jobs at once: it makes a path absolute AND it collapses
+// `.` and `..`, purely lexically, without touching the disk. The three obvious
+// replacements each get a different subset of that:
+//
+//   absolute()                       absolute, does NOT collapse (libstdc++)
+//   weakly_canonical()               collapses, but hits the filesystem and
+//                                    resolves symlinks -- a different function
+//   absolute().lexically_normal()    absolute, collapses, never touches the disk
+//
+// Only the third is the same function. The second is the tempting one and would be
+// wrong in a way no test here would catch: every input in tests/file_path_tests.cpp
+// names a path that does not exist, and weakly_canonical's whole point is consulting
+// the ones that do.
+//
+// MEASUREMENT WORTH RECORDING, because it makes the Windows test a weaker witness
+// than it looks: MSVC implements absolute() by calling GetFullPathNameW, so on
+// Windows absolute() ALREADY collapses and the suffix changes nothing. libstdc++
+// does not, so off Windows the suffix is the only thing keeping the two platforms
+// in agreement -- and no test runs there, because this file does not link into a
+// portable target (see tests/portable-sources.txt). The suffix is therefore correct
+// by construction and asserted only on the platform that does not need it. Said out
+// loud rather than left as a green tick.
+//
+// src/inline_style.cpp:69 already normalises this way, so this is the tree's
+// existing spelling rather than a new one.
 std::wstring absoluteFilePath(const std::string& path) {
     if (path.empty()) return {};
-    std::wstring wide = toWide(path);
-    DWORD capacity = GetFullPathNameW(wide.c_str(), 0, nullptr, nullptr);
-    if (!capacity) return {};
-    std::wstring full(capacity, L'\0');
-    DWORD length = GetFullPathNameW(wide.c_str(), capacity, full.data(), nullptr);
-    if (!length || length >= capacity) return {};
-    full.resize(length);
-    return full;
+    std::error_code ec;
+    std::filesystem::path resolved =
+        std::filesystem::absolute(std::filesystem::path(toWide(path)), ec);
+    if (ec) return {};
+    return resolved.lexically_normal().wstring();
 }
 
 void copyFilePath(App& app, HWND hwnd, const std::string& path) {

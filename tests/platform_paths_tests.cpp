@@ -14,6 +14,14 @@
 #include <string>
 #include <vector>
 
+#ifdef TINTA_PATHS_BACKEND_QT
+// For the openExternalUrl-vs-openInDefaultApplication block only. It asserts a
+// property of QUrl rather than of our code, deliberately -- see the note there.
+#include <QLatin1String>
+#include <QString>
+#include <QUrl>
+#endif
+
 #ifdef _WIN32
 // Only to ARRANGE the isHiddenEntry test: marking a file hidden has no portable
 // spelling, which is the entire reason that seam exists, so setting one up needs
@@ -193,6 +201,43 @@ int main(int argc, char** argv) {
               "describes one");
 #endif
     }
+
+    // --- openExternalUrl vs openInDefaultApplication -------------------------
+    //
+    // WHAT THIS ASSERTS IS A DECISION, NOT A LAUNCH, and the distinction is the
+    // reason the block exists at all. openExternalUrl cannot be called from a
+    // test: it opens a browser. What CAN be falsified is the premise the second
+    // function was added on -- that openInDefaultApplication, whose own comment
+    // says it "replaces ShellExecuteW on Windows", is the wrong reuse for a web
+    // URL because it wraps QUrl::fromLocalFile.
+    //
+    // That premise was argued in a header comment, and a comment cannot go red.
+    // If a future Qt made fromLocalFile scheme-aware, the argument for having two
+    // functions would be void and nothing in the tree would say so -- somebody
+    // would eventually "simplify" openExternalUrl back onto the other one and it
+    // would work in testing, because a file:// URL for a path that exists opens.
+    // The failure only shows on an http URL, on a user's machine.
+#ifdef TINTA_PATHS_BACKEND_QT
+    {
+        const QUrl asLocalFile = QUrl::fromLocalFile("https://example.com/a.html");
+        const QUrl asWebUrl = QUrl("https://example.com/a.html");
+
+        check(asWebUrl.scheme() == "https",
+              "a web URL constructed directly keeps its scheme -- this is what "
+              "openExternalUrl hands to QDesktopServices");
+        check(asLocalFile.scheme() == "file",
+              "QUrl::fromLocalFile RE-ENCODES a web URL as a file URL, which is "
+              "why openInDefaultApplication is the wrong reuse for openExternalUrl "
+              "rather than merely a less tidy one");
+        check(asLocalFile != asWebUrl,
+              "the two spellings are not interchangeable -- the whole argument for "
+              "a second function in platform_paths.h is this inequality");
+        check(asLocalFile.toString().contains(QLatin1String("https:/")),
+              "the mangling is visible in the result: the scheme survives as a "
+              "PATH SEGMENT, so the browser would never be reached and no error "
+              "would be reported either");
+    }
+#endif
 
     // --- userConfigDirectory ------------------------------------------------
     // A unique app name, never "Tinta": this test must not create, read or

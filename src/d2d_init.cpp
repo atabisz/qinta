@@ -116,6 +116,21 @@ void applyTheme(App& app, int themeIndex) {
     }
 }
 
+// Moved from src/utils.cpp unchanged. It sat there next to the window title and
+// the shell handoffs, which is why that file needed dwrite.h; its callers are the
+// four space-width caches below.
+float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
+    IDWriteTextLayout* layout = nullptr;
+    app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),
+        format, 10000.0f, 100.0f, &layout);
+    if (!layout) return 0;
+
+    DWRITE_TEXT_METRICS metrics;
+    layout->GetMetrics(&metrics);
+    layout->Release();
+    return metrics.widthIncludingTrailingWhitespace;
+}
+
 void updateTextFormats(App& app) {
     // Editor line layouts hold the old format/size
     app.clearEditorLineLayoutCache();

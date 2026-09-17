@@ -56,6 +56,40 @@ inline void requestRepaint(HWND hwnd) {
 #endif
 }
 
+// --- Window title -------------------------------------------------------------
+//
+// Set the window's caption text.
+//
+// THIS ONE ENTERS ON THE SECOND ARM OF THE RULE ABOVE, NOT THE FIRST, and it is
+// worth saying so because the first arm would exclude it: SetWindowTextW is named
+// at exactly ONE site in the tree, utils.cpp::updateWindowTitle, and the rule says
+// a one-off call belongs guarded at its own site. Two things decided otherwise.
+//
+// Its off-Windows behaviour needs explaining, which is what the second arm is for.
+// And guarding it at its own site would mean utils.cpp keeping a conditional
+// windows.h -- the exact include this slice exists to remove from that file. The
+// tree already reaches windows.h through app.h on Windows, so a call routed here
+// costs the caller nothing, whereas a call guarded in place costs it the header.
+//
+// Off Windows this does nothing, so the title computed just above the call is
+// discarded. That is a visible gap of the same kind requestRepaint carries -- the
+// window keeps whatever caption it was given -- and not a wrong picture: no state
+// is corrupted and nothing is leaked. The Qt path is QWidget::setWindowTitle,
+// which is the same request; reaching it needs a window handle the App struct
+// does not hold yet (App has only `HWND hwnd`, and QtAppWindow is a QWidget on the
+// Qt side), so wiring it is that slice's job rather than a line this one can write.
+//
+// const wchar_t* rather than const std::wstring& on purpose: it keeps this header
+// free of <string>, and every caller already has a c_str() to hand.
+inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
+#ifdef _WIN32
+    SetWindowTextW(hwnd, title);
+#else
+    (void)hwnd;
+    (void)title;
+#endif
+}
+
 // --- Timers -------------------------------------------------------------------
 //
 // Moved here from app.h, which was the wrong home for them: SetTimer or KillTimer

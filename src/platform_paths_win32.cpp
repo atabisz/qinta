@@ -120,6 +120,14 @@ void openInDefaultApplication(const std::wstring& path) {
     ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
+void openExternalUrl(const std::string& url) {
+    // Byte-for-byte what utils.cpp::openUrl did, including the A suffix and the
+    // empty-string guard. See the header for why the A form is preserved rather
+    // than upgraded to ShellExecuteW while it is being moved.
+    if (url.empty()) return;
+    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+}
+
 std::wstring userConfigDirectory(const std::wstring& appName) {
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {

@@ -268,6 +268,16 @@ void openInDefaultApplication(const std::wstring& path) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(toQString(path)));
 }
 
+void openExternalUrl(const std::string& url) {
+    // The second Qt Gui call in this file, and deliberately NOT the line above
+    // with a different argument: fromLocalFile would percent-encode the scheme
+    // into a relative file path. QUrl's own parser is the counterpart of what
+    // ShellExecuteA's "open" verb does with a URL string.
+    if (url.empty()) return;
+    QDesktopServices::openUrl(QUrl(QString::fromUtf8(url.c_str(),
+                                                    (int)url.size())));
+}
+
 bool documentPathsEqual(const std::string& a, const std::string& b) {
     // NO QT CALL HERE ON PURPOSE. Qt has no per-platform path-identity rule, and
     // the two obvious substitutes both change behaviour: QString::compare with

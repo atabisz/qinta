@@ -293,6 +293,17 @@ set(SOURCES
     ${LEGACY_D2D_SOURCES}
     src/syntax.cpp
     src/utils.cpp
+    # The relaunch out of utils.cpp: Ctrl+N re-launching this executable with
+    # `--cascade --new`. Its own file because it is the one piece of utils.cpp with no
+    # portable answer yet, and utils.cpp compiles off Windows now that it has left.
+    #
+    # IN SOURCES RATHER THAN BESIDE ITS PARSER, and that was measured rather than
+    # preferred. The flags are parsed only in src/main_d2d.cpp's WinMain, which looks
+    # like the obvious home -- but INPUT_TEST_SOURCES below is ${SOURCES} minus
+    # main_d2d.cpp, and two of the five targets built from it reach this symbol through
+    # editor.cpp and input.cpp. Putting it next to its parser would break all five.
+    # Here it is inherited by every one of them for this single line.
+    src/quicknote_win32.cpp
     # The text helpers out of utils.cpp that never needed Windows. Split off so a
     # non-Windows compiler can build them and text_utils_tests can run them; the
     # Windows feature half (title bar, shell handoff, clipboard, path
@@ -1237,6 +1248,44 @@ if(BUILD_TESTING)
         # they were holding a native IDWriteTextLayout. Wiring the text factory deleted
         # the adapters rather than translating them.
         src/overlays.cpp
+        # src/utils.cpp. 179 lines, and the smallest arrival here in a while -- but it is
+        # the first file to reach this target by being SPLIT rather than by being ported.
+        # Nothing in what remains was rewritten to compile: two functions left it, and
+        # that was the whole change.
+        #
+        #   1. measureText(IDWriteTextFormat*) -> src/d2d_init.cpp, beside the four calls
+        #      in updateTextFormats that were its only callers in the tree. It is why this
+        #      file needed dwrite.h, and its portable twin already lived in
+        #      src/text_utils_app.cpp -- so the file was unbuildable off Windows for one
+        #      function that had already been replaced for everyone else.
+        #   2. launchQuickNoteWindow -> src/quicknote_win32.cpp, which is Windows-only and
+        #      says why in its own header: the flags it passes have no parser in
+        #      src/main_qt.cpp, so a Qt half would silently open the wrong window.
+        #
+        # Two Win32 calls were ROUTED rather than moved -- SetWindowTextW to
+        # win32_api.h::setWindowTitle, ShellExecuteA to platform::openExternalUrl -- and
+        # GetFullPathNameW became std::filesystem::absolute().lexically_normal(), which
+        # is the tree's existing spelling (src/inline_style.cpp:69) and whose suffix is
+        # load-bearing off Windows only. The comment on absoluteFilePath explains why the
+        # Windows test that covers it cannot fail on the suffix.
+        #
+        # COMPILE-ONLY, AND THE BLOCKER WAS PREDICTED BEFORE IT WAS READ, which is the
+        # only reason the reading is worth anything. The prediction: it compiles clean and
+        # will not link portably because copyFilePath calls signalPushKey out of
+        # src/signals.cpp, which is not on tests/portable-sources.txt. Measured with
+        # `nm -u` on the object: SIX undefined symbols outside the CRT, and five of them
+        # -- toWide, tr, ensureLayoutComplete, platform::setClipboardText,
+        # platform::openExternalUrl -- resolve from text_utils.cpp, i18n_app.cpp,
+        # render.cpp, clipboard_qt.cpp and platform_paths_qt.cpp, every one of which is on
+        # the manifest and linked off Windows. signalPushKey is the only one that is not.
+        # So src/signals.cpp is the single file between this line and a linked one, and
+        # ensureLayoutComplete is specifically NOT a second blocker despite living in the
+        # largest file in the tree -- render.cpp ported already.
+        #
+        # copyFilePath IS NOT MOVED OUT to close that gap. It would make this file fully
+        # linkable and would delete the copy-path feature from the Qt build to make a
+        # manifest line read better. The gap is a measurement, not a target.
+        src/utils.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

@@ -183,14 +183,20 @@ claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
 # is the one row that can rot silently in the *other* direction, by keeping a file the
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
 claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/print.cpp)") + $(c "$(lines src/pandoc.cpp)") |"
-claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") + $(c "$(lines src/drafts.cpp)") |"
-# signals.cpp is now DELIBERATELY absent from the row above, the SIXTH file to exercise the
-# rule, and it turned the utils.cpp note below from a lesson into a pattern: the figure moved
-# in the REASSURING direction AGAIN, on the very next pass, for the very same reason. The
-# claim was `wc -l src/signals.cpp` and the port GREW it 837 -> 882 by adding comments
-# recording what left. Twice in two passes, so this is not an artefact of one file -- any row
-# derived from a file's SIZE will grow when the file is finished, because finishing it here
-# means writing down why. The rule below is the fix and it now has six instances.
+claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") |"
+# drafts.cpp is now DELIBERATELY absent from the row above as well, the SEVENTH file to
+# exercise the rule -- and it is the reading that settles the direction question, because the
+# growth was not marginal. 160 -> 279 lines, +74%, on the pass that FINISHED the file. The
+# other two were 179 -> 189 and 837 -> 882, small enough to be dismissed as noise; +119 lines
+# cannot be. Three consecutive passes, three files, one direction, and the mechanism is not
+# incidental to porting -- it IS porting, as this tree does it: the port is five spellings and
+# the write-up of why each one is what it is, so the write-up is most of the diff. Any row
+# derived from a file's SIZE therefore moves the WRONG WAY as the work completes, and the
+# larger the share of the change that is reasoning, the wronger it moves. The rule below is
+# the fix and it now has seven instances.
+#
+# signals.cpp is DELIBERATELY absent, the SIXTH file to exercise the rule; its claim was
+# `wc -l src/signals.cpp` and the port GREW it 837 -> 882.
 #
 # utils.cpp is DELIBERATELY absent, and it is the FIFTH file to exercise the rule the
 # export_html.cpp note above states -- it compiles off Windows and joined the manifest, so it

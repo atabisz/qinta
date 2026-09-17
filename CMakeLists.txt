@@ -1303,10 +1303,44 @@ if(BUILD_TESTING)
         #
         # COMPILE-ONLY, predicted first and confirmed: three undefined symbols from two
         # files not on the manifest -- draftsRecoverAll and draftsDiscardAll (src/drafts.cpp,
-        # <shlobj.h>-fatal) and saveEditorFile (src/editor.cpp, which carries no Windows
-        # include at all, so nothing has ever read it end to end either). That is the next
-        # question this list poses, and it is a question, not a plan.
+        # <shlobj.h>-fatal) and saveEditorFile (src/editor.cpp). That is the next question
+        # this list poses, and it is a question, not a plan.
+        #
+        # CORRECTED 2026-09-17: this comment said src/editor.cpp "carries no Windows include
+        # at all". FALSE, and measured false the next pass -- it is `#include <imm.h>` at
+        # editor.cpp:28, IME support. The claim came from a grep whose pattern was a
+        # hand-written list of header names, and imm.h was not on the list, so no match got
+        # read as no include. An allowlist cannot report what it does not list; the honest
+        # instrument is the compiler, which says `fatal error: imm.h` in one line. The point
+        # the sentence was making survives -- nothing has read editor.cpp end to end -- but
+        # it now rests on the fatal include rather than on its absence.
         src/signals.cpp
+        # src/drafts.cpp -- the second of signals.cpp's three blockers, and the file that
+        # showed what "5 of 6 causes already have destinations" looks like. Sized by
+        # COMPILING it, never by its census row: `fatal shlobj.h` over 160 lines became 29
+        # errors from SIX causes once that one header was stubbed.
+        #
+        # Five went to spellings the tree already had. CreateDirectoryW, DeleteFileW x4 and
+        # the whole FindFirstFileW/WIN32_FIND_DATAW/FindNextFileW/FindClose block went to
+        # <filesystem>, which 23 files under src/ already include; the two wide-path fstream
+        # constructors -- an MSVC extension with no POSIX spelling -- went through
+        # std::filesystem::path, the route file_utils.cpp:190 documents and :238 uses; the
+        # two swprintf_s calls went to tinta::swprintf's array overload; four hardcoded
+        # L'\\' path joins went to platform::pathSeparator(); and _wtoi became std::wcstoul.
+        #
+        # THE SIXTH HAD NO DESTINATION AND IS AN #ifdef IN PLACE: isLiveTintaProcess asks
+        # "is this pid a running Tinta", so a live sibling's autosave is not offered as a
+        # crash leftover. OpenProcess/QueryFullProcessImageNameW appear at exactly one site
+        # in the tree, so a seam would be two files and a declaration for a decision that
+        # does not recur. The arms are NOT equivalent and the file says so at the site: Linux
+        # reads /proc/<pid>/exe; anywhere without /proc every pid reads as not-ours, which
+        # fails in the direction Windows already fails when OpenProcess is refused -- a draft
+        # gets offered, never lost.
+        #
+        # <shlobj.h> was DELETED rather than guarded. Nothing here ever called a shell-folder
+        # function; the header's only job was dragging in windows.h, which this file already
+        # reaches on Windows through drafts.h -> app.h -> <d2d1.h>.
+        src/drafts.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

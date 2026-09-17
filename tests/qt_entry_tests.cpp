@@ -37,6 +37,14 @@
 //   7. THE SCROLLBAR (runs 15-16), which is src/scrollbar.cpp lifted out of
 //      main_d2d.cpp's paint handler rather than a QScrollBar, and resizeEvent's scroll
 //      re-clamp. Both are read in PIXELS, with a short document as the control.
+//   8. MATHS (run 17). src/math_render.cpp measures through app.textFactory and draws
+//      through the render seam as of this slice, and src/math_stub.cpp -- which returned
+//      null from mathParse so that every equation fell back to its own LaTeX source -- is
+//      deleted. This is the only target that can tell those two states apart off Windows:
+//      a successful LINK proves the symbols exist, and the stub also linked. What the stub
+//      could never produce is a laid-out box, so run 17 is a pair of documents whose TeX
+//      differs by one token -- valid or not -- read in App's own primitive lists and in
+//      pixels. Its first version measured an H1 underline and said so; see the fixtures.
 //
 // THE CONTROL IS THE POINT OF THE THIRD RUN. "Some pixels in the text band differ
 // from the background" is only evidence that text was drawn if the same measurement
@@ -75,6 +83,7 @@
 #include <QResizeEvent>
 #include <QSize>
 #include <QString>
+#include <QStringList>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -93,6 +102,7 @@
 #include "document.h"
 #include "file_utils.h"
 #include "geometry.h"
+#include "math_render.h"
 #include "qt_init.h"
 #include "qt_window.h"
 #include "text_api.h"
@@ -100,11 +110,19 @@
 
 namespace {
 
-// The document fixture. DELIBERATELY WITHOUT MATHS: src/math_render.cpp does not
-// compile off Windows and src/math_stub.cpp stands in for it, so an equation here would
-// be asserting the stub's box arithmetic and reading as a rendered formula. A heading, a
-// paragraph and a fenced code block exercise three different layout paths and three
-// different text formats, which is what this run is for.
+// The document fixture. A heading, a paragraph and a fenced code block exercise three
+// different layout paths and three different text formats, which is what runs 4-6 are
+// for.
+//
+// STILL WITHOUT MATHS, BUT NO LONGER FOR THE OLD REASON, and the old reason is recorded
+// rather than deleted because it named a limit this file was the instrument for. It read:
+// "DELIBERATELY WITHOUT MATHS: src/math_render.cpp does not compile off Windows and
+// src/math_stub.cpp stands in for it, so an equation here would be asserting the stub's
+// box arithmetic and reading as a rendered formula." Both halves are now false --
+// math_render.cpp measures through app.textFactory and the stub is deleted -- so maths
+// gets its OWN fixtures and its own run (17) instead of being smuggled in here. Keeping
+// this one equation-free is what lets run 17's counts be read as maths: every earlier run
+// is a control for it by construction.
 const char kMarkdown[] =
     "# Heading one\n"
     "\n"
@@ -113,6 +131,50 @@ const char kMarkdown[] =
     "```cpp\n"
     "int x = 1;\n"
     "```\n";
+
+// RUN 17'S PAIR, and the pair is the instrument -- neither string is evidence alone.
+//
+// The two documents are IDENTICAL except for one token: the matrix is closed by
+// \end{bmatrix} in one and \end{matrix} in the other, which is the malformed input
+// tests/math_layout_tests.cpp:210 already uses to assert the fallback exists. So mathParse
+// returns a box for the first and null for the second, and src/render.cpp's
+// layoutMathBlock takes its typeset path for one and its raw-source-in-code-style path for
+// the other with every other byte of input held constant.
+//
+// WHY A PAIR RATHER THAN A DOCUMENT WITH AND WITHOUT AN EQUATION. "The window drew more
+// pixels with an equation in it" is satisfied by a code block full of LaTeX source, which
+// is exactly what the fallback draws and exactly what qinta did until this slice. A pixel
+// count against a maths-free control would therefore have gone green on the stub. What
+// separates the two paths is which PRIMITIVE LISTS fill: a laid-out matrix pushes its
+// bracket strokes into App::layoutLines (src/math_render.cpp:799) and no code-block
+// background, and the fallback does the exact opposite.
+//
+// THE FENCED $$ FORM ON ITS OWN LINES is the spelling tests/math_layout_tests.cpp:177
+// already proves the Markdown parser turns into a MathDisplay element, so run 17 measures
+// the maths backend rather than re-litigating a parser question that has its own test.
+//
+// AND THERE IS NO HEADING IN EITHER FIXTURE, WHICH IS A CORRECTION AND NOT A SIMPLIFICATION.
+// Both fixtures opened with "# Equation" and the run asserted that App::layoutLines was
+// non-empty for the equation and EMPTY for the fallback, on the stated grounds that
+// mathBoxRetain was the only producer of that list in this fixture. The assertion failed on
+// both platforms with identical numbers -- math_lines=1, fallback_lines=1, and the same
+// rule at (40.0,136.4)-(560.0,136.4) -- which is 520 pixels wide in a 600-pixel window and
+// therefore not a fraction bar. It was the H1 UNDERLINE (src/render.cpp:400-405). Two
+// things came out of that: the heading is gone, so the only primitives in either fixture
+// come from the $$ block; and \frac was replaced by a matrix, because a fraction bar is a
+// RULE and lands in App::layoutRects, where a code block's background also lands, whereas
+// bracket strokes are LINES and a code block draws none. Recorded here rather than
+// silently fixed because a control that measured the heading would have gone green on the
+// stub, which is the exact failure this file's header warns about.
+const char kMathMarkdown[] =
+    "$$\n"
+    "\\begin{bmatrix}1&2\\\\3&4\\\\5&6\\\\7&8\\\\9&0\\end{bmatrix}\n"
+    "$$\n";
+
+const char kMathFallbackMarkdown[] =
+    "$$\n"
+    "\\begin{bmatrix}1&2\\\\3&4\\\\5&6\\\\7&8\\\\9&0\\end{matrix}\n"
+    "$$\n";
 
 // A document TALLER THAN THE WINDOW, which is the precondition every scroll assertion
 // in runs 8-10 depends on. kMarkdown above is three short blocks: it lays out to less
@@ -1292,10 +1354,133 @@ int main(int argc, char** argv) {
           "CONTROL: BOTH HALVES OF THE STRIP ARE FLAT BACKGROUND. Every scrollbar count above "
           "measured the scrollbar");
 
+    // --- Run 17: MATHS, off Windows -------------------------------------------------
+    //
+    // WHY THIS RUN EXISTS AND WHY IT IS HERE. src/math_render.cpp measured through
+    // DirectWrite and drew through Direct2D until this slice; qinta linked
+    // src/math_stub.cpp in its place, whose mathParse returned null so that every
+    // equation fell back to its own LaTeX source in code style. The stub is deleted and
+    // the real backend is on qinta's link line -- and a successful link is NOT evidence
+    // for that, because the stub linked too. Only a reading that separates "typeset" from
+    // "fell back" can tell the two states apart, and this is the only target that paints
+    // a Qt window and reads the pixels back.
+    //
+    // THE SEAM'S OWN NEW QUESTION FIRST, both directions, because mathFontFamily is the
+    // one place the maths path asks the text factory something DirectWrite has no single
+    // method for. A predicate that always answers true and one that always answers false
+    // each pass a single-direction check. The positive direction is taken from the Qt font
+    // database rather than named, because no family name is installed on every host --
+    // the guard at the top of main() has already refused to run without a database.
+    const QStringList families = QFontDatabase::families();
+    check(!families.isEmpty(), "PRECONDITION: the Qt font database still has families in it");
+    const std::wstring firstFamily = families.isEmpty() ? std::wstring()
+                                                        : families.front().toStdWString();
+    check(!firstFamily.empty() && app.textFactory->FontFamilyExists(firstFamily.c_str()),
+          "QtTextFactory::FontFamilyExists finds a family the Qt font database lists");
+    check(!app.textFactory->FontFamilyExists(L"NoSuchFamily QINTA 12345"),
+          "CONTROL: and rejects one it does not, so it is not a predicate that always says yes");
+    check(!app.textFactory->FontFamilyExists(nullptr) && !app.textFactory->FontFamilyExists(L""),
+          "and treats no family name at all as absent rather than crashing on it");
+
+    // The box, straight off mathParse, which is the whole ported measurement path:
+    // CreateTextFormat, CreateTextLayout, ApplyFontFallback and GetMetrics through
+    // app.textFactory -- a Qt one here.
+    const MathBoxPtr mathBox = mathParse(app, L"\\frac{1}{2}", 24, true);
+    check(mathBox != nullptr,
+          "mathParse laid out an equation with a Qt text factory seated, which src/math_stub.cpp "
+          "could not do by construction: its mathParse returned null");
+    check(mathBox && std::isfinite(mathBoxWidth(mathBox)) && mathBoxWidth(mathBox) > 0 &&
+              mathBoxHeight(mathBox) > 0,
+          "and the box has finite positive extents, so the Qt measurement produced NUMBERS and not "
+          "a zero-sized box that would draw nothing and still be non-null");
+    check(mathBox && mathBoxBaseline(mathBox) > 0 &&
+              mathBoxBaseline(mathBox) < mathBoxHeight(mathBox),
+          "with its baseline strictly inside it, which is what inline alignment is derived from");
+    check(mathParse(app, L"\\begin{bmatrix}1&2\\end{matrix}", 24, true) == nullptr,
+          "CONTROL: malformed TeX still returns null, so the check above is a layout result and not "
+          "a function that returns a box for anything");
+
+    // Now the same two through the WINDOW, which is what a reader means by "qinta typesets
+    // maths". Through openDocument rather than by assigning App::root, because that is the
+    // path both main() and Ctrl+O take AND because it is what invalidates the cached
+    // layout -- run 4's comment has the measurement behind that.
+    const std::filesystem::path mathPath =
+        std::filesystem::temp_directory_path() / "qinta_entry_math.md";
+    const std::filesystem::path mathFallbackPath =
+        std::filesystem::temp_directory_path() / "qinta_entry_math_fallback.md";
+    { std::ofstream out(mathPath, std::ios::binary); out << kMathMarkdown; }
+    { std::ofstream out(mathFallbackPath, std::ios::binary); out << kMathFallbackMarkdown; }
+    const std::string mathUtf8 = mathPath.u8string();
+    const std::string mathFallbackUtf8 = mathFallbackPath.u8string();
+
+    // The whole widget, not the top quarter. The fixture is one heading and one equation,
+    // so nothing else can put ink anywhere in it, and a band would add the question of
+    // whether the equation happened to land inside it.
+    const tinta::RectF wholeWindow{0.0f, 0.0f, static_cast<float>(window.width()),
+                                   static_cast<float>(window.height())};
+
+    check(window.openDocument(mathUtf8), "the equation document opens");
+    const QImage mathImage = grabWindow(window);
+    const size_t mathLines = app.layoutLines.size();
+    const size_t mathRects = app.layoutRects.size();
+    const size_t mathRuns = app.layoutTextRuns.size();
+    const int mathInk = nonBackgroundPixels(mathImage, wholeWindow, bg);
+    std::printf("math_lines=%zu math_rects=%zu math_runs=%zu math_ink=%d\n", mathLines, mathRects,
+                mathRuns, mathInk);
+    check(window.documentPainted(), "and the window took the document branch for it");
+    check(mathRuns > 0, "the layout produced text runs -- the matrix cells");
+    check(mathInk > 0, "and the window has ink in it");
+    check(mathLines > 0,
+          "AND IT DREW THE BRACKET STROKES: mathBoxRetain put lines in App::layoutLines, and the "
+          "$$ block is the ONLY thing in this fixture, so those strokes are a laid-out matrix and "
+          "not LaTeX source in a code block");
+    if (mathLines > 0) {
+        const App::LayoutLine& stroke = app.layoutLines.front();
+        std::printf("stroke_p1=(%.1f,%.1f) stroke_p2=(%.1f,%.1f)\n", stroke.p1.x, stroke.p1.y,
+                    stroke.p2.x, stroke.p2.y);
+        check(std::abs(stroke.p2.x - stroke.p1.x) < static_cast<float>(window.width()) / 4.0f,
+              "and the first stroke is NARROW rather than window-wide, which is what caught the "
+              "first version of this run measuring an H1 underline");
+    }
+
+    // THE CONTROL, and it is the one that makes the run mean anything: the same document
+    // with the same delimiters and one token changed, so mathParse returns null.
+    // src/render.cpp's layoutMathBlock takes its fallback path and draws the source in code
+    // style -- which draws a background RECT and no lines at all. If the count above were
+    // coming from anything but the equation, it would come back non-zero here too.
+    check(window.openDocument(mathFallbackUtf8), "CONTROL: the malformed-TeX document opens");
+    const QImage fallbackImage = grabWindow(window);
+    const size_t fallbackLines = app.layoutLines.size();
+    const size_t fallbackRects = app.layoutRects.size();
+    const int fallbackInk = nonBackgroundPixels(fallbackImage, wholeWindow, bg);
+    std::printf("fallback_lines=%zu fallback_rects=%zu fallback_runs=%zu fallback_ink=%d\n",
+                fallbackLines, fallbackRects, app.layoutTextRuns.size(), fallbackInk);
+    check(window.documentPainted(), "CONTROL: it is still a painted document, not a placeholder");
+    check(!app.layoutTextRuns.empty() && fallbackInk > 0,
+          "CONTROL: and it still draws text, so the difference below is about the maths path and "
+          "not about one of the two documents failing to render at all");
+    check(fallbackLines == 0,
+          "CONTROL: BUT IT DREW NO STROKES. The fallback is a code block, so every line in the run "
+          "above came from the equation");
+    check(fallbackRects > mathRects,
+          "CONTROL: and it drew MORE rects than the equation did -- the code-block background the "
+          "fallback path builds, which is the primitive the typeset path does not produce");
+    check(mathImage != fallbackImage,
+          "and the two windows are not the same image, pixel for pixel -- which is the difference "
+          "between typesetting an equation and printing its source");
+
+    // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that
+    // made them out of App. Cleared here for the same reason
+    // tests/math_layout_tests.cpp:265 clears it before CoUninitialize.
+    mathClearCache();
+    app.clearLayoutCache();
+
     std::error_code rmEc;
     std::filesystem::remove(tmp, rmEc);
     std::filesystem::remove(emptyPath, rmEc);
     std::filesystem::remove(tallPath, rmEc);
+    std::filesystem::remove(mathPath, rmEc);
+    std::filesystem::remove(mathFallbackPath, rmEc);
 
     // Idempotent by construction -- install(nullptr) on an empty storage -- and called
     // here anyway so the file ends in the state every earlier run ended in.
@@ -1304,6 +1489,7 @@ int main(int argc, char** argv) {
     std::printf("checks=%d failures=%d\n", g_checks, g_failures);
     if (g_failures == 0)
         std::printf("PASS: a Qt window lays out and draws a parsed document through "
-                    "render.cpp and paint_document.cpp, off the Windows path.\n");
+                    "render.cpp and paint_document.cpp, off the Windows path, and TYPESETS an "
+                    "equation through math_render.cpp rather than falling back to its source.\n");
     return g_failures == 0 ? 0 : 1;
 }

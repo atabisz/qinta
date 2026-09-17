@@ -8,9 +8,15 @@
 
 // Native TeX-subset math rendering (#80). No MathJax, no KaTeX, no web
 // engine: a recursive-descent parser builds a box tree (runs, scripts,
-// fractions, grids, stretchy delimiters, decorations), DirectWrite measures it,
-// Direct2D draws it. Unsupported input returns null and the caller falls
+// fractions, grids, stretchy delimiters, decorations), the text seam measures it,
+// the render seam draws it. Unsupported input returns null and the caller falls
 // back to showing the raw source in code style - the mermaid pattern.
+//
+// "The text seam measures it" used to read "DirectWrite measures it, Direct2D draws
+// it", and the change of wording is the whole of this file's port: every measurement
+// goes through app.textFactory and every primitive through a tinta::RenderTarget, so
+// src/math_render.cpp compiles off Windows and src/math_stub.cpp -- which existed only
+// to supply six symbols while it did not -- is gone.
 
 struct MathBox;
 using MathBoxPtr = std::shared_ptr<MathBox>;
@@ -36,13 +42,15 @@ void mathBoxDraw(App& app, const MathBoxPtr& box, float x, float y,
                  const tinta::Color& color);
 
 // Same, into an arbitrary target (offscreen export rasterization)
-void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
+void mathBoxDrawTo(tinta::RenderTarget* target, tinta::Brush* brush,
                    const MathBoxPtr& box, float x, float y,
                    const tinta::Color& color);
 
 // Push the box's runs/rules/lines into the retained paint lists at (x, y).
-// Run layouts are AddRef'd: the retained list releases its references on
-// clearLayoutCache, the cached MathBox keeps its own.
+// Run layouts are SHARED: the retained list and the cached MathBox each hold a
+// reference, and the layout dies with the last one. clearLayoutCache dropping the
+// retained list is therefore safe while the box is still in the math cache -- which
+// was the point of the AddRef this sentence used to describe.
 void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
                    const tinta::Color& color);
 

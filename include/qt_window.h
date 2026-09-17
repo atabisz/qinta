@@ -24,10 +24,15 @@
 // blocker, the blocker moved, and a reader who remembers the old sentence needs to
 // find out here that it changed rather than wonder whether they misremembered.
 //
-// THE ONE THING NOT PORTED IS MATH. src/math_render.cpp is still Windows-only, so
-// qinta links src/math_stub.cpp in its place and equations render as their own
-// LaTeX source -- the tree's own designed fallback, and that file's header comment is
-// the full account.
+// MATH IS PORTED, AND THIS PARAGRAPH IS THE THIRD CORRECTION IN THIS COMMENT RATHER
+// THAN A DELETION, for the reason the paragraph above gives. It read: "THE ONE THING NOT
+// PORTED IS MATH. src/math_render.cpp is still Windows-only, so qinta links
+// src/math_stub.cpp in its place and equations render as their own LaTeX source." Both
+// halves are now false. src/math_render.cpp measures through app.textFactory and draws
+// through a tinta::RenderTarget, src/math_stub.cpp is deleted, and this window typesets
+// equations. What survives of the old claim is only its shape: an unparseable equation
+// still falls back to its own source, because that is the contract for bad input and
+// always was.
 //
 // WHY THE WINDOW LAYS OUT INSIDE paintEvent, which a shipping app should not do:
 // there is no resize path on this stack yet. Windows relayouts on WM_SIZE. Until the

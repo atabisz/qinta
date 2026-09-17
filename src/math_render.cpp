@@ -15,10 +15,15 @@
 namespace {
 
 struct MathRun {
-    IDWriteTextLayout* layout = nullptr;  // owned by the MathBox
+    // SHARED, not owned-and-Released, and that is this file's whole ownership story
+    // now. The MathBox lives in g_mathCache and outlives any frame; a retained frame
+    // run needs the same layout after the box's frame is gone. Two owners of one
+    // layout was always the design -- it used to be spelled AddRef in mathBoxRetain
+    // against Release in ~MathBox, and it is now spelled shared_ptr in both places.
+    std::shared_ptr<tinta::TextLayout> layout;
     float x = 0, y = 0;                   // top-left, box-relative
     // Captured at creation so exporters can reproduce the run without
-    // Direct2D (SVG needs the source text and metrics back)
+    // a text backend (SVG needs the source text and metrics back)
     std::wstring text;
     float size = 0.0f;
     bool italic = false;
@@ -43,11 +48,9 @@ struct MathBox {
     std::vector<MathLine> lines;
     float width = 0, height = 0, baseline = 0;
     std::wstring fontFamily;
-    ~MathBox() {
-        for (auto& r : runs) {
-            if (r.layout) r.layout->Release();
-        }
-    }
+    // No destructor. It existed to Release each run's native layout; MathRun::layout is
+    // now a shared_ptr, so the default destructor does exactly what the hand-written one
+    // did -- drop this box's reference and destroy the layout when it was the last.
 };
 
 namespace {
@@ -81,50 +84,56 @@ float styleScale(int style) {
 }
 
 std::wstring g_mathFontFamily;
+// The decision is cached here, one level above the seam, and mathClearCache() clears it
+// on a theme change -- which is why tinta::TextFactory::FontFamilyExists deliberately
+// caches nothing of its own.
 const wchar_t* mathFontFamily(App& app) {
     if (g_mathFontFamily.empty()) {
         g_mathFontFamily = app.theme.fontFamily ? app.theme.fontFamily : L"Segoe UI";
-        IDWriteFontCollection* fonts = nullptr;
-        if (SUCCEEDED(app.dwriteFactory->GetSystemFontCollection(&fonts))) {
-            UINT32 index = 0; BOOL exists = FALSE;
-            if (SUCCEEDED(fonts->FindFamilyName(L"Cambria Math", &index, &exists)) && exists)
-                g_mathFontFamily = L"Cambria Math";
-            fonts->Release();
-        }
+        // Cambria Math when it is installed, the theme font when it is not. The probe
+        // used to be a DirectWrite font-collection lookup inline here; it is the one
+        // question in this file the text seam could not answer, and the seam grew a
+        // method rather than this file keeping a native branch -- see the reasoning at
+        // tinta::TextFactory::FontFamilyExists. A backend that cannot answer says false,
+        // which leaves the theme font already chosen on the line above.
+        if (app.textFactory && app.textFactory->FontFamilyExists(L"Cambria Math"))
+            g_mathFontFamily = L"Cambria Math";
     }
     return g_mathFontFamily.c_str();
 }
 
-IDWriteTextLayout* makeRunLayout(App& app, const std::wstring& text,
-                                 float size, bool italic, bool bold,
-                                 float& outBaseline, Metrics& m) {
-    IDWriteTextFormat* fmt = nullptr;
-    app.dwriteFactory->CreateTextFormat(
-        mathFontFamily(app), nullptr,
-        bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-        italic ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, size, L"en-us", &fmt);
+std::shared_ptr<tinta::TextLayout> makeRunLayout(App& app, const std::wstring& text,
+                                                 float size, bool italic, bool bold,
+                                                 float& outBaseline, Metrics& m) {
+    if (!app.textFactory) return nullptr;
+
+    // The format is a local unique_ptr and dies at the end of this function, which is
+    // the fmt->Release() that used to sit between the two calls: a layout holds its own
+    // reference to everything it needs out of its format.
+    auto fmt = app.textFactory->CreateTextFormat(
+        mathFontFamily(app),
+        bold ? tinta::FontWeight::SemiBold : tinta::FontWeight::Normal,
+        italic ? tinta::FontStyle::Italic : tinta::FontStyle::Normal,
+        tinta::FontStretch::Normal, size, L"en-us");
     if (!fmt) return nullptr;
 
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.size(),
-                                        fmt, 100000.0f, 1000.0f, &layout);
-    fmt->Release();
+    std::shared_ptr<tinta::TextLayout> layout = app.textFactory->CreateTextLayout(
+        text.c_str(), (uint32_t)text.size(), fmt.get(), 100000.0f, 1000.0f);
     if (!layout) return nullptr;
 
-    if (app.fontFallback) {
-        IDWriteTextLayout2* l2 = nullptr;
-        if (SUCCEEDED(layout->QueryInterface(__uuidof(IDWriteTextLayout2),
-                                             reinterpret_cast<void**>(&l2)))) {
-            l2->SetFontFallback(app.fontFallback);
-            l2->Release();
-        }
-    }
+    // Unconditional, where the block this replaces was guarded on app.fontFallback --
+    // and the behaviour is the same rather than merely similar, because the guard moved
+    // instead of vanishing. ApplyFontFallback() reads the chain through the factory's
+    // slot AT APPLY TIME (src/text_d2d.cpp:576) and returns without touching the layout
+    // when there is none, so a maths run gets the chain exactly when app.fontFallback is
+    // set -- before and after. The QueryInterface for IDWriteTextLayout2 and its silent
+    // tolerance of an older DirectWrite moved with it.
+    layout->ApplyFontFallback();
 
-    DWRITE_TEXT_METRICS tm{};
+    tinta::TextMetrics tm{};
     layout->GetMetrics(&tm);
-    DWRITE_LINE_METRICS lm{};
-    UINT32 lineCount = 1;
+    tinta::LineMetrics lm{};
+    uint32_t lineCount = 1;
     layout->GetLineMetrics(&lm, 1, &lineCount);
     outBaseline = lm.baseline;
     m.width = tm.widthIncludingTrailingWhitespace;
@@ -145,14 +154,14 @@ Metrics emitRun(LayoutCtx& ctx, const std::wstring& text, float size,
                 bool record) {
     Metrics m;
     float runBaseline = 0;
-    IDWriteTextLayout* layout =
+    std::shared_ptr<tinta::TextLayout> layout =
         makeRunLayout(ctx.app, text, size, italic, bold, runBaseline, m);
     if (!layout) return m;
+    // The measure-only pass (record == false) drops the layout by leaving this scope,
+    // where it used to need an explicit Release. The metrics are already out in `m`.
     if (record) {
-        ctx.box.runs.push_back({layout, x, baselineY - runBaseline, text,
+        ctx.box.runs.push_back({std::move(layout), x, baselineY - runBaseline, text,
                                 size, italic, bold, runBaseline});
-    } else {
-        layout->Release();
     }
     return m;
 }
@@ -502,17 +511,15 @@ Metrics layoutNodeImpl(LayoutCtx ctx, const MNodePtr& node, float size,
                 std::wstring dt(1, d);
                 Metrics dm;
                 float bl = 0;
-                IDWriteTextLayout* layout = makeRunLayout(
+                std::shared_ptr<tinta::TextLayout> layout = makeRunLayout(
                     ctx.app, dt, glyphSize, false, false, bl, dm);
                 if (!layout) return 0.0f;
                 if (record) {
                     // center the glyph on the content's vertical center
                     float centerY = baselineY - (cm.ascent - cm.descent) / 2;
                     float top = centerY - (dm.ascent + dm.descent) / 2;
-                    ctx.box.runs.push_back({layout, cx, top, dt, glyphSize,
+                    ctx.box.runs.push_back({std::move(layout), cx, top, dt, glyphSize,
                                             false, false, bl});
-                } else {
-                    layout->Release();
                 }
                 return dm.width;
             };
@@ -715,15 +722,15 @@ void mathExpandLine(const MathBoxPtr& box, float textBaseline, float lineHeight,
     below = std::max(below, box->height - box->baseline + textBaseline - lineHeight);
 }
 
-void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
+void mathBoxDrawTo(tinta::RenderTarget* target, tinta::Brush* brush,
                    const MathBoxPtr& box, float x, float y,
                    const tinta::Color& color) {
     if (!box || !target || !brush) return;
     brush->SetColor(color);
     for (const auto& run : box->runs) {
         target->DrawTextLayout(
-            tinta::pointF(x + run.x, y + run.y), run.layout, brush,
-            D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
+            tinta::pointF(x + run.x, y + run.y), run.layout.get(), brush,
+            tinta::DrawTextOptions::EnableColorFont);
     }
     for (const auto& rule : box->rules) {
         target->FillRectangle(
@@ -741,7 +748,7 @@ void mathBoxDrawTo(ID2D1RenderTarget* target, ID2D1SolidColorBrush* brush,
 
 void mathBoxDraw(App& app, const MathBoxPtr& box, float x, float y,
                  const tinta::Color& color) {
-    mathBoxDrawTo(app.nativeRenderTarget, app.nativeBrush, box, x, y, color);
+    mathBoxDrawTo(app.renderTarget, app.brush, box, x, y, color);
 }
 
 void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
@@ -749,28 +756,30 @@ void mathBoxRetain(App& app, const MathBoxPtr& box, float x, float y,
     if (!box) return;
     for (const auto& run : box->runs) {
         if (!run.layout) continue;
-        // The AddRef stays, and it is what this whole slice's ownership decision came
-        // from: this MathBox belongs to g_mathCache and outlives the frame, while the
-        // run being pushed is released by the next clearLayoutCache. Two owners of one
-        // native layout, on purpose. The AddRef now pairs with the wrapper's
-        // destructor rather than with an explicit Release, so the reference the frame
-        // holds is the wrapper's and the one the cache holds is MathBox's.
-        run.layout->AddRef();
         App::LayoutTextRun r;
-        // app.dwriteFactory is for SetTypography (see text_d2d.h). Nothing in a maths
-        // box sets font features today, so this argument is currently unused here --
-        // it is passed because the parameter is required, and it is required so that a
-        // site like this one cannot quietly become a layout that ignores typography.
+        // One line, and it is the whole point of this slice. This used to be an AddRef
+        // on the native layout followed by std::make_shared<D2DTextLayout>(...) -- a
+        // second wrapper around the same native object, and the single construction site
+        // that pulled 18 D2DTextLayout symbols into every link of this file. The
+        // ownership it was arranging by hand is what shared_ptr does: the cache's
+        // MathBox holds one reference, the frame's run holds another, and the layout
+        // dies with the last of them. clearLayoutCache dropping the frame's copy no
+        // longer needs a matching AddRef to have happened here.
         //
-        // nullptr for the fallback SLOT, deliberately, and it is not the same kind of
-        // "unused" as the argument above. A maths box's runs are laid out by
-        // math_render.cpp itself against maths fonts, and no call site has ever handed
-        // one to applyEmojiFallback -- so this layout has no fallback source, and
-        // ApplyFontFallback() on it does nothing. Passing app.fontFallback here would
-        // give maths runs a chain they have never had, which is the same class of
-        // silent behaviour change the refusal at render.cpp:54-76 is about.
-        r.layout = std::make_shared<D2DTextLayout>(run.layout, app.dwriteFactory,
-                                                   nullptr);
+        // TWO CORRECTIONS TO WHAT THE DELETED COMMENT CLAIMED, recorded because both were
+        // load-bearing arguments for the shape of the old code:
+        //
+        //   1. It passed nullptr for the fallback SLOT on the grounds that "a maths box's
+        //      runs ... have no fallback source, and ApplyFontFallback() on it does
+        //      nothing", so giving them a chain would be a silent behaviour change. That
+        //      was false when written: makeRunLayout ALREADY attached app.fontFallback to
+        //      every maths run it built, inline, whenever the chain existed. The claim is
+        //      moot now as well as wrong -- there is one wrapper, made by the factory,
+        //      and it carries the factory's slot like every other layout in the tree.
+        //   2. It passed app.dwriteFactory "for SetTypography". Still true, still unused
+        //      by maths, and now nobody's business here: the factory that made the layout
+        //      supplied it.
+        r.layout = run.layout;
         r.pos = tinta::pointF(x + run.x, y + run.y);
         // Whole-box bounds keep viewport culling conservative and correct
         r.bounds = tinta::rectF(x, y, x + box->width, y + box->height);

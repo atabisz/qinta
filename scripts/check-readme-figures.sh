@@ -147,7 +147,15 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # lives in and names its neighbours in the output.
 claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
 claim "editor"                "| Editor | $(c "$(lines src/editor.cpp)") |"
-claim "annot., math"          "| $(c "$(lines src/annotations.cpp)") + $(c "$(lines src/math_render.cpp)") |"
+claim "annotations"           "| Annotations | $(c "$(lines src/annotations.cpp)") |"
+# math_render.cpp is now DELIBERATELY absent from this row, and it is the THIRD file to
+# exercise the rule the export_html.cpp note below states -- it compiles, links and RUNS off
+# Windows, so it left tests/portable-sources.txt's to-do side and therefore left here. Note
+# what that does to the row's SHAPE and not just its number: this was the "Annotations, math"
+# row and it is now "Annotations" alone, so the label was a claim too. A row that keeps a
+# two-term additive expression after one term leaves does not read as stale -- it reads as a
+# considered pairing, which is the failure mode the note below warns about, in the direction
+# it warns about.
 # overlays.cpp is now DELIBERATELY absent too, by the same rule the export_html.cpp note
 # below states -- it reached 0 errors and joined the manifest, so it left the to-do table
 # and therefore left this row. It is the second file to exercise that rule, and the first

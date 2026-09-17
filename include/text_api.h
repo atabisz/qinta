@@ -703,6 +703,36 @@ public:
     // the same reason QtTextLayout::ensureIndexMap exists.
     virtual bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
                                    std::vector<bool>& canBreak) = 0;
+
+    // Is a font family installed? The second question in this class that is not a
+    // DirectWrite method name, and the exception is the same one AnalyzeLineBreaks
+    // documents: there is nothing to mirror. DirectWrite answers this with a PAIR of
+    // calls -- GetSystemFontCollection then FindFamilyName -- so mirroring would mean
+    // exporting IDWriteFontCollection through a portable header to reproduce a
+    // two-step dance, and Qt answers it in one static call. It lives on the factory
+    // for AnalyzeLineBreaks' reason too: no font object, no size, no box.
+    //
+    // WHY THE SEAM GREW RATHER THAN THE CALLER GOING NATIVE. src/math_render.cpp asks
+    // exactly once, to pick "Cambria Math" when it is installed and the theme font
+    // when it is not. Keeping that probe behind TINTA_D2D_BACKEND was the cheaper
+    // option and is precedented, but it would leave the Qt backend UNABLE to find a
+    // maths font on any platform -- so qinta on Windows would draw equations in
+    // Segoe UI while tinta, on the same machine and the same installed fonts, draws
+    // them in Cambria Math. A portable question with a portable answer belongs here.
+    //
+    // THE CONTRACT, and the clause worth stating is the second:
+    //
+    //   1. true means the family is present under that name. Matching is by family
+    //      NAME and is case-insensitive on both backends.
+    //   2. false means "not present", NOT "could not tell". Both backends fold a
+    //      failed lookup into false, because the caller's only use for the answer is
+    //      choosing between this family and a fallback it already has -- and on a
+    //      failed probe the fallback is the correct choice anyway. A tri-state would
+    //      hand the caller a third case with no distinct action.
+    //   3. A null or empty family is false. Asking whether the unnamed family exists
+    //      is not a question, and DirectWrite's FindFamilyName on a null string is
+    //      not somewhere to find out.
+    virtual bool FontFamilyExists(const wchar_t* fontFamily) = 0;
 };
 
 }  // namespace tinta

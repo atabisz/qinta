@@ -780,6 +780,38 @@ bool D2DTextFactory::AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
     return true;
 }
 
+// The three outcomes are the three the block this replaces had
+// (src/math_render.cpp's mathFontFamily, before the port), in the same order and with
+// the same answers:
+//
+//   GetSystemFontCollection fails  -> false. The original fell through to the theme
+//                                     font it had already chosen, which is what a
+//                                     false answer gives its caller.
+//   FindFamilyName fails or !exists -> false.
+//   exists                         -> true.
+//
+// The collection is released on every path, including the early ones. The original
+// leaked nothing either; this is the same Release moved into a scope that has only one
+// exit above it.
+//
+// No caching. The original cached the RESULT of the whole family decision in a static
+// string, and it still does -- one level up, where mathClearCache() can clear it on a
+// theme change. Caching here as well would put a second, uninvalidatable copy of a
+// system-state answer behind a method whose whole point is to read system state.
+bool D2DTextFactory::FontFamilyExists(const wchar_t* fontFamily) {
+    if (!factory_ || !fontFamily || !*fontFamily) return false;
+
+    IDWriteFontCollection* fonts = nullptr;
+    if (FAILED(factory_->GetSystemFontCollection(&fonts)) || !fonts) return false;
+
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    const bool found =
+        SUCCEEDED(fonts->FindFamilyName(fontFamily, &index, &exists)) && exists;
+    fonts->Release();
+    return found;
+}
+
 // --- unwrapping -------------------------------------------------------------
 
 // Has to try BOTH concrete classes, and this is the one place the decision not to

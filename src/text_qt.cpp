@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include <QFontDatabase>
 #include <QFontMetricsF>
 #include <QPainter>
 #include <QTextBoundaryFinder>
@@ -1069,4 +1070,23 @@ bool QtTextFactory::AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
         qtIndex += (sizeof(wchar_t) == 4 && cp > 0xFFFF) ? 2 : 1;
     }
     return true;
+}
+
+// QFontDatabase::hasFamily, and it is STATIC in Qt 6 -- it was a member function on a
+// constructed QFontDatabase in Qt 5, so the Qt-5 spelling compiles here only as an
+// accident of calling a static through an instance. Read off the installed header
+// (QtGui/qfontdatabase.h:103) rather than remembered.
+//
+// hasFamily is the right one of Qt's two candidates. QFont::exactMatch() would answer
+// a DIFFERENT question -- whether the font engine can serve that exact request, which
+// is false for a family that IS installed but lacks the requested style -- and the
+// caller is choosing a family name, not a style. Qt's own family-substitution table is
+// deliberately not consulted for the same reason: "Cambria Math resolves to something"
+// is not "Cambria Math is installed", and a substituted maths font is precisely the
+// silent wrong answer this predicate exists to avoid.
+bool QtTextFactory::FontFamilyExists(const wchar_t* fontFamily) {
+    if (!fontFamily || !*fontFamily) return false;
+    const QString family = QString::fromWCharArray(fontFamily);
+    if (family.isEmpty()) return false;
+    return QFontDatabase::hasFamily(family);
 }

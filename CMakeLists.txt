@@ -490,11 +490,15 @@ endif()  # WIN32 — app target
 # so the nineteen and render.cpp are one atomic lump. There is no smaller first step
 # than all of this at once plus an answer on math.
 #
-# src/math_stub.cpp IS THAT ANSWER, AND IT IS TEMPORARY. It supplies the six symbols
-# so this target links today; equations render as their own LaTeX source through the
-# fallback include/math_render.h already documents and render.cpp already implements
-# at :439, :519 and :895. It is deleted when src/math_render.cpp compiles off Windows,
-# and that file says the same thing at its own end.
+# src/math_stub.cpp WAS THAT ANSWER, AND IT IS NOW GONE -- the temporary it always said
+# it was. It supplied the six symbols so this target linked while src/math_render.cpp was
+# Windows-only, and equations rendered as their own LaTeX source through the fallback
+# include/math_render.h documents and render.cpp implements at :439, :519 and :895. Its
+# deletion condition was "when src/math_render.cpp compiles off Windows", and that is
+# what this slice did: the file measures through app.textFactory and draws through a
+# tinta::RenderTarget, so the six symbols are the REAL ones and equations are typeset.
+# The fallback branches stay -- they are the contract for unparseable input, which is a
+# different thing from an unported backend.
 #
 # So md4c is on the link line for a target that now genuinely parses. The Svg and
 # Network lines are not optional decoration either: they carry fourteen of the twenty
@@ -538,7 +542,26 @@ set(QINTA_APP_SOURCES
     # the build-level version is short: this is the SAME file the `tinta` target links, so
     # both stacks draw the identical thumb and neither can restyle it alone.
     src/scrollbar.cpp
-    src/math_stub.cpp
+    # THE REAL MATHS BACKEND, AND src/math_stub.cpp IS GONE. That file supplied six
+    # symbols so this target could link while src/math_render.cpp was Windows-only, and
+    # its own header said "DELETING THIS FILE IS THE GOAL. It goes when math_render.cpp
+    # compiles off Windows." It does now, so the file is deleted rather than left
+    # unreferenced -- an unreferenced stub is a second implementation of six symbols
+    # waiting for someone to link it by accident.
+    #
+    # Three files, not one, and the LINKER named the other two rather than a reading of
+    # the include graph: math_render.cpp calls parseLatex out of math_parser.cpp, which
+    # reaches expandMacros in math_macros.cpp. Both were already portable -- the
+    # math_parser_tests target above sits OUTSIDE the WIN32 guard and links no platform
+    # library -- so this is three files added and no new portability question asked.
+    #
+    # THE PRODUCT CHANGE, stated because it is visible and was the point: equations are
+    # TYPESET here now. They used to render as their own LaTeX source in a code block
+    # through the fallback include/math_render.h documents, which is what a reader saw
+    # in every qinta build before this one.
+    src/math_render.cpp
+    src/math_parser.cpp
+    src/math_macros.cpp
     # The command line's two files, and the LINKER is what added them rather than a
     # reading of the include graph. src/main_qt.cpp's one new call --
     # loadDocumentFromPath, in file_utils.cpp -- came back `undefined reference` from
@@ -1110,9 +1133,15 @@ if(BUILD_TESTING)
         #   say "NOT YET" with the residue named -- six symbols owned by
         #   src/math_render.cpp, which still does not compile off Windows. What changed
         #   is not math: src/math_stub.cpp supplies those six, and the nineteen other
-        #   files the fixpoint named joined qinta with two Qt library lines. Both
-        #   halves of the old claim are kept above rather than deleted, because the
-        #   residue is still six and the file that resolves them is still a stub.
+        #   files the fixpoint named joined qinta with two Qt library lines.
+        #
+        #   AND NOW IT IS MATH TOO. That paragraph ended "the residue is still six and
+        #   the file that resolves them is still a stub", which stopped being true when
+        #   src/math_render.cpp was ported: it compiles off Windows, it is on
+        #   QINTA_APP_SOURCES, and src/math_stub.cpp is deleted from the tree. The six
+        #   symbols are resolved by the real backend, so the residue is zero rather than
+        #   six. Corrected here rather than dropped, because the old sentence was the
+        #   tree's own record of what the stub was standing in for.
         #
         #   RUNS: YES, AS OF THIS COMMIT, and this is the reading that was missing
         #   longest. tests/qt_entry_tests.cpp links this file, lays out a parsed

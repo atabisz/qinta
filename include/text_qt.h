@@ -309,6 +309,8 @@ public:
     // same question, which is why the seam method is non-const.
     bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
                            std::vector<bool>& canBreak) override;
+
+    bool FontFamilyExists(const wchar_t* fontFamily) override;
 };
 
 // Handles both wchar_t widths, which is the whole reason the seam can keep passing

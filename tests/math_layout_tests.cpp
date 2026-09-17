@@ -96,11 +96,15 @@ bool rasterize(const std::vector<MathBoxPtr>& boxes, const wchar_t* path = nullp
     if (FAILED(d2d->CreateWicBitmapRenderTarget(bitmap.Get(), props, &target))) return false;
     ComPtr<ID2D1SolidColorBrush> brush;
     if (FAILED(target->CreateSolidColorBrush(tinta::colorF(0.0f, 0.0f, 0.0f), &brush))) return false;
+    // mathBoxDrawTo speaks the portable seam now; these two wrappers BORROW, so the
+    // ComPtrs above stay the owners and this function's teardown is unchanged.
+    D2DRenderTarget seamTarget(target.Get());
+    D2DBrush seamBrush(brush.Get());
     target->BeginDraw();
     target->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
     float y = 16;
     for (const auto& box : boxes) {
-        mathBoxDrawTo(target.Get(), brush.Get(), box, 16, y, tinta::colorFromHex(0x17212B));
+        mathBoxDrawTo(&seamTarget, &seamBrush, box, 16, y, tinta::colorFromHex(0x17212B));
         y += std::ceil(mathBoxHeight(box)) + 24;
     }
     if (FAILED(target->EndDraw())) return false;
@@ -132,6 +136,23 @@ int main(int argc, char** argv) {
         HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
                                         reinterpret_cast<IUnknown**>(&app.dwriteFactory));
         if (FAILED(hr)) return 2;
+        // mathParse measures through app.textFactory, so the seam has to be seated
+        // before the first equation. seatTextFactory() rather than a local
+        // D2DTextFactory: this exercises the same seating path d2d_init.cpp uses, and a
+        // test that wired its own factory could pass while the app's route was broken.
+        app.seatTextFactory();
+        check(app.textFactory != nullptr, "text seam is seated for math measurement");
+        // The seam's new question, both directions, on a host where the answer is known:
+        // Windows ships Segoe UI, and no host has a family by this second name. A
+        // predicate that always says true and one that always says false each pass a
+        // single-direction check, which is why both are here.
+        check(app.textFactory->FontFamilyExists(L"Segoe UI"),
+              "FontFamilyExists finds an installed family");
+        check(!app.textFactory->FontFamilyExists(L"NoSuchFamily QINTA 12345"),
+              "FontFamilyExists rejects an absent family");
+        check(!app.textFactory->FontFamilyExists(nullptr) &&
+              !app.textFactory->FontFamilyExists(L""),
+              "FontFamilyExists treats no family name as absent");
         std::ifstream fixture(TINTA_MATH_FIXTURE, std::ios::binary);
         std::string fixtureText((std::istreambuf_iterator<char>(fixture)), std::istreambuf_iterator<char>());
         auto fixtureDoc = app.parser.parse(fixtureText);

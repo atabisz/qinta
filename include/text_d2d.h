@@ -241,6 +241,8 @@ public:
     bool AnalyzeLineBreaks(const wchar_t* text, uint32_t length,
                            std::vector<bool>& canBreak) override;
 
+    bool FontFamilyExists(const wchar_t* fontFamily) override;
+
     // HOLDING THE CHAIN IS NOT APPLYING IT, and that sentence is the whole reason this
     // setter is allowed to exist without reopening the refusal at render.cpp:54-76.
     // Every layout this factory makes now has a route to the chain; only a layout whose

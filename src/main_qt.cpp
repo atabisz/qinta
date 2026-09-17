@@ -48,8 +48,13 @@
 // measures, so a reader who remembers it needs to be told here that it moved.
 //
 // WHAT IT IS STILL NOT is a viewer: no menus, no tabs, no input, no scrolling, no
-// resize relayout outside paintEvent, and no maths (src/math_stub.cpp draws equations
-// as their own LaTeX source). One document, drawn once, and you can close the window.
+// resize relayout outside paintEvent. One document, drawn once, and you can close the
+// window.
+//
+// "AND NO MATHS" USED TO END THAT LIST, with src/math_stub.cpp named as the reason.
+// It is off the list: src/math_render.cpp is ported, the stub is deleted, and this
+// binary typesets equations. Recorded rather than quietly dropped, because the missing
+// item was one of the limits README.md's basis F measures.
 #include <QApplication>
 
 #include <cstdio>

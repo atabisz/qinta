@@ -572,7 +572,13 @@ bool mathToPng(App& app, const std::string& tex, bool display,
     if (!rt.open(app, width, height)) return false;
     rt.target->BeginDraw();
     rt.target->Clear(app.theme.background);
-    mathBoxDrawTo(rt.target, rt.brush, box, 0, 0, app.theme.text);
+    // mathBoxDrawTo takes the portable seam now, so the two natives are wrapped for the
+    // length of one call. Both wrappers BORROW -- render_d2d.h's wrappers have no
+    // destructor -- so RasterTarget stays the sole owner and its own destructor is
+    // unchanged. Stack lifetime deliberately ends before EndDraw's error path.
+    D2DRenderTarget seamTarget(rt.target);
+    D2DBrush seamBrush(rt.brush);
+    mathBoxDrawTo(&seamTarget, &seamBrush, box, 0, 0, app.theme.text);
     if (FAILED(rt.target->EndDraw())) return false;
     png = encodeWicPng(app, rt.bitmap, rt.width, rt.height);
     logicalWidth = width / kRasterScale;

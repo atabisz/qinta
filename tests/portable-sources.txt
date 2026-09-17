@@ -451,6 +451,13 @@ export_html.cpp
 # own text. READ THAT AS THE LIMIT IT IS -- everything qt_entry_tests asserts about a
 # document holds for documents with no maths in them, and math_render.cpp is still
 # unported.
+#
+# THAT LIMIT IS PAID. src/math_render.cpp is ported and on this manifest (its own entry is
+# below), src/math_stub.cpp is deleted, and qt_entry_tests run 17 paints an equation off
+# Windows and reads the fraction bar back out of App::layoutLines with the malformed-TeX
+# fallback as its control. So the six symbols are resolved by the real backend rather than
+# stood in for, and "documents with no maths in them" is no longer the scope of the green.
+# The paragraph above is kept because it is the record of what the stub was for.
 render.cpp
 
 # paint_document.cpp. The document paint pass -- 332 lines lifted verbatim out of
@@ -483,20 +490,51 @@ render.cpp
 # be the last.
 paint_document.cpp
 
-# math_stub.cpp. NOT A PORT, and the manifest's own probe is what put this line here: the
-# file compiled off Windows, was not listed, and the both-directions check failed
-# UNEXPECTED on it. That is the instrument working -- a new source cannot enter the
-# portable set silently -- and it is worth recording that the omission was mine, in the
-# same slice that added the two lines above.
+# --- The maths backend, PORTED, and math_stub.cpp deleted ----------------------
 #
-# WHAT IT IS: six free functions standing in for src/math_render.cpp, which does not
-# compile off Windows (34 errors, an incomplete IDWriteTextLayout). It parses nothing. An
-# equation gets a box sized to its own raw source, so it renders as the LaTeX you typed.
-# READ THE GREEN ABOVE THROUGH THIS FILE: everything qt_entry_tests asserts about a
-# document holds for documents with no maths in them, and the fixture has none on purpose.
-# When math_render.cpp is ported, this file is deleted -- it has no other purpose, and
-# leaving it linked would silently shadow the real implementation.
-math_stub.cpp
+# math_stub.cpp WAS ON THIS LIST AND IS NOW DELETED FROM THE TREE. It held the line here
+# for one slice: six free functions standing in for src/math_render.cpp while that file
+# was Windows-only, parsing nothing, so an equation rendered as the LaTeX you typed. Its
+# own header set the deletion condition -- "when math_render.cpp compiles off Windows" --
+# and this slice met it. The stub is deleted rather than unlisted, because an unreferenced
+# file defining six symbols the real backend also defines is a duplicate waiting for a
+# future target to link by accident.
+#
+# READ THE GREEN ABOVE WITHOUT THAT CAVEAT NOW. The clause it forced onto every claim in
+# this file -- "holds for documents with no maths in them" -- is retired: qinta typesets
+# equations, and the fixture that deliberately had none can stop being deliberate.
+#
+# math_render.cpp. 861 lines, and the port was TWENTY of them across six sites, which is
+# worth recording because the file's SIZE is what made it look like the expensive slice
+# and its size had nothing to do with the difficulty. The parser, the box model, the
+# TeX spacing tables and the SVG exporter were always portable C++. What was not:
+# IDWriteTextLayout* in MathRun, a ~MathBox that Released them, a DirectWrite
+# CreateTextFormat/CreateTextLayout pair, a QueryInterface for the fallback chain, a
+# D2D1_DRAW_TEXT_OPTIONS on the draw, and one std::make_shared<D2DTextLayout> in
+# mathBoxRetain -- the single construction site that pulled 18 D2DTextLayout symbols into
+# every link of this file, and first on the inventory's count-ordered list for that reason.
+#
+# ONE SEAM METHOD WAS NEEDED AND ONLY ONE: tinta::TextFactory::FontFamilyExists. The file
+# asks whether "Cambria Math" is installed, which no existing seam method could answer.
+# The alternative -- keeping that probe native behind TINTA_D2D_BACKEND, exactly as
+# paint_document.cpp above does for its two blocks -- was rejected on a product ground
+# rather than a purity one: it would leave the Qt backend unable to find a maths font on
+# any platform, so qinta on Windows would draw equations in Segoe UI while tinta, on the
+# same machine and the same installed fonts, drew them in Cambria Math.
+#
+# THE ONE THING THIS LINE DOES NOT CLAIM: that maths LOOKS the same off Windows. Cambria
+# Math is a Windows font. On Linux the probe answers false and the theme font is used,
+# which is the same fallback Windows takes on a machine without it. Same code path, same
+# decision, different available fonts.
+math_render.cpp
+
+# NO NEW MANIFEST LINES FOR THE OTHER TWO MATHS FILES, and that was a correction: I wrote
+# math_macros.cpp here on the reasoning that qinta's source list grew three files, and the
+# manifest already carried it at :378 alongside math_parser.cpp. Both have been portable
+# since long before this slice -- math_parser_tests builds them outside the WIN32 guard
+# with no platform library. What changed for those two is which TARGET links them, and this
+# file has never been a record of that; README.md's bases B and C are separate rows for
+# exactly this reason.
 
 # --- The scroll policy, compiled AND RUN off Windows ---------------------------
 #
@@ -571,6 +609,12 @@ scrollbar.cpp
 # six symbols are now src/math_stub.cpp, so the LINK is closed and the MATHS is not --
 # which is the third shape of the same gap and is recorded under render.cpp above rather
 # than allowed to disappear into a green run.
+#
+# THE FOURTH AND LAST SHAPE OF THAT GAP IS CLOSED: the maths is not standing in either.
+# src/math_render.cpp measures through app.textFactory, draws through a tinta::RenderTarget
+# and is on this manifest; the stub is deleted. Recorded as a fourth correction rather than
+# by rewriting the three above, because the series is the point -- each of the earlier
+# sentences was true when written and named a smaller gap than the one before it.
 #
 # What closed it in the part that matters: qt_window.cpp calls layoutDocument and
 # paintDocumentLayout, and it reports which branch it took through

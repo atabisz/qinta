@@ -11,19 +11,13 @@ void applyWindowChrome(App& app);
 void updateTextFormats(App& app);
 // Width of `text` in an IDWriteTextFormat, via a throwaway IDWriteTextLayout.
 //
-// DECLARED HERE RATHER THAN IN utils.h, WHICH IS WHERE IT LIVED. Its four call
-// sites are all in d2d_init.cpp::updateTextFormats, caching the space width for
-// each native format, and they are the only four in the tree -- so this is not a
-// general utility that happens to be Windows-bound, it is part of the DirectWrite
-// initialiser that already owns those formats. Keeping it in utils.h was what made
-// that file unbuildable off Windows for the sake of one function its own portable
-// half had already replaced: the tinta::TextFormat* overload in
-// src/text_utils_app.cpp is the version the other ~36 measure sites call.
-//
-// The two overloads' agreement is asserted one layer down -- see the note in
-// src/text_utils_app.cpp, which is careful about what tests/text_factory_tests.cpp
-// does and does not prove.
-float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format);
+// THERE IS NO LONGER A NATIVE measureText DECLARED HERE. It took an
+// IDWriteTextFormat*, it was the last reason a caller might have reached for this
+// header to measure something, and it is deleted -- the only measureText in the
+// tree is the portable one in include/utils.h taking tinta::TextFormat*. If a new
+// Windows-side measurement is ever wanted, note that this header is the wrong home
+// for it twice over: the reason the native overload existed at all was that it
+// cached space widths for formats which are no longer native.
 void enumerateSystemFontFamilies(App& app);
 void updateOverlayFormats(App& app);
 void ensureThemePreviewFormats(App& app);

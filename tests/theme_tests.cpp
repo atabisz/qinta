@@ -16,6 +16,92 @@ int failures = 0;
 void check(bool value, const char* message) {
     if (!value) { std::cerr << "FAIL: " << message << '\n'; ++failures; }
 }
+
+// A do-nothing tinta::TextFormat, so the format-lifetime invariant below can be tested
+// without a DirectWrite factory or a window. The seam is a 6-method pure-virtual interface
+// and none of the six is called here -- releaseOverlayFormats only destroys, so what matters
+// is that the object EXISTS and can be owned, not what it does.
+struct FakeTextFormat final : tinta::TextFormat {
+    void SetTextAlignment(tinta::TextAlignment) override {}
+    void SetParagraphAlignment(tinta::ParagraphAlignment) override {}
+    void SetWordWrapping(tinta::WordWrapping) override {}
+    void SetTrimming(const tinta::Trimming&, tinta::InlineObject*) override {}
+    void SetLineSpacing(tinta::LineSpacingMethod, float, float) override {}
+    float GetFontSize() const override { return 16.0f; }
+};
+
+// THE DOCUMENT/OVERLAY CLASSIFICATION INVARIANT, and it is here because a theme change is
+// exactly what used to break it.
+//
+// releaseOverlayFormats must destroy the CHROME formats and leave every DOCUMENT format
+// standing. For several slices it also dropped supSubFormat -- a document format -- and
+// because updateTextFormats creates the document formats and THEN calls updateOverlayFormats,
+// the format died before anything drew and ^superscript^ silently rendered at body size on
+// Windows while the Qt path rendered it small. Nothing failed: no assertion covered it, both
+// functions looked internally consistent, and the bug lived in the membership of one list.
+//
+// A printed-page hash catches this only when someone re-runs the print rig. This catches it
+// in ctest, which is the difference between a bug that cannot come back and one that can.
+void checkFormatClassification() {
+    // Heap, matching the App below rather than the ten test files that stack-allocate one:
+    // this struct is large enough that the two shapes are not interchangeable on a default
+    // stack, and there is nothing to learn from finding that out here.
+    auto state = std::make_unique<App>();
+    App& app = *state;
+
+    auto seatDocument = [](std::unique_ptr<tinta::TextFormat>& storage,
+                           tinta::TextFormat*& pointer) {
+        storage = std::make_unique<FakeTextFormat>();
+        pointer = storage.get();
+    };
+    seatDocument(app.textFormatStorage, app.textFormat);
+    seatDocument(app.headingFormatStorage, app.headingFormat);
+    seatDocument(app.codeFormatStorage, app.codeFormat);
+    seatDocument(app.boldFormatStorage, app.boldFormat);
+    seatDocument(app.italicFormatStorage, app.italicFormat);
+    seatDocument(app.boldItalicFormatStorage, app.boldItalicFormat);
+    seatDocument(app.codeBoldFormatStorage, app.codeBoldFormat);
+    seatDocument(app.codeItalicFormatStorage, app.codeItalicFormat);
+    seatDocument(app.codeBoldItalicFormatStorage, app.codeBoldItalicFormat);
+    seatDocument(app.supSubFormatStorage, app.supSubFormat);
+    for (int i = 0; i < 6; ++i)
+        seatDocument(app.headingFormatsStorage[i], app.headingFormats[i]);
+
+    // Two chrome formats as the positive control: if releaseOverlayFormats is a no-op for
+    // some reason, the document formats surviving proves nothing, so the test must also show
+    // the function DID run. install() is the door here because chrome storage is Seated<>.
+    app.signalSmallFormat = app.signalSmallFormatStorage.install(
+        std::make_unique<FakeTextFormat>());
+    app.tocFormat = app.tocFormatStorage.install(std::make_unique<FakeTextFormat>());
+
+    app.releaseOverlayFormats();
+
+    check(app.signalSmallFormat == nullptr && !app.signalSmallFormatStorage,
+          "releaseOverlayFormats clears the chrome formats it owns");
+    check(app.tocFormat == nullptr && !app.tocFormatStorage,
+          "releaseOverlayFormats clears every chrome format, not just the first");
+
+    // supSubFormat is named on its own line rather than folded into the loop below, because
+    // it is the one that regressed and a reader should see it asserted by name.
+    check(app.supSubFormat != nullptr && app.supSubFormatStorage != nullptr,
+          "releaseOverlayFormats leaves supSubFormat alone -- it is a DOCUMENT format");
+
+    const bool documentsIntact =
+        app.textFormat && app.headingFormat && app.codeFormat && app.boldFormat &&
+        app.italicFormat && app.boldItalicFormat && app.codeBoldFormat &&
+        app.codeItalicFormat && app.codeBoldItalicFormat && app.supSubFormat &&
+        app.headingFormats[0] && app.headingFormats[1] && app.headingFormats[2] &&
+        app.headingFormats[3] && app.headingFormats[4] && app.headingFormats[5];
+    check(documentsIntact,
+          "releaseOverlayFormats leaves all 16 document format objects standing");
+
+    // And releaseDocumentFormats IS the function that owns them, which is the other half of
+    // the invariant: the formats are not merely un-released, they are released elsewhere.
+    app.releaseDocumentFormats();
+    check(app.supSubFormat == nullptr && app.textFormat == nullptr &&
+          app.headingFormats[5] == nullptr,
+          "releaseDocumentFormats is what clears the document formats");
+}
 std::string read(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
     return {(std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>()};
@@ -60,6 +146,11 @@ int main(int argc, char** argv) {
         std::cerr << "Run this test through CTest's isolated portable wrapper\n";
         return 2;
     }
+    // Before the theme work rather than after it, because the paths below return 2 on a
+    // missing fixture or a failed initD2D and that would silently skip this -- and a skipped
+    // check reads as a pass in the ctest line.
+    checkFormatClassification();
+
     const auto fixture = fs::path(TINTA_THEME_FIXTURE);
     {
         std::ofstream out(dir / "themes.ini", std::ios::binary);

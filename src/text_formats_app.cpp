@@ -111,14 +111,16 @@ void installDocumentTextFormats(App& app) {
                                       S::Italic, codeSize);
     app.codeBoldItalicFormat = makeFormat(app, app.codeBoldItalicFormatStorage, codeFont,
                                           W::Bold, S::Italic, codeSize);
-    // Small format for ^superscript^ / ~subscript~ spans. IT IS NULLED AGAIN ON WINDOWS
-    // BEFORE ANYTHING DRAWS, which is a live bug and not a property of this file:
-    // updateTextFormats calls updateOverlayFormats, whose first statement is
-    // App::releaseOverlayFormats, which drops this format -- so superscript renders at
-    // body size on the body baseline in the Windows build and has since the seam landed.
-    // The Qt path has no such call and renders it small. Measured on 2026-09-18 with
-    // tests/fixtures/supsub-probe.md, which exists to pin that hash; the fix moves a page
-    // and therefore belongs to its own slice.
+    // Small format for ^superscript^ / ~subscript~ spans. IT SURVIVES TO THE DRAW ON BOTH
+    // BACKENDS NOW -- that was not true when this file landed, and the correction is left
+    // visible because the sentence it replaces was confidently wrong about this file's own
+    // output. It read "IT IS NULLED AGAIN ON WINDOWS BEFORE ANYTHING DRAWS", and it was:
+    // updateTextFormats called updateOverlayFormats, whose first statement dropped this
+    // format, so ^superscript^ rendered at body size on Windows while the Qt path rendered
+    // it small. The fix was one deleted line in App::releaseOverlayFormats, not a change
+    // here, which is why the bug could be described accurately from this file and still not
+    // be findable from it. Held by tests/theme_tests.cpp's classification check rather than
+    // by this comment.
     app.supSubFormat = makeFormat(app, app.supSubFormatStorage, fontFamily, W::Normal,
                                   S::Normal, fontSize * 0.68f);
 

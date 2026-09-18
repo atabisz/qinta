@@ -124,32 +124,18 @@ void applyTheme(App& app, int themeIndex) {
     }
 }
 
-// Moved from src/utils.cpp unchanged. It sat there next to the window title and the shell
-// handoffs, which is why that file needed dwrite.h.
+// THE NATIVE measureText OVERLOAD WAS HERE AND IS DELETED. It took an IDWriteTextFormat*
+// and measured through dwriteFactory->CreateTextLayout, and its four callers were the
+// space-width caches in updateTextFormats; those went through the seam when the eleven
+// document formats stopped being native, which orphaned it. The one remaining measureText
+// is the portable overload in src/text_utils_app.cpp, taking tinta::TextFormat*, and all
+// 40 call sites in the tree resolve to it.
 //
-// IT NOW HAS ZERO CALLERS, and that is stated here rather than left for a reader to
-// discover by grepping. The four space-width caches below WERE its callers; they now go
-// through the seam overload in src/text_utils_app.cpp, because the eleven document formats
-// they measure are tinta::TextFormat rather than IDWriteTextFormat. Nothing in src/,
-// include/ or tests/ calls this function.
-//
-// It is deliberately not deleted in the same change that orphaned it. A deletion's
-// falsifier is a link error in some other translation unit -- 20+ test targets include
-// app.h and any one of them can fail -- and that is a different arm from the page hashes
-// that proved the de-duplication. Folding an unproven removal into a proven change leaves
-// neither of them tested. The deletion is its own follow-up; keep this paragraph until
-// then, because a zero-caller function with no note is exactly what looks like live code.
-float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
-    IDWriteTextLayout* layout = nullptr;
-    app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),
-        format, 10000.0f, 100.0f, &layout);
-    if (!layout) return 0;
-
-    DWRITE_TEXT_METRICS metrics;
-    layout->GetMetrics(&metrics);
-    layout->Release();
-    return metrics.widthIncludingTrailingWhitespace;
-}
+// Worth recording HOW the deletion was cleared, because "no callers" was a grep and a grep
+// is not a usage census: the function was removed temporarily on 3645c8d and the whole tree
+// rebuilt, which linked clean across 51 link actions with all four d2d_init.h-including test
+// targets recompiled. The compiler agreeing is the evidence; the grep only chose where to
+// point it.
 
 void updateTextFormats(App& app) {
     // Editor line layouts hold the old format/size

@@ -1328,15 +1328,17 @@ if(BUILD_TESTING)
         # Nothing in what remains was rewritten to compile: two functions left it, and
         # that was the whole change.
         #
-        #   1. measureText(IDWriteTextFormat*) -> src/d2d_init.cpp. It moved there to sit
-        #      beside the four calls in updateTextFormats that were its only callers in the
-        #      tree; THOSE FOUR ARE NOW GONE -- they were the space-width measurements, and
+        #   1. measureText(IDWriteTextFormat*) -> src/d2d_init.cpp, AND IT IS NOW DELETED
+        #      OUTRIGHT, so this bullet is the record of a move whose destination no longer
+        #      holds it. It moved there to sit beside the four calls in updateTextFormats
+        #      that were its only callers; those four were the space-width measurements and
         #      they became the seam overload when the eleven document formats stopped being
-        #      native. So the overload has zero callers and is a leftover rather than live
-        #      code, deliberately left on disk because a removal's falsifier is a link
-        #      error in another target, not the page hashes that proved the move. It is why
-        #      this file needed dwrite.h, and its portable twin already lived in
-        #      src/text_utils_app.cpp -- so the file was unbuildable off Windows for one
+        #      native, which left the overload with zero callers. It stayed on disk one slice
+        #      longer than the callers because a removal's falsifier is a link error in
+        #      another target rather than a page hash -- that link was then run, clean across
+        #      51 link actions, and the function is gone. Keep the bullet: it is why this
+        #      file needed dwrite.h, and its portable twin already lived in
+        #      src/text_utils_app.cpp, so the file was unbuildable off Windows for one
         #      function that had already been replaced for everyone else.
         #   2. launchQuickNoteWindow -> src/quicknote_win32.cpp, which is Windows-only and
         #      says why in its own header: the flags it passes have no parser in

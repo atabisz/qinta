@@ -1508,17 +1508,19 @@ struct App {
         tocFormatStorage.reset(); nativeTocFormat = nullptr; tocFormat = nullptr;
         tocFormatBoldStorage.reset(); nativeTocFormatBold = nullptr; tocFormatBold = nullptr;
         statsFormatStorage.reset(); nativeStatsFormat = nullptr; statsFormat = nullptr;
-        // THIS LINE IS WHY SUPERSCRIPT DOES NOTHING IN THE WINDOWS BUILD, and it is left
-        // in place deliberately rather than fixed here. supSubFormat is a DOCUMENT format:
-        // installDocumentTextFormats creates it, and on Windows updateTextFormats then
-        // calls updateOverlayFormats, whose first statement is this function -- so the
-        // format is destroyed before anything draws, inline_style.cpp's
-        // `if (app.supSubFormat)` never fires, and ^2222^ renders at body size on the body
-        // baseline. The Qt path never calls this and renders it small, so the two backends
-        // disagree today. Measured 2026-09-18 through tests/fixtures/supsub-probe.md, which
-        // exists to hold this page's hash still; removing the line MOVES that hash, which
-        // makes it a claim of its own and not a tidy-up inside a byte-identity slice.
-        supSubFormatStorage.reset(); supSubFormat = nullptr;
+        // supSubFormat IS DELIBERATELY ABSENT FROM THIS FUNCTION -- do not add it back.
+        // It is a DOCUMENT format: installDocumentTextFormats creates it alongside the other
+        // ten, and releaseDocumentFormats above drops it. A line here releasing it as well
+        // was this tree's superscript bug for several slices, and it read as correct at every
+        // glance because nothing in EITHER function is wrong on its own -- the eleven
+        // document formats and the ten chrome formats are both handled consistently, and this
+        // one member was in both lists. What made it fatal is the call order on Windows:
+        // updateTextFormats creates the document formats, then calls updateOverlayFormats,
+        // whose first statement is this function, so the format died before anything drew and
+        // inline_style.cpp's `if (app.supSubFormat)` never fired. The Qt path never calls this
+        // function, so the two backends rendered ^sup^ differently and no test compared them.
+        // The invariant is now asserted rather than described: tests/theme_tests.cpp checks
+        // that this function leaves every document format standing.
         editorTextFormatStorage.reset(); nativeEditorTextFormat = nullptr; editorTextFormat = nullptr;
         editorGutterFormatStorage.reset(); nativeEditorGutterFormat = nullptr; editorGutterFormat = nullptr;
         for (auto& fmt : themePreviewFormats) {

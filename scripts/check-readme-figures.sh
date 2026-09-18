@@ -351,10 +351,18 @@ fi
 # The README quotes 21 CALLS and notes a grep returns 22, the extra being a comment
 # in render.cpp:90 recording the old census. Both are asserted, because the entire
 # point of that sentence is the gap between them.
+#
+# THE VERB IS DERIVED, and it has to be: this figure reached 1 on 2026-09-18 and the
+# generator hardcoded "calls remain", so a green run required the README to publish
+# "1 calls remain in the tree". A gate that can only be satisfied by bad prose gets
+# edited around rather than obeyed, which is the failure mode worth spending four
+# lines to avoid. Pluralisation is the only thing derived here -- the figure is not.
 grep_total=$(grep -rn 'dwriteFactory->CreateTextLayout' src/ | grep -c . || true)
 comment_hits=$(grep -rn 'dwriteFactory->CreateTextLayout' src/ | grep -cE ':[[:space:]]*//' || true)
+live_calls=$((grep_total - comment_hits))
+if [ "$live_calls" -eq 1 ]; then verb="call remains"; else verb="calls remain"; fi
 claim "direct CreateTextLayout calls" \
-      "**$(bump "$((grep_total - comment_hits))") direct \`dwriteFactory->CreateTextLayout\` calls remain in the tree**"
+      "**$(bump "$live_calls") direct \`dwriteFactory->CreateTextLayout\` $verb in the tree**"
 claim "  ... vs what a bare grep returns" \
       "\`grep\` for the call returns $(bump "$grep_total")"
 

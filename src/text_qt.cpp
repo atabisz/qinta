@@ -488,6 +488,39 @@ void QtTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range) 
     addRangedFormat(format, range);
 }
 
+// THE ONE RANGED SETTER WHOSE UNIT IS NOT CONVERTED, AND THAT IS A DECISION.
+//
+// Qt's absolute letter spacing is added to a glyph advance inside the shaper, so its
+// unit is the font engine's DEVICE PIXELS -- not points, which is why dipToPoints is
+// absent here while SetFontSize two functions up needs it. The seam's unit is DIPs,
+// and a DIP is a device pixel at 96 logical DPI, which is the same assumption
+// dipToPoints already encodes from the other direction. So the value passes through
+// unchanged, and the pair is consistent rather than one of them having forgotten a
+// conversion.
+//
+// Where that assumption bends: on a Qt paint device at a logical DPI other than 96,
+// the glyphs scale with it and this spacing does not, so tracking would read
+// proportionally tighter. It is stated rather than corrected because the correction
+// would need the paint device's DPI, which a layout does not have and should not
+// learn in order to space letters -- and because the call sites pre-scale their
+// tracking through the app's own dpi() helper, which is where this tree does that
+// arithmetic for every other size on the page.
+// It is also the one setter that writes TWO QTextCharFormat keys, which is not a
+// violation of the one-property-per-entry rule at the top of this section but does
+// need saying: the type and the value are one property in Qt's API split across two
+// setters, and the type is NOT optional. Qt's default is PercentageSpacing, where
+// 100 means "unchanged" -- so a format carrying the value alone reads a tracking of
+// 4.0 as FOUR PERCENT of each advance and collapses the run to a twenty-fifth of its
+// width. MEASURED, not reasoned: dropping the type line makes three assertions in
+// the render_api suite fail, including the two direction ones, because the result is
+// not a slightly-wrong widening but a drastic narrowing.
+void QtTextLayout::SetCharacterSpacing(float trailingSpacing, tinta::TextRange range) {
+    QTextCharFormat format;
+    format.setFontLetterSpacingType(QFont::AbsoluteSpacing);
+    format.setFontLetterSpacing(static_cast<qreal>(trailingSpacing));
+    addRangedFormat(format, range);
+}
+
 void QtTextLayout::SetTypography(const tinta::Typography& typography,
                                 tinta::TextRange range) {
     // What this backend can and cannot honour, and why, is documented once at

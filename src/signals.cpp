@@ -4,6 +4,7 @@
 #include "i18n.h"
 #include "platform_paths.h"
 #include "portable_str.h"
+#include "portable_time.h"
 #include "utils.h"
 
 #include <algorithm>
@@ -151,26 +152,29 @@ void drawSignalIcon(App& app, int icon, float cx, float cy, float s,
 // beside their own clock, so UTC would be a behaviour change and not a portability
 // one.
 //
-// AN #ifdef HERE RATHER THAN A SEAM, and the asymmetry with the rest of this port is
+// ~~AN #ifdef HERE RATHER THAN A SEAM, and the asymmetry with the rest of this port is
 // the point. A seam earns its own header when the decision recurs across files --
 // include/win32_types.h says so in its own words, that six copies of a RECT would
 // have been an ODR violation the compiler rejects. This function is file-local (the
 // anonymous namespace opens at the top of this file) and single-use, called only by
 // parkChip below, so a portable_time.h would be a header with one caller and a
-// second place to look.
+// second place to look.~~
 //
-// The split is only the reentrant spelling: localtime_s is the MSVC one and
-// localtime_r the POSIX one, and they differ in argument ORDER, which is the whole
+// THE CONDITION THAT PARAGRAPH NAMED WAS MET 2026-09-18, so the #ifdef it defended is
+// gone and the call goes through include/portable_time.h. startpage.cpp's relativeWhen
+// needs the same reentrant local breakdown to decide today/yesterday, which makes two
+// callers across two files -- the recurrence test, not a second opinion about it. The
+// paragraph is struck through rather than deleted because it was RIGHT when written:
+// the one-caller header it rejected would have been exactly the indirection it
+// described, and the rule it states is what admitted the second caller.
+//
+// The split it was about is only the reentrant spelling: localtime_s is the MSVC one
+// and localtime_r the POSIX one, and they differ in argument ORDER, which is the whole
 // reason this is not a one-line alias. Plain std::localtime would need no #ifdef at
-// all and is rejected because it returns a pointer to shared storage.
+// all and is rejected because it returns a pointer to shared storage. That reasoning
+// moved into portable_time.h intact rather than being re-derived there.
 std::wstring parkTimestamp() {
-    const std::time_t now = std::time(nullptr);
-    std::tm local{};
-#ifdef _WIN32
-    localtime_s(&local, &now);
-#else
-    localtime_r(&now, &local);
-#endif
+    const std::tm local = tinta::localTime(std::time(nullptr));
     wchar_t buf[8];
     // tm_hour and tm_min carry the same ranges SYSTEMTIME's wHour and wMinute did,
     // so the field widths and the buffer are unchanged rather than re-derived.

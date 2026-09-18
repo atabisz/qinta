@@ -581,8 +581,29 @@ public:
     // waived. SetCharacterSpacing's objection is untouched and still stands --
     // that one really is a COM version negotiation, and it stays native.
     //
-    // So the per-range group is now FOUR methods, and the ranged-only contract
-    // below covers all four identically.
+    // CORRECTED AGAIN 2026-09-18 -- AND NOW BOTH. SetCharacterSpacing is here, and
+    // the reason is that its objection was TRUE ONLY WHILE startpage.cpp WAS A
+    // WINDOWS FILE. "It stays native" was free when the whole file around it was
+    // native; with startpage.cpp being ported it stops being free and becomes a
+    // visible regression -- the "Tinta" wordmark loosens and the two section labels
+    // tighten, off Windows only. The QueryInterface that the objection was actually
+    // about has NOT moved onto this header: it lives in text_d2d.cpp, where COM
+    // belongs, and a version negotiation inside one backend is that backend's
+    // business. That is the same distinction SetTypography turned on.
+    //
+    // AND IT IS NARROWED TO THE POPULATION RATHER THAN MIRRORING DWRITE. The native
+    // call takes THREE floats -- leading, trailing, minimumAdvanceWidth -- and Qt
+    // has exactly ONE letter-spacing knob. A faithful 3-float portable signature
+    // would therefore discard two thirds of its own arguments on the Qt side,
+    // silently, which is the failure mode this whole seam is built to avoid. The
+    // census says it never has to: every call in the tree is
+    // (0.0f, tracking, 0.0f, wholeRange), so the seam takes the ONE value that is
+    // ever non-zero and both backends honour it in full. A future caller that needs
+    // leading spacing is a signature change, and it should be, because that is the
+    // point at which a backend would start dropping something.
+    //
+    // So the per-range group is now FIVE methods, and the ranged-only contract
+    // below covers all five identically.
     //
     // The signatures are RANGED-ONLY even though five of the six callers style
     // the whole text. A whole-layout overload would save those five a `{0, len}`
@@ -599,6 +620,21 @@ public:
     virtual void SetFontWeight(FontWeight weight, TextRange range) = 0;
     virtual void SetFontSize(float fontSize, TextRange range) = 0;
     virtual void SetStrikethrough(bool strikethrough, TextRange range) = 0;
+
+    // Letter tracking, in DIPs, added after each character's advance -- the
+    // `trailingSpacing` of DirectWrite's three, and see the block above for why the
+    // other two are absent rather than forgotten. Negative tightens, which is what
+    // the start page's wordmark asks for.
+    //
+    // A DIVERGENCE THAT IS REAL AND IS NOT HIDDEN: DirectWrite adds trailing
+    // spacing after every character INCLUDING the last, so a tracked run's measured
+    // advance carries one extra tracking value; Qt's absolute letter spacing does
+    // the same thing through the shaper, but the two engines round it into their
+    // advances differently, so a tracked run's measured width will not agree to the
+    // pixel across platforms. Nothing in the tree measures a tracked run -- all
+    // three callers draw it -- and qt_entry_tests already refuses to compare Linux
+    // and Windows pixel counts to each other for the font-fallback reason above.
+    virtual void SetCharacterSpacing(float trailingSpacing, TextRange range) = 0;
 
     // An EMPTY feature list is a legal argument and must apply nothing, because
     // that is what the null IDWriteTypography the call site can already pass

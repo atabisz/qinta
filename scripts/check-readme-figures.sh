@@ -234,7 +234,26 @@ claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") |"
 # src/signals.cpp arrived carrying three undefined symbols of its own (drafts.cpp, editor.cpp).
 # "One symbol from" invited exactly the reading it got -- that closing it would promote the
 # file -- so the shape to write is the symbol and its file, never a distance to the goal.
-claim "startpage"             "| Startpage | $(c "$(lines src/startpage.cpp)") |"
+# startpage.cpp is DELIBERATELY absent, the NINTH file to exercise the rule the export_html.cpp
+# note above states -- it compiles off Windows and joined the manifest, so it left the to-do set
+# and therefore left here. Its row is the FOURTH to empty, after Annotations, Clipboard and Editor.
+#
+# IT IS THE MOST EXTREME INSTANCE OF THE SIZE-ROW TRAP THIS GATE HAS PROCESSED, AND THE FIRST
+# WHERE LEAVING AND GROWING HAPPENED IN THE SAME PASS. The claim was `wc -l src/startpage.cpp`;
+# the file was 792 lines when the pass opened and is 898 now, +106, +13.4% -- so had this claim
+# been left derived and the row left in the table, the README would have published 898 as
+# remaining work for a file with none, and the gate would have PASSED on it. Every earlier
+# instance was caught by the figure going stale in one direction or the other; this one would not
+# have gone stale at all. A derived figure whose derivation is still correct and whose MEANING has
+# gone is invisible to every instrument in this repository, which is why the rule is "when a file
+# leaves the to-do set, it leaves here too" and not "re-derive the row".
+#
+# The +13.4% also lands where drafts.cpp's +74%, editor.cpp's +2.3%, signals.cpp's +5.4% and
+# utils.cpp's +5.6% predicted it would: between the small-file and large-file ends, on a 792-line
+# file. Five instances now, one direction, and the magnitude tracks the number of DECISIONS in the
+# port rather than the size of the file -- this pass had two that needed real argument (a
+# reentrant local-time seam and a signed FILETIME intermediate), so it grew more than editor.cpp's
+# 3,135 lines did on eight routed families.
 claim "device and factory"    "| Device and factory creation | $(c "$(lines src/d2d_init.cpp)") |"
 
 # THE MEMBERSHIP OF THIS ROW IS DERIVED NOW, AND THE REASON IS A MISS THIS SCRIPT OWNS.
@@ -297,6 +316,14 @@ nbackends=$(printf '%s\n' $backends | grep -c . || true)
 claim "the Windows backends (derived membership)" "| $expr_backends |"
 claim "  ... and their total"        "$nbackends files, $(c "$raw_backend_lines") lines"
 claim "  ... quoted again in prose"  "$(c "$raw_backend_lines") lines of it today"
+# A THIRD SITE, ADDED 2026-09-18 AFTER IT WAS FOUND STALE BY 237 LINES. This gate already
+# asserted the backends total twice and the README quoted it three times -- the third being in
+# the "roughly a third of the way through" paragraph, which is in a DIFFERENT SECTION of the
+# file. That is how the blind spot was made: the gate was written by walking the completeness
+# section, so a checker that greps the whole README was aimed at part of it. The claim was
+# reassuringly low, like every stale figure this document has caught, and nothing in the repo
+# could see it. When a figure gains a quotation site, it gains a claim here.
+claim "  ... and a THIRD time, other section" "$(c "$raw_backend_lines") lines of Windows backend are"
 
 # LABEL CORRECTED IN PLACE, TWICE NOW, AND THE SECOND TIME IS THE INTERESTING ONE. It first
 # said "render.cpp, the blocker"; the file started compiling off Windows and the label was

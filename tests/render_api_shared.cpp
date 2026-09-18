@@ -2174,6 +2174,90 @@ int runRenderApiAssertions(RenderHarness& h) {
             }
         }
 
+        // --- SetCharacterSpacing: the one with a PREDICTED MAGNITUDE ---------
+        //
+        // The newest method on this seam, added 2026-09-18 for startpage.cpp, and it
+        // overturns a documented refusal to add it -- see text_api.h. So it arrives
+        // with the strongest assertion in this family rather than the weakest: not
+        // just "wider", but wider BY ROUGHLY THE RIGHT AMOUNT.
+        //
+        // The magnitude is what makes it strong. Tracking of t DIPs over n characters
+        // adds about t*n to the advance, and asserting that rather than "wider" is
+        // what pins the UNIT and not just the sign.
+        //
+        // WHAT THE MUTATION CONTROL ACTUALLY MEASURED, which is not what the first
+        // draft of this comment predicted. Qt splits letter spacing into a TYPE and a
+        // VALUE, and the type defaults to PercentageSpacing where 100 means
+        // unchanged. Deleting the type line from the Qt backend was expected to make
+        // the tracking too SMALL and to be caught by the magnitude window alone; it
+        // instead reads 4.0 as four percent of each advance and collapses the run, so
+        // THREE assertions fail including two direction ones. The block is stronger
+        // than predicted rather than weaker, and the prediction is corrected here
+        // rather than the result being described as what was expected.
+        //
+        // THE WINDOW IS 0.8x-1.2x AND THAT NUMBER WAS MEASURED, NOT CHOSEN. It started
+        // at 0.5x-1.5x, which was wide enough to pass a DIP-versus-point confusion --
+        // a factor of 0.75, and the single likeliest unit bug on this seam, since the
+        // setter two functions above this one in the Qt backend legitimately needs
+        // exactly that conversion. Both engines add the tracking once per cluster and
+        // this text is ASCII with no ligature pairs, so the delta is t*n on both and
+        // the tighter window holds with room to spare. 0.75 sits outside it.
+        {
+            std::unique_ptr<tinta::TextLayout> plain = freshLayout();
+            std::unique_ptr<tinta::TextLayout> loose = freshLayout();
+            std::unique_ptr<tinta::TextLayout> half = freshLayout();
+            std::unique_ptr<tinta::TextLayout> tight = freshLayout();
+            check(plain && loose && half && tight,
+                  "CONTROL: four identical layouts, so every width difference below is "
+                  "the tracking and not the box");
+            if (plain && loose && half && tight) {
+                // 4 DIP on a 16 DIP font -- deliberately coarse. A tracking small
+                // enough to be realistic would sit inside the rounding noise between
+                // two shapers and make the magnitude window meaningless.
+                const float kTrack = 4.0f;
+                loose->SetCharacterSpacing(kTrack, kWhole);
+                half->SetCharacterSpacing(kTrack, kFirstHalf);
+                // NEGATIVE, because that is the direction startpage.cpp's wordmark
+                // actually uses (-1.0 DIP), and a backend that took an absolute value
+                // or clamped at zero would pass every positive arm above.
+                tight->SetCharacterSpacing(-2.0f, kWhole);
+
+                const float wPlain = widthOf(plain.get());
+                const float wLoose = widthOf(loose.get());
+                const float wHalf = widthOf(half.get());
+                const float wTight = widthOf(tight.get());
+
+                check(wPlain > 0.0f,
+                      "CONTROL: the untracked layout has a real width, so the "
+                      "comparisons below are between measurements and not zeros");
+                check(wLoose > wPlain,
+                      "positive tracking measures WIDER -- the setter is plumbed to the "
+                      "layout at all");
+                check(wTight < wPlain,
+                      "NEGATIVE tracking measures NARROWER, which is the direction the "
+                      "start page's wordmark uses; a backend clamping at zero or taking "
+                      "a magnitude passes every other arm in this block");
+                check(wHalf > wPlain && wHalf < wLoose,
+                      "THE RANGE'S BOUNDS ARE READ: tracking half the text is wider than "
+                      "none and narrower than all of it");
+
+                // THE MAGNITUDE. n is the character count and not the cluster count,
+                // and the window is wide enough to absorb the difference: this text is
+                // ASCII with no ligature pairs in it, so the two are equal here, but
+                // the assertion is about an order of magnitude and not a pixel.
+                const float delta = wLoose - wPlain;
+                const float predicted = kTrack * static_cast<float>(kLongLength);
+                check(delta > predicted * 0.8f && delta < predicted * 1.2f,
+                      "THE ADDED WIDTH IS tracking x characters to within 20% -- the "
+                      "assertion that pins the UNIT rather than the sign, and the only "
+                      "one here that fails for a backend applying the right number of "
+                      "the wrong kind of unit (DIPs read as points is 0.75x)");
+                check(heightOf(loose.get()) == heightOf(plain.get()),
+                      "CONTROL: tracking changes advance and not line height, so the "
+                      "widths above are reading the spacing rather than a reflow");
+            }
+        }
+
         // --- The contract: out of bounds and empty ranges do nothing ---------
         //
         // text_api.h promises that styling past the end of the text has no

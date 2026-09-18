@@ -183,6 +183,7 @@ public:
     void SetFontWeight(tinta::FontWeight, tinta::TextRange) override {}
     void SetFontSize(float, tinta::TextRange) override {}
     void SetStrikethrough(bool, tinta::TextRange) override {}
+    void SetCharacterSpacing(float, tinta::TextRange) override {}
 
     // The one setter on this fake that RECORDS instead of ignoring. Everything
     // above is ignored because no test asks what a fake was told to draw in bold;

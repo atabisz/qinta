@@ -932,3 +932,23 @@ main_qt.cpp
 # (g++ reports an undeclared name once per function), read back as exactly 2, then
 # restored and verified byte-exact by sha256 rather than by eye.
 overlays.cpp
+
+# startpage.cpp. COMPILES off Windows as of 2026-09-18, and this line is the narrow
+# reading again: not LINKS and not RUNS. The icon producer's Win32/WIC calls are behind
+# `#ifdef _WIN32` in place, so off Windows startPageEnsureIcon is an empty function and
+# the hero draws without its mark -- and that is a gap, not a regression, because this
+# file had never compiled off Windows at all before today.
+#
+# THE MEASUREMENT NOTE THAT MATTERS HERE IS THE OPPOSITE ONE TO overlays.cpp ABOVE. This
+# file read 0 errors on its FIRST compile after the port, which by this tree's own rule
+# is a warning and not a result. The discriminating controls were three mutations, each
+# predicted before it ran and each observed RED: DWRITE_FONT_WEIGHT_NORMAL put back at
+# the 6 converted sites (2 errors -- g++ reports an undeclared name once per function,
+# and the 6 sites sit in 2 functions), swprintf_s put back at 1 site (1 error), and the
+# new portable_time.h include removed (2 errors). Object was 63,248 bytes and `nm`
+# carried renderStartPage and startPageEnsureIcon, so the file was READ and not skipped.
+#
+# It also refuted this project's prediction that the port would need more than one pass.
+# It needed one, because all ~19 text sites funnel through three file-local helpers --
+# CMakeLists.txt's entry for this file has the reasoning.
+startpage.cpp

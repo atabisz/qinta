@@ -516,6 +516,30 @@ void D2DTextLayout::SetStrikethrough(bool strikethrough, tinta::TextRange range)
     layout_->SetStrikethrough(strikethrough ? TRUE : FALSE, native);
 }
 
+// MOVED VERBATIM from startpage.cpp's spLayout, which is the whole reason this
+// method exists -- text_api.h had declined it on the grounds that it needs an
+// IDWriteTextLayout1 obtained by QueryInterface, and that objection is answered by
+// the QI living HERE rather than by the QI going away. Every line of it is the
+// original's, including the tolerance for a layout that does not support the
+// interface, which is silence: DirectWrite's own behaviour on an older runtime, and
+// removing it would be a behaviour change smuggled in under a move.
+//
+// The seam passes ONE value where DirectWrite takes three, so the other two are
+// spelled here as the literal zeros the call site passed. minimumAdvanceWidth 0
+// means "no minimum" and is DirectWrite's own default; leading 0 is what all three
+// callers passed.
+void D2DTextLayout::SetCharacterSpacing(float trailingSpacing, tinta::TextRange range) {
+    if (!layout_) return;
+    IDWriteTextLayout1* layout1 = nullptr;
+    if (FAILED(layout_->QueryInterface(__uuidof(IDWriteTextLayout1),
+            reinterpret_cast<void**>(&layout1))) || !layout1) {
+        return;
+    }
+    const DWRITE_TEXT_RANGE native{range.startPosition, range.length};
+    layout1->SetCharacterSpacing(0.0f, trailingSpacing, 0.0f, native);
+    layout1->Release();
+}
+
 void D2DTextLayout::SetTypography(const tinta::Typography& typography,
                                  tinta::TextRange range) {
     if (!layout_) return;

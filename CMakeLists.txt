@@ -1385,6 +1385,51 @@ if(BUILD_TESTING)
         # Ctrl+Shift+N does nothing off Windows, and deliberately does NOT fall through to
         # the new-tab branch beside it, which would be a wrong picture rather than a gap.
         src/editor.cpp
+        # src/startpage.cpp -- 792 lines, and THE FILE THAT REFUTED THIS PROJECT'S OWN
+        # PREDICTION ABOUT IT. The plan said the port would take MORE THAN ONE PASS,
+        # citing editor.cpp's 55 -> 7 -> 0 directly above and this file's own first
+        # reading: 118 errors on 102 lines, 64 undeclared names, 29 of them cascade, 35
+        # genuine causes. It took ONE. Recorded here rather than quietly enjoyed,
+        # because the reason is a property worth knowing and not luck.
+        #
+        # THE REASON IS THAT THE DIRECTWRITE SURFACE WAS ALREADY FUNNELLED. Every one of
+        # the ~19 text sites in renderStartPage goes through three file-local helpers --
+        # spLayout, spDraw, spMetrics -- so converting those three left the call sites a
+        # pure type-name substitution with nothing behind it to cascade. editor.cpp's
+        # second wave came from 35 causes spread across its body, where a routed call
+        # revealed the next non-portable thing beneath it; here the 35 causes were six
+        # families all reaching the platform through the same three doors. A count of
+        # causes does not predict the number of PASSES -- their CONCENTRATION does, and
+        # that is a distinct measurement nothing had taken.
+        #
+        # ONE CONSTRUCT WAS GENUINELY MISSING FROM THE SEAM, and it is the one a previous
+        # slice documented its refusal to add: SetCharacterSpacing, used for the
+        # wordmark's -1 DIP tracking and the RECENT/LEARN labels' +1.5. text_api.h had
+        # declined it because it "needs an IDWriteTextLayout1 obtained by QueryInterface"
+        # -- true only while this file was a Windows file. The QI did not go away; it
+        # moved to text_d2d.cpp where COM belongs. It is narrowed to ONE float against
+        # DirectWrite's three, because Qt has one letter-spacing knob and every call site
+        # in the tree passed literal zeros for the other two.
+        #
+        # TWO ARMS STAY WINDOWS-ONLY IN PLACE, both introducing no regression because
+        # this file has never compiled off Windows at all. startPageEnsureIcon loads an
+        # EMBEDDED WIN32 RESOURCE and image_api.h's only decode entry point takes a file
+        # path, so there is nothing portable to call yet; off Windows the hero draws
+        # without its mark, and the shared destination is its own slice (three consumers
+        # at two pixel sizes, plus a .qrc this build does not have). And the "MMM d" date
+        # keeps GetDateFormatEx verbatim, because it renders in the USER'S locale and
+        # strftime cannot -- the #else says so at the site rather than hiding it.
+        #
+        # THE ONE NEW HEADER, include/portable_time.h, EXISTS BECAUSE signals.cpp
+        # PREDICTED IT. That file wrote its own localtime_s/localtime_r split and said a
+        # portable_time.h would then be "a header with one caller"; relativeWhen is the
+        # second caller, so the recurrence test it named is met and signals.cpp now
+        # routes through it too.
+        #
+        # COMPILE-ONLY, and the symbol that makes that precise is startPageOpenEmbedded's
+        # HWND parameter -- portable already, since win32_types.h forward-declares the
+        # handle type. What is not linkable is the icon arm's Win32/WIC calls.
+        src/startpage.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

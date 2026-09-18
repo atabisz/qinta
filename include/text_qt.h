@@ -208,6 +208,7 @@ public:
     void SetFontWeight(tinta::FontWeight weight, tinta::TextRange range) override;
     void SetFontSize(float fontSize, tinta::TextRange range) override;
     void SetStrikethrough(bool strikethrough, tinta::TextRange range) override;
+    void SetCharacterSpacing(float trailingSpacing, tinta::TextRange range) override;
     void SetTypography(const tinta::Typography& typography,
                        tinta::TextRange range) override;
 

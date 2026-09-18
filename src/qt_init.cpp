@@ -340,6 +340,57 @@ void installQtBackends(App& app) {
     // theme, wanted only when the chooser opens, and ensureQtThemePreviewFormats below is
     // the lazy door -- same division of labour as Windows, for the same reason.
     installQtChromeFormats(app);
+
+    // AND THE TYPOGRAPHY, WHICH THIS STACK HAD NEVER HAD. createTypography lived in
+    // src/d2d_init.cpp with one caller in WinMain, so App::bodyTypography and
+    // App::codeTypography were default-constructed here -- count 0 -- and
+    // QtTextLayout::SetTypography returns at its first line on an empty set. All 13 of
+    // render.cpp's createLayout sites pass one of those two members, so this stack applied
+    // no OpenType feature list to anything.
+    //
+    // THIS PARAGRAPH USED TO SAY "IT DREW THE SAME ANYWAY", and it was written before the
+    // measurement that refutes it. Kept as a correction rather than replaced, because the
+    // reasoning behind it is the reasoning anyone would reach for: liga and calt are
+    // HarfBuzz defaults already on, and kern maps to QTextCharFormat::setFontKerning whose
+    // Qt default is already true, so installing the sets moves nothing HERE. All of that is
+    // still true, and it is not the whole claim.
+    //
+    // WHAT IT MISSED: on the Windows path typography is load-bearing, measured on 121
+    // printed pages across four fixtures (README.md plus three tests/fixtures documents,
+    // via --printpages, which exists only on that backend):
+    //
+    //   * installing NOTHING, which is what this stack did until today:  85 of 121 pages
+    //     differ from the shipped rendering.
+    //   * installing the three but dropping kern:                       112 of 121 differ.
+    //   * adding clig, ccmp, locl, mark and mkmk to the three:            0 of 121 differ.
+    //
+    // So the absent call was never cosmetic. It means the Qt stack has been rendering on
+    // the 85-pages-different side of that comparison for its whole life, and no instrument
+    // said so because the sensitive one only runs on Windows.
+    //
+    // WHAT THIS LINE THEREFORE DOES AND DOES NOT FIX. It makes the two stacks agree on the
+    // DATA -- both now hold the same two sets, from one definition. It does NOT make them
+    // agree on the OUTPUT, and this comment should not be read as claiming parity:
+    // QtTextLayout::SetTypography can act on exactly one of the three tags, and that one is
+    // already Qt's default, so Qt keeps rendering with shaper defaults while Windows renders
+    // with an explicitly attached set worth 85 pages of difference. That gap is now a named,
+    // measured, OPEN item rather than an invisible one, and closing it is a typography
+    // decision for Alex (it needs QFont::setFeature, so a Qt floor of 6.7) rather than
+    // something to settle inside an init function.
+    //
+    // The third measurement above is the one I got wrong: I predicted that adding the
+    // commonly-defaulted features back would pull the rendering toward the no-typography
+    // arm, on the documented reading that SetTypography REPLACES a range's default features.
+    // It changed nothing at all, so that reading does not explain the 85 pages and I have no
+    // measurement that does. Left stated as an open question rather than as a mechanism.
+    //
+    // Asserted by tests/qt_entry_tests.cpp, whose two typography checks FAILED reading
+    // count 0 before this line existed.
+    //
+    // Position: after the formats, though nothing orders the two -- typography is two
+    // values on App and reads no format. It sits last because it is the cheapest and a
+    // reader looking for "what does init do" should meet the expensive things first.
+    installTypography(app);
 }
 
 // THE PER-THEME PREVIEW TRIPLE, LAZILY, exactly as ensureThemePreviewFormats does it

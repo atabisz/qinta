@@ -396,6 +396,25 @@ int main(int argc, char** argv) {
               app.codeItalicFormat != nullptr && app.codeBoldItalicFormat != nullptr &&
               app.supSubFormat != nullptr,
           "the code, bold, italic and nested-span formats exist too");
+    // THE TYPOGRAPHY SETS, AND THESE TWO LINES FAILED WHEN THEY WERE FIRST RUN, reading
+    // count 0 against the 3 and 2 below -- which is what they are here to record.
+    // createTypography had exactly ONE caller in the tree, src/main_d2d.cpp, so this stack
+    // had never had an OpenType feature list at all: QtTextLayout::SetTypography returns at
+    // its own first line on an empty set, for all 13 createLayout sites in render.cpp.
+    //
+    // Nothing rendered differently, and that is the reason it survived: of the three tags
+    // Qt can honour, liga and calt are HarfBuzz defaults already on and kern maps to
+    // QTextCharFormat::setFontKerning, whose Qt default is already true. So the two paths
+    // agreed in OUTPUT while disagreeing in DATA, and no pixel count could ever have
+    // separated them. A default that happens to agree is not agreement: the day a set
+    // carries parameter = 0 to DISABLE a feature, or qtCanHonourFeature widens past Qt
+    // 6.4, the empty list starts drawing differently with nothing watching.
+    check(app.bodyTypography.count == 3 && app.bodyTypography.has("liga") &&
+              app.bodyTypography.has("kern") && app.bodyTypography.has("calt"),
+          "the BODY typography set is installed on this stack -- liga + kern + calt");
+    check(app.codeTypography.count == 2 && app.codeTypography.has("liga") &&
+              app.codeTypography.has("dlig"),
+          "the CODE typography set is installed on this stack -- liga + dlig");
     // GUARDED, and the guard was put here by a planted control rather than by foresight.
     // The plant removed the six heading formats and this line SEGFAULTED on the null
     // instead of failing -- and a run that crashes prints no FAIL line at all, so the

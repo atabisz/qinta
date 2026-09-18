@@ -21,6 +21,7 @@
 #include "selection.h"
 #include "document.h"
 #include "d2d_init.h"
+#include "text_formats.h"
 #include "utils.h"
 #include "syntax.h"
 #include "search.h"
@@ -1652,9 +1653,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
         return 1;
     }
 
-    // Create text formats and typography
+    // Create text formats and typography. Both are portable calls now
+    // (include/text_formats.h) and the Qt path makes the same pair from
+    // installQtBackends, which is the only place either one is called.
     updateTextFormats(app);
-    createTypography(app);
+    installTypography(app);
 
     // Get window size
     RECT rc;

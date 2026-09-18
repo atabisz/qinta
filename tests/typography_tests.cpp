@@ -14,10 +14,22 @@
 // feature API (QFont::setFeature is 6.7+), so `dlig` on code spans is DROPPED -- a
 // decision taken deliberately over raising the Qt floor for one tag. A dropped
 // feature is invisible at runtime: nothing fails, text simply renders with one fewer
-// ligature substitution, on a font that may not ship the feature anyway. There is no
-// instrument in this repo that could ever notice it. So it is asserted here, by name,
-// which turns "we decided to drop it" into something that fails loudly if someone
-// later assumes all five features survive.
+// ligature substitution. So it is asserted here, by name, which turns "we decided to
+// drop it" into something that fails loudly if someone later assumes all five features
+// survive.
+//
+// THE SENTENCE "THERE IS NO INSTRUMENT IN THIS REPO THAT COULD EVER NOTICE IT" USED TO
+// END THAT PARAGRAPH, AND IT IS FALSE -- corrected 2026-09-18 rather than deleted,
+// because it was the reason nothing was ever pointed at these sets. There is such an
+// instrument: --printpages, Windows-only, and it is sensitive at SINGLE-FEATURE
+// granularity. Dropping `kern` from the body set moves 112 of 121 printed pages across
+// four fixtures; installing no typography at all moves 85 of 121.
+//
+// `dlig` is the one tag that measurement still cannot reach, and for a reason that has
+// nothing to do with instruments: the default theme's code face is Consolas (themes.cpp
+// sets it), which ships no discretionary ligatures, so there is no substitution to lose
+// on a default install. It becomes visible the moment a theme sets codefont= to Cascadia
+// Code or Fira Code, which is exactly the case the assertion below is for.
 //
 // This file compiles on both platforms and deliberately does NOT link either
 // backend: everything under test is a value type or an inline function, which is the
@@ -25,6 +37,13 @@
 // factory or a window.
 
 #include "text_api.h"
+
+// THE REAL SETS, INCLUDED RATHER THAN REPRODUCED as of 2026-09-18. This costs no link
+// line: text_formats.h includes only text_api.h and FORWARD-DECLARES App, so the two
+// inline set builders are reachable without any of the sixteen document formats' code.
+// The App&-taking installTypography is declared in the same header and never called from
+// here, and an unused declaration links nothing.
+#include "text_formats.h"
 
 #include <cstdio>
 #include <cstring>
@@ -43,24 +62,19 @@ static void check(bool ok, const char* what) {
     if (!ok) ++failures;
 }
 
-// The two sets built by createTypography (src/d2d_init.cpp). Reproduced here rather
-// than called, because that function takes an App& and lives in a Windows-only file.
-// If it ever changes, this file is where the change should be noticed -- so the
-// contents are asserted below, not just the shapes.
-static tinta::Typography bodySet() {
-    tinta::Typography t;
-    t.add("liga");
-    t.add("kern");
-    t.add("calt");
-    return t;
-}
-
-static tinta::Typography codeSet() {
-    tinta::Typography t;
-    t.add("liga");
-    t.add("dlig");
-    return t;
-}
+// NO LOCAL COPIES OF THE TWO SETS ANY MORE, and the deleted comment is worth quoting
+// because it was the defect: "The two sets built by createTypography (src/d2d_init.cpp).
+// Reproduced here rather than called, because that function takes an App& and lives in a
+// Windows-only file. If it ever changes, this file is where the change should be
+// noticed."
+//
+// The last sentence was false and nothing measured it. A reproduction is not an
+// instrument on the thing it reproduces: dropping `calt` from the real createTypography
+// left every assertion below green, because they were reading this file's own copy. The
+// test that exists to guard the sets could not fail on a plant in the sets. The fix was
+// not a better comment -- it was making the sets callable, which meant making them stop
+// taking an App&; they are tinta::bodyTypographySet() and tinta::codeTypographySet() in
+// include/text_formats.h now, and the assertions at the bottom call those.
 
 int main() {
     // --- The value types are values -----------------------------------------
@@ -197,20 +211,20 @@ int main() {
     check(!tinta::qtCanHonourFeature(f), "a truncated 'lig\\0' is not 'liga'");
 
     // --- The two real sets ----------------------------------------------------
-    const tinta::Typography body = bodySet();
+    const tinta::Typography body = tinta::bodyTypographySet();
     check(body.count == 3, "the body set is three features");
     check(body.has("liga") && body.has("kern") && body.has("calt"),
-          "the body set is liga + kern + calt, matching createTypography");
+          "the REAL body set is liga + kern + calt -- called, not reproduced");
     int bodyHonoured = 0;
     for (size_t i = 0; i < body.count; ++i) {
         if (tinta::qtCanHonourFeature(body.features[i])) ++bodyHonoured;
     }
     check(bodyHonoured == 3, "Qt honours ALL THREE body features -- body text loses nothing");
 
-    const tinta::Typography code = codeSet();
+    const tinta::Typography code = tinta::codeTypographySet();
     check(code.count == 2, "the code set is two features");
     check(code.has("liga") && code.has("dlig"),
-          "the code set is liga + dlig, matching createTypography");
+          "the REAL code set is liga + dlig -- called, not reproduced");
     int codeHonoured = 0;
     int codeDropped = 0;
     for (size_t i = 0; i < code.count; ++i) {

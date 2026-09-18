@@ -21,7 +21,11 @@ void updateTextFormats(App& app);
 void enumerateSystemFontFamilies(App& app);
 void updateOverlayFormats(App& app);
 void ensureThemePreviewFormats(App& app);
-void createTypography(App& app);
+// NO createTypography HERE EITHER. It is installTypography in include/text_formats.h,
+// and it was never a Direct2D function -- it named no COM type, no factory and no
+// HRESULT. What made it Windows-only was its HOME: this header, which no portable
+// target includes. Two of the three functions this header still declares create
+// native formats and belong here; that one never did.
 bool createRenderTarget(App& app);
 
 #endif // TINTA_D2D_INIT_H

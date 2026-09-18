@@ -49,6 +49,23 @@ tinta::TextFormat* makeFormat(App& app, std::unique_ptr<tinta::TextFormat>& stor
 
 }  // namespace
 
+// MOVED FROM src/d2d_init.cpp, NOT REWRITTEN, and it moved because its own comment there
+// said what was stopping it: "PORTABLE AS WRITTEN, AND DELIBERATELY LEFT HERE... It stays in
+// d2d_init.cpp because there is no portable init file yet to move it INTO." This file is
+// that init file, so the stated blocker expired the moment it landed. The body is two
+// assignments now rather than six add() calls, because the sets moved into
+// include/text_formats.h where a header-only test can reach them.
+//
+// A function that names no Windows type can still be Windows-only, and this is what that
+// looks like: it sat in a file the port DELETES, behind an include no portable target
+// carries, with one caller in WinMain. The census that keeps this port honest greps for
+// DirectWrite identifiers and this function has never had one -- so nothing measured it as
+// debt, and it was the third of three format functions all the same.
+void installTypography(App& app) {
+    app.bodyTypography = tinta::bodyTypographySet();
+    app.codeTypography = tinta::codeTypographySet();
+}
+
 void releaseDocumentTextFormats(App& app) {
     // The eleven pairs themselves are App::releaseDocumentFormats, defined in app.h. That
     // is not where they belong on any reading but one, and the one is a link measurement:

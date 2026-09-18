@@ -436,4 +436,147 @@ std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
     return std::make_shared<D2DOwnedBitmap>(bitmap);
 }
 
+std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void* data,
+                                                size_t size, int pixelSize) {
+    assert(dynamic_cast<D2DRenderTarget*>(&target) != nullptr &&
+           "a non-Direct2D RenderTarget reached the Direct2D image backend");
+    auto* d2dTarget = dynamic_cast<D2DRenderTarget*>(&target);
+    if (!d2dTarget || !d2dTarget->native()) return nullptr;
+    if (!data || size == 0 || pixelSize <= 0) return nullptr;
+
+    ImagingScope scope(false);
+    IWICImagingFactory* wic = scope.wic();
+    if (!wic) return nullptr;
+
+    // A WIC stream OVER the caller's bytes, which it does not copy -- so the buffer must
+    // outlive the stream. Every caller passes kAppIconIco, a static array, so that holds
+    // trivially; a caller passing a temporary would be the way to break this.
+    IWICStream* stream = nullptr;
+    HRESULT hr = wic->CreateStream(&stream);
+    if (FAILED(hr) || !stream) return nullptr;
+    hr = stream->InitializeFromMemory(
+        static_cast<BYTE*>(const_cast<void*>(data)), static_cast<DWORD>(size));
+    if (FAILED(hr)) {
+        stream->Release();
+        return nullptr;
+    }
+
+    IWICBitmapDecoder* decoder = nullptr;
+    hr = wic->CreateDecoderFromStream(stream, nullptr, WICDecodeMetadataCacheOnDemand,
+                                     &decoder);
+    if (FAILED(hr) || !decoder) {
+        stream->Release();
+        return nullptr;
+    }
+
+    // THE FRAME CHOICE IS image_api.h's POLICY, IMPLEMENTED, NOT WIC's DEFAULT.
+    // GetFrame(0) is what every other decode path in this file does and it is WRONG here:
+    // an .ico is a container of independent sizes, frame 0 is whichever the authoring tool
+    // wrote first, and Qt's ICO handler picks by a different rule again. Enumerating and
+    // applying the stated rule is the only way the two backends agree at a size that has
+    // no exact frame -- which the app icon's hero size, 64, is.
+    UINT frameCount = 0;
+    hr = decoder->GetFrameCount(&frameCount);
+    if (FAILED(hr) || frameCount == 0) {
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+
+    UINT bestIndex = 0;
+    UINT bestWidth = 0;
+    bool haveAtOrAbove = false;
+    for (UINT i = 0; i < frameCount; ++i) {
+        IWICBitmapFrameDecode* probe = nullptr;
+        if (FAILED(decoder->GetFrame(i, &probe)) || !probe) continue;
+        UINT fw = 0, fh = 0;
+        const bool sized = SUCCEEDED(probe->GetSize(&fw, &fh)) && fw > 0;
+        probe->Release();
+        if (!sized) continue;
+
+        const bool atOrAbove = fw >= static_cast<UINT>(pixelSize);
+        if (haveAtOrAbove) {
+            // Already holding a big-enough frame: only a smaller big-enough one wins.
+            if (atOrAbove && fw < bestWidth) bestWidth = fw, bestIndex = i;
+        } else if (atOrAbove) {
+            // First big-enough frame always displaces a merely-largest one.
+            haveAtOrAbove = true;
+            bestWidth = fw;
+            bestIndex = i;
+        } else if (fw > bestWidth) {
+            // No big-enough frame yet, so track the largest as the documented fallback.
+            bestWidth = fw;
+            bestIndex = i;
+        }
+    }
+    if (bestWidth == 0) {
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+
+    IWICBitmapFrameDecode* frame = nullptr;
+    hr = decoder->GetFrame(bestIndex, &frame);
+    if (FAILED(hr) || !frame) {
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+
+    // Scale to exactly pixelSize. Unconditional rather than skipped when the frame already
+    // matches: WICBitmapInterpolationModeFant on an identity scale is a copy, and branching
+    // would give the exact-frame size a different code path from the scaled one -- which is
+    // precisely the asymmetry that would let a test at 32 pass while 64 was broken.
+    IWICBitmapScaler* scaler = nullptr;
+    hr = wic->CreateBitmapScaler(&scaler);
+    if (FAILED(hr) || !scaler) {
+        frame->Release();
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+    hr = scaler->Initialize(frame, static_cast<UINT>(pixelSize),
+                            static_cast<UINT>(pixelSize),
+                            WICBitmapInterpolationModeFant);
+    if (FAILED(hr)) {
+        scaler->Release();
+        frame->Release();
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+
+    IWICFormatConverter* converter = nullptr;
+    hr = wic->CreateFormatConverter(&converter);
+    if (FAILED(hr) || !converter) {
+        scaler->Release();
+        frame->Release();
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+    hr = converter->Initialize(scaler, GUID_WICPixelFormat32bppPBGRA,
+                               WICBitmapDitherTypeNone, nullptr, 0.0,
+                               WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        converter->Release();
+        scaler->Release();
+        frame->Release();
+        decoder->Release();
+        stream->Release();
+        return nullptr;
+    }
+
+    ID2D1Bitmap* bitmap = nullptr;
+    hr = d2dTarget->native()->CreateBitmapFromWicBitmap(converter, nullptr, &bitmap);
+    converter->Release();
+    scaler->Release();
+    frame->Release();
+    decoder->Release();
+    stream->Release();
+
+    if (FAILED(hr) || !bitmap) return nullptr;
+    return std::make_shared<D2DOwnedBitmap>(bitmap);
+}
+
 } // namespace tinta

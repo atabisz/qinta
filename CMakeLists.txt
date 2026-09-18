@@ -251,8 +251,54 @@ else()
         "what still depends on the stack being replaced.")
 endif()
 
+# ── The embedded app icon, generated for BOTH backends ────────────────────────────────
+#
+# resources/tinta.ico becomes a C++ byte array that the Direct2D and Qt builds read
+# identically, decoded through tinta::decodeIconBytesToBitmap. include/app_icon_data.h
+# carries the reasoning, including why this is NOT a Qt .qrc: a Qt-only mechanism would
+# have left the Direct2D side on LoadImageW and kept an #ifdef at the call site, which is
+# the thing the seam exists to remove.
+#
+# CONFIGURE time, not build time, and the dependency is declared rather than assumed:
+# CMAKE_CONFIGURE_DEPENDS re-runs configure when the .ico changes, so editing the artwork
+# regenerates the array. Without that line a new icon would be silently ignored until
+# someone deleted the build directory -- a stale asset that nothing reports.
+set(TINTA_ICON_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/resources/tinta.ico)
+set(TINTA_ICON_GENERATED ${CMAKE_BINARY_DIR}/generated/app_icon_data.cpp)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TINTA_ICON_SOURCE})
+file(READ ${TINTA_ICON_SOURCE} TINTA_ICON_HEX HEX)
+string(LENGTH "${TINTA_ICON_HEX}" TINTA_ICON_HEX_LEN)
+if(TINTA_ICON_HEX_LEN LESS 64)
+    # A truncated or missing asset would otherwise generate a valid, tiny array and the
+    # icon would simply never appear -- a silent failure with no diagnostic anywhere.
+    message(FATAL_ERROR "resources/tinta.ico read as only ${TINTA_ICON_HEX_LEN} hex chars")
+endif()
+string(REGEX REPLACE "(..)" "0x\\1," TINTA_ICON_BYTES "${TINTA_ICON_HEX}")
+# THE TWELVE GROUPS ARE WRITTEN OUT AND THAT IS NOT A STYLE CHOICE. This line first read
+# `((0x..,){12})`, which CMake's regex engine does not support -- it has no {n} repetition
+# operator -- and an unsupported quantifier here does not error, it simply matches nothing.
+# The replacement became a no-op, the generated file was still perfectly valid C++, and the
+# only symptom was ONE 182,459-CHARACTER LINE. Measured with awk rather than noticed by
+# reading, because nothing downstream complains: MSVC compiles it, git stores it, and the
+# file is gitignored so no diff ever shows it.
+string(REGEX REPLACE
+    "(0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,0x..,)" "\\1\n    "
+    TINTA_ICON_BYTES "${TINTA_ICON_BYTES}")
+file(WRITE ${TINTA_ICON_GENERATED}
+"// GENERATED FILE -- DO NOT EDIT AND DO NOT COMMIT.\n"
+"// Written by CMakeLists.txt from resources/tinta.ico. See include/app_icon_data.h.\n"
+"#include \"app_icon_data.h\"\n"
+"\n"
+"namespace tinta {\n"
+"\n"
+"const unsigned char kAppIconIco[] = {\n    ${TINTA_ICON_BYTES}\n};\n"
+"const size_t kAppIconIcoSize = sizeof(kAppIconIco);\n"
+"\n"
+"}  // namespace tinta\n")
+
 # Source files
 set(SOURCES
+    ${TINTA_ICON_GENERATED}
     src/main_d2d.cpp
     src/markdown.cpp
     src/themes.cpp
@@ -558,6 +604,7 @@ endif()  # WIN32 — app target
 # Deliberately at unconditional scope rather than inside the Qt guard below, so the
 # test section can read it without depending on the order of two independent if()s.
 set(QINTA_APP_SOURCES
+    ${TINTA_ICON_GENERATED}
     src/qt_window.cpp
     src/qt_init.cpp
     src/render_qt.cpp
@@ -2177,6 +2224,22 @@ if(BUILD_TESTING)
             src/text_qt.cpp)
         target_include_directories(render_api_tests PRIVATE include)
         target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
+        # THE ICON-DECODE FAMILY, AND WHY IT IS CONDITIONAL WHEN THIS TARGET IS NOT.
+        # tinta::decodeIconBytesToBitmap needs a live RenderTarget, which the harnesses
+        # here have and tests/image_tests.cpp does not, so this is where the assertions
+        # can run on both backends. But src/image_qt.cpp also holds rasterizeSvg and
+        # fetchToTempFile, so linking it drags in Qt Svg AND Network -- a narrower guard
+        # than this target's own Qt6_FOUND, and exactly the partial-Qt hole image_tests
+        # is guarded against. Widening this target's requirement to match would trade a
+        # skipped family for a target that does not build at all. TINTA_HAVE_ICON_SEAM
+        # is how render_api_shared.cpp knows which happened, and its #else PRINTS the
+        # skip -- an arm never compiled and an arm that broke read the same otherwise.
+        if(Qt6Svg_FOUND AND Qt6Network_FOUND)
+            target_sources(render_api_tests PRIVATE
+                src/image_qt.cpp ${TINTA_ICON_GENERATED})
+            target_link_libraries(render_api_tests PRIVATE Qt6::Svg Qt6::Network)
+            target_compile_definitions(render_api_tests PRIVATE TINTA_HAVE_ICON_SEAM)
+        endif()
         add_test(NAME render_api COMMAND render_api_tests)
         # Dynamic CRT, same reason and same measurement as qt_text_tests above.
         set_property(TARGET render_api_tests PROPERTY
@@ -2342,15 +2405,28 @@ if(BUILD_TESTING)
         tests/render_api_shared.cpp
         src/render_d2d.cpp
         src/text_d2d.cpp
+        # The icon-decode family's other half. Unconditional here, unlike the Qt target:
+        # image_win32.cpp needs no optional component, only import libraries this target
+        # is already close to carrying. src/text_utils.cpp travels with it for the reason
+        # image_tests spells out -- toWide reaches platform::fromUtf8 -- and the path seam
+        # with that.
+        src/image_win32.cpp
+        src/text_utils.cpp
+        ${PLATFORM_PATHS_SOURCE}
+        ${TINTA_ICON_GENERATED}
     )
     target_include_directories(render_d2d_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
+    target_compile_definitions(render_d2d_tests PRIVATE TINTA_HAVE_ICON_SEAM)
     # dwrite for DWriteCreateFactory, which the harness calls to build the factory
     # src/text_d2d.cpp then borrows. Everything else text_d2d.cpp does is a COM
     # method call through that pointer and needs no import library at all -- which
     # is why this line is the whole cost of adding the text backend here.
-    target_link_libraries(render_d2d_tests PRIVATE d2d1 dwrite windowscodecs ole32)
+    # shlwapi for SHCreateMemStream, urlmon for the fetch, shell32 for the path seam --
+    # the three that arrived with src/image_win32.cpp, the same line image_tests carries.
+    target_link_libraries(render_d2d_tests PRIVATE
+        d2d1 dwrite windowscodecs ole32 shlwapi urlmon shell32)
     target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME render_d2d COMMAND render_d2d_tests)
     endif()  # TINTA_LEGACY_D2D

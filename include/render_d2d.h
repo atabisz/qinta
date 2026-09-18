@@ -165,11 +165,14 @@ ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry);
 // from D2DBitmap precisely so that one unwrapper serves both.
 ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap);
 
-// BORROWS. The 4 remaining native App members that hold a bitmap
-// (nativeTitleIconBitmap, nativeStartPageIconBitmap, nativeLinkPeekBitmap and the
-// print-preview local) AddRef and Release their own, and d2d_init.cpp tears them
-// down. A wrapper that took a reference would make the ownership of those members
-// depend on whether a drawing call had happened to be made through the seam.
+// BORROWS. The 2 remaining native holders of a bitmap (nativeLinkPeekBitmap and the
+// print-preview local) AddRef and Release their own, and d2d_init.cpp tears the member
+// down. A wrapper that took a reference would make the ownership of those depend on
+// whether a drawing call had happened to be made through the seam.
+//
+// It said 4, and the two app icons left when they became shared_ptr<tinta::Bitmap>
+// members -- so the borrowing rule now covers fewer holders than it did, and the count
+// is stated rather than left as "the remaining ones" precisely because it keeps falling.
 class D2DBitmap : public tinta::Bitmap {
 public:
     explicit D2DBitmap(ID2D1Bitmap* bitmap) : bitmap_(bitmap) {}

@@ -217,11 +217,16 @@ void renderEditRail(App& app) {
     // Logo also opens the application menu in edit mode (#194).
     renderAppMenuButtonBackground(app);
     float y = dpi(app, 11.0f);
+    // THE THIRD CONSUMER, and the one the plan for this slice missed: the rail draws the
+    // hero icon at 20 DIP from the same 64 px bitmap startpage.cpp produces. It routes
+    // through the one entry point by calling the one producer -- startPageEnsureIcon --
+    // rather than by decoding its own, which is what stops a third copy of the ladder
+    // appearing at a third size.
     startPageEnsureIcon(app);
-    if (app.nativeStartPageIconBitmap) {
+    if (app.startPageIconBitmap) {
         float iconSize = dpi(app, 20.0f);
         app.renderTarget->DrawBitmap(
-            app.startPageIconBitmap(),
+            app.startPageIconBitmap.get(),
             tinta::rectF((railW - iconSize) * 0.5f, y,
                         (railW + iconSize) * 0.5f, y + iconSize));
     }

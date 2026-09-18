@@ -592,15 +592,15 @@ static void invalidateDeviceBitmaps(App& app) {
         if (it->second.pending) { ++it; }
         else { it = app.imageCache.erase(it); }
     }
-    // The title-bar icon is a device bitmap too; the strip recreates it
-    if (app.nativeTitleIconBitmap) {
-        app.nativeTitleIconBitmap->Release();
-        app.nativeTitleIconBitmap = nullptr;
-    }
-    if (app.nativeStartPageIconBitmap) {
-        app.nativeStartPageIconBitmap->Release();
-        app.nativeStartPageIconBitmap = nullptr;
-    }
+    // Both chrome icons are device bitmaps too; the strip and the start page each
+    // recreate theirs on the next paint, from the embedded bytes rather than from a
+    // Win32 resource handle. reset() for the same reason the cache entries above use it:
+    // they are shared_ptr<tinta::Bitmap> holders now, so dropping this reference is the
+    // whole release. THE INVALIDATION ITSELF STILL MATTERS AND IS NOT A LEFTOVER -- a
+    // D2D bitmap belongs to the device that made it, so a lost device must clear these
+    // whatever type holds them, or the next paint draws through a dead device bitmap.
+    app.titleIconBitmap.reset();
+    app.startPageIconBitmap.reset();
 }
 
 // ClearType plus custom DWrite rendering params, applied to whatever target

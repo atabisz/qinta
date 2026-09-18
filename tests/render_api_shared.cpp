@@ -53,9 +53,20 @@
 
 #include "render_api_shared.h"
 
+// The icon-decode family only. Guarded rather than included unconditionally because a
+// target built without the image backend must not merely fail to link the entry point --
+// it must not name it at all, and the #else arm below prints a skip line so an absent
+// family cannot pass for a green one.
+#ifdef TINTA_HAVE_ICON_SEAM
+#include "app_icon_data.h"
+#include "image_api.h"
+#endif
+
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
+#include <vector>
 
 namespace {
 
@@ -1742,6 +1753,156 @@ int runRenderApiAssertions(RenderHarness& h) {
             h.end();
         }
     }
+
+    // --- The ICON decode: one container, two sizes, both backends ----------------
+    //
+    // WHY THIS FAMILY IS HERE AND NOT IN tests/image_tests.cpp, which is the image
+    // seam's own both-backends target: decodeIconBytesToBitmap needs a live
+    // RenderTarget, and image_tests constructs none -- it links the render backend for
+    // typeinfo and asserts on pixel buffers. The harnesses here already own a target on
+    // both backends, so the assertions cost one source file per target instead of a
+    // second render-target bring-up.
+    //
+    // WHAT IT IS FOR. resources/tinta.ico holds frames at 256/48/32/16 and the start
+    // page asks for 64. There IS no 64 frame, so at that size the answer depends
+    // entirely on which frame is chosen and how it is scaled -- WIC's ICO decoder and
+    // Qt's ICO handler choose differently, and two libraries left to their defaults
+    // would render a visibly different hero icon per platform with nothing in the build
+    // to say so. image_api.h states the rule (smallest frame >= requested, else the
+    // largest, then scale to exactly the requested size) and both backends implement it.
+    //
+    // 32 AND 64 BOTH, because they exercise different branches of that rule: 32 is an
+    // exact frame match and 64 is not. A test at 32 alone would be green while the
+    // interesting size diverged, which is also why NEITHER backend skips the scaler when
+    // the frame already matches -- see image_win32.cpp and image_qt.cpp.
+    //
+    // WHAT IT DELIBERATELY DOES NOT ASSERT: that the two backends produce the SAME
+    // PIXELS at 64. They resample from the 256 frame with different filters (Fant versus
+    // Qt's SmoothTransformation), so identical output is not claimed and a comparison
+    // here would be a false one. The contract asserted is the geometry and the refusals;
+    // the resampling difference is published rather than tested away.
+    //
+    // AND THE SECOND THING IT DOES NOT ASSERT IS THE ONE I PLANNED IT TO. The intent was
+    // that the 64 px case would FAIL if a backend were left on its library's default
+    // frame. It does not, and the arithmetic is the reason rather than the writing:
+    // tinta.ico's frames are 256/48/32/16 and its FIRST entry is the 256, so at a request
+    // of 64 the stated policy -- smallest frame at or above 64 -- SELECTS 256, which is
+    // the same frame GetFrame(0) and QImageReader's default hand back. Policy and default
+    // COINCIDE at the size that was supposed to separate them. At 32 they differ in which
+    // frame is read but not in the output size, and the two backends resample with
+    // different filters, so no pixel comparison here can tell a policy read from a default
+    // read either.
+    //
+    // Stated rather than quietly downgraded: the frame CHOICE is covered by reading the
+    // two implementations (C3 and C4), not by this arm. What this arm covers is geometry,
+    // ink, the fallback clause, and the refusals. A control that cannot fire is not a
+    // control, and calling this one satisfied because the assertions are green would be
+    // exactly the reading it was written to prevent.
+#ifdef TINTA_HAVE_ICON_SEAM
+    {
+        whiteSurface(h);
+        std::shared_ptr<tinta::Bitmap> at32;
+        std::shared_ptr<tinta::Bitmap> at64;
+        {
+            tinta::RenderTarget& rt = h.begin();
+            at32 = tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco,
+                                                  tinta::kAppIconIcoSize, 32);
+            at64 = tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco,
+                                                  tinta::kAppIconIcoSize, 64);
+            if (at64) rt.DrawBitmap(at64.get(), tinta::rectF(20, 10, 84, 74));
+            h.end();
+        }
+
+        check(at32 != nullptr,
+              "CONTROL: the embedded app icon decoded at 32 at all -- every assertion in "
+              "this family is void without it");
+        check(at64 != nullptr,
+              "CONTROL: and at 64, the size the .ico has no frame for");
+
+        if (at32) {
+            const tinta::SizeF s = at32->GetSize();
+            check(s.width == 32.0f && s.height == 32.0f,
+                  "the icon decoded at 32 reports 32x32 -- the exact-frame case");
+        }
+        if (at64) {
+            const tinta::SizeF s = at64->GetSize();
+            check(s.width == 64.0f && s.height == 64.0f,
+                  "the icon decoded at 64 reports 64x64 even though no 64 frame exists, so "
+                  "the frame was scaled to the request rather than returned as found");
+
+            // NOT a dimensions-only pass. A backend that returned a correctly-sized but
+            // EMPTY bitmap would satisfy every check above; this is what makes the size
+            // assertions mean an image was decoded.
+            const std::vector<Rgba> block = readBlock(h, 20, 10, 64, 64);
+            bool anyInk = false;
+            for (const Rgba& p : block)
+                if (p != kWhite) anyInk = true;
+            check(anyInk,
+                  "the 64px icon actually draws ink over white, so the frame carried "
+                  "pixels rather than being a correctly-sized empty bitmap");
+        }
+
+        // THE FALLBACK BRANCH OF THE STATED POLICY, which nothing else reaches. The rule
+        // has three clauses -- smallest frame at or above the request, ELSE the largest
+        // available, then scale to exactly the request -- and the app only ever asks for
+        // 32 and 64, both of which take the first clause. So `else the largest` is dead
+        // code in both backends as far as the product is concerned, and dead code that
+        // has never run is not implemented, it is written. 512 is above every frame in
+        // tinta.ico (the largest is 256), so this is the only assertion that executes it.
+        //
+        // It is also the only UPSCALE in this family, which is worth one line of its own:
+        // a backend that refused to enlarge -- or that clamped to the source size and
+        // returned 256 -- would satisfy every other check here.
+        {
+            std::shared_ptr<tinta::Bitmap> at512;
+            {
+                tinta::RenderTarget& rt = h.begin();
+                at512 = tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco,
+                                                       tinta::kAppIconIcoSize, 512);
+                h.end();
+            }
+            check(at512 != nullptr,
+                  "a request above every frame still decodes, by falling back to the "
+                  "largest frame rather than failing");
+            if (at512) {
+                const tinta::SizeF s = at512->GetSize();
+                check(s.width == 512.0f && s.height == 512.0f,
+                      "and it is scaled UP to the full 512 requested, not clamped to the "
+                      "256 frame it came from");
+            }
+        }
+
+        // REFUSALS. Every caller branches on null -- a failed decode has to render no
+        // icon, not a garbage one. Meaningful only because the controls above succeeded
+        // from the same array.
+        {
+            tinta::RenderTarget& rt = h.begin();
+            check(tinta::decodeIconBytesToBitmap(rt, nullptr, tinta::kAppIconIcoSize,
+                                                 32) == nullptr,
+                  "a null byte pointer returns null rather than reading address zero");
+            check(tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco, 0, 32) == nullptr,
+                  "a zero size returns null rather than decoding an empty stream");
+            check(tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco,
+                                                 tinta::kAppIconIcoSize, 0) == nullptr,
+                  "a zero pixel size returns null rather than a zero-sized bitmap");
+            // TRUNCATED, not malformed: the first 8 bytes are a real ICONDIR header
+            // claiming frames that are not there. A decoder that trusted the header would
+            // read past the buffer, and one that returned a bitmap anyway would be
+            // handing a caller pixels it never had.
+            check(tinta::decodeIconBytesToBitmap(rt, tinta::kAppIconIco, 8, 32) == nullptr,
+                  "a truncated container returns null rather than a garbage bitmap");
+            h.end();
+        }
+    }
+#else
+    // A SKIPPED ARM SAYS SO. An arm that was never compiled and one that stopped
+    // working read identically in a summary line, and this target is reachable without
+    // the image backend (off Windows it needs Qt Svg and Network on top of Core and
+    // Gui, which is a narrower guard than this target's own). Printing the skip is what
+    // keeps a silently absent icon family from reading as a green one.
+    std::printf("SKIPPED the icon-decode family: this target was built without the image "
+                "backend (TINTA_HAVE_ICON_SEAM undefined)\n");
+#endif
 
     // --- NEWLINES: a line is newline-delimited, not wrapped-only -----------------
     //

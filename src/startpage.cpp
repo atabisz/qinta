@@ -6,8 +6,10 @@
 
 #include "startpage.h"
 #include "annotations.h"
+#include "app_icon_data.h"
 #include "document.h"
 #include "i18n.h"
+#include "image_api.h"
 #include "platform_paths.h"
 #include "portable_str.h"
 #include "portable_time.h"
@@ -489,54 +491,23 @@ void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
 
 // --- Rendering -----------------------------------------------------------
 
-// THE ONE ARM OF THIS FILE THAT IS STILL WINDOWS-ONLY, AND IT IS NOT YET
-// IMPLEMENTED ELSEWHERE RATHER THAN BROKEN ELSEWHERE -- a distinction a diff cannot
-// show, so it is written here. Off Windows this is an empty function, the hero draw
-// site's `if (app.startPageIconBitmap())` is simply false, and the page renders
-// exactly as it does on Windows minus the 34-DIP mark beside the wordmark.
+// THIS FUNCTION WAS THE LAST WINDOWS-ONLY ARM OF THIS FILE AND IT NO LONGER HAS ONE.
+// The paragraph that used to sit here explained why the deferral was honest -- the icon
+// was an embedded WIN32 resource reached through LoadImageW, and image_api.h's only
+// bitmap-producing entry point took a FILE PATH, so there was nothing portable to call.
+// That premise has expired: the bytes are embedded once for both backends
+// (app_icon_data.h) and decoded through one entry point that owns the frame-selection
+// policy (image_api.h). What is left is four lines with no conditional compilation in
+// them at all, which is why the explanation is a past tense rather than a rationale.
 //
-// WHY IT IS NOT PORTED IN THIS SLICE, MEASURED RATHER THAN ASSERTED. The icon is an
-// EMBEDDED WIN32 RESOURCE (`LoadImageW(GetModuleHandleW(nullptr), L"IDI_ICON1", ...)`),
-// and image_api.h's only decode entry point takes a FILE PATH (image_api.h:206), so
-// there is nothing portable to call. Making one means a new seam method taking a pixel
-// size, two backend implementations, a Qt `.qrc` plus its CMake wiring (the Qt build
-// has no resource file anywhere today), and turning App::nativeStartPageIconBitmap
-// from an ID2D1Bitmap* + Seated<> into a portable handle -- which touches app.h,
-// d2d_init.cpp, editrail.cpp and tabs.cpp as well as this file. It also has THREE
-// consumers at two different pixel sizes, not the two the plan assumed, so it earns
-// its own slice rather than a corner of this one.
-//
-// AND IT INTRODUCES NO REGRESSION, which is the claim that makes the #ifdef
-// acceptable: startpage.cpp has never compiled off Windows at all, so there is no
-// prior non-Windows behaviour for this to be worse than.
+// THE ONE THING WORTH KNOWING AT THIS CALL SITE: 64 is a size resources/tinta.ico has no
+// frame for. The scaling and the frame choice are deliberately NOT decided here -- doing
+// it at the call site would put the policy in two places, since tabs.cpp asks the same
+// question at 32 where the frame IS exact.
 void startPageEnsureIcon(App& app) {
-#ifdef _WIN32
-    if (app.nativeStartPageIconBitmap || !app.wicFactory || !app.renderTarget)
-        return;
-    HICON icon = (HICON)LoadImageW(GetModuleHandleW(nullptr), L"IDI_ICON1",
-                                   IMAGE_ICON, 64, 64, 0);
-    if (!icon) return;
-    IWICBitmap* wicBitmap = nullptr;
-    if (SUCCEEDED(app.wicFactory->CreateBitmapFromHICON(icon, &wicBitmap)) &&
-        wicBitmap) {
-        IWICFormatConverter* converter = nullptr;
-        if (SUCCEEDED(app.wicFactory->CreateFormatConverter(&converter)) &&
-            converter) {
-            if (SUCCEEDED(converter->Initialize(
-                    wicBitmap, GUID_WICPixelFormat32bppPBGRA,
-                    WICBitmapDitherTypeNone, nullptr, 0.0,
-                    WICBitmapPaletteTypeCustom))) {
-                app.nativeRenderTarget->CreateBitmapFromWicBitmap(
-                    converter, nullptr, &app.nativeStartPageIconBitmap);
-            }
-            converter->Release();
-        }
-        wicBitmap->Release();
-    }
-    DestroyIcon(icon);
-#else
-    (void)app;
-#endif
+    if (app.startPageIconBitmap || !app.renderTarget) return;
+    app.startPageIconBitmap = tinta::decodeIconBytesToBitmap(
+        *app.renderTarget, tinta::kAppIconIco, tinta::kAppIconIcoSize, 64);
 }
 
 void renderStartPage(App& app) {
@@ -592,14 +563,12 @@ void renderStartPage(App& app) {
     tinta::TextMetrics wmM = spMetrics(wm.get());
     float iconSize = dpi(app, 34.0f);
     float heroH = std::max(wmM.height, iconSize);
-    // THE GUARD MOVED FROM THE NATIVE POINTER TO THE SEAM ACCESSOR, and that is a
-    // rename rather than a change of condition: Seated::seat() returns null for a
-    // null native (seated.h:64), so startPageIconBitmap() is non-null in exactly
-    // the cases nativeStartPageIconBitmap was. Which is also why this draw site
-    // needs no #ifdef even though the icon is Windows-only this slice -- the
-    // accessor's own #else returns nullptr, so off Windows the block is
-    // unreachable rather than unbuildable. Only the PRODUCER below is guarded.
-    if (tinta::Bitmap* heroIcon = app.startPageIconBitmap()) {
+    // The guard is on the handle itself now -- it was the native pointer, then a seam
+    // accessor whose #else returned nullptr off Windows, and the condition never changed
+    // through either move. What DID change is that this block is now reachable on both
+    // stacks rather than only one, so a missing icon here means the decode failed, not
+    // that the platform has no path to one.
+    if (tinta::Bitmap* heroIcon = app.startPageIconBitmap.get()) {
         float iy = y0 + (heroH - iconSize) * 0.5f;
         app.renderTarget->DrawBitmap(
             heroIcon, tinta::rectF(x0, iy, x0 + iconSize, iy + iconSize));

@@ -2,8 +2,8 @@
 //
 // WHAT THIS FILE EXISTS TO CATCH
 //
-// The THREE scalar bitmaps on App are reached through accessors that rebuild their
-// D2DBitmap wrapper on every read, instead of through a seated pointer field like
+// The ONE scalar bitmap left on App that is reached through an accessor rebuilds its
+// D2DBitmap wrapper on every read, instead of being a seated pointer field like
 // renderTarget and the text formats. That is a design claim -- "it cannot go stale"
 // -- and a design claim nobody can falsify is just a comment. The failure mode it
 // rules out is specifically silent: a stale wrapper still points at a LIVE, VALID
@@ -12,18 +12,37 @@
 // instrument that would notice, and only if a human happened to know which image was
 // correct.
 //
-// So each accessor is read, its native is CHANGED behind it, and it is read again.
+// So the accessor is read, its native is CHANGED behind it, and it is read again.
 // A seated field would return the first wrapper both times and pass a weaker test
 // that only checked non-null.
 //
-// THIS FILE SAID "FOUR" AND COVERED LayoutBitmap::bitmap THE SAME WAY, and both
-// changed when the bitmap-creation seam landed. nativeLightboxBitmap and
-// LayoutBitmap::bitmap are shared_ptr<tinta::Bitmap> now, so there is no native
-// behind them to change and no wrapper to go stale -- the staleness question does not
-// apply to a handle that points at the bitmap rather than at a sibling member. What
-// replaces those assertions is not nothing: the reallocation test below still runs,
-// because the hazard it was written for (a vector that resize()s and push_back()s
-// under a live element) is unchanged and only the defence against it moved.
+// THIS FILE SAID "FOUR", THEN "THREE", AND NOW SAYS "ONE". Each step was the same
+// change: nativeLightboxBitmap and LayoutBitmap::bitmap went first when the
+// bitmap-creation seam landed, and titleIconBitmap and startPageIconBitmap went when the
+// app icon got one portable decode path. All four are shared_ptr<tinta::Bitmap> now, so
+// there is no native behind them to change and no wrapper to go stale -- the staleness
+// question does not apply to a handle that points at the bitmap rather than at a sibling
+// member.
+//
+// WHAT WAS RETIRED WITH THE ICONS, STATED RATHER THAN QUIETLY DROPPED, because a test
+// file that only ever shrinks is worth being suspicious of:
+//
+//   * Their two staleness assertions and their two tracks-its-native assertions went
+//     with the hazard, as the lightbox's did. Not a loss.
+//   * accessorsAreIndependent IS GONE ENTIRELY, and that one IS a loss of coverage. It
+//     asked whether two accessors could collide on one shared storage member -- a
+//     question that needs two accessors to be askable at all, and there is one left.
+//     Nothing here can restore it; the check comes back for free if a second borrowed
+//     native bitmap is ever added, and it should be added back with it.
+//   * What replaces them is iconFieldsAreOnTheSeam() below, which is a different claim
+//     rather than a weaker copy of the same one: a static_assert that the two members
+//     stay handles. The reason is not tidiness. Their previous type was the ONLY thing
+//     the `#ifdef TINTA_D2D_BACKEND` in their accessors existed for, so reverting the
+//     type silently reinstates a guard that leaves both icons undrawn off Windows --
+//     exactly the way LayoutBitmap::bitmap's gate was inverted rather than deleted.
+//
+// The reallocation test still runs untouched, because the hazard it was written for (a
+// vector that resize()s and push_back()s under a live element) is unchanged.
 //
 // No device is needed. D2DBitmap BORROWS (render_d2d.h), so it never calls a method
 // on what it holds -- construction is one pointer store. The addresses below are
@@ -67,45 +86,32 @@ void nullNativeYieldsNullSeam(App& app) {
     // accessor that forgot its null check would hand every drawing site a wrapper
     // around nullptr. DrawBitmap would then be called with a non-null Bitmap* whose
     // native is null -- past every `if (bitmap)` guard in the tree.
-    check(app.titleIconBitmap() == nullptr, "null native title icon yields a null seam pointer");
-    check(app.startPageIconBitmap() == nullptr, "null native start page icon yields a null seam pointer");
     check(app.linkPeekBitmap() == nullptr, "null native link peek yields a null seam pointer");
 
-    // The lightbox is here too, asked the other way round: it is a
+    // The three handles are here too, asked the other way round: they are
     // shared_ptr<tinta::Bitmap> now, so "empty reads as null" is the same guarantee
-    // with no accessor in between. Worth one line rather than none, because the
-    // drawing site in overlays.cpp guards on exactly this.
+    // with no accessor in between. Worth one line each rather than none, because the
+    // drawing sites guard on exactly this -- overlays.cpp for the lightbox, tabs.cpp and
+    // startpage.cpp for the icons, and for the icons the guard is now the whole reason a
+    // failed decode renders no icon instead of a crash.
     check(app.lightboxBitmap == nullptr, "an unset lightbox handle reads as null");
+    check(app.titleIconBitmap == nullptr, "an unset title icon handle reads as null");
+    check(app.startPageIconBitmap == nullptr, "an unset start page icon handle reads as null");
 }
 
 void accessorTracksItsNative(App& app) {
-    app.nativeTitleIconBitmap = kBitmapA;
-    check(heldBy(app.titleIconBitmap()) == kBitmapA, "title icon seam holds the native it was given");
-
-    app.nativeStartPageIconBitmap = kBitmapA;
-    check(heldBy(app.startPageIconBitmap()) == kBitmapA, "start page icon seam holds the native it was given");
-
     app.nativeLinkPeekBitmap = kBitmapA;
     check(heldBy(app.linkPeekBitmap()) == kBitmapA, "link peek seam holds the native it was given");
 }
 
 void accessorCannotGoStale(App& app) {
-    // THE claim. Every one of these fields is replaced while the app runs -- the link
-    // peek re-renders on the next hover, both icons are recreated when the render
-    // target is. A seated field would need reseating at every mutation site and would
-    // pass the test above while failing this one. (The lightbox used to be the fourth
-    // and most convincing case here; it is a shared handle now, so it has no native to
-    // replace behind an accessor.)
-    app.nativeTitleIconBitmap = kBitmapA;
-    (void)app.titleIconBitmap();  // read first, so a cached wrapper exists to go stale
-    app.nativeTitleIconBitmap = kBitmapB;
-    check(heldBy(app.titleIconBitmap()) == kBitmapB, "title icon seam follows a replaced native");
-
-    app.nativeStartPageIconBitmap = kBitmapA;
-    (void)app.startPageIconBitmap();
-    app.nativeStartPageIconBitmap = kBitmapB;
-    check(heldBy(app.startPageIconBitmap()) == kBitmapB, "start page icon seam follows a replaced native");
-
+    // THE claim. The link peek is replaced while the app runs -- it re-renders on the
+    // next hover. A seated field would need reseating at every mutation site and would
+    // pass the test above while failing this one. (The lightbox was once the fourth and
+    // most convincing case, and the two app icons the second and third; all three are
+    // shared handles now, so none has a native to replace behind an accessor. The
+    // surviving case is the one with the busiest lifecycle, which is the right one to
+    // keep if only one can be kept.)
     app.nativeLinkPeekBitmap = kBitmapA;
     (void)app.linkPeekBitmap();
     app.nativeLinkPeekBitmap = kBitmapB;
@@ -120,27 +126,42 @@ void accessorCannotGoStale(App& app) {
     check(app.linkPeekBitmap() == nullptr, "link peek seam follows its native back to null");
 }
 
-void accessorsAreIndependent(App& app) {
-    // One shared storage member would make the last accessor called win, which is
-    // invisible in any test that reads one accessor at a time.
-    app.nativeTitleIconBitmap = kBitmapA;
-    app.nativeStartPageIconBitmap = kBitmapB;
-    app.nativeLinkPeekBitmap = kBitmapA;
+// accessorsAreIndependent USED TO BE HERE and is not replaced. It set three natives to
+// two distinct values, read all three accessors, and checked that each kept its own
+// native and that the three returned three distinct storage addresses -- catching a
+// single shared storage member, where the last accessor called wins and every
+// one-accessor-at-a-time test still passes.
+//
+// It is gone because ONE accessor is left. The hazard is a collision between two
+// storages; with one storage there is no pair to collide, and a rewritten version
+// asserting something about a single accessor would be a test shaped like the old one
+// that checks nothing. Saying so here is the alternative to leaving a green stub that
+// looks like the coverage is still there.
+//
+// IF A SECOND BORROWED NATIVE BITMAP IS EVER ADDED TO App, BRING THIS BACK WITH IT --
+// git history has the body, and the hazard returns the moment the second storage does.
 
-    tinta::Bitmap* title = app.titleIconBitmap();
-    tinta::Bitmap* startPage = app.startPageIconBitmap();
-    tinta::Bitmap* linkPeek = app.linkPeekBitmap();
-
-    check(heldBy(title) == kBitmapA, "title icon keeps its own native while the others are read");
-    check(heldBy(startPage) == kBitmapB, "start page icon keeps its own native while the others are read");
-    check(heldBy(linkPeek) == kBitmapA, "link peek keeps its own native while the others are read");
-
-    // Two of the three now hold the SAME native, deliberately: it makes the address
-    // check below a real check. If it compared three accessors whose natives were all
-    // distinct, a shared storage member would still be caught by the heldBy checks
-    // above and this line would be redundant.
-    check(title != startPage && title != linkPeek && startPage != linkPeek,
-          "the three accessors return three distinct storage addresses");
+// The two icon members must STAY handles, and this is a gate rather than a tidiness
+// check. It is the same inversion tests/bitmap_seam_tests.cpp already applied to
+// LayoutBitmap::bitmap: an assertion placed to stop somebody "finishing" a port by
+// changing a field back.
+//
+// What breaks if they revert: an ID2D1Bitmap* member cannot be filled by
+// tinta::decodeIconBytesToBitmap, so the fill sites need Direct2D again, so their
+// accessors need the `#ifdef TINTA_D2D_BACKEND` back -- and that guard's #else returned
+// nullptr, which draws no icon at all off Windows. The revert would compile, link, run,
+// and look correct on the only platform its author was testing on.
+void iconFieldsAreOnTheSeam() {
+    static_assert(std::is_same<decltype(App::titleIconBitmap),
+                               std::shared_ptr<tinta::Bitmap>>::value,
+                  "App::titleIconBitmap must stay a shared handle: a native pointer here "
+                  "puts Direct2D back at the fill site in tabs.cpp and the #ifdef back in "
+                  "app.h, which silently leaves the strip icon undrawn off Windows");
+    static_assert(std::is_same<decltype(App::startPageIconBitmap),
+                               std::shared_ptr<tinta::Bitmap>>::value,
+                  "App::startPageIconBitmap must stay a shared handle: same reason, and it "
+                  "has two consumers -- startpage.cpp and editrail.cpp -- drawing one "
+                  "64px bitmap at two different DIP sizes");
 }
 
 void layoutBitmapSurvivesReallocation() {
@@ -223,20 +244,18 @@ void layoutBitmapFieldIsOnTheSeam() {
 
 int main() {
     layoutBitmapFieldIsOnTheSeam();
+    iconFieldsAreOnTheSeam();
 
     App app;
     nullNativeYieldsNullSeam(app);
     accessorTracksItsNative(app);
     accessorCannotGoStale(app);
-    accessorsAreIndependent(app);
     layoutBitmapSurvivesReallocation();
 
-    // The natives are fake addresses, so nothing may release them. shutdown() would.
-    // No lightbox line any more: it is a shared_ptr<tinta::Bitmap> and this test never
-    // sets it, and if it did, D2DBitmap BORROWS -- which is why the reallocation test
-    // can put fake addresses in shared_ptrs at all.
-    app.nativeTitleIconBitmap = nullptr;
-    app.nativeStartPageIconBitmap = nullptr;
+    // The native is a fake address, so nothing may release it. shutdown() would.
+    // No lightbox or icon line any more: all three are shared_ptr<tinta::Bitmap> and this
+    // test never sets them, and if it did, D2DBitmap BORROWS -- which is why the
+    // reallocation test can put fake addresses in shared_ptrs at all.
     app.nativeLinkPeekBitmap = nullptr;
 
     if (failures == 0) {

@@ -206,6 +206,46 @@ DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
 std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
                                                 const std::wstring& path);
 
+// Decode a MULTI-FRAME ICON held in memory into a backend bitmap at a requested pixel
+// size. The fourth cell of this header's grid: `rasterizeSvg` already takes memory but
+// only understands SVG, and `decodeImageFileToBitmap` already produces a bitmap but only
+// from a path. The app icon is embedded bytes in a raster container, so neither reaches it.
+//
+// THE FRAME-SELECTION POLICY IS PART OF THE CONTRACT, NOT AN IMPLEMENTATION DETAIL, AND
+// THIS PARAGRAPH IS WRITTEN BEFORE EITHER BACKEND. Both implementations MUST follow it
+// rather than defer to their image library's default:
+//
+//   Choose the SMALLEST frame whose width is >= pixelSize. If no frame is that large,
+//   choose the LARGEST frame available. Then scale that frame to exactly pixelSize.
+//
+// Why it is stated rather than delegated, measured rather than argued: resources/tinta.ico
+// carries frames at 256, 48, 32 and 16 and the hero icon asks for 64. There is NO 64 frame,
+// so at that size "which frame" IS the visible behaviour -- and WIC's ICO decoder and Qt's
+// ICO handler do not choose alike. Two libraries left to their defaults would render a
+// different hero icon on the two platforms with nothing in the build to say so, which is
+// exactly the class of divergence a seam is supposed to prevent rather than launder. The
+// 32 px caller, by contrast, hits an exact frame on any sane policy, so a test at 32 alone
+// would pass while the interesting size diverged.
+//
+// The policy deliberately prefers DOWNSCALING a larger frame to upscaling a smaller one:
+// at 64 that means the 256 frame rather than the 48, because a downscale loses detail it
+// had and an upscale invents detail it never had.
+//
+// Returns nullptr for empty or truncated data, a container with no usable frame, a
+// non-positive pixelSize, or a decode failure -- the same all-failures-are-null shape as
+// decodeImageFileToBitmap, and null is likewise indistinguishable from bad bytes, so
+// callers must treat it as "no icon" and not as an error to report.
+//
+// `target` and the non-constness carry decodeImageFileToBitmap's contract above verbatim:
+// the backend's own render target, asserted downcast, mutating because creating a device
+// bitmap is a mutation on Direct2D.
+//
+// NOT a general "decode bytes to bitmap" entry point, and the narrower name is deliberate.
+// A general one would have no principled answer to the frame question, which is the only
+// reason this function exists.
+std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void* data,
+                                                size_t size, int pixelSize);
+
 } // namespace tinta
 
 #endif // TINTA_IMAGE_API_H

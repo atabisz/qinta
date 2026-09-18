@@ -5,6 +5,8 @@
 
 #include "tabs.h"
 #include "overlays.h"
+#include "app_icon_data.h"
+#include "image_api.h"
 
 #include "document.h"
 #include "drafts.h"
@@ -522,37 +524,23 @@ void renderTabStrip(App& app) {
 
     // App icon (16px, centered in a 40px cell)
     float iconCell = dpi(app, 40.0f);
-    if (!app.nativeTitleIconBitmap && app.wicFactory && app.renderTarget) {
-        HICON icon = (HICON)LoadImageW(GetModuleHandleW(nullptr), L"IDI_ICON1",
-                                       IMAGE_ICON, 32, 32, 0);
-        if (icon) {
-            IWICBitmap* wicBitmap = nullptr;
-            if (SUCCEEDED(app.wicFactory->CreateBitmapFromHICON(
-                    icon, &wicBitmap)) && wicBitmap) {
-                IWICFormatConverter* converter = nullptr;
-                if (SUCCEEDED(app.wicFactory->CreateFormatConverter(
-                        &converter)) && converter) {
-                    if (SUCCEEDED(converter->Initialize(
-                            wicBitmap, GUID_WICPixelFormat32bppPBGRA,
-                            WICBitmapDitherTypeNone, nullptr, 0.0,
-                            WICBitmapPaletteTypeCustom))) {
-                        app.nativeRenderTarget->CreateBitmapFromWicBitmap(
-                            converter, nullptr, &app.nativeTitleIconBitmap);
-                    }
-                    converter->Release();
-                }
-                wicBitmap->Release();
-            }
-            DestroyIcon(icon);
-        }
+    // ASKED AT 32 WHERE startpage.cpp ASKS AT 64, and the difference is the reason the
+    // frame choice is not made at either call site: tinta.ico HAS a 32x32 frame and has
+    // no 64x64 one, so the two callers exercise different branches of image_api.h's
+    // stated policy. The twenty lines of LoadImageW / CreateBitmapFromHICON /
+    // CreateFormatConverter this replaces were byte-similar to startpage.cpp's, which is
+    // how one embedded asset came to be decoded twice by two copies of the same ladder.
+    if (!app.titleIconBitmap && app.renderTarget) {
+        app.titleIconBitmap = tinta::decodeIconBytesToBitmap(
+            *app.renderTarget, tinta::kAppIconIco, tinta::kAppIconIcoSize, 32);
     }
     if (!app.editMode) renderAppMenuButtonBackground(app);
-    if (app.nativeTitleIconBitmap) {
+    if (app.titleIconBitmap) {
         float iconSize = dpi(app, 16.0f);
         float ix = (iconCell - iconSize) * 0.5f;
         float iy = (stripH - iconSize) * 0.5f;
         app.renderTarget->DrawBitmap(
-            app.titleIconBitmap(),
+            app.titleIconBitmap.get(),
             tinta::rectF(ix, iy, ix + iconSize, iy + iconSize));
     }
 

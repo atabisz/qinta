@@ -5,8 +5,10 @@
 // backend pulls in its own -- which is the arrangement that note in the header describes.
 #include "render_qt.h"
 
+#include <QBuffer>
 #include <QByteArray>
 #include <QCoreApplication>
+#include <QImageReader>
 #include <QEventLoop>
 #include <QFile>
 #include <QImage>
@@ -161,6 +163,84 @@ std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
     if (!img.load(QString::fromStdWString(path))) return nullptr;
     if (img.isNull()) return nullptr;
     return std::make_shared<QtBitmap>(std::move(img));
+}
+
+std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void* data,
+                                                size_t size, int pixelSize) {
+    assert(dynamic_cast<QtRenderTarget*>(&target) != nullptr &&
+           "a non-Qt RenderTarget reached the Qt image backend");
+    if (!dynamic_cast<QtRenderTarget*>(&target)) return nullptr;
+    if (!data || size == 0 || pixelSize <= 0) return nullptr;
+
+    // fromRawData, not a copy: the bytes outlive the call at every caller (a static array),
+    // and the buffer is read and discarded inside this function.
+    const QByteArray bytes = QByteArray::fromRawData(static_cast<const char*>(data),
+                                                    static_cast<int>(size));
+    QBuffer buffer;
+    buffer.setData(bytes);
+    if (!buffer.open(QIODevice::ReadOnly)) return nullptr;
+
+    QImageReader reader(&buffer);
+    if (!reader.canRead()) return nullptr;
+
+    // THE FRAME CHOICE IS image_api.h's POLICY, IMPLEMENTED, NOT Qt's DEFAULT.
+    // Left alone, Qt's ICO handler hands back a frame chosen by its own rule and WIC's
+    // decoder chooses by another, so the hero size -- 64, which resources/tinta.ico has no
+    // frame for -- would render differently on the two platforms with nothing to reveal it.
+    // jumpToImage/size walks the container so the stated rule decides instead.
+    const int frameCount = reader.imageCount();
+    int bestIndex = -1;
+    int bestWidth = 0;
+    bool haveAtOrAbove = false;
+    for (int i = 0; i < frameCount; ++i) {
+        if (!reader.jumpToImage(i)) continue;
+        const QSize frameSize = reader.size();
+        const int fw = frameSize.width();
+        if (fw <= 0) continue;
+
+        const bool atOrAbove = fw >= pixelSize;
+        if (haveAtOrAbove) {
+            if (atOrAbove && fw < bestWidth) {
+                bestWidth = fw;
+                bestIndex = i;
+            }
+        } else if (atOrAbove) {
+            haveAtOrAbove = true;
+            bestWidth = fw;
+            bestIndex = i;
+        } else if (fw > bestWidth) {
+            bestWidth = fw;
+            bestIndex = i;
+        }
+    }
+
+    QImage frame;
+    if (bestIndex >= 0 && reader.jumpToImage(bestIndex)) {
+        frame = reader.read();
+    }
+    if (frame.isNull()) {
+        // A container whose frames could not be enumerated (imageCount() == -1 is a
+        // documented answer for some formats) still gets one honest attempt at the whole
+        // stream, rather than being reported as undecodable. The policy is unaffected: a
+        // single-frame stream has only one choice.
+        buffer.seek(0);
+        QImageReader retry(&buffer);
+        frame = retry.read();
+    }
+    if (frame.isNull()) return nullptr;
+
+    // Scale unconditionally, for the same reason the Direct2D side does: an exact-frame
+    // request and a scaled one must not take different code paths, or a test at 32 passes
+    // while 64 is broken. SmoothTransformation is the closest Qt analogue to WIC's Fant.
+    QImage scaled = frame.scaled(pixelSize, pixelSize, Qt::IgnoreAspectRatio,
+                                 Qt::SmoothTransformation);
+    if (scaled.isNull()) return nullptr;
+    // The whole tree's bitmaps are premultiplied BGRA; see this file's endianness note.
+    if (scaled.format() != QImage::Format_ARGB32_Premultiplied)
+        scaled = scaled.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    if (scaled.isNull()) return nullptr;
+
+    return std::make_shared<QtBitmap>(std::move(scaled));
 }
 
 DecodedImage rasterizeSvg(const void* data, size_t size, float scale,

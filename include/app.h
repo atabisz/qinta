@@ -701,9 +701,12 @@ struct App {
     // Only the primary window persists the tab session; satellites
     // (--cascade/--new/drag-outs) neither restore nor overwrite it
     bool sessionOwner = true;
-    // 16px window icon drawn in the strip (device bitmap: recreated with
-    // the render target)
-    ID2D1Bitmap* nativeTitleIconBitmap = nullptr;
+    // The window icon drawn in the tab strip, decoded from the embedded .ico at
+    // 32 px. A holder rather than a native pointer plus a Seated accessor, for the
+    // reason lightboxBitmap gives below: there is no native left to wrap, so nothing
+    // can go stale. The type is also what removes the #ifdef from the code that fills
+    // it -- tabs.cpp asks image_api.h for a tinta::Bitmap and never names a D2D type.
+    std::shared_ptr<tinta::Bitmap> titleIconBitmap;
 
     // Start page (design t7): the launcher that replaced the sample
     // document. It is the universal empty state: any tab with no
@@ -718,7 +721,10 @@ struct App {
     std::vector<RecentDoc> startPageRecents;
     int startPageHover = 0;  // hit id under the mouse, 0 = none
     std::vector<std::pair<tinta::RectF, int>> startPageHits;  // rebuilt each paint
-    ID2D1Bitmap* nativeStartPageIconBitmap = nullptr;  // hero icon (device bitmap)
+    // The hero icon, decoded from the same embedded .ico at 64 px -- a size that .ico
+    // has no frame for, which is why the frame choice is image_api.h's stated policy
+    // and not a decoder default. Same holder shape as titleIconBitmap above.
+    std::shared_ptr<tinta::Bitmap> startPageIconBitmap;
 
     // Folder browser overlay
     bool showFolderBrowser = false;
@@ -1479,8 +1485,11 @@ struct App {
         imageCache.clear();
         imageCacheBytes = 0;
         imageCacheUseClock = 0;
-        releaseNative(nativeTitleIconBitmap);
-        releaseNative(nativeStartPageIconBitmap);
+        // reset(), not releaseNative(): both icons are shared handles now, so the
+        // bitmap goes when the last holder does -- the same replacement the image
+        // cache above got, for the same reason.
+        titleIconBitmap.reset();
+        startPageIconBitmap.reset();
     }
 
     void shutdown() {
@@ -1660,22 +1669,28 @@ struct App {
         seatTextFactory();
     }
 
-    // The four scalar bitmaps are reached through ACCESSORS, not through a seated
-    // pointer field like the render target and the formats. The reason is their
-    // lifetime, not their type: each of these is created and released while the app
-    // runs -- the lightbox opens and closes, the link peek arms and disarms -- so a
-    // seated field would need reseating at all 8 of its mutation sites, and missing
+    // ONE scalar bitmap is still reached through an ACCESSOR, rather than through a
+    // seated pointer field like the render target and the formats. The reason is its
+    // lifetime, not its type: the link peek arms and disarms while the app runs, so a
+    // seated field would need reseating at every one of its mutation sites, and missing
     // one would leave a stale pointer that still draws the PREVIOUS image. Reseating
     // on read cannot be forgotten. It is affordable only because D2DBitmap borrows
     // (see render_d2d.h): rebuilding the wrapper is one pointer store and no
     // refcount traffic. Deliberately NOT the shape to copy for an owning wrapper.
     //
+    // THIS COMMENT SAID "FOUR", THEN THE LIGHTBOX LEFT, AND NOW BOTH ICONS HAVE.
+    // Each one went the same way and for a better reason than the accessor: a
+    // shared_ptr<tinta::Bitmap> member has no native pointer behind it, so the
+    // staleness the accessor defends against cannot arise, AND the member stops naming
+    // a Direct2D type -- which is what let the two icons' `#ifdef` go rather than move.
+    // The accessor shape is what a BORROWED native needs, not what the seam prefers.
+    //
     // const, with mutable storage, because lightboxImageRect takes a const App&.
     //
     // THE GUARD IS TINTA_D2D_BACKEND, NOT _WIN32, for the reason CMakeLists.txt spells out
     // where that macro is defined: an `#ifdef _WIN32` in a header that BOTH stacks compile
-    // is asking about the OS when it means to ask about the backend. These three accessors
-    // are the second instance of that mistake, after src/paint_document.cpp, and they were
+    // is asking about the OS when it means to ask about the backend. These accessors were
+    // the second instance of that mistake, after src/paint_document.cpp, and they were
     // found the same way -- by a link failure rather than by reading. Under
     // -DTINTA_LEGACY_D2D=OFF, qinta is a WINDOWS target with no D2D backend, so _WIN32 was
     // defined, `seat<D2DBitmap>` instantiated, and four objects that have nothing to do with
@@ -1689,27 +1704,16 @@ struct App {
     //
     // Returning nullptr when the backend is absent is not a new behaviour, it is the SAME
     // behaviour this file already had off Windows, and the callers already handle it (each
-    // one passes the pointer to a draw helper that skips a null bitmap). So a Windows qinta
-    // now draws these three chrome icons exactly as a Linux qinta does: not at all, pending
-    // a Qt path. That is the honest state rather than a regression.
-    tinta::Bitmap* titleIconBitmap() const {
-#ifdef TINTA_D2D_BACKEND
-        return titleIconBitmapStorage.seat<D2DBitmap>(nativeTitleIconBitmap);
-#else
-        titleIconBitmapStorage.reset();
-        return nullptr;
-#endif
-    }
-    tinta::Bitmap* startPageIconBitmap() const {
-#ifdef TINTA_D2D_BACKEND
-        return startPageIconBitmapStorage.seat<D2DBitmap>(nativeStartPageIconBitmap);
-#else
-        startPageIconBitmapStorage.reset();
-        return nullptr;
-#endif
-    }
-    // No lightboxBitmap() accessor: the member of that name IS a tinta::Bitmap
-    // holder now, so .get() is the whole accessor. Its Seated storage went with it.
+    // one passes the pointer to a draw helper that skips a null bitmap). That was written
+    // when all three chrome icons drew on neither stack, pending a Qt path. TWO OF THE
+    // THREE NOW HAVE ONE and are members above; the link peek is the one still waiting,
+    // so the paragraph is still live for it and is no longer the whole story.
+    // No titleIconBitmap() or startPageIconBitmap() accessor either, and no
+    // lightboxBitmap() one: all three members of those names ARE tinta::Bitmap holders
+    // now, so .get() is the whole accessor and their Seated storages went with them.
+    // For the two icons that also deleted an `#ifdef TINTA_D2D_BACKEND` returning
+    // nullptr off Windows -- the guard existed only because the thing behind it was an
+    // ID2D1Bitmap*, so the icons now draw on both stacks instead of on neither.
     tinta::Bitmap* linkPeekBitmap() const {
 #ifdef TINTA_D2D_BACKEND
         return linkPeekBitmapStorage.seat<D2DBitmap>(nativeLinkPeekBitmap);
@@ -1720,8 +1724,6 @@ struct App {
     }
 
 private:
-    mutable Seated<tinta::Bitmap, ID2D1Bitmap> titleIconBitmapStorage;
-    mutable Seated<tinta::Bitmap, ID2D1Bitmap> startPageIconBitmapStorage;
     mutable Seated<tinta::Bitmap, ID2D1Bitmap> linkPeekBitmapStorage;
 };
 

@@ -3,10 +3,17 @@
 // preserved exactly rather than tidied.
 //
 // This file is the ONLY place under src/ that includes <commdlg.h> for a file
-// dialog. src/print.cpp still includes it and must keep it -- PRINTDLGW and
-// PrintDlgW at print.cpp:580 and :603 are a different dialog with a different
-// struct, and folding them in here would be a second seam wearing the first one's
-// name.
+// dialog. src/print.cpp still includes it and must keep it -- its PRINTDLGW and
+// PrintDlgW are a different dialog with a different struct, and folding them in here
+// would be a second seam wearing the first one's name.
+//
+// THE LINE NUMBERS THAT USED TO BE HERE ARE DELETED RATHER THAN UPDATED, and that is the
+// point of this paragraph. It said "at print.cpp:580 and :603"; they are at 649 and 672
+// today, moved by an unrelated change to a function four hundred lines earlier
+// (drawDocumentRange taking a tinta::RenderTarget&). A line number in a comment is a
+// claim about a file this comment cannot see, it goes stale on every edit ABOVE the line
+// rather than at the line, and nothing fails when it does. The two symbol names are
+// greppable and cannot drift; that is what a cross-file reference should be.
 
 #include "file_dialog.h"
 

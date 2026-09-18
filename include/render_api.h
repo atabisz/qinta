@@ -172,8 +172,12 @@
 // GEOMETRY PATHS WERE ON IT TOO, and the entry read "FillGeometry 2, DrawGeometry
 // 2. They need a path object, which is a handle type like StrokeStyle rather than
 // a value type." The diagnosis was right and the count was wrong: measured over
-// code lines only, it is SIX of each (src/export_docx.cpp x2, src/main_d2d.cpp x2,
-// src/print.cpp x2). I found that out by grepping this header for FillGeometry,
+// code lines only, it is SIX of each -- src/export_docx.cpp x2, src/print.cpp x2,
+// and src/paint_document.cpp x2, WHICH THIS ENTRY CALLED src/main_d2d.cpp UNTIL
+// 2026-09-18. The count survived the correction and the file name did not: the pass
+// moved when paint_document.cpp was extracted, which is the same staleness the
+// AddLines entry below carried, from the same extraction, found in the same grep.
+// All six draw through the seam today. I found the count out by grepping this header for FillGeometry,
 // getting a hit, and reading it as a declaration when it was this comment -- so
 // the stale number cost a wrong estimate before it cost anything else. A count in
 // a comment is a claim, and a grep hit inside a comment is not a call site.
@@ -322,9 +326,20 @@ public:
 //
 // AddLine and AddLines are BOTH here, which a name-only census would have missed:
 // 2 sites append in a loop (src/render.cpp, src/export_docx.cpp) and 2 pass a whole
-// run at once through tinta::asD2DPointArray (src/main_d2d.cpp, src/print.cpp).
-// Collapsing the array form into a loop would throw away the one thing that helper
-// exists to guarantee, and geometry_tests.cpp asserts its stride.
+// run at once. Collapsing the array form into a loop would throw away the one thing
+// tinta::asD2DPointArray exists to guarantee, and geometry_tests.cpp asserts its
+// stride.
+//
+// THE TWO ARRAY SITES BOTH CALL THIS SEAM NOW, and the entry used to name them as
+// "(src/main_d2d.cpp, src/print.cpp)" passing "through tinta::asD2DPointArray" --
+// which was a description of the hand-rolled ID2D1GeometrySink builders this
+// interface replaced. They are src/paint_document.cpp:270 and src/print.cpp:362, both
+// spelled sink->AddLines(...), and asD2DPointArray is now reached only from inside
+// D2DPathSink::AddLines where it belongs. The COUNT of 2 was and is correct; the
+// example list went stale twice over -- main_d2d.cpp's copy moved when the paint pass
+// was extracted, and print.cpp's stopped being native when drawDocumentRange took a
+// RenderTarget&. Kept as a correction rather than a deletion because the count is the
+// load-bearing part: it is why both forms are on this interface at all.
 class PathSink {
 public:
     virtual ~PathSink() = default;
@@ -347,8 +362,18 @@ public:
 //
 // The defaulted strokeWidth and strokeStyle mirror Direct2D's own defaults, so
 // the 3-argument DrawLine calls that make up the bulk of the 111 sites and the
-// 5-argument dashed-connector calls in main_d2d.cpp and print.cpp both bind
-// without edits.
+// 5-argument dashed-connector calls both bind without edits.
+//
+// THE EXAMPLE LIST SAID "main_d2d.cpp and print.cpp", AND IT IS THE FOURTH SITE IN THIS
+// FILE TO CARRY THE SAME EXTRACTION STALENESS -- the paint pass moved to
+// paint_document.cpp and every comment naming main_d2d.cpp as a drawing caller went
+// stale in one commit, silently, because no test reads a filename in a comment.
+// Measured: 111 DrawLine call sites in src/ with comments stripped and the two backend
+// definitions excluded -- so THAT figure reproduces exactly -- and the 5-argument form
+// is at exactly THREE, one per file: src/export_docx.cpp:419, src/paint_document.cpp:218
+// and src/print.cpp:316. print.cpp's is the one this seam newly carries; it used to be a
+// native ID2D1RenderTarget::DrawLine and now binds here with no edit, which is the
+// defaulting claim above being exercised rather than asserted.
 class RenderTarget {
 public:
     virtual ~RenderTarget() = default;

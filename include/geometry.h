@@ -347,6 +347,32 @@ inline Matrix3x2F matrixScale(float scaleX, float scaleY) {
     return Matrix3x2F{scaleX, 0.0f, 0.0f, scaleY, 0.0f, 0.0f};
 }
 
+// Scale about a CENTRE that stays put, mirroring D2D1::Matrix3x2F::Scale's
+// three-argument overload. Added under the rule this section already states -- the
+// site that needs it lands in the same commit -- and that site is the print path's
+// shrink band (src/print.cpp), which scales an oversized block about its band's
+// top-left corner.
+//
+// WRITTEN IN D2D'S CLOSED FORM, NOT AS A COMPOSITION, and the difference is
+// load-bearing. The obvious spelling is
+// `matrixTranslation(-cx, -cy) * matrixScale(s, s) * matrixTranslation(cx, cy)`,
+// which is algebraically the same matrix. This is the closed form instead because
+// the call site's whole claim is that the printed page does not change by one byte,
+// and a composition reaches the same fields through six multiplies and four adds in
+// operator* rather than through one multiply and one subtract. Those agree exactly
+// for this pattern of zeros and ones -- but "exactly" would then be a floating-point
+// argument a reader has to redo, where the closed form is the same arithmetic
+// Direct2D itself performs.
+//
+// The equality with D2D's own helper is ASSERTED rather than asserted-in-prose:
+// tests/geometry_tests.cpp builds both and compares all six fields, which is the
+// same two-independent-constructions instrument the layout static_asserts below use.
+inline Matrix3x2F matrixScale(float scaleX, float scaleY, PointF center) {
+    return Matrix3x2F{scaleX, 0.0f, 0.0f, scaleY,
+                      center.x - scaleX * center.x,
+                      center.y - scaleY * center.y};
+}
+
 // Row-vector composition: `a * b` applies a FIRST, then b.
 //
 // MEASURED against Qt rather than inferred from the member names, because both
@@ -444,9 +470,27 @@ inline Matrix3x2F fromD2D(const D2D1_MATRIX_3X2_F& m) {
 // because sizeof and every offsetof are asserted equal a few lines up.
 //
 // This helper exists so that dependency is named in ONE place. Do not spell the
-// reinterpret_cast at call sites; two of them (src/print.cpp, src/main_d2d.cpp)
-// is already the entire population, and a cast written inline reads like a
-// workaround rather than like something the assertions license.
+// reinterpret_cast at call sites.
+//
+// AND THE POPULATION IS NOW ONE, NOT TWO, AND NEITHER OF THE TWO FILES THIS PARAGRAPH
+// NAMED IS STILL ONE OF THEM. It read "two of them (src/print.cpp, src/main_d2d.cpp) is
+// already the entire population". Measured: the only caller is
+// D2DPathSink::AddLines in src/render_d2d.cpp, which is where it belongs -- inside the
+// backend, on the far side of the seam. main_d2d.cpp's copy moved when the paint pass was
+// extracted to paint_document.cpp, and print.cpp's stopped being native when
+// drawDocumentRange took a tinta::RenderTarget&; both now reach AddLines through
+// tinta::PathSink and never see a D2D1_POINT_2F at all.
+//
+// WHY THIS SITE IS WORTH THE PARAGRAPH: include/render_api.h had already corrected the
+// same two filenames, in the same pass, for the same reason -- and this one is in a
+// DIFFERENT FILE, which is why the grep that fixed that one did not reach it. A
+// justification does not only migrate into other paragraphs of one file; it migrates
+// across files, and each copy has to be found by measuring the population rather than by
+// re-reading the sentence.
+//
+// The helper itself stays, and the reason is unchanged by the count falling to one: it is
+// what names the sizeof/offsetof dependency in one place, and a cast written inline reads
+// like a workaround rather than like something the assertions license.
 inline const D2D1_POINT_2F* asD2DPointArray(const PointF* points) {
     return reinterpret_cast<const D2D1_POINT_2F*>(points);
 }

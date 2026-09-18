@@ -5,7 +5,15 @@
 #include "editor.h"
 #include "utils.h"
 
+// Named rather than left to arrive through app.h, which embeds the D2D wrappers by
+// value and so has always pulled render_d2d.h in transitively. drawDocumentRange now
+// takes a tinta::RenderTarget& and the three call sites construct D2DRenderTarget and
+// D2DBrush, so this file uses both headers directly and says so.
+#include "render_api.h"
+#include "render_d2d.h"
+
 #include <fstream>
+#include <memory>
 #include <sstream>
 
 #include <commdlg.h>
@@ -206,11 +214,32 @@ std::vector<float> computePageBreaks(const App& app, float pageContentH) {
 }
 
 // Replays the cached layout for the document Y range [yStart, yEnd) into
-// the given device context, translated so yStart lands at offsetY. A
+// the given render target, translated so yStart lands at offsetY. A
 // print-path sibling of render()'s document pass — selection, search, and
 // hover chrome intentionally excluded.
-void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
-                       ID2D1SolidColorBrush* brush,
+//
+// THIS TAKES A tinta::RenderTarget, AND THAT IS THE WHOLE OF THE CHANGE.
+//
+// It used to take an ID2D1DeviceContext* and an ID2D1SolidColorBrush*, and four
+// comments in this function explained that its drawing had to stay native because
+// "the seam has no print target". That was never a property of the seam -- it was a
+// property of THIS SIGNATURE. tinta::RenderTarget is an interface, D2DRenderTarget
+// wraps an ID2D1RenderTarget* by storing it and nothing else, and
+// ID2D1DeviceContext derives from ID2D1RenderTarget -- so the three callers below
+// wrap their own device context at zero cost and every call in here becomes portable
+// without the drawing changing at all.
+//
+// The coupling that left was invisible to an identifier grep: the file's live
+// Direct2D count barely moves, because the ~60 calls this function makes were spelled
+// `dc->` and `brush->` and only the parameter types and the D2D1:: matrix helpers
+// were ever countable. 220 lines went from unportable to portable for a delta of 16.
+//
+// The sibling pass in src/paint_document.cpp supplied every spelling used here, and
+// deliberately was NOT called instead: it draws through app.renderTarget with
+// app.scrollX/scrollY offsets, so sharing it would mean parameterising the on-screen
+// paint pass in the same commit that claims the printed page is byte-identical.
+void drawDocumentRange(App& app, tinta::RenderTarget& target,
+                       tinta::Brush* brush,
                        float yStart, float yEnd,
                        float offsetX, float offsetY) {
     auto inRange = [&](float top, float bottom) {
@@ -222,13 +251,13 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
     // Oversized blocks draw scaled about their band's top-left; the band
     // transform composes with whatever transform the caller set (the
     // preview rasterizer scales the whole page to display resolution)
-    D2D1_MATRIX_3X2_F baseTransform;
-    dc->GetTransform(&baseTransform);
+    tinta::Matrix3x2F baseTransform;
+    target.GetTransform(&baseTransform);
     auto applyBand = [&](float top, float bottom) {
         for (const auto& band : app.printShrinkBands) {
             if (top >= band.top - 0.5f && bottom <= band.bottom + 0.5f) {
-                dc->SetTransform(
-                    D2D1::Matrix3x2F::Scale(band.scale, band.scale,
+                target.SetTransform(
+                    tinta::matrixScale(band.scale, band.scale,
                         tinta::pointF(dx, band.top + dy)) * baseTransform);
                 return true;
             }
@@ -236,14 +265,14 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         return false;
     };
     auto resetBand = [&](bool wasBanded) {
-        if (wasBanded) dc->SetTransform(baseTransform);
+        if (wasBanded) target.SetTransform(baseTransform);
     };
 
     for (const auto& rect : app.layoutRects) {
         if (!inRange(rect.rect.top, rect.rect.bottom)) continue;
         bool banded = applyBand(rect.rect.top, rect.rect.bottom);
         brush->SetColor(rect.color);
-        dc->FillRectangle(
+        target.FillRectangle(
             tinta::rectF(rect.rect.left + dx, rect.rect.top + dy,
                         rect.rect.right + dx, rect.rect.bottom + dy),
             brush);
@@ -256,9 +285,9 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(top, bottom)) continue;
         bool banded = applyBand(top, bottom);
         brush->SetColor(line.color);
-        dc->DrawLine(tinta::pointF(line.p1.x + dx, line.p1.y + dy),
-                     tinta::pointF(line.p2.x + dx, line.p2.y + dy),
-                     brush, line.stroke);
+        target.DrawLine(tinta::pointF(line.p1.x + dx, line.p1.y + dy),
+                        tinta::pointF(line.p2.x + dx, line.p2.y + dy),
+                        brush, line.stroke);
         resetBand(banded);
     }
 
@@ -271,10 +300,20 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         for (size_t i = 1; i < connector.points.size(); i++) {
             const auto& from = connector.points[i - 1];
             const auto& to = connector.points[i];
-            dc->DrawLine(tinta::pointF(from.x + dx, from.y + dy),
-                         tinta::pointF(to.x + dx, to.y + dy),
-                         brush, connector.stroke,
-                         connector.dashed ? app.nativeDashedStrokeStyle : nullptr);
+            // app.dashedStrokeStyle, not app.nativeDashedStrokeStyle, and the two are
+            // null or non-null TOGETHER -- seatDashedStrokeStyle sets both, so this is
+            // the same read rather than a new one.
+            //
+            // WHAT IS DELIBERATELY NOT FIXED HERE: this reads the style without
+            // calling ensureDashedStrokeStyle(app), so a document whose dashed
+            // connectors have never been painted on screen prints them SOLID. That is
+            // pre-existing, and creating the style here would change what comes out of
+            // the printer in the commit that claims the pages are byte-identical.
+            // Recorded rather than repaired.
+            target.DrawLine(tinta::pointF(from.x + dx, from.y + dy),
+                            tinta::pointF(to.x + dx, to.y + dy),
+                            brush, connector.stroke,
+                            connector.dashed ? app.dashedStrokeStyle : nullptr);
         }
         if (connector.directed) {
             const auto& tip = connector.points.back();
@@ -291,10 +330,10 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
                     tip.x - vx * connector.arrowSize - vy * wing,
                     tip.y - vy * connector.arrowSize + vx * wing);
                 tinta::PointF screenTip = tinta::pointF(tip.x + dx, tip.y + dy);
-                dc->DrawLine(screenTip, tinta::pointF(left.x + dx, left.y + dy),
-                             brush, connector.stroke);
-                dc->DrawLine(screenTip, tinta::pointF(right.x + dx, right.y + dy),
-                             brush, connector.stroke);
+                target.DrawLine(screenTip, tinta::pointF(left.x + dx, left.y + dy),
+                                brush, connector.stroke);
+                target.DrawLine(screenTip, tinta::pointF(right.x + dx, right.y + dy),
+                                brush, connector.stroke);
             }
         }
         resetBand(banded);
@@ -302,34 +341,36 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
 
     // Mermaid node shapes
     //
-    // NOT routed onto the path seam, and that is a limit of the seam rather than an
-    // oversight: BeginPath lives on tinta::RenderTarget, and this function draws
-    // through a print device context that no RenderTarget wraps. Building through
-    // app.renderTarget would work -- same ID2D1Factory -- but it would put a
-    // portable-looking call in a function that then hands the result to a raw dc,
-    // which is a worse lie than the honest native code below. When this file is
-    // ported to QPrinter the whole function goes.
+    // ON THE PATH SEAM NOW. This used to build through app.d2dFactory directly, with a
+    // comment calling that "a limit of the seam rather than an oversight" because
+    // BeginPath lives on tinta::RenderTarget and this function had no target to call it
+    // on. It has one, so the reason is gone and the hand-rolled builder with it.
+    //
+    // The two enum arguments the old code passed are absent because the seam does not
+    // offer them: render_api.h measured BeginFigure as FILLED at 7 of 7 sites and
+    // EndFigure as CLOSED at 7 of 7, so the values are fixed rather than defaulted.
+    // These two calls were part of that census -- the shapes drawn are the same ones.
+    //
+    // AddLines keeps the array form rather than becoming a loop. It is not a style
+    // choice: this site is one of the two the seam carries AddLines FOR, and passing
+    // the run whole is what tinta::asD2DPointArray used to guarantee here.
     auto fillStrokePolygon = [&](const tinta::PointF* pts, size_t count,
                                  const App::LayoutShape& shape) {
-        ID2D1PathGeometry* geometry = nullptr;
-        if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry)) || !geometry) return;
-        ID2D1GeometrySink* sink = nullptr;
-        if (SUCCEEDED(geometry->Open(&sink)) && sink) {
-            sink->BeginFigure(pts[0], D2D1_FIGURE_BEGIN_FILLED);
-            sink->AddLines(tinta::asD2DPointArray(pts + 1), (UINT32)(count - 1));
-            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-            sink->Close();
-            sink->Release();
-            if (shape.fill.a > 0.0f) {
-                brush->SetColor(shape.fill);
-                dc->FillGeometry(geometry, brush);
-            }
-            if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
-                brush->SetColor(shape.stroke);
-                dc->DrawGeometry(geometry, brush, shape.strokeWidth);
-            }
+        std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+        if (!sink) return;
+        sink->BeginFigure(pts[0]);
+        sink->AddLines(pts + 1, static_cast<uint32_t>(count - 1));
+        sink->EndFigure();
+        std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+        if (!geometry) return;
+        if (shape.fill.a > 0.0f) {
+            brush->SetColor(shape.fill);
+            target.FillGeometry(geometry.get(), brush);
         }
-        geometry->Release();
+        if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
+            brush->SetColor(shape.stroke);
+            target.DrawGeometry(geometry.get(), brush, shape.strokeWidth);
+        }
     };
 
     for (const auto& shape : app.layoutShapes) {
@@ -339,25 +380,24 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
                                     shape.rect.right + dx, shape.rect.bottom + dy);
         if (shape.type == App::LayoutShapeType::Path) {
             if (shape.geometry) {
-                // The cached path is a seam handle now, so it has to be unwrapped
-                // before a raw device context can draw it. nativePathGeometry
-                // ASSERTS on a foreign backend rather than returning null -- correct
-                // here, because reaching this line at all means a D2D print path is
-                // drawing a shape some other backend built.
-                ID2D1PathGeometry* native = nativePathGeometry(shape.geometry.get());
-                D2D1_MATRIX_3X2_F previous;
-                dc->GetTransform(&previous);
-                dc->SetTransform(
-                    D2D1::Matrix3x2F::Translation(r.left, r.top) * previous);
+                // The cached path is a seam handle and it is now drawn AS ONE. This
+                // used to call nativePathGeometry() to unwrap it, because a raw device
+                // context cannot take a tinta::PathGeometry -- the unwrapper is exported
+                // from render_d2d.h for exactly this call, and this was its last caller
+                // outside the backend.
+                tinta::Matrix3x2F previous;
+                target.GetTransform(&previous);
+                target.SetTransform(
+                    tinta::matrixTranslation(r.left, r.top) * previous);
                 if (shape.fill.a > 0.0f) {
                     brush->SetColor(shape.fill);
-                    dc->FillGeometry(native, brush);
+                    target.FillGeometry(shape.geometry.get(), brush);
                 }
                 if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                     brush->SetColor(shape.stroke);
-                    dc->DrawGeometry(native, brush, shape.strokeWidth);
+                    target.DrawGeometry(shape.geometry.get(), brush, shape.strokeWidth);
                 }
-                dc->SetTransform(previous);
+                target.SetTransform(previous);
             }
         } else if (shape.type == App::LayoutShapeType::Diamond) {
             float cx = (r.left + r.right) * 0.5f, cy = (r.top + r.bottom) * 0.5f;
@@ -374,26 +414,26 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
             tinta::Ellipse e = tinta::ellipse(
                 tinta::pointF((r.left + r.right) * 0.5f, (r.top + r.bottom) * 0.5f),
                 (r.right - r.left) * 0.5f, (r.bottom - r.top) * 0.5f);
-            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); dc->FillEllipse(e, brush); }
+            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); target.FillEllipse(e, brush); }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 brush->SetColor(shape.stroke);
-                dc->DrawEllipse(e, brush, shape.strokeWidth);
+                target.DrawEllipse(e, brush, shape.strokeWidth);
             }
         } else if (shape.type == App::LayoutShapeType::RoundedRectangle ||
                    shape.type == App::LayoutShapeType::Stadium) {
             float radius = shape.type == App::LayoutShapeType::Stadium
                 ? (r.bottom - r.top) * 0.5f : shape.radius;
             tinta::RoundedRect rr = tinta::roundedRect(r, radius, radius);
-            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); dc->FillRoundedRectangle(rr, brush); }
+            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); target.FillRoundedRectangle(rr, brush); }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 brush->SetColor(shape.stroke);
-                dc->DrawRoundedRectangle(rr, brush, shape.strokeWidth);
+                target.DrawRoundedRectangle(rr, brush, shape.strokeWidth);
             }
         } else {
-            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); dc->FillRectangle(r, brush); }
+            if (shape.fill.a > 0.0f) { brush->SetColor(shape.fill); target.FillRectangle(r, brush); }
             if (shape.stroke.a > 0.0f && shape.strokeWidth > 0.0f) {
                 brush->SetColor(shape.stroke);
-                dc->DrawRectangle(r, brush, shape.strokeWidth);
+                target.DrawRectangle(r, brush, shape.strokeWidth);
             }
         }
         resetBand(banded);
@@ -404,16 +444,18 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!bmp.bitmap) continue;
         if (!inRange(bmp.destRect.top, bmp.destRect.bottom)) continue;
         bool banded = applyBand(bmp.destRect.top, bmp.destRect.bottom);
-        // nativeBitmap(), because `dc` is the print device context and not
-        // app.renderTarget -- the same reason the text loop below stays native. This
-        // line read `bmp.bitmap` until LayoutBitmap::bitmap became a
-        // shared_ptr<tinta::Bitmap>, and tests/bitmap_seam_tests.cpp used to
-        // static_assert that it never would, naming exactly this call as the reason.
-        // Exporting nativeBitmap from render_d2d.h is that reason answered.
-        dc->DrawBitmap(nativeBitmap(bmp.bitmap.get()),
+        // The seam handle goes straight in; this used to unwrap it with
+        // nativeBitmap() because `dc` was a raw device context.
+        //
+        // TWO ARGUMENTS, WHERE THE OLD CALL PASSED FOUR, and the dropped pair is not a
+        // behaviour change: the old call passed 1.0f and
+        // D2D1_BITMAP_INTERPOLATION_MODE_LINEAR explicitly, and those are precisely the
+        // seam's defaults -- chosen to be Direct2D's own so that a 2-argument call means
+        // opacity 1 and linear filtering on either backend (render_api.h says so where
+        // DrawBitmap is declared, and render_d2d.cpp asserts the enum values match).
+        target.DrawBitmap(bmp.bitmap.get(),
             tinta::rectF(bmp.destRect.left + dx, bmp.destRect.top + dy,
-                        bmp.destRect.right + dx, bmp.destRect.bottom + dy),
-            1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                        bmp.destRect.right + dx, bmp.destRect.bottom + dy));
         resetBand(banded);
     }
 
@@ -423,11 +465,17 @@ void drawDocumentRange(App& app, ID2D1DeviceContext* dc,
         if (!inRange(run.bounds.top, run.bounds.bottom)) continue;
         bool banded = applyBand(run.bounds.top, run.bounds.bottom);
         brush->SetColor(run.color);
-        // Native, because `dc` here is a print-specific ID2D1DeviceContext this
-        // function is handed, not app.renderTarget -- the seam has no print target
-        // and will not until this file moves to QPrinter.
-        dc->DrawTextLayout(tinta::pointF(run.pos.x + dx, run.pos.y + dy),
-                           nativeTextLayout(run.layout.get()), brush);
+        // On the seam. The comment here used to say "the seam has no print target and
+        // will not until this file moves to QPrinter" -- the target arrived without
+        // QPrinter, because it was the parameter type and not the printing backend that
+        // was in the way.
+        //
+        // NO options argument, matching the old call, which means the printed page has
+        // no colour-emoji pass. src/paint_document.cpp's on-screen sibling DOES take one
+        // (through app.deviceContext, with EnableColorFont) and this deliberately still
+        // does not: adding it would change what prints.
+        target.DrawTextLayout(tinta::pointF(run.pos.x + dx, run.pos.y + dy),
+                              run.layout.get(), brush);
         resetBand(banded);
     }
 }
@@ -493,7 +541,15 @@ bool rasterizePreviewPage(App& app, int page) {
         ID2D1SolidColorBrush* brush = nullptr;
         dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
         if (brush) {
-            drawDocumentRange(app, dc, brush,
+            // THE WRAP IS FREE AND IT BORROWS. D2DRenderTarget's constructor stores an
+            // ID2D1RenderTarget* and does nothing else -- no AddRef, no BeginDraw -- and
+            // ID2D1DeviceContext derives from ID2D1RenderTarget, so the print-specific
+            // context goes in as-is. D2DBrush is the same shape. Both must not outlive
+            // what they wrap, which is why they are locals inside the scope that owns
+            // the brush, and the Release below is still this function's job.
+            D2DRenderTarget seamTarget(dc);
+            D2DBrush seamBrush(brush);
+            drawDocumentRange(app, seamTarget, &seamBrush,
                               app.printPreviewBounds[page],
                               app.printPreviewBounds[page + 1],
                               kPageMarginDips, kPageMarginDips);
@@ -559,7 +615,14 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
         ID2D1SolidColorBrush* brush = nullptr;
         pageDc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
         if (brush) {
-            drawDocumentRange(app, pageDc, brush, yStart, yEnd,
+            // Borrowed wraps over the page context and its scratch brush; see the
+            // preview rasterizer above. Note what is being wrapped: pageDc's target is
+            // an ID2D1CommandList, so the drawing recorded through the seam here is
+            // replayed later by ID2D1PrintControl. The seam neither knows nor cares --
+            // it holds an ID2D1RenderTarget* and forwards.
+            D2DRenderTarget seamTarget(pageDc);
+            D2DBrush seamBrush(brush);
+            drawDocumentRange(app, seamTarget, &seamBrush, yStart, yEnd,
                               kPageMarginDips, kPageMarginDips);
             brush->Release();
         }
@@ -996,8 +1059,13 @@ ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
             ID2D1SolidColorBrush* brush = nullptr;
             dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
             if (brush) {
-                drawDocumentRange(app, dc, brush, topPad, topPad + heightDips,
-                                  0.0f, 0.0f);
+                // Borrowed wraps again. This context is at 192 DPI (the 2x link-peek
+                // crispness), set on dc before BeginDraw -- DPI is target state that the
+                // seam does not touch, so it applies to the wrapped drawing unchanged.
+                D2DRenderTarget seamTarget(dc);
+                D2DBrush seamBrush(brush);
+                drawDocumentRange(app, seamTarget, &seamBrush, topPad,
+                                  topPad + heightDips, 0.0f, 0.0f);
                 brush->Release();
             }
             if (SUCCEEDED(dc->EndDraw())) {

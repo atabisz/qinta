@@ -89,14 +89,23 @@ ID2D1StrokeStyle* nativeStrokeStyle(tinta::StrokeStyle* style) {
 
 }  // namespace
 
-// Not in the anonymous namespace above, because render_d2d.h declares them: paths
-// and bitmaps are the wrappers a caller outside this file has a reason to unwrap,
-// the same way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp
-// draw through a device context this seam does not wrap.
+// Not in the anonymous namespace above, because render_d2d.h declares them.
 //
-// nativeBitmap WAS file-local, and it stopped being so when
-// App::LayoutBitmap::bitmap became a shared_ptr<tinta::Bitmap>: print.cpp's page
-// loop had been reading that field as an ID2D1Bitmap* directly.
+// THE CALLERS THAT JUSTIFIED DECLARING THEM ARE GONE. This note read: "paths and
+// bitmaps are the wrappers a caller outside this file has a reason to unwrap, the same
+// way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp draw through
+// a device context this seam does not wrap." Both halves have since been retired --
+// export_docx.cpp's rasterisation moved onto the image seam, and print.cpp's
+// drawDocumentRange now takes a tinta::RenderTarget&. Nothing outside this file calls
+// either function today; the calls below in FillGeometry, DrawGeometry and DrawBitmap
+// are the whole population.
+//
+// So they COULD go back in the anonymous namespace, and the follow-up to do that is
+// recorded on the declarations in render_d2d.h. Left here for now because it is a
+// separate claim from the print retarget's -- one is proven by a page hash, the other
+// by a link -- and folding them together would mean neither reading discriminated.
+// nativeTextLayout is NOT in the same position: src/paint_document.cpp still needs it
+// for the colour-emoji device-context path.
 ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
     if (!bitmap) return nullptr;
     // dynamic_cast, so an owned bitmap passes too -- D2DOwnedBitmap derives from

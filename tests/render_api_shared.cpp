@@ -1407,6 +1407,57 @@ int runRenderApiAssertions(RenderHarness& h) {
               "tinta::operator* composes in row-vector order: dx is scaled to 20");
     }
 
+    {
+        // SCALE ABOUT A CENTRE. The print path's shrink band scales an oversized
+        // block about its band's top-left corner, so the corner must be a FIXED
+        // POINT -- the block grows or shrinks away from it rather than sliding.
+        //
+        // Asserted with the rectangle's left edge sitting ON the centre, which is
+        // what makes the plain two-argument scale a discriminating control rather
+        // than a second way of saying the same thing: at scale 2 about (8,8) the
+        // edge stays at 8, and with no centre it lands at 16. A centre that was
+        // silently ignored would therefore read as the control's answer, not as a
+        // near miss.
+        std::unique_ptr<tinta::Brush> brush = h.makeBrush(red);
+        const float c = 8.0f;
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(tinta::matrixScale(2.0f, 2.0f, tinta::pointF(c, c)));
+            rt.FillRectangle(tinta::rectF(c, c, c + 4.0f, c + 4.0f), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        const int aboutCentre = leftmostPainted(h);
+        const int aboutCentreTop = topmostPainted(h);
+
+        whiteSurface(h);
+        {
+            tinta::RenderTarget& rt = h.begin();
+            rt.SetTransform(tinta::matrixScale(2.0f, 2.0f));
+            rt.FillRectangle(tinta::rectF(c, c, c + 4.0f, c + 4.0f), brush.get());
+            rt.SetTransform(tinta::matrixIdentity());
+            h.end();
+        }
+        const int aboutOrigin = leftmostPainted(h);
+
+        check(aboutCentre > 0 && aboutOrigin > 0,
+              "CONTROL: both scales painted something");
+        check(aboutCentre != aboutOrigin,
+              "CONTROL: the centre is observable -- ignoring it would move the ink");
+        check(aboutCentre == static_cast<int>(c) && aboutCentreTop == static_cast<int>(c),
+              "matrixScale about a centre leaves that centre fixed, on both axes");
+        check(aboutOrigin == static_cast<int>(c * 2.0f),
+              "and the two-argument form scales the offset, which is why the band needs the centre");
+
+        // The arithmetic, so a backend that happened to produce the right pixels
+        // through a different matrix cannot pass this block alone.
+        const tinta::Matrix3x2F about = tinta::matrixScale(2.0f, 2.0f, tinta::pointF(c, c));
+        check(about.dx == -c && about.dy == -c,
+              "matrixScale's centred form offsets by center - scale * center");
+    }
+
     // --- Bitmaps: placement, orientation, sub-rect, opacity, interpolation -----
     //
     // THE BITMAP IS TWO-COLOURED ON PURPOSE, for the same reason the transform block

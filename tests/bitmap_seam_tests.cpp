@@ -227,17 +227,26 @@ void layoutBitmapFieldIsOnTheSeam() {
     // seam" -- true at the time, and asserted as a type because the way it breaks is
     // somebody "finishing" the port by changing the field.
     //
-    // The reason was ADDRESSED rather than overruled: render_d2d.h now exports
+    // The reason was ADDRESSED rather than overruled: render_d2d.h exported
     // nativeBitmap(), the same escape hatch nativePathGeometry() already was for the
-    // same stated reason, and src/print.cpp's page loop calls it. So the gate is
+    // same stated reason, and src/print.cpp's page loop called it. So the gate was
     // inverted rather than deleted -- the field must now BE a shared handle, because
     // the whole point of the change is that the image cache, the layout vector and an
     // open lightbox each keep the bitmap alive independently.
+    //
+    // AND THAT ESCAPE HATCH IS NOW UNUSED, WHICH CHANGES THE MESSAGE BUT NOT THE
+    // ASSERTION. print.cpp's drawDocumentRange takes a tinta::RenderTarget& and draws
+    // app.layoutBitmaps straight through the seam, so it no longer unwraps anything.
+    // The trailing clause of the old failure text -- "print.cpp reaches the native
+    // through nativeBitmap()" -- is therefore false, and it is corrected here rather
+    // than left, because a failure MESSAGE is read at exactly the moment somebody is
+    // reasoning about why the type matters. The first clause is the whole reason now,
+    // and it was always the load-bearing one: the cache can evict mid-paint.
     static_assert(std::is_same<decltype(App::LayoutBitmap::bitmap),
                                std::shared_ptr<tinta::Bitmap>>::value,
                   "LayoutBitmap::bitmap must stay a shared handle: the image cache can "
-                  "evict an entry while a paint is still walking this vector, and "
-                  "print.cpp reaches the native through nativeBitmap()");
+                  "evict an entry while a paint is still walking this vector, so the "
+                  "element's own reference is what keeps the bitmap reachable");
 }
 
 }  // namespace

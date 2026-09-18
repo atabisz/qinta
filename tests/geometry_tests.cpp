@@ -271,6 +271,28 @@ int main() {
     const D2D1_POINT_2F* asNative = tinta::asD2DPointArray(run);
     check(nearly(asNative[0].x, 1) && nearly(asNative[1].x, 3) && nearly(asNative[2].y, 6),
           "asD2DPointArray preserves stride across a run of points");
+
+    // matrixScale's centred form against D2D's own three-argument Scale, field by
+    // field and with EXACT equality rather than `nearly`.
+    //
+    // Exact is the whole point. The site that needs this helper -- src/print.cpp's
+    // shrink band -- previously called D2D1::Matrix3x2F::Scale directly, and the
+    // claim being made about that port is that the printed page does not change by
+    // one byte. `nearly` would pass on a matrix that differed in the last mantissa
+    // bit, which is exactly the difference that would move an antialiased edge and
+    // break the page hash. So this asserts the two helpers perform the same
+    // arithmetic, not merely that they agree to a tolerance.
+    //
+    // The centre is asymmetric (7, 13) and the scales differ (0.5, 0.25) so that a
+    // transposed field or a centre applied to the wrong axis cannot pass.
+    const D2D1_MATRIX_3X2_F d2dScale =
+        D2D1::Matrix3x2F::Scale(0.5f, 0.25f, D2D1::Point2F(7.0f, 13.0f));
+    const tinta::Matrix3x2F ours =
+        tinta::matrixScale(0.5f, 0.25f, tinta::pointF(7.0f, 13.0f));
+    check(ours.m11 == d2dScale.m11 && ours.m12 == d2dScale.m12 &&
+          ours.m21 == d2dScale.m21 && ours.m22 == d2dScale.m22 &&
+          ours.dx == d2dScale.dx && ours.dy == d2dScale.dy,
+          "matrixScale(sx, sy, centre) is bit-identical to D2D1::Matrix3x2F::Scale");
 #endif
 
     std::printf("%d/%d geometry assertions passed\n", checks - failures, checks);

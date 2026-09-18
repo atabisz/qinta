@@ -153,13 +153,27 @@ private:
 // D2DRenderTarget::FillGeometry must trip rather than draw nothing.
 ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry);
 
-// Same guarantee for bitmaps, and exported for the same reason nativePathGeometry
-// is: src/print.cpp draws app.layoutBitmaps through its OWN ID2D1DeviceContext,
-// which this seam does not wrap, so it needs the native pointer back out. That
-// became necessary when LayoutBitmap::bitmap stopped being an ID2D1Bitmap* --
-// tests/bitmap_seam_tests.cpp used to static_assert that it never would, giving
-// print.cpp's device context as the reason, and this function is that reason
-// answered rather than overruled.
+// Same guarantee for bitmaps.
+//
+// THE REASON IT IS EXPORTED HAS EXPIRED, AND THAT IS WORTH STATING HERE RATHER THAN
+// LEAVING FOR A GREP. This declaration used to read: "exported for the same reason
+// nativePathGeometry is: src/print.cpp draws app.layoutBitmaps through its OWN
+// ID2D1DeviceContext, which this seam does not wrap, so it needs the native pointer
+// back out." True when written. src/print.cpp's drawDocumentRange now takes a
+// tinta::RenderTarget& and draws bitmaps and cached paths through the seam, so it was
+// the LAST caller of either unwrapper from outside the backend.
+//
+// Both are therefore reachable only from src/render_d2d.cpp today, and making them
+// file-local again is a real follow-up rather than a tidy-up -- it is what closes the
+// escape hatch. It is deliberately not done in the same commit as the print retarget,
+// whose claim is that the printed page does not change by one byte; that claim is
+// proven by page hashes, and un-exporting a symbol is proven by a link, so they are
+// separate readings. Do not read this paragraph as "unused": render_d2d.cpp's own
+// FillGeometry, DrawGeometry and DrawBitmap call them.
+//
+// Contrast text_d2d.h's nativeTextLayout, which stays legitimately exported --
+// src/paint_document.cpp needs it for the colour-emoji ID2D1DeviceContext path, which
+// has no seam equivalent at all.
 //
 // Accepts an owned bitmap as well as a borrowed one, because D2DOwnedBitmap derives
 // from D2DBitmap precisely so that one unwrapper serves both.
@@ -193,8 +207,17 @@ protected:
 
 // OWNS its bitmap: it came from D2DRenderTarget::CreateBitmap, which hands the
 // caller the only reference. Derives from D2DBitmap rather than reimplementing it so
-// that nativeBitmap's single dynamic_cast covers both, which is what keeps
-// src/print.cpp's unwrap from having to know which kind it was given.
+// that nativeBitmap's single dynamic_cast covers both kinds.
+//
+// THE EXAMPLE THAT USED TO END THAT SENTENCE IS GONE, AND IT IS THE EIGHTH SITE OF ONE
+// STALE REASON RATHER THAN A NEW ONE. It read "...which is what keeps src/print.cpp's
+// unwrap from having to know which kind it was given" -- and print.cpp no longer unwraps
+// anything: drawDocumentRange takes a tinta::RenderTarget&. What is worth recording is
+// WHERE this site was: forty lines below the nativeBitmap declaration whose paragraph I
+// had already corrected for exactly this reason, in the same header, in the same pass.
+// Correcting the paragraph a grep pointed at is not the same as correcting the header,
+// and the surviving beneficiary is the one inside the backend -- render_d2d.cpp's own
+// DrawBitmap, which is handed both kinds and must not care which.
 //
 // GetSize is inherited deliberately -- the size question does not depend on who owns
 // the pixels, and an override would be the same body twice.

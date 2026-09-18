@@ -67,6 +67,37 @@
 #      per-file flags arrived, and a control that gets easier unnoticed is worse than
 #      none -- this is what stops it degrading silently back to what it was.
 #
+# ---------------------------------------------------------------------------
+# A THIRD THING THIS CENSUS CANNOT SEE: COUPLING CARRIED BY A PARAMETER TYPE
+#
+# The two already stated are the cause table's two categories and D9's type-level
+# fstream assumption. This one is worth stating because it ranks files BACKWARDS,
+# and it was measured rather than reasoned about.
+#
+# src/print.cpp's drawDocumentRange was 222 lines that were 100% unportable, for
+# one reason: it took an ID2D1DeviceContext*. Every drawing call inside it spelled
+# that coupling `dc->FillRectangle(...)` and `brush->SetColor(...)` -- and neither
+# `dc` nor `brush` matches any pattern an identifier grep can use, because they are
+# variable names. So at base 4eda78a the function read TWELVE identifiers under the
+# pattern the README quotes, while the print plumbing that is deliberately NOT being
+# ported read TWENTY-EIGHT (printDebugPages) and TWENTY-FIVE (the preview
+# rasteriser). A reader ranking work by this census would have started with the
+# device plumbing and concluded the drawing function barely touched Direct2D.
+#
+# Retargeting that one parameter to tinta::RenderTarget& took the function's count
+# to ZERO with no change to what it draws -- the pages are byte-identical -- and
+# took the whole file from 90 live to 78. The delta of 12 is the honest figure and
+# it UNDERSTATES the change by roughly twenty to one in lines.
+#
+# The rule that follows: a low count means the Direct2D types are not SPELLED in
+# this file's body. It does not mean the code is nearly portable, and for a function
+# that receives its device as an argument it means almost the opposite. To find that
+# class, read the SIGNATURES, not the bodies.
+#
+# The mention count (comments included) is worse for this purpose, not better: it
+# read 93 before the port and 92 after, because the comments recording what changed
+# re-add the very tokens the code stopped using.
+#
 # Run from anywhere:
 #   scripts/census-nonportable-linux.sh                # the whole census
 #   scripts/census-nonportable-linux.sh --file src/render.cpp
@@ -101,7 +132,14 @@ while [ $# -gt 0 ]; do
         --file)      only_file="$2"; shift 2 ;;
         --errors)    mode="errors"; only_file="$2"; shift 2 ;;
         --control)   mode="control"; shift ;;
-        -h|--help)   sed -n '2,80p' "${BASH_SOURCE[0]}"; exit 0 ;;
+        # WAS sed -n '2,80p', AND THE PARAMETER-TYPE NOTE ABOVE BROKE IT SILENTLY.
+        # A hardcoded last line is a claim about where the header ends, and adding to
+        # the header is the one edit guaranteed to falsify it -- --help would have
+        # stopped mid-sentence with no error anywhere. This prints the header by its
+        # SHAPE instead: every comment line after the shebang, stopping at the first
+        # line that is not one. Same defect class as every stale count this file
+        # warns about, in the file's own help.
+        -h|--help)   awk 'NR == 1 { next } /^#/ { print; next } { exit }' "${BASH_SOURCE[0]}"; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done

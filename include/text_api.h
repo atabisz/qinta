@@ -300,12 +300,25 @@ inline uint32_t packOpenTypeTag(const FontFeature& feature) {
 //   dlig  NOT EXPRESSIBLE. Dropped.
 //
 // So four of the five survive and `dlig` on code spans does not. That is Alex's
-// call, taken 2026-09-15 over the alternative of requiring Qt 6.7+ for one tag: most
-// programming fonts ship their =>/!= ligatures under `calt` or `liga` rather than
-// `dlig`, so the visible loss is probably nil -- but "probably" is doing work in that
-// sentence, which is exactly why the divergence is asserted in a test instead of
-// being left for someone to notice in a screenshot. When the Direct2D backend goes,
-// code spans lose discretionary ligatures on Windows too.
+// call, taken 2026-09-15 over the alternative of requiring Qt 6.7+ for one tag, and the
+// reasoning it was taken on was "most programming fonts ship their =>/!= ligatures under
+// `calt` or `liga` rather than `dlig`, so the visible loss is probably nil".
+//
+// HALF OF THAT IS NOW MEASURED, 2026-09-18, off the font files on this host -- and the
+// half that failed is the reassuring half. The mechanism is confirmed: Cascadia Code
+// 2102.025 exposes no `dlig` at all (nor `liga`) and carries its ligatures on
+// `calt`/`rclt`, so on the DEFAULT theme -- index 5, "Midnight", whose codefont IS
+// Cascadia Code -- the code set is inert on both backends and the loss really is nil.
+// The scope is not: Consolas 7.01 DOES expose `dlig`, and 7 of the 10 built-in themes
+// use Consolas, so the divergence is reachable on a majority of themes rather than on
+// exotic fonts only. What remains genuinely unmeasured is whether those substitutions
+// are ones a reader NOTICES in code -- a font exposing a feature is not the same claim
+// as the feature moving a glyph, and no page in this repo has been printed both ways on
+// a Consolas theme. So "probably" is still doing work here, just in a narrower sentence,
+// and it is still why the divergence is asserted in a test rather than left for a
+// screenshot. Alex may want to revisit the call on the 7-of-10 figure; that is his, not
+// a thing to change under a comment edit. When the Direct2D backend goes, code spans
+// lose discretionary ligatures on Windows too.
 //
 // Raising the floor to Qt 6.7 would make this function return true for everything
 // and is the only reason to revisit it.

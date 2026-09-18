@@ -21,6 +21,8 @@
 #include "selection.h"
 #include "document.h"
 #include "d2d_init.h"
+// The chrome falsifier's one entry point, behind --dumpchrome below.
+#include "chrome_dump.h"
 #include "text_formats.h"
 #include "utils.h"
 #include "syntax.h"
@@ -1471,6 +1473,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     bool quickNote = false;       // Ctrl+N: untitled buffer, no backing file
     std::wstring printPagesDir;   // debug: render print pages as PNGs and exit
     std::wstring exportHtmlPath;  // debug: write the HTML export and exit
+    // debug: characterise the forty chrome text formats and exit. The falsifier for the
+    // chrome half of the port, because --printpages above cannot see any of it: chrome
+    // never appears on a printed page. See include/chrome_dump.h.
+    std::wstring dumpChromePath;
     std::wstring exportDocxPath;  // debug: write the DOCX export and exit
     std::wstring exportPdfPath;   // debug: write the PDF export and exit
     int posX = 0, posY = 0;       // --pos: spawn position (tab drag-out)
@@ -1497,6 +1503,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
             quickNote = true;
         } else if (arg == L"--printpages" && i + 1 < argc) {
             printPagesDir = argv[++i];
+        } else if (arg == L"--dumpchrome" && i + 1 < argc) {
+            dumpChromePath = argv[++i];
         } else if (arg == L"--exporthtml" && i + 1 < argc) {
             exportHtmlPath = argv[++i];
         } else if (arg == L"--exportdocx" && i + 1 < argc) {
@@ -1518,7 +1526,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     // new tab (Win11 Notepad model). --new/--cascade windows and the
     // openInTabs=false setting keep the one-window-per-document behavior.
     if (!inputFile.empty() && !quickNote && !cascadeWindow &&
-        printPagesDir.empty() && exportHtmlPath.empty() &&
+        printPagesDir.empty() && dumpChromePath.empty() && exportHtmlPath.empty() &&
         exportDocxPath.empty() && exportPdfPath.empty() &&
         savedSettings.openInTabs) {
         HWND existing = FindWindowW(L"Tinta", nullptr);
@@ -1817,6 +1825,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
         enterQuickNoteMode(app);
     } else if (startInEditMode) {
         enterEditMode(app);
+    }
+
+    // Debug: characterise the chrome text formats and exit.
+    //
+    // Placed HERE, beside the other harness switches, rather than straight after
+    // updateTextFormats() forty lines up where the ten formats first exist -- the point is
+    // to read the formats the running app would actually use, at the scale and zoom a full
+    // startup settled on. ensureThemePreviewFormats is called explicitly because it is the
+    // lazy door the theme chooser opens: without it the thirty preview formats are simply
+    // absent, and thirty absent rows must not be mistaken for thirty unchanged ones.
+    if (!dumpChromePath.empty()) {
+        ensureThemePreviewFormats(app);
+        int rows = dumpChromeFormats(app, dumpChromePath);
+        wchar_t msg[64];
+        swprintf_s(msg, L"dumpchrome: %d", rows);
+        OutputDebugStringW(msg);
+        // The exact expected count, and not "more than zero". A partial dump is the failure
+        // mode that would read as a pass: ten rows written before a bad path or an unopened
+        // lazy door would still be a file with content in it, and a diff of two ten-row
+        // files is green. DERIVED from themeCount() rather than written as 40, so adding a
+        // theme does not turn this into a silent exit 1.
+        const int expectedRows = 10 + 3 * themeCount();
+        return rows == expectedRows ? 0 : 1;
     }
 
     // Debug: rasterize the print pagination to PNGs and exit

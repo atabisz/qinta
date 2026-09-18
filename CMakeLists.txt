@@ -325,6 +325,13 @@ set(SOURCES
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
+    # The chrome falsifier: --dumpchrome reads all forty chrome text formats back off
+    # DirectWrite. Its own file rather than lines in d2d_init.cpp, because it is an
+    # INSTRUMENT on that file and will outlive the creation code it measures -- it reads
+    # through the seam pointer and resolves to the native, so it works both before and
+    # after the chrome formats stop being created natively. Listed only here, in the
+    # WIN32-only SOURCES: every line in it is a DirectWrite getter.
+    src/chrome_dump_d2d.cpp
     # The Direct2D/DirectWrite implementations of the drawing and text seams.
     # These used to be compiled only by render_d2d_tests, because nothing in the
     # app referenced tinta::RenderTarget -- the app called Direct2D directly. Now

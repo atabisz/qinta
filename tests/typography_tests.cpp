@@ -25,11 +25,29 @@
 // granularity. Dropping `kern` from the body set moves 112 of 121 printed pages across
 // four fixtures; installing no typography at all moves 85 of 121.
 //
-// `dlig` is the one tag that measurement still cannot reach, and for a reason that has
-// nothing to do with instruments: the default theme's code face is Consolas (themes.cpp
-// sets it), which ships no discretionary ligatures, so there is no substitution to lose
-// on a default install. It becomes visible the moment a theme sets codefont= to Cascadia
-// Code or Fira Code, which is exactly the case the assertion below is for.
+// `dlig` is the one tag that measurement still cannot reach, and the reason published
+// here earlier on 2026-09-18 was FALSE IN BOTH CLAUSES -- corrected the same day, after
+// the chrome dump printed `stats family="Cascadia Code"` and contradicted it. It said the
+// default theme's code face is Consolas, which ships no discretionary ligatures.
+//
+// Measured off the font files on this host rather than recalled. App::currentThemeIndex
+// defaults to 5, which is "Midnight", and themes.cpp:127 gives Midnight L"Cascadia Code";
+// Consolas is only the FALLBACK for a theme file that omits codefont= (themes.cpp:506).
+// And the two faces are the wrong way round: Cascadia Code 2102.025 exposes no `dlig` and
+// no `liga` either (its =>/!= ligatures ride `calt`/`rclt`), while Consolas 7.01 DOES
+// expose `dlig`.
+//
+// The conclusion survives for a default install and its reason is replaced: on Midnight
+// the whole code set is inert on BOTH backends, because neither tag it requests exists in
+// the font. What does not survive is the exposure estimate. `dlig` is reachable on 7 of
+// the 10 built-in themes -- every Consolas one, so Paper, Sakura, Meadow, Dusk, Dracula,
+// Forest and Ember -- which makes the Windows/Qt divergence a majority-of-themes property
+// the default happens to escape, not an exotic-font edge case.
+//
+// Still unmeasured, and stated rather than glossed: whether Consolas' dlig substitutions
+// are ones a reader would NOTICE in code. A font exposing a feature is not the same claim
+// as the feature moving a glyph. The rig that would settle it is the one above -- default
+// the theme index to a Consolas theme and print the code fixtures with `dlig` and without.
 //
 // This file compiles on both platforms and deliberately does NOT link either
 // backend: everything under test is a value type or an inline function, which is the

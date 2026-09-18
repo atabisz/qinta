@@ -213,10 +213,19 @@ struct TextRange {
 // "takes an IDWriteTypography, a COM object nothing in the tree reads". That was a
 // statement about the DirectWrite spelling, not about the population, and measuring
 // the population refuted it. The whole of typography in this app is TWO FIXED SETS
-// built once in createTypography and applied whole-range:
+// built once and applied whole-range:
 //
 //   body font  liga · kern · calt
 //   code font  liga · dlig
+//
+// This said "built once in createTypography" until 2026-09-18. That function is
+// DELETED -- it lived in the Windows-only src/d2d_init.cpp and had one caller, so the
+// Qt stack ran with two empty sets. The builders are now tinta::bodyTypographySet()
+// and tinta::codeTypographySet() in include/text_formats.h, App-free and inline so a
+// header-only test can call them, seated onto App by installTypography() in
+// src/text_formats_app.cpp, which BOTH stacks call. Do not read the five tags below
+// as cosmetic: on the DirectWrite backend, installing no set at all differs from the
+// shipped rendering on 85 of 121 printed pages.
 //
 // Five tags, two sets, never read back, never varied per call site -- all 19 layout
 // call sites in render.cpp pass one of exactly two App members. So the portable

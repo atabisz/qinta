@@ -472,8 +472,17 @@ void ensureThemePreviewFormats(App& app) {
 //
 // The cost of the delay was not tidiness. The function had ONE caller,
 // src/main_d2d.cpp, so the Qt stack ran with two empty feature sets and applied no
-// OpenType features at all -- invisible, because every tag Qt honours here is on by
-// default anyway. A function that names no Windows type can still be Windows-only.
+// OpenType features at all. A function that names no Windows type can still be
+// Windows-only.
+//
+// THIS PARAGRAPH ENDED WITH "-- invisible, because every tag Qt honours here is on by
+// default anyway", AND THAT WAS MEASURED FALSE IN THE SAME SLICE THAT WROTE IT. Invisible
+// on Qt, yes, and that is not the comparison that matters: on THIS backend, printing 121
+// pages across four fixtures, installing no typography differs from the shipped rendering
+// on 85 of them, and installing the three body tags while dropping `kern` differs on 112.
+// So the absent call was a real divergence between the two stacks, not a cosmetic one --
+// which is also why deleting this function was worth a slice. The full table, including
+// the mechanism I predicted and failed to confirm, is at the call site in src/qt_init.cpp.
 
 // Every device bitmap dies with the render target that made it, so a target
 // swap has to drop them all. This is APP policy, not device policy: which

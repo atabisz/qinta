@@ -3,9 +3,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
+
+// The one header from this tree that this one includes, and the exception is narrow
+// enough to be worth stating. Everything else the image seam names -- Bitmap,
+// RenderTarget, Brush -- is forward-declared below precisely so that render_api.h's
+// windows.h ordering requirement does not spread to every consumer. tinta::Color
+// cannot take that treatment: `rasterizeToImage` takes one BY VALUE, so its size has
+// to be known here. geometry.h is safe to include where render_api.h is not -- it
+// pulls <d2d1.h> only inside `#ifdef _WIN32` (geometry.h:66-68) and imposes no
+// include order, so the cost is the Direct2D closure appearing in a Windows
+// preprocessor trace, not a rule a caller can get wrong.
+#include "geometry.h"
 
 // The image seam: fetch, decode, and SVG rasterization, with no backend in it.
 //
@@ -104,6 +116,9 @@ namespace tinta {
 // carries no such condition.
 class Bitmap;
 class RenderTarget;
+// Brush joins the two above for the same reason and on the same terms: rasterizeToImage
+// below hands one to its callback, and a pointer parameter needs no definition here.
+class Brush;
 
 // A decoded raster image in premultiplied BGRA, tightly packed. The invariant,
 // asserted in tests/image_tests.cpp: whenever `ok` is true,
@@ -245,6 +260,95 @@ std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
 // reason this function exists.
 std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void* data,
                                                 size_t size, int pixelSize);
+
+// --------------------------------------------------------------------------
+// OFFSCREEN RASTERIZATION, AND THE OTHER DIRECTION THROUGH THIS HEADER
+// --------------------------------------------------------------------------
+//
+// Everything above decodes. These two encode, and adding the return direction is what
+// makes them belong here rather than in a header of their own: `decodeImageFile` turns
+// bytes into a DecodedImage, `encodePng` turns a DecodedImage back into bytes, and
+// `rasterizeToImage` is how a DecodedImage gets produced by DRAWING rather than by
+// decoding. Same value type, three directions, one seam.
+//
+// WHY A FREE FUNCTION AND NOT A METHOD ON RenderTarget, WHICH IS THE WHOLE DESIGN.
+// render_api.h's "WHAT IS NOT IN HERE" excludes object creation and device lifetime from
+// the RenderTarget interface, on the ground that "a concrete backend owns its own
+// construction; this interface is about the drawing calls only." An offscreen target IS
+// construction, so a `CreateOffscreenTarget` virtual would narrow that exclusion. This
+// shape does not: each backend implements this function in its own translation unit and
+// constructs its own target there, which is exactly the sentence the exclusion states.
+// So the exclusion is SATISFIED here rather than re-argued, and no virtual was added.
+// That is worth writing down because an exclusion that quietly survives reads later like
+// one nobody thought about.
+//
+// WHAT IT SERVES, STATED HONESTLY: ONE CALLER. `decodeIconBytesToBitmap` above had two
+// call sites and deduplication was half its justification. This has one -- src/export_docx.cpp
+// -- because the tree's only other offscreen target is in src/image_win32.cpp, which is the
+// Windows image backend and must not route through a seam it implements. So the entire
+// justification here is that caller's portability, and NOT sharing. Said plainly because a
+// seam's stated reason gets quoted back, and "it's shared" would be false.
+//
+// `draw` is called exactly once, between the backend's own begin and end, with a target
+// sized to the request and a black scratch brush bound to it -- the same
+// mutate-the-color-per-call brush the 991 sites named by App::brush already use, except
+// owned by this call rather than by App, because a Direct2D brush belongs to its target.
+// Callers draw through the ordinary tinta::RenderTarget interface and name no backend type.
+//
+// THE CONTRACT, STATED BEFORE EITHER BACKEND, because two image libraries left to their
+// own conventions here would diverge silently in a way only a pixel would show:
+//
+//   * The target is cleared to `clearColor` before `draw` is called, and the clear happens
+//     HERE rather than in the callback so that neither backend can hand `draw` an
+//     uninitialised buffer. Direct2D's WIC target does not start cleared and QImage's
+//     buffer is uninitialised, so on both arms the untouched margins of a diagram would
+//     otherwise be whatever the allocator last left there.
+//
+//     THE COLOUR IS A PARAMETER AND NOT A CONSTANT, and this entry is written the long way
+//     because the short version was wrong. This contract first said "cleared to FULLY
+//     TRANSPARENT -- these images are embedded in a document that supplies its own
+//     background", which is a reasonable-sounding sentence about a document format and a
+//     false one about this program: all three call sites in src/export_docx.cpp clear to
+//     `app.theme.background`. Under a dark theme that is a dark fill behind light text, and
+//     a transparent raster composited onto a white document page would have rendered light
+//     text on white. Fixing a contract before it shipped is the entire reason it is written
+//     above the implementations, so the near-miss is recorded rather than quietly corrected.
+//     Pass tinta::colorF(0,0,0,0) for a transparent raster if a future caller wants one.
+//   * Pixels come back PREMULTIPLIED BGRA, 8 bits per channel, TOP-DOWN, with stride
+//     exactly width*4 and no row padding. That is DecodedImage's existing convention
+//     from decodeImageFile and rasterizeSvg, carried rather than chosen.
+//   * `width` and `height` are in device pixels and must each be >= 1 and < the
+//     kMaxImageDimension bound above. A request outside that returns `ok == false`.
+//   * Every failure -- an out-of-range size, a target that could not be created, a
+//     brush that could not be created -- returns a DecodedImage with `ok == false` and
+//     an EMPTY pixel vector. Never a partial buffer, so a caller that checks only `ok`
+//     cannot read half-drawn pixels.
+//   * `draw` may itself fail to draw anything; that is not detectable here and is not
+//     an error. An empty-but-valid image is a legitimate result.
+//
+// ONE DELIBERATE BEHAVIOUR CHANGE, RECORDED RATHER THAN SLIPPED IN: the code this
+// replaced in export_docx.cpp refused sizes above 16000, and this refuses at
+// kMaxImageDimension (16384). The bound exists to stop a hostile dimension asking for
+// gigabytes, both values are three orders of magnitude below that, and unifying on the
+// seam's existing constant is worth more than preserving a number whose only property
+// was being round.
+DecodedImage rasterizeToImage(RenderTarget& target, unsigned width, unsigned height,
+                              const Color& clearColor,
+                              const std::function<void(RenderTarget&, Brush*)>& draw);
+
+// Encode a DecodedImage as PNG and return the file bytes, or an EMPTY string on any
+// failure -- including `!image.ok`, a zero dimension, or a pixel buffer whose size is
+// not exactly width*height*4, which is checked rather than trusted because the buffer
+// arrives from a caller and a short one would otherwise be read past.
+//
+// Takes no RenderTarget: encoding pixels needs no device, and requiring one would make
+// this unusable from the places that have pixels and no target. The asymmetry with
+// rasterizeToImage above is therefore deliberate and not an oversight.
+//
+// PNG rather than a format parameter, because both call sites want PNG: the docx image
+// part and the clipboard's registered PNG format. A format enum with one value is a
+// parameter that only documents an intention.
+std::string encodePng(const DecodedImage& image);
 
 } // namespace tinta
 

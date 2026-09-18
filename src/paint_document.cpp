@@ -53,6 +53,76 @@ struct MarkerStrokeStyle final : tinta::StrokeStyle {};
 
 }  // namespace
 
+// ONE OWNER FOR THE DASHED STROKE STYLE, and the move out of paintDocumentLayout is a
+// defect fix rather than tidying.
+//
+// The creation used to sit inline in the paint pass, so app.dashedStrokeStyle came into
+// existence only when a document that had already been PAINTED contained a dashed
+// connector. The DOCX exporter needs the same object -- src/export_docx.cpp built its
+// own local one with byte-identical properties (FLAT/FLAT/FLAT, MITER, 10.0f, DASH,
+// 0.0f), verified field by field against the block below before reusing this one -- and
+// an export taken before any dashed connector was ever painted would have read NULL.
+// DrawLine with a null stroke style draws SOLID and reports nothing, which is precisely
+// the failure mode the fc9ceb0 note below records; reusing app.dashedStrokeStyle without
+// this function would have reintroduced it through a different door.
+//
+// Create-if-null, returns nothing: every caller reads app.dashedStrokeStyle afterwards,
+// which is what the paint pass already did. It lives in THIS file and not in a header
+// because MarkerStrokeStyle is in the anonymous namespace above, and because the guard
+// has to be TINTA_D2D_BACKEND -- see this file's opening note for what _WIN32 cost.
+void ensureDashedStrokeStyle(App& app) {
+    if (app.dashedStrokeStyle) return;
+#ifdef TINTA_D2D_BACKEND
+    D2D1_STROKE_STYLE_PROPERTIES properties = {
+        D2D1_CAP_STYLE_FLAT,
+        D2D1_CAP_STYLE_FLAT,
+        D2D1_CAP_STYLE_FLAT,
+        D2D1_LINE_JOIN_MITER,
+        10.0f,
+        D2D1_DASH_STYLE_DASH,
+        0.0f,
+    };
+    app.d2dFactory->CreateStrokeStyle(properties, nullptr, 0,
+                                      &app.nativeDashedStrokeStyle);
+    // A DEFECT FIX, AND IT IS MINE. Commit fc9ceb0 ("Route the app's drawing
+    // calls through the portable render seam") changed the out-parameter above
+    // from app.dashedStrokeStyle to app.nativeDashedStrokeStyle and changed the
+    // local at the call site from ID2D1StrokeStyle* to tinta::StrokeStyle* -- and
+    // never added the line that seats the wrapper over the new native. So since that
+    // commit, on Windows: app.dashedStrokeStyle stayed null forever, every
+    // dashed mermaid connector drew SOLID, and because the null check above is
+    // the "create once" latch, CreateStrokeStyle ran again on every frame that
+    // had a dashed connector, overwriting the previous pointer without a
+    // Release. A silent behaviour regression plus a per-frame COM leak, from a
+    // seam whose entire contract is that behaviour does not change.
+    //
+    // Two lessons, both cheap to state and both already true elsewhere in this
+    // tree. The compiler cannot see this class of bug: both spellings exist,
+    // both type-check, and the wrong one is merely never read. And no test
+    // covers it -- the dashed path is a mermaid connector on a painted window,
+    // which is exactly the region this slice is the first to put under test.
+    // The fix is one call, and it belongs here rather than at init: at init
+    // (src/d2d_init.cpp:673) the native is still null, and Seated::seat(nullptr)
+    // resets rather than seats, which is why the init call could not do it.
+    app.seatDashedStrokeStyle();
+#else
+    // No factory and no native pointer without the Direct2D backend, so the marker
+    // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
+    // "non-Windows" arm any more, and reading it as one is how the guard came to be
+    // spelled _WIN32 in the first place.
+    //
+    // Through the storage rather than by assigning app.dashedStrokeStyle a
+    // pointer to a static: App's storage is what OWNS a seam wrapper in this
+    // tree, and install() is the door include/seated.h wrote for exactly this
+    // case ("nothing off Windows can produce a native COM pointer, so seat() is
+    // unreachable there"). Same call shape as src/qt_init.cpp:18. A file-local
+    // static would work too and would leave App holding a pointer whose lifetime
+    // no member records -- which is the shape the Seated refactor removed.
+    app.dashedStrokeStyle =
+        app.dashedStrokeStyleStorage.install(std::make_unique<MarkerStrokeStyle>());
+#endif
+}
+
 DocumentViewport prepareDocumentViewport(App& app) {
     // Apply a saved reading position once the layout can reach it (#77)
     if (app.pendingScrollRestore >= 0.0f &&
@@ -113,60 +183,18 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         app.drawCalls++;
     }
 
-    // Dashed stroke is a factory object: create once, reuse every frame
+    // Dashed stroke is a factory object: create once, reuse every frame. The
+    // std::any_of stays HERE and did not move into the helper, deliberately -- it is
+    // this pass's policy ("do not build one for a document that has no dashed
+    // connector"), not a property of the object. The DOCX exporter has no connector
+    // list to ask and needs the style whenever a diagram prim is dashed, so it calls
+    // the helper unconditionally; folding this test inside would have made that
+    // impossible without inventing a second entry point.
     if (!app.dashedStrokeStyle &&
         std::any_of(
             app.layoutConnectors.begin(), app.layoutConnectors.end(),
             [](const App::LayoutConnector& connector) { return connector.dashed; })) {
-#ifdef TINTA_D2D_BACKEND
-        D2D1_STROKE_STYLE_PROPERTIES properties = {
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_CAP_STYLE_FLAT,
-            D2D1_LINE_JOIN_MITER,
-            10.0f,
-            D2D1_DASH_STYLE_DASH,
-            0.0f,
-        };
-        app.d2dFactory->CreateStrokeStyle(
-            properties, nullptr, 0, &app.nativeDashedStrokeStyle);
-        // A DEFECT FIX, AND IT IS MINE. Commit fc9ceb0 ("Route the app's drawing
-        // calls through the portable render seam") changed the out-parameter above
-        // from app.dashedStrokeStyle to app.nativeDashedStrokeStyle and changed the
-        // local below from ID2D1StrokeStyle* to tinta::StrokeStyle* -- and never
-        // added the line that seats the wrapper over the new native. So since that
-        // commit, on Windows: app.dashedStrokeStyle stayed null forever, every
-        // dashed mermaid connector drew SOLID, and because the null check above is
-        // the "create once" latch, CreateStrokeStyle ran again on every frame that
-        // had a dashed connector, overwriting the previous pointer without a
-        // Release. A silent behaviour regression plus a per-frame COM leak, from a
-        // seam whose entire contract is that behaviour does not change.
-        //
-        // Two lessons, both cheap to state and both already true elsewhere in this
-        // tree. The compiler cannot see this class of bug: both spellings exist,
-        // both type-check, and the wrong one is merely never read. And no test
-        // covers it -- the dashed path is a mermaid connector on a painted window,
-        // which is exactly the region this slice is the first to put under test.
-        // The fix is one call, and it belongs here rather than at init: at init
-        // (src/d2d_init.cpp:673) the native is still null, and Seated::seat(nullptr)
-        // resets rather than seats, which is why the init call could not do it.
-        app.seatDashedStrokeStyle();
-#else
-        // No factory and no native pointer without the Direct2D backend, so the marker
-        // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
-        // "non-Windows" arm any more, and reading it as one is how the guard came to be
-        // spelled _WIN32 in the first place.
-        //
-        // Through the storage rather than by assigning app.dashedStrokeStyle a
-        // pointer to a static: App's storage is what OWNS a seam wrapper in this
-        // tree, and install() is the door include/seated.h wrote for exactly this
-        // case ("nothing off Windows can produce a native COM pointer, so seat() is
-        // unreachable there"). Same call shape as src/qt_init.cpp:18. A file-local
-        // static would work too and would leave App holding a pointer whose lifetime
-        // no member records -- which is the shape the Seated refactor removed.
-        app.dashedStrokeStyle = app.dashedStrokeStyleStorage.install(
-            std::make_unique<MarkerStrokeStyle>());
-#endif
+        ensureDashedStrokeStyle(app);
     }
     tinta::StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle;
 

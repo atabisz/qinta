@@ -2224,21 +2224,29 @@ if(BUILD_TESTING)
             src/text_qt.cpp)
         target_include_directories(render_api_tests PRIVATE include)
         target_link_libraries(render_api_tests PRIVATE Qt6::Core Qt6::Gui)
-        # THE ICON-DECODE FAMILY, AND WHY IT IS CONDITIONAL WHEN THIS TARGET IS NOT.
-        # tinta::decodeIconBytesToBitmap needs a live RenderTarget, which the harnesses
-        # here have and tests/image_tests.cpp does not, so this is where the assertions
-        # can run on both backends. But src/image_qt.cpp also holds rasterizeSvg and
-        # fetchToTempFile, so linking it drags in Qt Svg AND Network -- a narrower guard
-        # than this target's own Qt6_FOUND, and exactly the partial-Qt hole image_tests
-        # is guarded against. Widening this target's requirement to match would trade a
-        # skipped family for a target that does not build at all. TINTA_HAVE_ICON_SEAM
-        # is how render_api_shared.cpp knows which happened, and its #else PRINTS the
-        # skip -- an arm never compiled and an arm that broke read the same otherwise.
+        # THE IMAGE-SEAM FAMILIES, AND WHY THEY ARE CONDITIONAL WHEN THIS TARGET IS NOT.
+        # tinta::decodeIconBytesToBitmap and tinta::rasterizeToImage both need a live
+        # RenderTarget, which the harnesses here have and tests/image_tests.cpp does not,
+        # so this is where those assertions can run on both backends. But src/image_qt.cpp
+        # also holds rasterizeSvg and fetchToTempFile, so linking it drags in Qt Svg AND
+        # Network -- a narrower guard than this target's own Qt6_FOUND, and exactly the
+        # partial-Qt hole image_tests is guarded against. Widening this target's
+        # requirement to match would trade a skipped family for a target that does not
+        # build at all. TINTA_HAVE_IMAGE_SEAM is how render_api_shared.cpp knows which
+        # happened, and each #else arm PRINTS the skip -- an arm never compiled and an
+        # arm that broke read the same otherwise.
+        #
+        # THE DEFINE WAS CALLED TINTA_HAVE_ICON_SEAM UNTIL THE OFFSCREEN-RASTER FAMILY
+        # LANDED, and it is renamed rather than joined by a second one. The condition for
+        # rasterizeToImage/encodePng is not merely similar to the icon family's, it is the
+        # SAME condition -- both live in src/image_qt.cpp and src/image_win32.cpp -- and
+        # two defines set from one `if` are two things that can be edited apart. One
+        # correctly-named guard cannot drift from itself.
         if(Qt6Svg_FOUND AND Qt6Network_FOUND)
             target_sources(render_api_tests PRIVATE
                 src/image_qt.cpp ${TINTA_ICON_GENERATED})
             target_link_libraries(render_api_tests PRIVATE Qt6::Svg Qt6::Network)
-            target_compile_definitions(render_api_tests PRIVATE TINTA_HAVE_ICON_SEAM)
+            target_compile_definitions(render_api_tests PRIVATE TINTA_HAVE_IMAGE_SEAM)
         endif()
         add_test(NAME render_api COMMAND render_api_tests)
         # Dynamic CRT, same reason and same measurement as qt_text_tests above.
@@ -2405,7 +2413,8 @@ if(BUILD_TESTING)
         tests/render_api_shared.cpp
         src/render_d2d.cpp
         src/text_d2d.cpp
-        # The icon-decode family's other half. Unconditional here, unlike the Qt target:
+        # The image-seam families' other half -- the icon decode AND the offscreen raster.
+        # Unconditional here, unlike the Qt target:
         # image_win32.cpp needs no optional component, only import libraries this target
         # is already close to carrying. src/text_utils.cpp travels with it for the reason
         # image_tests spells out -- toWide reaches platform::fromUtf8 -- and the path seam
@@ -2418,7 +2427,7 @@ if(BUILD_TESTING)
     target_include_directories(render_d2d_tests PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
-    target_compile_definitions(render_d2d_tests PRIVATE TINTA_HAVE_ICON_SEAM)
+    target_compile_definitions(render_d2d_tests PRIVATE TINTA_HAVE_IMAGE_SEAM)
     # dwrite for DWriteCreateFactory, which the harness calls to build the factory
     # src/text_d2d.cpp then borrows. Everything else text_d2d.cpp does is a COM
     # method call through that pointer and needs no import library at all -- which

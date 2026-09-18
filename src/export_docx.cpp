@@ -7,11 +7,24 @@
 #include "export.h"
 
 #include "editor.h"
+#include "image_api.h"
 #include "math_render.h"
 #include "mermaid_ext.h"
+// For ensureDashedStrokeStyle. The dashed stroke style used to be built HERE, from
+// app.d2dFactory, with properties byte-identical to the one the paint pass builds --
+// so this file now borrows the app's rather than keeping a second copy. The #ifdef that
+// chooses between a Direct2D factory object and the portable marker stays behind that
+// call, in the file that owns the object, which is why this one has no backend guard of
+// its own.
+#include "paint_document.h"
 #include "render.h"
 #include "utils.h"
 
+// Still Windows headers, and the narrowness is the point. What survives in this file is
+// the CLIPBOARD half -- CF_DIB, the registered L"PNG" format, the CF_BITMAP handle read
+// and the WIC decode they feed -- which include/clipboard.h:131-136 deliberately left
+// outside that seam because moving it would drag WIC types through a header that has
+// none. The RASTERISATION half is gone, onto tinta::rasterizeToImage.
 #include <objbase.h>
 #include <ole2.h>
 #include <wincodec.h>
@@ -22,6 +35,7 @@
 #include <cstdio>
 #include <fstream>
 #include <map>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -207,13 +221,47 @@ bool imageDimensions(const std::string& data, int& width, int& height) {
 }
 
 // --------------------------------------------------------------------------
-// Rasterization: prims and math boxes -> PNG bytes via a WIC target
+// Rasterization: prims and math boxes -> PNG bytes through the image seam
 // --------------------------------------------------------------------------
 
 constexpr float kRasterScale = 2.0f;
 
-std::string encodeWicPng(App& app, IWICBitmap* bitmap, UINT width,
-                         UINT height) {
+// The old RasterTarget::open's sizing rule, kept EXACTLY rather than deferred to
+// image_api.h's own limits, because the two disagree in both directions. This rounds UP
+// and floors at 1, so a 0.4-DIP-tall diagram rasterises as a single pixel row instead of
+// being refused; and its ceiling of 16000 is TIGHTER than kMaxImageDimension's 16384, so
+// dropping it would let a diagram between the two through where it used to fail. Neither
+// is a change this port gets to make while calling itself a portability change.
+constexpr unsigned kRasterMaxDimension = 16000;
+
+bool rasterDimensions(float w, float h, unsigned& outW, unsigned& outH) {
+    outW = (unsigned)std::ceil(std::max(1.0f, w));
+    outH = (unsigned)std::ceil(std::max(1.0f, h));
+    return outW <= kRasterMaxDimension && outH <= kRasterMaxDimension;
+}
+
+// THE REMAINDER, AND IT IS DELIBERATE RATHER THAN UNFINISHED. This used to have three
+// consumers; two of them rasterised, and both now go through tinta::encodePng. The one
+// left is clipboardImageToPngFile at the bottom of this file, which does not rasterise
+// anything -- it READS an HBITMAP off the clipboard, decodes it through WIC, and encodes
+// the result. include/clipboard.h:131-136 drew that boundary before this slice existed:
+// "the WIC decode they feed -- stays in export_docx.cpp, because moving it would drag
+// ID2D1/WIC types through a header that has none."
+//
+// So this is not a call site waiting for a portable spelling. Routing it through
+// tinta::encodePng would take a GDI GetDIBits rewrite of the clipboard read, which is a
+// different slice against a recorded decision. Worse, it cannot be done NAIVELY:
+// WICBitmapIgnoreAlpha below yields 32bppBGR, and handing those bytes to a function
+// whose contract says premultiplied BGRA would encode a fully transparent PNG -- a
+// plausible-looking file with nothing in it.
+//
+// THE NAME IS PART OF THAT, AND IT USED TO BE encodeWicPng. Four call sites became one,
+// and a name that says only "encode through WIC" reads, at the one site left, like
+// rasterisation somebody forgot to port. clipboardBitmapToPng says which half of the file
+// it belongs to, so the next census sees a remainder rather than an oversight -- which is
+// the same duty C16 puts on copyDiagramImage, applied to the function instead of the call.
+std::string clipboardBitmapToPng(App& app, IWICBitmap* bitmap, UINT width,
+                                 UINT height) {
     std::string png;
     IStream* stream = nullptr;
     if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return png;
@@ -243,84 +291,55 @@ std::string encodeWicPng(App& app, IWICBitmap* bitmap, UINT width,
     return png;
 }
 
-struct RasterTarget {
-    IWICBitmap* bitmap = nullptr;
-    ID2D1RenderTarget* target = nullptr;
-    ID2D1SolidColorBrush* brush = nullptr;
-    UINT width = 0, height = 0;
-
-    bool open(App& app, float w, float h) {
-        if (!app.wicFactory || !app.d2dFactory) return false;
-        width = (UINT)std::ceil(std::max(1.0f, w));
-        height = (UINT)std::ceil(std::max(1.0f, h));
-        if (width > 16000 || height > 16000) return false;
-        if (FAILED(app.wicFactory->CreateBitmap(
-                width, height, GUID_WICPixelFormat32bppPBGRA,
-                WICBitmapCacheOnDemand, &bitmap))) {
-            return false;
-        }
-        D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                              D2D1_ALPHA_MODE_PREMULTIPLIED),
-            96.0f, 96.0f);
-        if (FAILED(app.d2dFactory->CreateWicBitmapRenderTarget(bitmap, props,
-                                                               &target))) {
-            return false;
-        }
-        if (FAILED(target->CreateSolidColorBrush(tinta::colorF(0, 0, 0),
-                                                 &brush))) {
-            return false;
-        }
-        return true;
-    }
-
-    ~RasterTarget() {
-        if (brush) brush->Release();
-        if (target) target->Release();
-        if (bitmap) bitmap->Release();
-    }
-};
-
 // Draws a prim list built at `scale` the way layoutMermaidExtDiagram
-// translates it for the viewer
-void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
-               float scale) {
-    ID2D1RenderTarget* target = rt.target;
-    ID2D1SolidColorBrush* brush = rt.brush;
-    ID2D1StrokeStyle* dashed = nullptr;
-    D2D1_STROKE_STYLE_PROPERTIES dashProps = {
-        D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT,
-        D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_DASH, 0.0f,
-    };
-    app.d2dFactory->CreateStrokeStyle(dashProps, nullptr, 0, &dashed);
+// translates it for the viewer.
+//
+// THE TARGET AND THE BRUSH ARE PASSED IN rather than being a struct this file owns,
+// which is what let RasterTarget go. tinta::rasterizeToImage creates the offscreen
+// surface, clears it and hands both to a callback -- so the thing this function needed
+// RasterTarget for (a device to draw on) now arrives as an argument, and the thing it
+// needed WIC for (getting pixels back out) is the seam's return value.
+void drawPrims(App& app, tinta::RenderTarget& target, tinta::Brush* brush,
+               const mermaidext::Built& built, float scale) {
+    // The app's dashed stroke style, NOT a second one built here. Its properties were
+    // compared field by field against the D2D1_STROKE_STYLE_PROPERTIES this file used to
+    // fill in -- FLAT/FLAT/FLAT, MITER, 10.0f, DASH, 0.0f -- and they are identical, so
+    // reuse is a behaviour-preserving change rather than a close-enough one.
+    //
+    // Unconditionally, where the paint pass asks std::any_of first: this walks mermaid
+    // prims and has no connector list to interrogate, and a null stroke style makes
+    // DrawLine draw SOLID without complaining. That silent-solid failure is exactly what
+    // ensureDashedStrokeStyle exists to stop, and it is why the lazy creation could not
+    // stay inside the paint pass once a second caller appeared.
+    ensureDashedStrokeStyle(app);
+    tinta::StrokeStyle* dashed = app.dashedStrokeStyle;
 
     auto fillPolygon = [&](const std::vector<mermaidext::Point>& pts,
                            const tinta::Color& fill,
                            const tinta::Color& stroke, float strokeWidth) {
         if (pts.size() < 3) return;
-        ID2D1PathGeometry* geometry = nullptr;
-        if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry))) return;
-        ID2D1GeometrySink* sink = nullptr;
-        if (SUCCEEDED(geometry->Open(&sink)) && sink) {
-            sink->BeginFigure(tinta::pointF(pts[0].x, pts[0].y),
-                              D2D1_FIGURE_BEGIN_FILLED);
-            for (size_t i = 1; i < pts.size(); i++) {
-                sink->AddLine(tinta::pointF(pts[i].x, pts[i].y));
-            }
-            sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-            sink->Close();
-            sink->Release();
-            if (fill.a > 0) {
-                brush->SetColor(fill);
-                target->FillGeometry(geometry, brush);
-            }
-            if (stroke.a > 0 && strokeWidth > 0) {
-                brush->SetColor(stroke);
-                target->DrawGeometry(geometry, brush, strokeWidth);
-            }
+        std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+        if (!sink) return;
+        // BeginFigure and EndFigure lost their enum arguments to the seam, on a census
+        // rather than a guess: FILLED at 7 of 7 sites and CLOSED at 7 of 7, this one
+        // among them. See include/render_api.h:294-297.
+        sink->BeginFigure(tinta::pointF(pts[0].x, pts[0].y));
+        for (size_t i = 1; i < pts.size(); i++) {
+            sink->AddLine(tinta::pointF(pts[i].x, pts[i].y));
         }
-        geometry->Release();
+        sink->EndFigure();
+        std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+        // The old code released the geometry on this path too and drew nothing, so an
+        // early return here is the same behaviour with the release done by unique_ptr.
+        if (!geometry) return;
+        if (fill.a > 0) {
+            brush->SetColor(fill);
+            target.FillGeometry(geometry.get(), brush);
+        }
+        if (stroke.a > 0 && strokeWidth > 0) {
+            brush->SetColor(stroke);
+            target.DrawGeometry(geometry.get(), brush, strokeWidth);
+        }
     };
 
     for (const auto& prim : built.prims) {
@@ -333,11 +352,11 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                     tinta::rectF(prim.x1, prim.y1, prim.x2, prim.y2);
                 if (fill.a > 0) {
                     brush->SetColor(fill);
-                    target->FillRectangle(rect, brush);
+                    target.FillRectangle(rect, brush);
                 }
                 if (stroke.a > 0 && prim.strokeWidth > 0) {
                     brush->SetColor(stroke);
-                    target->DrawRectangle(rect, brush, strokeWidth);
+                    target.DrawRectangle(rect, brush, strokeWidth);
                 }
                 break;
             }
@@ -347,11 +366,11 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                     prim.radius, prim.radius);
                 if (fill.a > 0) {
                     brush->SetColor(fill);
-                    target->FillRoundedRectangle(rect, brush);
+                    target.FillRoundedRectangle(rect, brush);
                 }
                 if (stroke.a > 0 && prim.strokeWidth > 0) {
                     brush->SetColor(stroke);
-                    target->DrawRoundedRectangle(rect, brush, strokeWidth);
+                    target.DrawRoundedRectangle(rect, brush, strokeWidth);
                 }
                 break;
             }
@@ -362,11 +381,11 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                     (prim.x2 - prim.x1) * 0.5f, (prim.y2 - prim.y1) * 0.5f);
                 if (fill.a > 0) {
                     brush->SetColor(fill);
-                    target->FillEllipse(ellipse, brush);
+                    target.FillEllipse(ellipse, brush);
                 }
                 if (stroke.a > 0 && prim.strokeWidth > 0) {
                     brush->SetColor(stroke);
-                    target->DrawEllipse(ellipse, brush, strokeWidth);
+                    target.DrawEllipse(ellipse, brush, strokeWidth);
                 }
                 break;
             }
@@ -395,10 +414,9 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                             stroke, tinta::colorF(0, 0, 0, 0), 0.0f);
                     }
                 }
-                target->DrawLine(tinta::pointF(x1, y1),
-                                 tinta::pointF(endX, endY), brush,
-                                 strokeWidth,
-                                 prim.dashed ? dashed : nullptr);
+                target.DrawLine(tinta::pointF(x1, y1),
+                                tinta::pointF(endX, endY), brush, strokeWidth,
+                                prim.dashed ? dashed : nullptr);
                 if (prim.openArrow) {
                     float dx = x2 - x1, dy = y2 - y1;
                     float length = std::sqrt(dx * dx + dy * dy);
@@ -408,12 +426,12 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                         float size = 8.0f * scale;
                         float wing = 4.0f * scale;
                         tinta::PointF tip = tinta::pointF(x2, y2);
-                        target->DrawLine(
+                        target.DrawLine(
                             tip,
                             tinta::pointF(x2 - dx * size + dy * wing,
                                           y2 - dy * size - dx * wing),
                             brush, strokeWidth);
-                        target->DrawLine(
+                        target.DrawLine(
                             tip,
                             tinta::pointF(x2 - dx * size - dy * wing,
                                           y2 - dy * size + dx * wing),
@@ -433,111 +451,118 @@ void drawPrims(App& app, RasterTarget& rt, const mermaidext::Built& built,
                 // KNOWN DIVERGENCE, deliberately left standing: src/render.cpp's
                 // buildSliceGeometry special-cases a full circle (a1 - a0 >= 2pi) as
                 // two half arcs, because a single arc from a point back to itself is
-                // degenerate. This case does not, so a 360-degree slice reaches
-                // Direct2D with start == end and draws NOTHING here while drawing
+                // degenerate. This case does not, so a 360-degree slice reaches the
+                // backend with start == end and draws NOTHING here while drawing
                 // correctly on screen.
                 //
                 // Not fixed as part of the path seam, on purpose. include/render_api.h
-                // records the reasoning: a description-shaped seam would have hidden
-                // this fix inside a portability change, silently altering what an
-                // exported .docx looks like. It is a real bug with its own fix.
+                // records the reasoning: a description-shaped seam -- CreateSlice(centre,
+                // radius, a0, a1) -- would have had to pick one of the two behaviours,
+                // hiding this fix inside a portability change and silently altering what
+                // an exported .docx looks like. It is a real bug with its own fix, and
+                // mirroring the sink is what keeps it visible and separately fixable.
                 //
-                // Also not routed onto the seam, and for print.cpp's reason: `target`
-                // here is a raw ID2D1RenderTarget over a WIC bitmap that no
-                // tinta::RenderTarget wraps, and this geometry is local -- it is never
-                // stored in a LayoutShape, so nothing forced it across the seam.
-                ID2D1PathGeometry* geometry = nullptr;
-                if (FAILED(app.d2dFactory->CreatePathGeometry(&geometry))) {
-                    break;
+                // IT IS NOW ON THE SEAM, which the previous version of this comment said
+                // it was not, for a reason that has since gone away: `target` used to be
+                // a raw ID2D1RenderTarget over a WIC bitmap that no tinta::RenderTarget
+                // wrapped. tinta::rasterizeToImage supplies a wrapped one, so the excuse
+                // is spent. The divergence above is untouched by that -- moving the calls
+                // is not the same as changing which shape they describe.
+                float r = prim.radius;
+                tinta::PointF center = tinta::pointF(prim.x1, prim.y1);
+                tinta::PointF start =
+                    tinta::pointF(prim.x1 + r * std::cos(prim.a0),
+                                  prim.y1 + r * std::sin(prim.a0));
+                tinta::PointF end =
+                    tinta::pointF(prim.x1 + r * std::cos(prim.a1),
+                                  prim.y1 + r * std::sin(prim.a1));
+                std::unique_ptr<tinta::PathSink> sink = target.BeginPath();
+                if (!sink) break;
+                sink->BeginFigure(center);
+                sink->AddLine(start);
+                // The three D2D1_ARC_SEGMENT fields tinta::ArcSegment does not carry were
+                // constants at all four sites, this one included: size was {r, r},
+                // rotationAngle 0, sweepDirection CLOCKWISE. largeArc is the one that
+                // varied, and the test below is character-for-character the old one.
+                sink->AddArc(tinta::ArcSegment{
+                    end, r, (prim.a1 - prim.a0) > 3.14159265f});
+                sink->EndFigure();
+                std::unique_ptr<tinta::PathGeometry> geometry = sink->Close();
+                if (!geometry) break;
+                if (fill.a > 0) {
+                    brush->SetColor(fill);
+                    target.FillGeometry(geometry.get(), brush);
                 }
-                ID2D1GeometrySink* sink = nullptr;
-                if (SUCCEEDED(geometry->Open(&sink)) && sink) {
-                    float r = prim.radius;
-                    tinta::PointF center = tinta::pointF(prim.x1, prim.y1);
-                    tinta::PointF start = tinta::pointF(
-                        prim.x1 + r * std::cos(prim.a0),
-                        prim.y1 + r * std::sin(prim.a0));
-                    tinta::PointF end = tinta::pointF(
-                        prim.x1 + r * std::cos(prim.a1),
-                        prim.y1 + r * std::sin(prim.a1));
-                    sink->BeginFigure(center, D2D1_FIGURE_BEGIN_FILLED);
-                    sink->AddLine(start);
-                    sink->AddArc(D2D1::ArcSegment(
-                        end, tinta::sizeF(r, r), 0.0f,
-                        D2D1_SWEEP_DIRECTION_CLOCKWISE,
-                        (prim.a1 - prim.a0) > 3.14159265f
-                            ? D2D1_ARC_SIZE_LARGE
-                            : D2D1_ARC_SIZE_SMALL));
-                    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
-                    sink->Close();
-                    sink->Release();
-                    if (fill.a > 0) {
-                        brush->SetColor(fill);
-                        target->FillGeometry(geometry, brush);
-                    }
-                    if (stroke.a > 0 && prim.strokeWidth > 0) {
-                        brush->SetColor(stroke);
-                        target->DrawGeometry(geometry, brush, strokeWidth);
-                    }
+                if (stroke.a > 0 && prim.strokeWidth > 0) {
+                    brush->SetColor(stroke);
+                    target.DrawGeometry(geometry.get(), brush, strokeWidth);
                 }
-                geometry->Release();
                 break;
             }
             case mermaidext::PrimType::Text: {
                 std::wstring wide = toWide(prim.text);
                 if (wide.empty()) break;
-                IDWriteTextFormat* format = nullptr;
+                // Guarded where the old code dereferenced app.dwriteFactory outright.
+                // Not a loosening or a tightening of anything observable: on both
+                // backends the factory is seated during init and the export path cannot
+                // be reached before then, so this branch is unreachable today. It is
+                // here because a null factory is now expressible -- app.textFactory is a
+                // pointer into Seated storage, not a COM pointer the window owns -- and
+                // an unreachable check is cheaper than a crash if that ever changes.
+                if (!app.textFactory) break;
                 float fontSize =
                     (prim.style.mono ? 13.0f : 14.0f) *
                     (prim.style.scale > 0 ? prim.style.scale : 1.0f) * scale;
-                app.dwriteFactory->CreateTextFormat(
-                    prim.style.mono ? app.theme.codeFontFamily
-                                    : app.theme.fontFamily,
-                    nullptr,
-                    prim.style.bold ? DWRITE_FONT_WEIGHT_SEMI_BOLD
-                                    : DWRITE_FONT_WEIGHT_NORMAL,
-                    prim.style.italic ? DWRITE_FONT_STYLE_ITALIC
-                                      : DWRITE_FONT_STYLE_NORMAL,
-                    DWRITE_FONT_STRETCH_NORMAL, fontSize, L"en-us", &format);
+                std::unique_ptr<tinta::TextFormat> format =
+                    app.textFactory->CreateTextFormat(
+                        prim.style.mono ? app.theme.codeFontFamily
+                                        : app.theme.fontFamily,
+                        prim.style.bold ? tinta::FontWeight::SemiBold
+                                        : tinta::FontWeight::Normal,
+                        prim.style.italic ? tinta::FontStyle::Italic
+                                          : tinta::FontStyle::Normal,
+                        tinta::FontStretch::Normal, fontSize, L"en-us");
                 if (!format) break;
-                IDWriteTextLayout* layout = nullptr;
-                app.dwriteFactory->CreateTextLayout(
-                    wide.c_str(), (UINT32)wide.size(), format,
-                    std::max(1.0f, prim.x2 - prim.x1 + 0.5f),
-                    std::max(1.0f, prim.y2 - prim.y1), &layout);
-                format->Release();
+                // The old `format->Release()` right after the layout was built is GONE
+                // rather than translated: the unique_ptr frees it at the end of this
+                // case, which is later than the original did but no different in effect
+                // -- a layout holds its own reference to the format it was built from.
+                std::unique_ptr<tinta::TextLayout> layout =
+                    app.textFactory->CreateTextLayout(
+                        wide.c_str(), (uint32_t)wide.size(), format.get(),
+                        std::max(1.0f, prim.x2 - prim.x1 + 0.5f),
+                        std::max(1.0f, prim.y2 - prim.y1));
                 if (!layout) break;
                 layout->SetTextAlignment(
-                    prim.alignH < 0   ? DWRITE_TEXT_ALIGNMENT_LEADING
-                    : prim.alignH > 0 ? DWRITE_TEXT_ALIGNMENT_TRAILING
-                                      : DWRITE_TEXT_ALIGNMENT_CENTER);
+                    prim.alignH < 0   ? tinta::TextAlignment::Leading
+                    : prim.alignH > 0 ? tinta::TextAlignment::Trailing
+                                      : tinta::TextAlignment::Center);
                 layout->SetParagraphAlignment(
-                    prim.alignV < 0   ? DWRITE_PARAGRAPH_ALIGNMENT_NEAR
-                    : prim.alignV > 0 ? DWRITE_PARAGRAPH_ALIGNMENT_FAR
-                                      : DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                if (app.fontFallback) {
-                    IDWriteTextLayout2* layout2 = nullptr;
-                    if (SUCCEEDED(layout->QueryInterface(
-                            __uuidof(IDWriteTextLayout2),
-                            reinterpret_cast<void**>(&layout2)))) {
-                        layout2->SetFontFallback(app.fontFallback);
-                        layout2->Release();
-                    }
-                }
+                    prim.alignV < 0   ? tinta::ParagraphAlignment::Near
+                    : prim.alignV > 0 ? tinta::ParagraphAlignment::Far
+                                      : tinta::ParagraphAlignment::Center);
+                // The `if (app.fontFallback)` guard is dropped for src/editor.cpp:103's
+                // reason, and dropping it is not a loosening: ApplyFontFallback is
+                // documented to do nothing when the backend has no chain or has not
+                // built one yet, which is exactly what that guard meant. The Qt backend
+                // implements it as a genuine no-op.
+                layout->ApplyFontFallback();
                 tinta::Color color = resolveDiagramRole(
                     app, prim,
                     prim.fill != mermaidext::Role::None
                         ? prim.fill
                         : mermaidext::Role::Text);
                 brush->SetColor(color);
-                target->DrawTextLayout(tinta::pointF(prim.x1, prim.y1),
-                                       layout, brush);
-                layout->Release();
+                target.DrawTextLayout(tinta::pointF(prim.x1, prim.y1),
+                                      layout.get(), brush);
                 break;
             }
         }
     }
-    if (dashed) dashed->Release();
+    // No `dashed->Release()`. The style is App's now, created once and reused every
+    // frame by the paint pass, so releasing it here would have been the per-frame
+    // double-free half of the same mistake the fc9ceb0 note in src/paint_document.cpp
+    // describes from the other direction.
 }
 
 // Diagram source -> PNG at 2x plus its logical (1x) size
@@ -545,13 +570,21 @@ bool diagramToPng(App& app, const std::string& source, std::string& png,
                   float& logicalWidth, float& logicalHeight) {
     mermaidext::Built built = buildDiagramPrims(app, source, kRasterScale);
     if (!built.ok || built.prims.empty()) return false;
-    RasterTarget rt;
-    if (!rt.open(app, built.width, built.height)) return false;
-    rt.target->BeginDraw();
-    rt.target->Clear(app.theme.background);
-    drawPrims(app, rt, built, kRasterScale);
-    if (FAILED(rt.target->EndDraw())) return false;
-    png = encodeWicPng(app, rt.bitmap, rt.width, rt.height);
+    if (!app.renderTarget) return false;
+    unsigned width = 0, height = 0;
+    if (!rasterDimensions(built.width, built.height, width, height)) return false;
+    // app.theme.background, NOT transparent, and the parameter exists because of this
+    // call site. image_api.h's first draft hardcoded a transparent clear on the reasoning
+    // that a docx image sits on a background the document supplies -- plausible, and
+    // refuted by reading what it replaced: all three raster sites here cleared to the
+    // theme background, so a dark theme would have shipped light text on white paper.
+    tinta::DecodedImage image = tinta::rasterizeToImage(
+        *app.renderTarget, width, height, app.theme.background,
+        [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+            drawPrims(app, target, brush, built, kRasterScale);
+        });
+    if (!image.ok) return false;
+    png = tinta::encodePng(image);
     logicalWidth = built.width / kRasterScale;
     logicalHeight = built.height / kRasterScale;
     return !png.empty();
@@ -568,19 +601,20 @@ bool mathToPng(App& app, const std::string& tex, bool display,
     float width = mathBoxWidth(box);
     float height = mathBoxHeight(box);
     if (width < 1 || height < 1) return false;
-    RasterTarget rt;
-    if (!rt.open(app, width, height)) return false;
-    rt.target->BeginDraw();
-    rt.target->Clear(app.theme.background);
-    // mathBoxDrawTo takes the portable seam now, so the two natives are wrapped for the
-    // length of one call. Both wrappers BORROW -- render_d2d.h's wrappers have no
-    // destructor -- so RasterTarget stays the sole owner and its own destructor is
-    // unchanged. Stack lifetime deliberately ends before EndDraw's error path.
-    D2DRenderTarget seamTarget(rt.target);
-    D2DBrush seamBrush(rt.brush);
-    mathBoxDrawTo(&seamTarget, &seamBrush, box, 0, 0, app.theme.text);
-    if (FAILED(rt.target->EndDraw())) return false;
-    png = encodeWicPng(app, rt.bitmap, rt.width, rt.height);
+    if (!app.renderTarget) return false;
+    unsigned pixelWidth = 0, pixelHeight = 0;
+    if (!rasterDimensions(width, height, pixelWidth, pixelHeight)) return false;
+    // The two D2DRenderTarget/D2DBrush wrappers this used to build by hand are gone:
+    // mathBoxDrawTo already took the portable seam, and the seam is now what the
+    // callback is handed. That pair was the last Direct2D type named in this file's
+    // rasterisation half.
+    tinta::DecodedImage image = tinta::rasterizeToImage(
+        *app.renderTarget, pixelWidth, pixelHeight, app.theme.background,
+        [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+            mathBoxDrawTo(&target, brush, box, 0, 0, app.theme.text);
+        });
+    if (!image.ok) return false;
+    png = tinta::encodePng(image);
     logicalWidth = width / kRasterScale;
     logicalHeight = height / kRasterScale;
     logicalBaseline = mathBoxBaseline(box) / kRasterScale;
@@ -1466,19 +1500,24 @@ bool exportDocxFile(App& app, const std::wstring& path) {
 bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8) {
     mermaidext::Built built = buildDiagramPrims(app, sourceUtf8, kRasterScale);
     if (!built.ok || built.prims.empty()) return false;
-    RasterTarget rt;
-    if (!rt.open(app, built.width, built.height)) return false;
-    rt.target->BeginDraw();
-    rt.target->Clear(app.theme.background);
-    drawPrims(app, rt, built, kRasterScale);
-    if (FAILED(rt.target->EndDraw())) return false;
+    if (!app.renderTarget) return false;
+    unsigned width = 0, height = 0;
+    if (!rasterDimensions(built.width, built.height, width, height)) return false;
+    tinta::DecodedImage image = tinta::rasterizeToImage(
+        *app.renderTarget, width, height, app.theme.background,
+        [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+            drawPrims(app, target, brush, built, kRasterScale);
+        });
+    if (!image.ok) return false;
 
-    UINT stride = rt.width * 4;
-    std::vector<BYTE> pixels((size_t)stride * rt.height);
-    if (FAILED(rt.bitmap->CopyPixels(nullptr, stride, (UINT)pixels.size(),
-                                     pixels.data()))) {
-        return false;
-    }
+    // THE CopyPixels CALL IS GONE AND THE DIB IS BUILT FROM THE SAME BYTES. The old code
+    // asked a 32bppPBGRA WIC bitmap for tightly packed rows at stride = width * 4;
+    // DecodedImage documents premultiplied BGRA at exactly that stride as its invariant,
+    // and image_qt.cpp copies row by row to guarantee it. So the buffer feeding the
+    // header below has the same layout it always did -- which is what lets the row-flip
+    // loop stay character-for-character what it was.
+    const size_t stride = (size_t)image.width * 4;
+    const std::vector<uint8_t>& pixels = image.pixels;
 
     // CF_DIB: header plus bottom-up 32bpp rows (background is opaque, so
     // the ignored alpha byte is 255 everywhere)
@@ -1488,16 +1527,16 @@ bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8) {
     if (BYTE* out = (BYTE*)GlobalLock(dib)) {
         BITMAPINFOHEADER hdr{};
         hdr.biSize = sizeof(hdr);
-        hdr.biWidth = (LONG)rt.width;
-        hdr.biHeight = (LONG)rt.height;
+        hdr.biWidth = (LONG)image.width;
+        hdr.biHeight = (LONG)image.height;
         hdr.biPlanes = 1;
         hdr.biBitCount = 32;
         hdr.biCompression = BI_RGB;
         hdr.biSizeImage = (DWORD)pixels.size();
         memcpy(out, &hdr, sizeof(hdr));
-        for (UINT row = 0; row < rt.height; row++) {
+        for (unsigned row = 0; row < image.height; row++) {
             memcpy(out + sizeof(hdr) + (size_t)row * stride,
-                   pixels.data() + (size_t)(rt.height - 1 - row) * stride,
+                   pixels.data() + (size_t)(image.height - 1 - row) * stride,
                    stride);
         }
         GlobalUnlock(dib);
@@ -1506,7 +1545,7 @@ bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8) {
         return false;
     }
 
-    std::string png = encodeWicPng(app, rt.bitmap, rt.width, rt.height);
+    std::string png = tinta::encodePng(image);
     HGLOBAL pngGlobal = nullptr;
     if (!png.empty()) {
         pngGlobal = GlobalAlloc(GMEM_MOVEABLE, png.size());
@@ -1553,7 +1592,7 @@ bool clipboardImageToPngFile(App& app, HWND hwnd, const std::wstring& path) {
                 hbm, nullptr, WICBitmapIgnoreAlpha, &bitmap))) {
             UINT w = 0, h = 0;
             bitmap->GetSize(&w, &h);
-            std::string png = encodeWicPng(app, bitmap, w, h);
+            std::string png = clipboardBitmapToPng(app, bitmap, w, h);
             bitmap->Release();
             if (!png.empty()) {
                 std::ofstream out(path, std::ios::binary | std::ios::trunc);

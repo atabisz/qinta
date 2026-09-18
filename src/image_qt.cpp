@@ -303,4 +303,73 @@ DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
                         intrinsicW, intrinsicH);
 }
 
+DecodedImage rasterizeToImage(RenderTarget& target, unsigned width, unsigned height,
+                              const Color& clearColor,
+                              const std::function<void(RenderTarget&, Brush*)>& draw) {
+    // `target` is UNUSED on this arm, deliberately, and the asymmetry is worth a line
+    // rather than a cast-to-void on its own. The Direct2D arm needs it to reach the
+    // ID2D1Factory that creates a WIC-backed target; Qt creates a QImage from nothing
+    // and needs no device at all. The parameter stays in the shared signature because a
+    // seam whose two arms take different arguments is not one seam, and because dropping
+    // it would let a caller with no live target call this on Qt and fail only on Windows.
+    (void)target;
+
+    if (!draw) return DecodedImage();
+    if (width == 0 || height == 0) return DecodedImage();
+    if (width >= kMaxImageDimension || height >= kMaxImageDimension) return DecodedImage();
+
+    QImage canvas(static_cast<int>(width), static_cast<int>(height),
+                  QImage::Format_ARGB32_Premultiplied);
+    if (canvas.isNull()) return DecodedImage();
+    // The caller's clear colour, per the header's contract. QImage's buffer is
+    // uninitialised otherwise, so this is not belt-and-braces -- without it the untouched
+    // margins of a diagram would be whatever the allocator last left there.
+    //
+    // fill(QColor) and not a memset of the premultiplied bytes: Qt premultiplies the
+    // colour itself for Format_ARGB32_Premultiplied, so the same tinta::Color lands on
+    // this arm and the Direct2D one, where D2D's Clear takes straight alpha and
+    // premultiplies on write. Going through toQt also keeps the one conversion this tree
+    // has for the type rather than adding a second.
+    canvas.fill(toQt(clearColor));
+
+    {
+        // Scoped, because QtRenderTarget begins its QPainter in the constructor and ends
+        // it in the destructor. Reading the pixels while the painter is still open is
+        // undefined, so the scope is load-bearing rather than stylistic.
+        QtRenderTarget rt(canvas);
+        QtBrush brush(tinta::colorF(0, 0, 0));
+        draw(rt, &brush);
+    }
+
+    DecodedImage out;
+    if (!copyOutPixels(canvas, out)) return DecodedImage();
+    return out;
+}
+
+std::string encodePng(const DecodedImage& image) {
+    if (!image.ok) return std::string();
+    if (image.width == 0 || image.height == 0) return std::string();
+    // Checked, not trusted: the buffer arrives from a caller, and a short one would be
+    // read past by QImage's constructor below rather than diagnosed by it.
+    if (image.pixels.size() != static_cast<size_t>(image.width) * image.height * 4) {
+        return std::string();
+    }
+
+    // Wraps the caller's bytes without copying, so `image` must outlive the save call --
+    // it does, being a const reference held for this whole function.
+    const QImage wrapped(image.pixels.data(), static_cast<int>(image.width),
+                         static_cast<int>(image.height),
+                         static_cast<int>(image.width) * 4,
+                         QImage::Format_ARGB32_Premultiplied);
+    if (wrapped.isNull()) return std::string();
+
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    if (!buffer.open(QIODevice::WriteOnly)) return std::string();
+    if (!wrapped.save(&buffer, "PNG")) return std::string();
+    buffer.close();
+    if (bytes.isEmpty()) return std::string();
+    return std::string(bytes.constData(), static_cast<size_t>(bytes.size()));
+}
+
 } // namespace tinta

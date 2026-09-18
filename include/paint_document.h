@@ -95,4 +95,21 @@ DocumentViewport prepareDocumentViewport(App& app);
 // Does NOT clear the background and does not draw chrome. The caller owns both.
 void paintDocumentLayout(App& app, const DocumentViewport& viewport);
 
+// Creates App::dashedStrokeStyle if it does not exist yet, and returns nothing -- the
+// caller reads the member afterwards. Idempotent: a second call is a null check and a
+// return, which is the "create once, reuse every frame" latch the paint pass relied on
+// when this lived inline there.
+//
+// TWO CALLERS, AND THEY DISAGREE ABOUT WHEN, WHICH IS WHY THE TEST IS NOT IN HERE.
+// paintDocumentLayout calls it only when the laid-out document actually contains a
+// dashed connector, so a document with none never allocates a factory object. The DOCX
+// exporter has no connector list to interrogate -- it walks mermaid prims -- so it calls
+// this unconditionally. That policy therefore stays at each call site; folding the
+// std::any_of in here would have forced a second entry point for the exporter.
+//
+// It is declared here rather than left file-local because the exporter needs it, and the
+// exporter must not grow an #ifdef of its own: choosing between the Direct2D factory and
+// the portable marker is this pass's job, not the exporter's.
+void ensureDashedStrokeStyle(App& app);
+
 #endif  // TINTA_PAINT_DOCUMENT_H

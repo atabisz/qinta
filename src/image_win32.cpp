@@ -3,6 +3,12 @@
 #include "text_utils.h"
 
 #include <windows.h>
+// Explicit, not left to <windows.h>: CreateStreamOnHGlobal and GetHGlobalFromStream live
+// in objbase.h, which windows.h reaches only when WIN32_LEAN_AND_MEAN is undefined. That
+// is the case in this build today, so dropping this line would compile -- and then break
+// the day anything upstream of here defines the macro. export_docx.cpp, which is where
+// those two calls come from, includes objbase.h for the same reason.
+#include <objbase.h>
 #include <urlmon.h>
 #include <shlwapi.h>
 #include <wincodec.h>
@@ -577,6 +583,154 @@ std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void
 
     if (FAILED(hr) || !bitmap) return nullptr;
     return std::make_shared<D2DOwnedBitmap>(bitmap);
+}
+
+DecodedImage rasterizeToImage(RenderTarget& target, unsigned width, unsigned height,
+                              const Color& clearColor,
+                              const std::function<void(RenderTarget&, Brush*)>& draw) {
+    assert(dynamic_cast<D2DRenderTarget*>(&target) != nullptr &&
+           "a non-Direct2D RenderTarget reached the Direct2D image backend");
+    auto* d2dTarget = dynamic_cast<D2DRenderTarget*>(&target);
+    if (!d2dTarget || !d2dTarget->native()) return DecodedImage();
+    if (!draw) return DecodedImage();
+    if (width == 0 || height == 0) return DecodedImage();
+    if (width >= kMaxImageDimension || height >= kMaxImageDimension) return DecodedImage();
+
+    // THE CALLER'S FACTORY, NOT A FRESH ONE, AND THIS IS A CORRECTNESS REQUIREMENT RATHER
+    // THAN TIDINESS. ImagingScope(true) would hand back its own ID2D1Factory, which is
+    // what the other entry points in this file do because they never mix objects. This one
+    // does: the draw callback is expected to reach for App's shared resources -- the dashed
+    // stroke style is the live example -- and Direct2D objects from two different factories
+    // cannot be used together. A stroke style created on factory A, passed to a target
+    // created on factory B, does not fail loudly; it produces a debug-layer complaint on a
+    // machine with the layer installed and nothing at all on one without. So the offscreen
+    // target is created from the SAME factory as the target the caller handed in, which is
+    // the only way that guarantee travels with the call.
+    ID2D1Factory* factory = nullptr;
+    d2dTarget->native()->GetFactory(&factory);
+    if (!factory) return DecodedImage();
+
+    ImagingScope scope(false);
+    IWICImagingFactory* wic = scope.wic();
+    if (!wic) {
+        factory->Release();
+        return DecodedImage();
+    }
+
+    IWICBitmap* bitmap = nullptr;
+    HRESULT hr = wic->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA,
+                                   WICBitmapCacheOnDemand, &bitmap);
+    if (FAILED(hr) || !bitmap) {
+        factory->Release();
+        return DecodedImage();
+    }
+
+    const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+        D2D1_RENDER_TARGET_TYPE_DEFAULT,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f, 96.0f);
+    ID2D1RenderTarget* rt = nullptr;
+    hr = factory->CreateWicBitmapRenderTarget(bitmap, props, &rt);
+    factory->Release();
+    if (FAILED(hr) || !rt) {
+        bitmap->Release();
+        return DecodedImage();
+    }
+
+    ID2D1SolidColorBrush* nativeBrush = nullptr;
+    hr = rt->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &nativeBrush);
+    if (FAILED(hr) || !nativeBrush) {
+        rt->Release();
+        bitmap->Release();
+        return DecodedImage();
+    }
+
+    rt->BeginDraw();
+    // The caller's colour, per image_api.h's contract. Direct2D's WIC target does NOT start
+    // cleared, so this is the line that makes the two backends agree on the margins.
+    // D2D1_COLOR_F takes STRAIGHT alpha and the target premultiplies on write, so the same
+    // tinta::Color produces the same pixels here as QImage::fill does on the Qt arm.
+    rt->Clear(clearColor);
+    {
+        D2DRenderTarget wrapped(rt);
+        D2DBrush wrappedBrush(nativeBrush);
+        draw(wrapped, &wrappedBrush);
+    }
+    const HRESULT endHr = rt->EndDraw();
+
+    nativeBrush->Release();
+    rt->Release();
+
+    DecodedImage out;
+    // EndDraw's HRESULT is checked BEFORE the pixels are read, and the ordering is CARRIED
+    // FROM THE ORIGINAL rather than fixed in passing -- all three raster sites in
+    // export_docx.cpp (:553, :582, :1474) already read `if (FAILED(rt.target->EndDraw()))
+    // return false;` ahead of touching the bitmap. This comment first claimed two of them
+    // had it backwards; checking the source refuted that, and the note stays as a reminder
+    // that "the old code got this wrong" is a claim about the old code and needs reading it.
+    // Failing here returns the empty result the header promises, not a blank image.
+    if (SUCCEEDED(endHr)) {
+        if (!copyOutPixels(bitmap, width, height, out)) out = DecodedImage();
+    }
+    bitmap->Release();
+    return out;
+}
+
+std::string encodePng(const DecodedImage& image) {
+    if (!image.ok) return std::string();
+    if (image.width == 0 || image.height == 0) return std::string();
+    // Checked, not trusted, for the same reason the Qt arm checks it: the buffer arrives
+    // from a caller, and WriteSource below would read past a short one.
+    if (image.pixels.size() != static_cast<size_t>(image.width) * image.height * 4) {
+        return std::string();
+    }
+
+    ImagingScope scope(false);
+    IWICImagingFactory* wic = scope.wic();
+    if (!wic) return std::string();
+
+    // A WIC bitmap FROM the caller's pixels. The code this replaced encoded the IWICBitmap
+    // it had just drawn into, which only worked because the raster and the encode were the
+    // same function. Taking pixels instead is what lets the clipboard path -- which needs
+    // the raw BGRA as well as the PNG -- use one raster for both.
+    IWICBitmap* source = nullptr;
+    HRESULT hr = wic->CreateBitmapFromMemory(
+        image.width, image.height, GUID_WICPixelFormat32bppPBGRA, image.width * 4,
+        static_cast<UINT>(image.pixels.size()),
+        const_cast<BYTE*>(image.pixels.data()), &source);
+    if (FAILED(hr) || !source) return std::string();
+
+    std::string png;
+    IStream* stream = nullptr;
+    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream)) || !stream) {
+        source->Release();
+        return std::string();
+    }
+
+    IWICBitmapEncoder* encoder = nullptr;
+    IWICBitmapFrameEncode* frame = nullptr;
+    if (SUCCEEDED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+        SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
+        SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) &&
+        SUCCEEDED(frame->Initialize(nullptr)) &&
+        SUCCEEDED(frame->SetSize(image.width, image.height)) &&
+        SUCCEEDED(frame->WriteSource(source, nullptr)) && SUCCEEDED(frame->Commit()) &&
+        SUCCEEDED(encoder->Commit())) {
+        HGLOBAL global = nullptr;
+        if (SUCCEEDED(GetHGlobalFromStream(stream, &global))) {
+            const SIZE_T size = GlobalSize(global);
+            if (void* bits = GlobalLock(global)) {
+                if (size) png.assign(static_cast<const char*>(bits), size);
+                GlobalUnlock(global);
+            }
+        }
+    }
+
+    if (frame) frame->Release();
+    if (encoder) encoder->Release();
+    stream->Release();
+    source->Release();
+    return png;
 }
 
 } // namespace tinta

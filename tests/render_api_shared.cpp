@@ -53,13 +53,24 @@
 
 #include "render_api_shared.h"
 
-// The icon-decode family only. Guarded rather than included unconditionally because a
-// target built without the image backend must not merely fail to link the entry point --
-// it must not name it at all, and the #else arm below prints a skip line so an absent
-// family cannot pass for a green one.
-#ifdef TINTA_HAVE_ICON_SEAM
+// The two image-seam families only -- the icon decode and the offscreen raster. Guarded
+// rather than included unconditionally because a target built without the image backend
+// must not merely fail to link the entry points -- it must not name them at all, and each
+// #else arm below prints a skip line so an absent family cannot pass for a green one.
+//
+// <filesystem> and <fstream> come in under the same guard and for one assertion only: the
+// offscreen-raster family round-trips its PNG back through tinta::decodeImageFile, which
+// takes a PATH, so the bytes have to reach disk. std::filesystem::path is what carries a
+// wide path portably here -- the same spelling tests/image_tests.cpp uses, and deliberately
+// NOT an fstream constructed from a std::wstring, which compiles under MSVC as an extension
+// and does not compile at all under libstdc++.
+#ifdef TINTA_HAVE_IMAGE_SEAM
 #include "app_icon_data.h"
 #include "image_api.h"
+
+#include <filesystem>
+#include <fstream>
+#include <string>
 #endif
 
 #include <cmath>
@@ -1798,7 +1809,7 @@ int runRenderApiAssertions(RenderHarness& h) {
     // ink, the fallback clause, and the refusals. A control that cannot fire is not a
     // control, and calling this one satisfied because the assertions are green would be
     // exactly the reading it was written to prevent.
-#ifdef TINTA_HAVE_ICON_SEAM
+#ifdef TINTA_HAVE_IMAGE_SEAM
     {
         whiteSurface(h);
         std::shared_ptr<tinta::Bitmap> at32;
@@ -1901,7 +1912,242 @@ int runRenderApiAssertions(RenderHarness& h) {
     // Gui, which is a narrower guard than this target's own). Printing the skip is what
     // keeps a silently absent icon family from reading as a green one.
     std::printf("SKIPPED the icon-decode family: this target was built without the image "
-                "backend (TINTA_HAVE_ICON_SEAM undefined)\n");
+                "backend (TINTA_HAVE_IMAGE_SEAM undefined)\n");
+#endif
+
+    // --- OFFSCREEN RASTERIZATION: drawing into pixels, and PNG back out ----------
+    //
+    // tinta::rasterizeToImage and tinta::encodePng, the two entry points that make
+    // src/export_docx.cpp's three raster sites portable. Asserted HERE, in the shared
+    // suite, rather than in tests/image_tests.cpp, for the reason that file states about
+    // itself: rasterizeToImage takes a live RenderTarget and image_tests has none. This is
+    // the only place in the tree where the same offscreen-raster assertions run against
+    // Direct2D and Qt.
+    //
+    // THE CLEAR COLOUR IS ASSERTED AS THE CALLER'S OPAQUE RED, AND THAT IS THE WHOLE
+    // POINT OF THE FAMILY. image_api.h's contract for this function first said the target
+    // was cleared to FULLY TRANSPARENT, which is a reasonable sentence about a document
+    // format and a false one about this program -- all three call sites in export_docx.cpp
+    // clear to app.theme.background, and under a dark theme a transparent raster
+    // composited onto a white page renders light text on white. A test that expected
+    // transparency would have passed against exactly that defect. So the alpha assertion
+    // below is not tidiness: `a == 255` is the discriminator, and it fails on any
+    // implementation that ignores clearColor and clears to nothing.
+    //
+    // 40x24 rather than a square, because a backend that transposed width and height
+    // would satisfy every pixels.size() check.
+#ifdef TINTA_HAVE_IMAGE_SEAM
+    {
+        constexpr unsigned kRasterW = 40;
+        constexpr unsigned kRasterH = 24;
+        // Straight-alpha inputs; the seam hands back PREMULTIPLIED BGRA, and both of these
+        // are fully opaque, so premultiplied and straight are the same bytes. That is why
+        // this family can assert exact values where image_tests needs near1: there is
+        // nothing to round at a == 255, and any rounding rule agrees.
+        const tinta::Color kClearRed = tinta::colorF(1.0f, 0.0f, 0.0f, 1.0f);
+        const tinta::Color kInkBlue = tinta::colorF(0.0f, 0.0f, 1.0f, 1.0f);
+
+        int drawCalls = 0;
+        bool brushWasNull = false;
+        tinta::DecodedImage raster;
+        {
+            tinta::RenderTarget& rt = h.begin();
+            raster = tinta::rasterizeToImage(
+                rt, kRasterW, kRasterH, kClearRed,
+                [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+                    drawCalls++;
+                    if (!brush) {
+                        brushWasNull = true;
+                        return;
+                    }
+                    brush->SetColor(kInkBlue);
+                    // rectF is LEFT/TOP/RIGHT/BOTTOM. This rect is chosen so that the
+                    // two readings disagree: read as l/t/r/b it spans x 20..30, read as
+                    // x/y/width/height it would span x 20..50. The assertion at x=35
+                    // below is red under the correct reading and blue under the wrong
+                    // one, which is the one conversion capable of corrupting every
+                    // drawing call in the tree while still producing a plausible image.
+                    target.FillRectangle(tinta::rectF(20.0f, 2.0f, 30.0f, 6.0f), brush);
+                });
+            h.end();
+        }
+
+        check(raster.ok,
+              "CONTROL: rasterizeToImage produced an image at all -- every assertion in "
+              "the offscreen-raster family is void without it");
+        check(drawCalls == 1,
+              "CONTROL: the draw callback ran EXACTLY once, so the pixels below came from "
+              "it and not from a backend that cleared and returned");
+        check(!brushWasNull,
+              "CONTROL: the callback received a non-null scratch brush, which is the only "
+              "brush a caller has inside this call -- a Direct2D brush belongs to its "
+              "target and the caller's cannot be used here");
+
+        check(raster.width == kRasterW && raster.height == kRasterH,
+              "the raster is exactly the requested 40x24, not transposed and not rounded "
+              "to the backend's preferred size");
+        check(raster.pixels.size() ==
+                  static_cast<size_t>(kRasterW) * kRasterH * 4,
+              "pixels are tightly packed: size is exactly w * h * 4, so the stride is "
+              "width*4 with no row padding, as DecodedImage means everywhere else");
+
+        if (raster.ok && raster.pixels.size() ==
+                             static_cast<size_t>(kRasterW) * kRasterH * 4) {
+            // BGRA, top-down, stride width*4. A local rather than a helper because the
+            // one other block that reads pixels this way (image_tests) is a different
+            // binary, and a two-line index is clearer here than a shared abstraction.
+            const auto at = [&](unsigned x, unsigned y) {
+                const uint8_t* p =
+                    raster.pixels.data() + (static_cast<size_t>(y) * kRasterW + x) * 4;
+                return Rgba{p[2], p[1], p[0], p[3]};
+            };
+
+            // THE CLEAR. (0,0) is outside the filled rect on every reading of it.
+            const Rgba corner = at(0, 0);
+            check(corner.r == 255 && corner.g == 0 && corner.b == 0,
+                  "the untouched corner is the caller's RED, so clearColor reached the "
+                  "clear and the channels are in BGRA order rather than RGBA");
+            check(corner.a == 255,
+                  "and it is OPAQUE -- this is the assertion a 'cleared to transparent' "
+                  "contract would have failed, and the defect it exists to catch");
+
+            // THE DRAW. Inside the rect on the correct reading of RectF.
+            const Rgba ink = at(25, 4);
+            check(ink.b == 255 && ink.r == 0 && ink.g == 0 && ink.a == 255,
+                  "the callback's fill landed: a pixel inside the rect is the BLUE the "
+                  "scratch brush was set to, so SetColor on the supplied brush works and "
+                  "the drawing reached the offscreen surface");
+
+            // THE DISCRIMINATOR. Outside on the correct reading, inside on the wrong one.
+            const Rgba beyond = at(35, 4);
+            check(beyond.r == 255 && beyond.b == 0,
+                  "a pixel at x=35 is still red, so rectF's right edge was read as an "
+                  "EDGE and not as a width -- the l/t/r/b versus x/y/w/h confusion");
+
+            // Below the rect: the clear survives where nothing drew, which is what makes
+            // the ink assertion mean "drew there" rather than "filled everything".
+            const Rgba below = at(25, 20);
+            check(below.r == 255 && below.b == 0,
+                  "a pixel below the rect is still red, so the fill was bounded rather "
+                  "than covering the surface");
+        }
+
+        // REFUSALS. image_api.h promises `ok == false` AND AN EMPTY VECTOR for every
+        // failure, never a partial buffer, so both halves are checked: a caller that
+        // tests only `ok` must not be able to reach half-drawn pixels.
+        {
+            const auto noop = [](tinta::RenderTarget&, tinta::Brush*) {};
+            tinta::RenderTarget& rt = h.begin();
+            const tinta::DecodedImage zeroW =
+                tinta::rasterizeToImage(rt, 0, kRasterH, kClearRed, noop);
+            const tinta::DecodedImage zeroH =
+                tinta::rasterizeToImage(rt, kRasterW, 0, kClearRed, noop);
+            // The BOUND ITSELF, not a value comfortably past it. kMaxImageDimension is an
+            // EXCLUSIVE upper bound -- image_api.h says a dimension EQUAL to it is
+            // rejected -- so this is the assertion a `>` that should have been `>=` fails.
+            const tinta::DecodedImage atBound = tinta::rasterizeToImage(
+                rt, tinta::kMaxImageDimension, kRasterH, kClearRed, noop);
+            const tinta::DecodedImage noDraw = tinta::rasterizeToImage(
+                rt, kRasterW, kRasterH, kClearRed,
+                std::function<void(tinta::RenderTarget&, tinta::Brush*)>());
+            h.end();
+
+            check(!zeroW.ok && zeroW.pixels.empty(),
+                  "a zero width refuses with an empty buffer rather than a 0x24 image");
+            check(!zeroH.ok && zeroH.pixels.empty(), "a zero height refuses likewise");
+            check(!atBound.ok && atBound.pixels.empty(),
+                  "a dimension EQUAL to kMaxImageDimension refuses, which is the "
+                  "exclusive bound the header states rather than a friendlier <=");
+            check(!noDraw.ok && noDraw.pixels.empty(),
+                  "an empty draw callback refuses rather than calling through a null "
+                  "std::function");
+        }
+
+        // --- encodePng, and the round trip that makes a length check worthless -----
+        //
+        // A byte count would pass on any blob. So: the PNG SIGNATURE, then the bytes go to
+        // disk and come back through tinta::decodeImageFile -- this tree's OWN decoder, on
+        // whichever backend is running -- and the dimensions and the colours have to
+        // survive. That is the assertion that distinguishes "encoded a PNG of this image"
+        // from "produced something PNG-shaped".
+        if (raster.ok) {
+            const std::string png = tinta::encodePng(raster);
+            check(!png.empty(),
+                  "CONTROL: encodePng returned bytes for a good image -- the round trip "
+                  "below is void without it");
+            check(png.size() >= 8 && static_cast<unsigned char>(png[0]) == 0x89 &&
+                      png[1] == 'P' && png[2] == 'N' && png[3] == 'G' && png[4] == '\r' &&
+                      png[5] == '\n' && static_cast<unsigned char>(png[6]) == 0x1A &&
+                      png[7] == '\n',
+                  "the encoded bytes open with the eight-byte PNG signature, so the "
+                  "container is PNG and not the backend's default format");
+
+            if (!png.empty()) {
+                const std::filesystem::path out =
+                    std::filesystem::temp_directory_path() /
+                    "tinta_render_api_raster_roundtrip.png";
+                {
+                    std::ofstream file(out, std::ios::binary);
+                    file.write(png.data(), static_cast<std::streamsize>(png.size()));
+                }
+                check(std::filesystem::exists(out),
+                      "CONTROL: the encoded PNG reached disk, so a failed decode below "
+                      "means a bad encode and not a missing file");
+
+                const tinta::DecodedImage back = tinta::decodeImageFile(out.wstring());
+                check(back.ok,
+                      "the encoded PNG decodes again through this tree's own decoder, "
+                      "which a length check on the bytes could never establish");
+                check(back.width == kRasterW && back.height == kRasterH,
+                      "and it decodes back to the 40x24 that was requested, so the "
+                      "dimensions survived the encode rather than being inferred");
+                if (back.ok && back.pixels.size() ==
+                                   static_cast<size_t>(kRasterW) * kRasterH * 4) {
+                    const auto at = [&](unsigned x, unsigned y) {
+                        const uint8_t* p =
+                            back.pixels.data() + (static_cast<size_t>(y) * kRasterW + x) * 4;
+                        return Rgba{p[2], p[1], p[0], p[3]};
+                    };
+                    const Rgba corner = at(0, 0);
+                    const Rgba ink = at(25, 4);
+                    // TOP-DOWN, and this pair is what pins it. The cleared corner and the
+                    // drawn rect are at different rows, so a backend that wrote the rows
+                    // bottom-up would put blue at neither of these points and red at both.
+                    check(corner.r == 255 && corner.b == 0 && corner.a == 255,
+                          "the decoded corner is still opaque red, so the clear colour "
+                          "survived encode and decode");
+                    check(ink.b == 255 && ink.r == 0,
+                          "the decoded rect is still blue AT THE SAME ROW, so the rows "
+                          "went out top-down rather than flipped");
+                }
+                std::error_code ignored;
+                std::filesystem::remove(out, ignored);
+            }
+
+            // encodePng's REFUSALS. The short-buffer one is the interesting member: the
+            // header says the size is CHECKED rather than trusted because the buffer
+            // arrives from a caller, and both backends would read past a short one.
+            check(tinta::encodePng(tinta::DecodedImage()).empty(),
+                  "a DecodedImage with ok == false encodes to nothing rather than to a "
+                  "PNG of unspecified fields");
+            {
+                tinta::DecodedImage lying = raster;
+                lying.pixels.pop_back();
+                check(tinta::encodePng(lying).empty(),
+                      "a pixel buffer one byte short of w*h*4 is REFUSED rather than read "
+                      "past, which is the check the header promises is not a trust");
+                tinta::DecodedImage zero = raster;
+                zero.width = 0;
+                check(tinta::encodePng(zero).empty(),
+                      "a zero dimension encodes to nothing rather than to an empty PNG");
+            }
+        }
+    }
+#else
+    // A SKIPPED ARM SAYS SO -- the same reasoning as the icon family above, and the same
+    // guard, because rasterizeToImage lives in the very same translation units.
+    std::printf("SKIPPED the offscreen-raster family: this target was built without the "
+                "image backend (TINTA_HAVE_IMAGE_SEAM undefined)\n");
 #endif
 
     // --- NEWLINES: a line is newline-delimited, not wrapped-only -----------------

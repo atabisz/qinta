@@ -113,6 +113,30 @@
 //     a portable spelling of that is a design question rather than a rename. A
 //     concrete backend owns its own construction; this interface is about the
 //     drawing calls only.
+//     THIS ENTRY SURVIVED A PORT THAT LOOKED LIKE IT WOULD NARROW IT, AND THE
+//     SURVIVAL IS RECORDED BECAUSE AN UNRECORDED ONE READS LATER AS AN OVERSIGHT.
+//     src/export_docx.cpp rasterised diagrams and math boxes offscreen by building
+//     a WIC bitmap, wrapping it in a raw ID2D1RenderTarget and drawing through
+//     Direct2D directly -- 51 non-portable identifiers, and the one thing it needed
+//     that this interface did not have was A TARGET TO DRAW INTO. Every drawing verb
+//     was already here. The obvious fix was a CreateOffscreenTarget virtual below,
+//     and it was REJECTED: an offscreen render target is construction, so adding it
+//     would have made this paragraph false while claiming to implement it.
+//     What shipped instead is a FREE FUNCTION -- tinta::rasterizeToImage in
+//     image_api.h -- whose two implementations each live inside their own backend
+//     (src/image_win32.cpp holds the CreateWicBitmapRenderTarget, src/image_qt.cpp a
+//     QImage plus QPainter), taking a live RenderTarget& only to reach that
+//     backend's factories. So "a concrete backend owns its own construction" is
+//     SATISFIED rather than narrowed, and NO virtual was added to the interface
+//     below. That is a better outcome than the CreateBitmap precedent two entries
+//     down, which narrowed its exclusion after an ownership redesign; here no
+//     redesign was needed because the construction never escapes the backend.
+//     THE HONEST LIMIT, stated with it: that seam serves ONE caller. There are
+//     exactly two CreateWicBitmapRenderTarget sites in the tree and the other is
+//     src/image_win32.cpp itself, which must not route through a seam it implements.
+//     So its justification is one caller's portability, not deduplication -- unlike
+//     decodeIconBytesToBitmap, whose shape it copies. A seam's stated reason gets
+//     quoted back, and "it's shared" would be false here.
 //   * Bitmap creation FROM A WIC SOURCE, and bitmap creation of a device-context
 //     RENDER TARGET. This entry used to exclude bitmap creation entirely, on the
 //     ground that "they hand back an OWNED object, and six App members hold the

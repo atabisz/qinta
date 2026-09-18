@@ -29,9 +29,15 @@
 // same way rather than relaxing.
 //
 // The NATIVE overload -- measureText(App&, const std::wstring&, IDWriteTextFormat*) --
-// stays in utils.cpp on purpose. Four call sites still hold an app.native*Format and have
-// nothing to hand the seam overload, so it is live code rather than a leftover, and it is
-// Windows-only by its argument type.
+// lives in d2d_init.cpp, declared in d2d_init.h, and it is Windows-only by its argument
+// type. THIS PARAGRAPH USED TO SAY IT WAS IN utils.cpp AND THAT FOUR CALL SITES MADE IT
+// "live code rather than a leftover". Both halves are now false: it moved, and the four
+// callers were the space-width measurements in updateTextFormats, which the seam overload
+// took over when the eleven document formats stopped being native. It has ZERO callers.
+// It is deliberately not deleted in that same change -- a removal's falsifier is a link
+// error in another translation unit, which is a different arm from the page hashes that
+// proved the de-duplication, and folding one into the other would leave neither tested.
+// The deletion is its own follow-up.
 //
 // WHAT ASSERTS THE TWO AGREE, stated as measured rather than as inherited. utils.cpp used
 // to say the agreement was "asserted rather than assumed -- see

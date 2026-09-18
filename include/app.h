@@ -435,36 +435,44 @@ struct App {
     tinta::TextFactory* textFactory = nullptr;
     // Same pair rule as the Direct2D members above: native holds and owns,
     // wrapper keeps the name the 106 DrawText sites already pass. Only 40 sites
-    // in the tree call an IDWrite method on one of these, and 25 creation calls
+    // in the tree call an IDWrite method on one of these, and the creation calls
     // in d2d_init.cpp take an address -- those moved to the native names; every
     // other use bound to the wrapper untouched.
-    IDWriteTextFormat* nativeTextFormat = nullptr;
-    IDWriteTextFormat* nativeHeadingFormat = nullptr;
-    IDWriteTextFormat* nativeCodeFormat = nullptr;
-    IDWriteTextFormat* nativeBoldFormat = nullptr;
-    IDWriteTextFormat* nativeItalicFormat = nullptr;
-    // Nested inline spans: **bold *italic***, **`code`**, *`code`*
-    IDWriteTextFormat* nativeBoldItalicFormat = nullptr;
-    IDWriteTextFormat* nativeCodeBoldFormat = nullptr;
-    IDWriteTextFormat* nativeCodeItalicFormat = nullptr;
-    IDWriteTextFormat* nativeCodeBoldItalicFormat = nullptr;
-    IDWriteTextFormat* nativeHeadingFormats[6] = {};
+    //
+    // THE DOCUMENT FORMATS HAVE LEFT THIS BLOCK. The eleven that used to head it --
+    // nativeTextFormat through nativeHeadingFormats[6], plus nativeSupSubFormat further
+    // down -- are gone, because installDocumentTextFormats (include/text_formats.h)
+    // creates all sixteen objects through tinta::TextFactory::CreateTextFormat and hands
+    // back something that already owns itself. There is no native pointer to hold and
+    // nothing to seat, so those three-part triples collapsed to a unique_ptr and the raw
+    // wrapper pointer the consumers already read.
+    //
+    // The remaining natives here belong to updateOverlayFormats, which still creates
+    // its formats with DirectWrite. That asymmetry is the honest state of the port and
+    // not a design: it disappears when that function follows this one.
 
     // Overlay text formats (cached)
     IDWriteTextFormat* nativeSearchTextFormat = nullptr;
     IDWriteTextFormat* nativeThemeTitleFormat = nullptr;
     IDWriteTextFormat* nativeThemeHeaderFormat = nullptr;
 
-    Seated<tinta::TextFormat, IDWriteTextFormat> textFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> headingFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> codeFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> boldFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> italicFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> boldItalicFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> codeBoldFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> codeItalicFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> codeBoldItalicFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> headingFormatsStorage[6];
+    // THE DOCUMENT FORMATS' STORAGE, and the type is the whole point of the change that
+    // made it: a plain owning pointer, not Seated<>. Seated exists to wrap an
+    // already-created native handle in place and keep that wrapping idempotent -- its
+    // second member is a comparison key for "the same native I wrapped last time" -- and
+    // once creation returns an owning portable pointer there is no native to compare.
+    // Keeping the template would have left the coupling in the TYPE while removing it
+    // from the call, which is the shape a census misses.
+    std::unique_ptr<tinta::TextFormat> textFormatStorage;
+    std::unique_ptr<tinta::TextFormat> headingFormatStorage;
+    std::unique_ptr<tinta::TextFormat> codeFormatStorage;
+    std::unique_ptr<tinta::TextFormat> boldFormatStorage;
+    std::unique_ptr<tinta::TextFormat> italicFormatStorage;
+    std::unique_ptr<tinta::TextFormat> boldItalicFormatStorage;
+    std::unique_ptr<tinta::TextFormat> codeBoldFormatStorage;
+    std::unique_ptr<tinta::TextFormat> codeItalicFormatStorage;
+    std::unique_ptr<tinta::TextFormat> codeBoldItalicFormatStorage;
+    std::unique_ptr<tinta::TextFormat> headingFormatsStorage[6];
     Seated<tinta::TextFormat, IDWriteTextFormat> searchTextFormatStorage;
     Seated<tinta::TextFormat, IDWriteTextFormat> themeTitleFormatStorage;
     Seated<tinta::TextFormat, IDWriteTextFormat> themeHeaderFormatStorage;
@@ -1405,8 +1413,12 @@ struct App {
     std::vector<EditAction> redoStack;
 
     // Editor text format (monospace)
-    IDWriteTextFormat* nativeSupSubFormat = nullptr;
-    Seated<tinta::TextFormat, IDWriteTextFormat> supSubFormatStorage;
+    //
+    // supSubFormat is a DOCUMENT format that sits here rather than with its ten siblings,
+    // and it is left where it is on purpose: moving a declaration is invisible in a diff
+    // that also changes its type, and this one has a bug attached (see
+    // releaseOverlayFormats below) that a reader should find at the same address twice.
+    std::unique_ptr<tinta::TextFormat> supSubFormatStorage;
     tinta::TextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
     IDWriteTextFormat* nativeEditorTextFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> editorTextFormatStorage;
@@ -1458,6 +1470,35 @@ struct App {
         }
     }
 
+    // The eleven document formats' storage, dropped in ONE place. There is no native to
+    // Release any more, so this is eleven pointer-and-storage pairs and nothing else.
+    //
+    // WHY IT IS A MEMBER HERE RATHER THAN THE BODY OF releaseDocumentTextFormats, which is
+    // where it belongs on every other reading: a link measurement on 2026-09-18. Calling
+    // that free function from App::shutdown() -- an inline member -- put its symbol in the
+    // link closure of every target that includes app.h, and the build came back with
+    // LNK2019 from more than twenty test executables that have no interest in a text
+    // format. So the loop lives where App can reach it with no new dependency, and
+    // releaseDocumentTextFormats() calls this and adds the space widths.
+    void releaseDocumentFormats() {
+        auto drop = [](std::unique_ptr<tinta::TextFormat>& storage,
+                       tinta::TextFormat*& pointer) {
+            pointer = nullptr;
+            storage.reset();
+        };
+        drop(textFormatStorage, textFormat);
+        drop(headingFormatStorage, headingFormat);
+        drop(codeFormatStorage, codeFormat);
+        drop(boldFormatStorage, boldFormat);
+        drop(italicFormatStorage, italicFormat);
+        drop(boldItalicFormatStorage, boldItalicFormat);
+        drop(codeBoldFormatStorage, codeBoldFormat);
+        drop(codeItalicFormatStorage, codeItalicFormat);
+        drop(codeBoldItalicFormatStorage, codeBoldItalicFormat);
+        drop(supSubFormatStorage, supSubFormat);
+        for (int i = 0; i < 6; ++i) drop(headingFormatsStorage[i], headingFormats[i]);
+    }
+
     void releaseOverlayFormats() {
         signalSmallFormatStorage.reset(); nativeSignalSmallFormat = nullptr; signalSmallFormat = nullptr;
         searchTextFormatStorage.reset(); nativeSearchTextFormat = nullptr; searchTextFormat = nullptr;
@@ -1467,7 +1508,17 @@ struct App {
         tocFormatStorage.reset(); nativeTocFormat = nullptr; tocFormat = nullptr;
         tocFormatBoldStorage.reset(); nativeTocFormatBold = nullptr; tocFormatBold = nullptr;
         statsFormatStorage.reset(); nativeStatsFormat = nullptr; statsFormat = nullptr;
-        supSubFormatStorage.reset(); nativeSupSubFormat = nullptr; supSubFormat = nullptr;
+        // THIS LINE IS WHY SUPERSCRIPT DOES NOTHING IN THE WINDOWS BUILD, and it is left
+        // in place deliberately rather than fixed here. supSubFormat is a DOCUMENT format:
+        // installDocumentTextFormats creates it, and on Windows updateTextFormats then
+        // calls updateOverlayFormats, whose first statement is this function -- so the
+        // format is destroyed before anything draws, inline_style.cpp's
+        // `if (app.supSubFormat)` never fires, and ^2222^ renders at body size on the body
+        // baseline. The Qt path never calls this and renders it small, so the two backends
+        // disagree today. Measured 2026-09-18 through tests/fixtures/supsub-probe.md, which
+        // exists to hold this page's hash still; removing the line MOVES that hash, which
+        // makes it a claim of its own and not a tidy-up inside a byte-identity slice.
+        supSubFormatStorage.reset(); supSubFormat = nullptr;
         editorTextFormatStorage.reset(); nativeEditorTextFormat = nullptr; editorTextFormat = nullptr;
         editorGutterFormatStorage.reset(); nativeEditorGutterFormat = nullptr; editorGutterFormat = nullptr;
         for (auto& fmt : themePreviewFormats) {
@@ -1512,20 +1563,18 @@ struct App {
         releaseNative(fontFallback);
         // No releaseNative(textAnalyzer): the analyzer is now owned by D2DTextFactory
         // and released by ~D2DTextFactory when textFactoryStorage resets below.
-        textFormatStorage.reset(); nativeTextFormat = nullptr; textFormat = nullptr;
-        headingFormatStorage.reset(); nativeHeadingFormat = nullptr; headingFormat = nullptr;
-        codeFormatStorage.reset(); nativeCodeFormat = nullptr; codeFormat = nullptr;
-        boldFormatStorage.reset(); nativeBoldFormat = nullptr; boldFormat = nullptr;
-        italicFormatStorage.reset(); nativeItalicFormat = nullptr; italicFormat = nullptr;
-        boldItalicFormatStorage.reset(); nativeBoldItalicFormat = nullptr; boldItalicFormat = nullptr;
-        codeBoldFormatStorage.reset(); nativeCodeBoldFormat = nullptr; codeBoldFormat = nullptr;
-        codeItalicFormatStorage.reset(); nativeCodeItalicFormat = nullptr; codeItalicFormat = nullptr;
-        codeBoldItalicFormatStorage.reset(); nativeCodeBoldItalicFormat = nullptr; codeBoldItalicFormat = nullptr;
-        for (int i = 0; i < 6; ++i) {
-            headingFormatsStorage[i].reset();
-            nativeHeadingFormats[i] = nullptr;
-            headingFormats[i] = nullptr;
-        }
+        // A FOURTH hand-written copy of the eleven-format release pairing stood here, and
+        // the compiler is what found it -- not the census and not the read of
+        // updateTextFormats, both of which had already been through this file. It was
+        // identical to the block in updateTextFormats and to releaseQtTextFormats' loop,
+        // and like the first of those it nulled every native without Releasing it.
+        //
+        // Before the factory below, not after, and the order is kept deliberately even
+        // though it no longer matters for correctness: D2DTextFormat Releases its own
+        // native, and an IDWriteTextFormat holds its factory alive independently, so
+        // either order is safe now. It was not safe to reason about when these were raw
+        // pointers, which is why the sequence is preserved rather than tidied.
+        releaseDocumentFormats();
         // bodyTypography and codeTypography used to be released here. They are
         // tinta::Typography values now and own nothing; deliberately not replaced
         // with a clear(), because they hold the feature sets the app always wants
@@ -1624,17 +1673,13 @@ struct App {
 #endif
     }
 
+    // THE ELEVEN DOCUMENT FORMATS ARE NOT SEATED HERE ANY MORE, and their absence is
+    // load-bearing rather than tidy. installDocumentTextFormats INSTALLS them, and
+    // seatFormat's first act on a null native is storage.reset() -- so a single surviving
+    // line for an installed format would destroy it, on a path that runs after every
+    // theme change and every zoom step. The compiler catches it only because the native
+    // members went with them; that is why deleting those was mandatory and not cosmetic.
     void seatTextFormats() {
-        seatFormat(textFormatStorage, nativeTextFormat, textFormat);
-        seatFormat(headingFormatStorage, nativeHeadingFormat, headingFormat);
-        seatFormat(codeFormatStorage, nativeCodeFormat, codeFormat);
-        seatFormat(boldFormatStorage, nativeBoldFormat, boldFormat);
-        seatFormat(italicFormatStorage, nativeItalicFormat, italicFormat);
-        seatFormat(boldItalicFormatStorage, nativeBoldItalicFormat, boldItalicFormat);
-        seatFormat(codeBoldFormatStorage, nativeCodeBoldFormat, codeBoldFormat);
-        seatFormat(codeItalicFormatStorage, nativeCodeItalicFormat, codeItalicFormat);
-        seatFormat(codeBoldItalicFormatStorage, nativeCodeBoldItalicFormat,
-                   codeBoldItalicFormat);
         seatFormat(searchTextFormatStorage, nativeSearchTextFormat, searchTextFormat);
         seatFormat(themeTitleFormatStorage, nativeThemeTitleFormat, themeTitleFormat);
         seatFormat(themeHeaderFormatStorage, nativeThemeHeaderFormat, themeHeaderFormat);
@@ -1644,14 +1689,9 @@ struct App {
         seatFormat(tocFormatBoldStorage, nativeTocFormatBold, tocFormatBold);
         seatFormat(signalSmallFormatStorage, nativeSignalSmallFormat, signalSmallFormat);
         seatFormat(statsFormatStorage, nativeStatsFormat, statsFormat);
-        seatFormat(supSubFormatStorage, nativeSupSubFormat, supSubFormat);
         seatFormat(editorTextFormatStorage, nativeEditorTextFormat, editorTextFormat);
         seatFormat(editorGutterFormatStorage, nativeEditorGutterFormat,
                    editorGutterFormat);
-        for (int i = 0; i < 6; ++i) {
-            seatFormat(headingFormatsStorage[i], nativeHeadingFormats[i],
-                       headingFormats[i]);
-        }
         // Seated after the one resize() in ensureThemePreviewFormats, never
         // before it, so these never point into a reallocated vector buffer.
         for (auto& fmt : themePreviewFormats) {

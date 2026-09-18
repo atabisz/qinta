@@ -251,6 +251,23 @@ tableedit.cpp
 # from which this follows only while both bodies stay thin.
 text_utils_app.cpp
 
+# text_formats_app.cpp arrives 2026-09-18: the sixteen cached DOCUMENT text formats, moved
+# out of src/qt_init.cpp so that src/d2d_init.cpp's updateTextFormats could stop creating
+# its own eleven with dwriteFactory->CreateTextFormat.
+#
+# THIS ENTRY IS NOT A NEW PORTABLE CLAIM, which is the unusual thing about it and the
+# reason it says so. The body was already compiling off Windows and already RUNNING there
+# -- it was installQtTextFormats, on this manifest under qt_init.cpp since 2026-09-16, and
+# tests/qt_entry_tests.cpp builds a real App with a live QtTextFactory and asserts the
+# formats it makes are non-null. Splitting it into its own file moved a proven body across
+# a line on this manifest; the portable surface did not grow. Recorded plainly because the
+# symmetric check above cannot tell that case from a genuine addition, and reading a new
+# line here as new coverage is the mistake this file was written to stop.
+#
+# What it DID buy is on the Windows side: one copy of the table of families, sizes and
+# weights instead of two, where the second copy had no instrument watching it.
+text_formats_app.cpp
+
 # utils.cpp. THE WINDOWS FEATURE FILE THIS MANIFEST HAS TWICE PROMISED WOULD NEVER APPEAR
 # HERE -- text_utils.cpp's entry says "utils.cpp keeps the Windows feature half and must
 # never appear here", and text_utils_app.cpp's says it "is `fatal error: windows.h` off

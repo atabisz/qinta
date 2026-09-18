@@ -58,15 +58,34 @@ class RenderTarget;
 // a field. So the old figure was a whole-file grep mislabelled as the chrome subset, and the
 // off-by-one inside it was a function argument.
 //
-// The real split, measured: 11 declarations of DOCUMENT formats -- 16 objects, because
-// nativeHeadingFormats is a [6] -- plus the 3 of the per-theme preview triple, plus TEN
-// chrome (search, signals, theme title, theme header, stats, folder browser, both TOC,
-// editor text, editor gutter). The ten agree with what updateOverlayFormats assigns in
-// src/d2d_init.cpp, which is the authority on which formats are chrome; the member list is
-// only a proxy for it. This call now creates those ten. Corrected rather than deleted,
-// because the figure appeared in two files and a reader who checks one and not the other
-// should find the same number -- and it had TWO different wrong explanations before this
-// one, so the derivation is written down here rather than the result alone.
+// The real split, as it was measured then: 11 declarations of DOCUMENT formats -- 16
+// objects, because nativeHeadingFormats is a [6] -- plus the 3 of the per-theme preview
+// triple, plus TEN chrome (search, signals, theme title, theme header, stats, folder
+// browser, both TOC, editor text, editor gutter). The ten agree with what
+// updateOverlayFormats assigns in src/d2d_init.cpp, which is the authority on which formats
+// are chrome; the member list is only a proxy for it. This call creates those ten.
+// Corrected rather than deleted, because the figure appeared in two files and a reader who
+// checks one and not the other should find the same number -- and it had TWO different
+// wrong explanations before this one, so the derivation is written down here rather than
+// the result alone.
+//
+// THIRD CORRECTION, and this time the subtraction CONFIRMS the split above rather than
+// replacing it. The eleven DOCUMENT declarations are gone from app.h: those formats are
+// created through tinta::TextFactory in src/text_formats_app.cpp and stored as
+// std::unique_ptr<tinta::TextFormat>, so no native member remains for any of them.
+// 24 members - 11 document = 13, and the paragraph above independently predicts
+// 3 preview + 10 chrome = 13. The two arrive at the same number from different directions,
+// which is the first time this comment's figure has been cross-checked rather than merely
+// recounted.
+//
+// AND THE PARAGRAPH ABOVE PREDICTED ITS OWN SUCCESSOR'S MISTAKE. It warns that the
+// `native` parameter of the seating helper "a grep cannot tell from a field" -- and the
+// re-count for this correction read 14 Seated<> lines against 13 native members before
+// noticing the fourteenth was seatFormat's parameter, the same off-by-one in the same
+// header, found the same way. The whole-file figure is 30 lines and it decomposes exactly:
+// 13 native members, 13 Seated<> storages, 2 seatFormat parameters (one of each type on
+// consecutive lines), 1 forward declaration, 1 comment. Written as a decomposition, not a
+// total, because every wrong version of this figure has been a total.
 //
 // QApplication has to exist first. QtTextFactory itself constructs nothing Qt on
 // its own, but the QFont/QTextLayout work every TextFormat it hands out performs

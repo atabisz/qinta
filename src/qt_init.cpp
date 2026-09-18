@@ -5,6 +5,7 @@
 #include "app.h"
 #include "render_qt.h"
 #include "text_api.h"
+#include "text_formats.h"
 #include "text_qt.h"
 #include "theme_data.h"
 #include "utils.h"
@@ -19,36 +20,48 @@
 
 namespace {
 
-// A one-line-per-format helper, because the alternative is sixteen three-line blocks
-// that differ only in the arguments and hide a copy-paste error beautifully.
+// A one-line-per-format helper, because the alternative is ten three-line blocks that
+// differ only in the arguments and hide a copy-paste error beautifully.
+//
+// THE CHROME FORMATS ONLY, now that the document formats build through
+// installDocumentTextFormats. This one takes a Seated<> because the chrome formats are
+// still created NATIVELY on Windows -- updateOverlayFormats has not been ported -- so
+// their storage still has a native to wrap and compare. The document formats' storage is
+// a plain unique_ptr. Two shapes for the same job is the honest state of a half-finished
+// port rather than a design, and the second one goes when updateOverlayFormats follows.
 tinta::TextFormat* makeFormat(App& app, Seated<tinta::TextFormat, IDWriteTextFormat>& storage,
                               const wchar_t* family, tinta::FontWeight weight,
                               tinta::FontStyle style, float size) {
     std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
         family, weight, style, tinta::FontStretch::Normal, size, L"en-us");
     if (!format) return nullptr;
-    // Every format in updateTextFormats gets this, in a run of ten `if (native...)`
-    // lines at src/d2d_init.cpp:205-217. It is set here instead so a new format cannot
-    // be added without it.
+    // Every format updateOverlayFormats builds gets this too, as a separate `if (native...)`
+    // statement per format. Set here instead so a new format cannot be added without it.
     format->SetParagraphAlignment(tinta::ParagraphAlignment::Near);
     return storage.install(std::move(format));
 }
 
-// THE DOCUMENT FORMATS, AND ONLY THOSE. This is the Qt counterpart of
-// updateTextFormats (src/d2d_init.cpp:119-225), and the numbers below are copied from
-// there rather than chosen: 16.0f body, 14.0f code, 28.0f the standalone heading format,
-// {32,26,22,18,16,14} the per-level headings, 0.68f the sup/sub ratio, all times
-// contentScale * zoomFactor, all bold/italic combinations because inline spans nest.
-// A number that disagrees with d2d_init is a divergence, not a Qt decision.
+// THE DOCUMENT FORMATS HAVE LEFT THIS FILE. installQtTextFormats' body is now
+// installDocumentTextFormats in src/text_formats_app.cpp, called by BOTH initialisers,
+// and this is a plain forwarding call.
 //
-// WHY THIS FUNCTION HAD TO EXIST AT ALL, and it is the finding of this slice rather than
-// a planned step: the Qt window segfaulted on the first document it was given, at
-// src/render.cpp:378, dereferencing a null baseFormat that came from layoutHeading's
-// app.headingFormats[levelIndex] ? ... : app.textFormat -- both null. Every one of these
-// formats is created by DirectWrite in d2d_init.cpp, so off Windows App had a text
-// FACTORY and no text FORMATS, and nothing in the tree said so: the placeholder line
-// built its own format on the stack, and no test had ever laid out a document off
-// Windows. A backtrace found it in one run; no amount of reading would have.
+// THE PARAGRAPH THAT USED TO STAND HERE IS THE REASON IT MOVED, so it is quoted rather
+// than deleted: "the numbers below are copied from updateTextFormats rather than chosen...
+// A number that disagrees with d2d_init is a divergence, not a Qt decision." That names
+// the hazard exactly and does nothing about it -- two parallel copies of a table of
+// sixteen font sizes, weights and families, one per backend, with no instrument that
+// would notice them drifting apart. There is one copy now.
+//
+// WHY THIS FUNCTION HAD TO EXIST AT ALL, and it was the finding of the slice that wrote
+// it rather than a planned step: the Qt window segfaulted on the first document it was
+// given, at src/render.cpp:378, dereferencing a null baseFormat that came from
+// layoutHeading's app.headingFormats[levelIndex] ? ... : app.textFormat -- both null.
+// Every one of these formats was created by DirectWrite in d2d_init.cpp, so off Windows
+// App had a text FACTORY and no text FORMATS, and nothing in the tree said so: the
+// placeholder line built its own format on the stack, and no test had ever laid out a
+// document off Windows. A backtrace found it in one run; no amount of reading would have.
+// Kept here because it is the evidence for why the shared function is shared, and the
+// crash was on this side of the seam.
 //
 // THE CHROME FORMATS USED TO BE "DELIBERATELY NOT HERE" AND NOW THEY ARE BELOW, in
 // installQtChromeFormats. The paragraph that stood here said they were the ~25 chrome
@@ -74,52 +87,9 @@ tinta::TextFormat* makeFormat(App& app, Seated<tinta::TextFormat, IDWriteTextFor
 // (src/text_utils_app.cpp) -- the one function that got its own translation unit for
 // exactly this call. render.cpp's getSpaceWidth reads them and a zero there collapses
 // every inter-word gap in the document, which draws and looks almost right, so it is the
-// kind of default that would have survived a pixel count.
-void installQtTextFormats(App& app) {
-    if (!app.textFactory) return;
-
-    const float scale = app.contentScale * app.zoomFactor;
-    const float fontSize = 16.0f * scale;
-    const float codeSize = 14.0f * scale;
-    const wchar_t* fontFamily = app.theme.fontFamily;
-    const wchar_t* codeFont = app.theme.codeFontFamily;
-    const wchar_t* headingFont = themeHeadingFont(app.theme);
-
-    using W = tinta::FontWeight;
-    using S = tinta::FontStyle;
-
-    app.textFormat = makeFormat(app, app.textFormatStorage, fontFamily, W::Normal, S::Normal,
-                                fontSize);
-    app.headingFormat = makeFormat(app, app.headingFormatStorage, headingFont, W::Bold,
-                                   S::Normal, 28.0f * scale);
-    app.codeFormat = makeFormat(app, app.codeFormatStorage, codeFont, W::Normal, S::Normal,
-                                codeSize);
-    app.boldFormat = makeFormat(app, app.boldFormatStorage, fontFamily, W::Bold, S::Normal,
-                                fontSize);
-    app.italicFormat = makeFormat(app, app.italicFormatStorage, fontFamily, W::Normal,
-                                  S::Italic, fontSize);
-    app.boldItalicFormat = makeFormat(app, app.boldItalicFormatStorage, fontFamily, W::Bold,
-                                      S::Italic, fontSize);
-    app.codeBoldFormat = makeFormat(app, app.codeBoldFormatStorage, codeFont, W::Bold,
-                                    S::Normal, codeSize);
-    app.codeItalicFormat = makeFormat(app, app.codeItalicFormatStorage, codeFont, W::Normal,
-                                      S::Italic, codeSize);
-    app.codeBoldItalicFormat = makeFormat(app, app.codeBoldItalicFormatStorage, codeFont,
-                                          W::Bold, S::Italic, codeSize);
-    app.supSubFormat = makeFormat(app, app.supSubFormatStorage, fontFamily, W::Normal,
-                                  S::Normal, fontSize * 0.68f);
-
-    const float headingSizes[] = {32.0f, 26.0f, 22.0f, 18.0f, 16.0f, 14.0f};
-    for (int i = 0; i < 6; i++) {
-        app.headingFormats[i] = makeFormat(app, app.headingFormatsStorage[i], headingFont,
-                                           W::Bold, S::Normal, headingSizes[i] * scale);
-    }
-
-    app.spaceWidthText = measureText(app, L" ", app.textFormat);
-    app.spaceWidthBold = measureText(app, L" ", app.boldFormat);
-    app.spaceWidthItalic = measureText(app, L" ", app.italicFormat);
-    app.spaceWidthCode = measureText(app, L" ", app.codeFormat);
-}
+// kind of default that would have survived a pixel count. That call moved with the body;
+// the note stays because it is why the body has to measure rather than assume.
+void installQtTextFormats(App& app) { installDocumentTextFormats(app); }
 
 // A single-line row that must not wrap and must trim with an ellipsis. Three formats
 // want exactly this (folder browser, TOC, TOC bold) and on Windows it is written twice
@@ -279,34 +249,12 @@ void installQtChromeFormats(App& app) {
     }
 }
 
-void releaseQtTextFormats(App& app) {
-    // The raw pointer before the storage, for the same reason releaseQtBackends does it
-    // in that order.
-    auto drop = [](tinta::TextFormat*& pointer,
-                   Seated<tinta::TextFormat, IDWriteTextFormat>& storage) {
-        pointer = nullptr;
-        storage.install(nullptr);
-    };
-    drop(app.textFormat, app.textFormatStorage);
-    drop(app.headingFormat, app.headingFormatStorage);
-    drop(app.codeFormat, app.codeFormatStorage);
-    drop(app.boldFormat, app.boldFormatStorage);
-    drop(app.italicFormat, app.italicFormatStorage);
-    drop(app.boldItalicFormat, app.boldItalicFormatStorage);
-    drop(app.codeBoldFormat, app.codeBoldFormatStorage);
-    drop(app.codeItalicFormat, app.codeItalicFormatStorage);
-    drop(app.codeBoldItalicFormat, app.codeBoldItalicFormatStorage);
-    drop(app.supSubFormat, app.supSubFormatStorage);
-    for (int i = 0; i < 6; i++) drop(app.headingFormats[i], app.headingFormatsStorage[i]);
-
-    // The measured widths go too. A stale width against a released format is the same
-    // class of bug as a stale wrapper over a released native, and it would survive a
-    // reinstall silently because the new formats measure the same.
-    app.spaceWidthText = 0.0f;
-    app.spaceWidthBold = 0.0f;
-    app.spaceWidthItalic = 0.0f;
-    app.spaceWidthCode = 0.0f;
-}
+// Moved out with its install half, for the reason the pair exists at all: a release that
+// lives beside its creation cannot fall out of step with it. Both are now in
+// src/text_formats_app.cpp and both are called from both backends -- which is also what
+// gave the Windows path a release that actually releases, since the block it replaces
+// nulled eleven raw IDWriteTextFormat* members without calling Release on any of them.
+void releaseQtTextFormats(App& app) { releaseDocumentTextFormats(app); }
 
 void releaseQtChromeFormats(App& app) {
     auto drop = [](tinta::TextFormat*& pointer,

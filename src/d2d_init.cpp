@@ -1,6 +1,7 @@
 #include "d2d_init.h"
 #include "tabs.h"
 #include "math_render.h"
+#include "text_formats.h"
 #include "utils.h"
 
 #include <objbase.h>
@@ -91,9 +92,16 @@ void applyTheme(App& app, int themeIndex) {
     const D2DTheme& newTheme = themeAt(themeIndex);
 
     // If the fonts are unchanged the existing text formats are identical —
-    // skip recreating ~47 IDWriteTextFormat objects. Colors are baked into
-    // the cached layout runs, so a relayout is still needed.
-    bool sameFonts = app.nativeTextFormat &&
+    // skip recreating them. Colors are baked into the cached layout runs, so a
+    // relayout is still needed.
+    //
+    // The count that used to be in this sentence ("~47 IDWriteTextFormat objects") is
+    // deleted rather than corrected: sixteen of them are tinta::TextFormat now and the
+    // rest are still native, so any single figure here would be wrong about one half.
+    // The probe reads app.textFormat, the seam pointer, where it used to read
+    // app.nativeTextFormat -- the same question ("has anything been built yet") asked of
+    // the object the tree actually draws with.
+    bool sameFonts = app.textFormat &&
         wcscmp(app.theme.fontFamily, newTheme.fontFamily) == 0 &&
         wcscmp(app.theme.codeFontFamily, newTheme.codeFontFamily) == 0;
 
@@ -116,9 +124,21 @@ void applyTheme(App& app, int themeIndex) {
     }
 }
 
-// Moved from src/utils.cpp unchanged. It sat there next to the window title and
-// the shell handoffs, which is why that file needed dwrite.h; its callers are the
-// four space-width caches below.
+// Moved from src/utils.cpp unchanged. It sat there next to the window title and the shell
+// handoffs, which is why that file needed dwrite.h.
+//
+// IT NOW HAS ZERO CALLERS, and that is stated here rather than left for a reader to
+// discover by grepping. The four space-width caches below WERE its callers; they now go
+// through the seam overload in src/text_utils_app.cpp, because the eleven document formats
+// they measure are tinta::TextFormat rather than IDWriteTextFormat. Nothing in src/,
+// include/ or tests/ calls this function.
+//
+// It is deliberately not deleted in the same change that orphaned it. A deletion's
+// falsifier is a link error in some other translation unit -- 20+ test targets include
+// app.h and any one of them can fail -- and that is a different arm from the page hashes
+// that proved the de-duplication. Folding an unproven removal into a proven change leaves
+// neither of them tested. The deletion is its own follow-up; keep this paragraph until
+// then, because a zero-caller function with no note is exactly what looks like live code.
 float measureText(App& app, const std::wstring& text, IDWriteTextFormat* format) {
     IDWriteTextLayout* layout = nullptr;
     app.dwriteFactory->CreateTextLayout(text.c_str(), (UINT32)text.length(),
@@ -136,106 +156,23 @@ void updateTextFormats(App& app) {
     app.clearEditorLineLayoutCache();
     // Math boxes were laid out against the old theme font
     mathClearCache();
-    // Release existing formats
-    app.textFormatStorage.reset(); app.nativeTextFormat = nullptr; app.textFormat = nullptr;
-    app.headingFormatStorage.reset(); app.nativeHeadingFormat = nullptr; app.headingFormat = nullptr;
-    app.codeFormatStorage.reset(); app.nativeCodeFormat = nullptr; app.codeFormat = nullptr;
-    app.boldFormatStorage.reset(); app.nativeBoldFormat = nullptr; app.boldFormat = nullptr;
-    app.italicFormatStorage.reset(); app.nativeItalicFormat = nullptr; app.italicFormat = nullptr;
-    app.boldItalicFormatStorage.reset(); app.nativeBoldItalicFormat = nullptr; app.boldItalicFormat = nullptr;
-    app.codeBoldFormatStorage.reset(); app.nativeCodeBoldFormat = nullptr; app.codeBoldFormat = nullptr;
-    app.codeItalicFormatStorage.reset(); app.nativeCodeItalicFormat = nullptr; app.codeItalicFormat = nullptr;
-    app.codeBoldItalicFormatStorage.reset(); app.nativeCodeBoldItalicFormat = nullptr; app.codeBoldItalicFormat = nullptr;
-    app.supSubFormatStorage.reset(); app.nativeSupSubFormat = nullptr; app.supSubFormat = nullptr;
-    for (int i = 0; i < 6; ++i) {
-        app.headingFormatsStorage[i].reset();
-        app.nativeHeadingFormats[i] = nullptr;
-        app.headingFormats[i] = nullptr;
-    }
-
-    // Create text formats with current zoom and theme fonts
-    float scale = app.contentScale * app.zoomFactor;
-    float fontSize = 16.0f * scale;
-    float codeSize = 14.0f * scale;
-
-    const wchar_t* fontFamily = app.theme.fontFamily;
-    const wchar_t* codeFont = app.theme.codeFontFamily;
-
-    app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.nativeTextFormat);
-
-    app.dwriteFactory->CreateTextFormat(themeHeadingFont(app.theme), nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        28.0f * scale, L"en-us", &app.nativeHeadingFormat);
-
-    app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.nativeCodeFormat);
-
-    app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.nativeBoldFormat);
-
-    app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.nativeItalicFormat);
-
-    // Inline spans nest, so every weight/style combination needs a format:
-    // ***both***, **`code`**, *`code`*
-    app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize, L"en-us", &app.nativeBoldItalicFormat);
-
-    app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.nativeCodeBoldFormat);
-
-    app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.nativeCodeItalicFormat);
-
-    app.dwriteFactory->CreateTextFormat(codeFont, nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_ITALIC, DWRITE_FONT_STRETCH_NORMAL,
-        codeSize, L"en-us", &app.nativeCodeBoldItalicFormat);
-
-    // Small format for ^superscript^ / ~subscript~ spans
-    app.dwriteFactory->CreateTextFormat(fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        fontSize * 0.68f, L"en-us", &app.nativeSupSubFormat);
-
-    // Heading formats by level: the theme's heading face, which inherits
-    // the main font unless the theme sets headingfont= (#155). Abyss pins
-    // its headings to Segoe UI in data - bolding its Light body family
-    // would render faux-bold.
-    const wchar_t* headingFont = themeHeadingFont(app.theme);
-    float headingSizes[] = {32, 26, 22, 18, 16, 14};
-    for (int i = 0; i < 6; i++) {
-        app.dwriteFactory->CreateTextFormat(headingFont, nullptr,
-            DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            headingSizes[i] * scale, L"en-us", &app.nativeHeadingFormats[i]);
-    }
-
-    // Set consistent baseline alignment for all formats
-    if (app.nativeTextFormat) app.nativeTextFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeHeadingFormat) app.nativeHeadingFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeCodeFormat) app.nativeCodeFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeBoldFormat) app.nativeBoldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeItalicFormat) app.nativeItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeBoldItalicFormat) app.nativeBoldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeCodeBoldFormat) app.nativeCodeBoldFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeCodeItalicFormat) app.nativeCodeItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeCodeBoldItalicFormat) app.nativeCodeBoldItalicFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    if (app.nativeSupSubFormat) app.nativeSupSubFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    for (auto* fmt : app.nativeHeadingFormats) {
-        if (fmt) fmt->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    }
-
-    // Cache space widths
-    if (app.nativeTextFormat) app.spaceWidthText = measureText(app, L" ", app.nativeTextFormat);
-    if (app.nativeBoldFormat) app.spaceWidthBold = measureText(app, L" ", app.nativeBoldFormat);
-    if (app.nativeItalicFormat) app.spaceWidthItalic = measureText(app, L" ", app.nativeItalicFormat);
-    if (app.nativeCodeFormat) app.spaceWidthCode = measureText(app, L" ", app.nativeCodeFormat);
+    // THE ELEVEN DOCUMENT FORMATS ARE CREATED THROUGH THE SEAM, and this one call replaces
+    // 90 lines of this function: the release block, eleven dwriteFactory->CreateTextFormat
+    // calls, the run of eleven SetParagraphAlignment statements and the four space-width
+    // measurements. The numbers are not repeated here because they are no longer chosen
+    // here -- src/text_formats_app.cpp holds the only copy, and it holds it because
+    // src/qt_init.cpp had a second one that this file could not see.
+    //
+    // The reason this is a deletion rather than a port: installQtTextFormats already built
+    // exactly these sixteen objects, with the same families, sizes and weights, through
+    // tinta::TextFactory. Two parallel copies of a table of numbers, one of them naming
+    // DirectWrite. Its own comment said a number disagreeing with this file "is a
+    // divergence, not a Qt decision", which names the hazard without removing it.
+    //
+    // It is safe to call before the fallback chain below exists: a fallback is attached to
+    // a LAYOUT, not to a format, and the handoff further down runs unconditionally on
+    // every call for exactly that reason.
+    installDocumentTextFormats(app);
 
     // Build font fallback chain for emoji and CJK support
     if (!app.fontFallback) {

@@ -360,6 +360,13 @@ set(SOURCES
     # text_utils.cpp above because that file's whole property is needing no app.h -- see
     # src/text_utils_app.cpp, which records the linker reading that forced the move.
     src/text_utils_app.cpp
+    # The sixteen cached document text formats, created through tinta::TextFactory. Same
+    # split and same naming as the two above, and the reason it is shared rather than
+    # per-backend is a measurement: src/qt_init.cpp already held a second copy of the
+    # same table of families, sizes and weights, and nothing would have noticed the two
+    # drifting apart. WINDOWS COMPILES THIS TOO -- that is the point of the entry, not an
+    # oversight; updateTextFormats calls it and creates no format of its own.
+    src/text_formats_app.cpp
     src/search.cpp
     src/render.cpp
     # The document paint pass, lifted out of main_d2d.cpp's WM_PAINT handler so a Qt
@@ -691,6 +698,7 @@ set(QINTA_APP_SOURCES
     src/syntax.cpp
     src/text_utils.cpp
     src/text_utils_app.cpp
+    src/text_formats_app.cpp
 )
 
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
@@ -1211,14 +1219,34 @@ if(BUILD_TESTING)
         # of the windows.h-fatal src/utils.cpp because a linker reading of qinta's
         # closure found it was the ONLY symbol render.cpp needed from that file.
         #
-        # COMPILE-ONLY, and that is a stated gap rather than a quiet one. NOTHING in this
-        # tree executes measureText on any platform -- grepping tests/ for the name
-        # returns nothing, which also corrected a claim in utils.cpp that
-        # text_factory_tests asserted the two overloads agree. It asserts the layer
-        # beneath instead. Executing this overload needs an App with a live textFactory,
-        # which the Qt seam tests deliberately do not build (they use a harness, not an
-        # App), so an assertion here is its own slice and not a line in this one.
+        # NOT COMPILE-ONLY, AND THE PARAGRAPH THAT SAID SO WAS WRONG ABOUT ITS OWN PROBE.
+        # It read "NOTHING in this tree executes measureText on any platform -- grepping
+        # tests/ for the name returns nothing". The grep is still literally true (0 hits
+        # for the name across tests/*.cpp) and the conclusion drawn from it was false:
+        # tests/qt_entry_tests.cpp calls installQtBackends, which reaches
+        # installQtTextFormats and then src/text_formats_app.cpp, whose last four lines
+        # ARE this overload -- once per space width. That was already the case before the
+        # document formats were de-duplicated into one translation unit, so this is a
+        # correction and not a change in coverage.
+        #
+        # The lesson is the instrument, not the number: a name grep over tests/ measures
+        # whether a test MENTIONS a function, and the property claimed was whether one
+        # EXECUTES it. Those differ by every transitive call in the tree, and here they
+        # differed in the direction that understates coverage -- the rarer and quieter of
+        # the two. What remains genuinely unasserted is the RETURN VALUE: nothing checks
+        # the widths against an expected figure, so a plausible-but-wrong measurement
+        # still passes. That is the real gap and it is smaller than the one claimed.
         src/text_utils_app.cpp
+        # src/text_formats_app.cpp -- the sixteen document formats, moved here out of
+        # src/qt_init.cpp so the Windows initialiser could stop building its own eleven.
+        #
+        # NOT compile-only, unlike its neighbour above, and that is the one line worth
+        # reading twice: the Qt seam tests already run this code end to end. They build a
+        # real App with a live QtTextFactory, call installQtBackends, and assert the
+        # formats non-null -- tests/qt_entry_tests.cpp does it around :397. So the same
+        # bodies that draw a Windows page are executed off Windows by an existing test,
+        # which is what a shared TU buys that two parallel copies could not.
+        src/text_formats_app.cpp
         # src/render.cpp ARRIVES HERE, and it is the largest single file this port has
         # moved -- but read what that does and does not mean, because the gap between
         # the three readings is unusually wide for this one file.
@@ -1300,9 +1328,14 @@ if(BUILD_TESTING)
         # Nothing in what remains was rewritten to compile: two functions left it, and
         # that was the whole change.
         #
-        #   1. measureText(IDWriteTextFormat*) -> src/d2d_init.cpp, beside the four calls
-        #      in updateTextFormats that were its only callers in the tree. It is why this
-        #      file needed dwrite.h, and its portable twin already lived in
+        #   1. measureText(IDWriteTextFormat*) -> src/d2d_init.cpp. It moved there to sit
+        #      beside the four calls in updateTextFormats that were its only callers in the
+        #      tree; THOSE FOUR ARE NOW GONE -- they were the space-width measurements, and
+        #      they became the seam overload when the eleven document formats stopped being
+        #      native. So the overload has zero callers and is a leftover rather than live
+        #      code, deliberately left on disk because a removal's falsifier is a link
+        #      error in another target, not the page hashes that proved the move. It is why
+        #      this file needed dwrite.h, and its portable twin already lived in
         #      src/text_utils_app.cpp -- so the file was unbuildable off Windows for one
         #      function that had already been replaced for everyone else.
         #   2. launchQuickNoteWindow -> src/quicknote_win32.cpp, which is Windows-only and

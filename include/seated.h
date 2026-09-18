@@ -72,9 +72,20 @@ struct Seated {
     // Install an already-built implementation. This is the entry point a
     // non-Windows backend needs: nothing off Windows can produce a native COM
     // pointer, so seat() is unreachable there, and without this the storage could
-    // only ever be null. NOT called by anything yet -- the Qt initialiser is
-    // separate work -- and said plainly rather than left to be discovered, because
-    // this tree has been bitten by a dispatcher with zero callers before.
+    // only ever be null.
+    //
+    // IT USED TO SAY "NOT called by anything yet -- the Qt initialiser is separate
+    // work", which stopped being true when that initialiser landed and stayed on the
+    // page for several slices afterwards. It now has callers in src/qt_init.cpp,
+    // src/paint_document.cpp and tests/seated_tests.cpp. Counts are deliberately not
+    // written here: this comment's whole failure was asserting a number about the rest
+    // of the tree from inside a header that cannot see it, and a count would age the
+    // same way the zero did.
+    //
+    // Worth keeping the original intent, because it was right: this tree has been
+    // bitten by a dispatcher with zero callers before, so a genuinely uncalled entry
+    // point should say so. The fix is that the claim has to be re-measured by whoever
+    // adds or removes a caller, not that the claim should never have been made.
     Seam* install(std::unique_ptr<Seam> impl) {
         wrapper = std::move(impl);
         seated = nullptr;

@@ -32,15 +32,23 @@
 
 namespace {
 
-// A one-line-per-format helper, because the alternative is sixteen three-line blocks that
-// differ only in the arguments and hide a copy-paste error beautifully.
+// A one-line-per-format helper, because the alternative is a three-line block per format that
+// differs only in the arguments and hides a copy-paste error beautifully.
+//
+// "SIXTEEN" WAS THE WORD HERE, TWICE, and both were true when only the document formats came
+// through this helper. It is the ONLY overload now and takes all 24 call sites below -- the
+// sixteen document formats plus the thirteen chrome storages, which overlap because two of
+// those sites sit inside loops. The count is written as call sites rather than formats on
+// purpose: `ensureThemePreviewFormats` creates three per theme, so the number of formats this
+// helper produces at runtime depends on how many themes are installed and is not a fact about
+// this file.
 tinta::TextFormat* makeFormat(App& app, std::unique_ptr<tinta::TextFormat>& storage,
                               const wchar_t* family, tinta::FontWeight weight,
                               tinta::FontStyle style, float size) {
     storage = app.textFactory->CreateTextFormat(family, weight, style,
                                                 tinta::FontStretch::Normal, size, L"en-us");
     if (!storage) return nullptr;
-    // Every one of the sixteen gets this. On Windows it was a run of ten
+    // Every one of the 24 gets this. On Windows it was a run of ten
     // `if (native...) native...->SetParagraphAlignment(...)` lines plus a loop for the
     // heading array -- eleven statements that a twelfth format could be added without.
     // Setting it inside the helper makes that impossible rather than merely unlikely.
@@ -48,28 +56,30 @@ tinta::TextFormat* makeFormat(App& app, std::unique_ptr<tinta::TextFormat>& stor
     return storage.get();
 }
 
-// THE SAME HELPER OVER THE OTHER STORAGE SHAPE, for the ten chrome formats. Both overloads
-// are here now, which is the first time the two shapes have been visible in one file, and
-// seeing them together is what makes the remaining difference legible: this one ends in
-// storage.install(std::move(format)) and the one above in a plain assignment. Nothing else
-// differs -- same factory call, same locale, same ParagraphAlignment::Near on every format.
+// THE SECOND OVERLOAD IS GONE, and it took the last DirectWrite name in this file with it. It
+// took a Seated<tinta::TextFormat, IDWriteTextFormat>& for the chrome storages, and its own
+// comment said it was spelled out rather than aliased so that the slice collapsing it to
+// unique_ptr would have an obvious grep target. That worked: the grep found it, the thirteen
+// chrome storages in include/app.h are plain unique_ptrs now, and all twenty-four call sites
+// below bind to the one helper above WITHOUT A SINGLE EDIT -- which is the whole reason
+// Seated<> kept reset(), get() and operator bool at those exact spellings.
 //
-// The Seated<> parameter is the LAST piece of DirectWrite coupling in the chrome path, and it
-// is a type and not a behaviour: `IDWriteTextFormat` appears as a template argument that
-// nothing in this file constructs, compares or dereferences. It is spelled here rather than
-// hidden behind an alias so that the follow-on slice collapsing it to unique_ptr has an
-// obvious grep target. Off Windows the interface is an incomplete type and that is fine --
-// a pointer to an incomplete type is a legal template argument, which is why this body
-// compiles on the portable target that has no DirectWrite at all.
-tinta::TextFormat* makeFormat(App& app, Seated<tinta::TextFormat, IDWriteTextFormat>& storage,
-                              const wchar_t* family, tinta::FontWeight weight,
-                              tinta::FontStyle style, float size) {
-    std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
-        family, weight, style, tinta::FontStretch::Normal, size, L"en-us");
-    if (!format) return nullptr;
-    format->SetParagraphAlignment(tinta::ParagraphAlignment::Near);
-    return storage.install(std::move(format));
-}
+// THE CLAIM I INHERITED FROM IT WAS WRONG, and it is worth more than the deletion. It said
+// "Nothing else differs -- same factory call, same locale, same ParagraphAlignment::Near on
+// every format", with the difference narrowed to the last line. The two bodies also differed
+// on the FAILURE path, and in opposite directions:
+//
+//   deleted:  build into a LOCAL, test it, install on success -- a failed CreateTextFormat
+//             returned nullptr and left the storage holding its PREVIOUS wrapper
+//   kept:     assign over the storage, THEN test -- a failed CreateTextFormat has already
+//             destroyed the previous format by the time nullptr is returned
+//
+// So chrome creation failure used to leave `storage` non-null while the raw pointer beside it
+// went null, and that pair is exactly the inconsistency tests/theme_tests.cpp asserts against
+// on the RELEASE path. Collapsing the type makes the two paths agree, which is a BEHAVIOUR
+// CHANGE and not a mechanical one. It is unreachable in practice -- CreateTextFormat does not
+// fail for a family this app hardcodes -- and it is written down because "mechanical" was the
+// word that nearly moved thirteen declarations without anyone reading the two bodies together.
 
 // A single-line row that must not wrap and must trim with an ellipsis. Three formats want
 // exactly this -- folder browser, TOC, TOC bold -- and on Windows it was written TWICE:

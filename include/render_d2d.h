@@ -31,15 +31,33 @@
 #include <d2d1.h>
 #else
 // The SIX Direct2D interfaces this header names, and it names them ONLY as
-// pointers -- measured at 16 occurrences, 0 by value. A forward declaration is
-// therefore sufficient, and deliberately leaves them incomplete so that any
-// inline use added later fails here instead of compiling into a portable build.
+// pointers -- 0 by value. A forward declaration is therefore sufficient, and
+// deliberately leaves them incomplete so that any inline use added later fails here
+// instead of compiling into a portable build. The 0-by-value half is the property
+// this block depends on; the occurrence count next to it never was.
 //
-// It said "four" and "12" until the path seam landed, which is the ordinary way a
-// count in a comment goes stale: the number was right when written and nothing can
-// re-check it. The two additions are the path pair, and they are the reason
-// D2DPathGeometry's destructor is OUT OF LINE -- releasing an incomplete type is
-// exactly the inline use this forward declaration exists to reject.
+// THE COUNT IS GONE, ON ITS THIRD STALENESS. This read "four"/"12", then "16", and at
+// the time of writing measures 28 live occurrences -- so the sentence that already
+// explained how such a number goes stale went stale itself, one paragraph below its own
+// explanation. The paragraph was right and insufficient: naming the failure mode does
+// not re-measure the figure. Neither does remembering it, which is why the sibling
+// block in include/app.h now carries the command instead of a number too:
+//
+//   rg -o "ID2D1RenderTarget|ID2D1SolidColorBrush|ID2D1StrokeStyle|ID2D1Bitmap|\
+//   ID2D1PathGeometry|ID2D1GeometrySink" include/render_d2d.h | wc -l
+//
+// with `| grep -vE "^[0-9]+: *//"` on an `rg -n` if the comments are to be excluded --
+// and note the two conventions differ by more than the six `struct` lines here, which
+// is most of why the old figure could not be checked at all.
+//
+// The path pair is still worth its sentence: ID2D1PathGeometry and ID2D1GeometrySink
+// are why D2DPathGeometry's destructor is OUT OF LINE -- releasing an incomplete type
+// is exactly the inline use this forward declaration exists to reject.
+//
+// ID2D1RenderTarget IS ALSO DECLARED FOR SOMEONE ELSE. include/app.h names it live and
+// does NOT declare it, relying on this block via its own include of this header. That
+// makes this line load-bearing outside this file, so deleting it on the grounds that
+// D2DRenderTarget went away would break a header that never mentioned the change.
 struct ID2D1RenderTarget;
 struct ID2D1SolidColorBrush;
 struct ID2D1StrokeStyle;

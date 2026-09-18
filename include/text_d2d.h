@@ -34,6 +34,22 @@ struct IDWriteTextFormat;
 struct IDWriteTextLayout;
 struct IDWriteInlineObject;
 struct IDWriteFontFallback;
+// THE SIXTH ARRIVED LATE, AND THE COMPILER IS WHAT SENT IT. This header has named
+// IDWriteTextAnalyzer since D2DTextFactory took over App::textAnalyzer (see the member
+// at the bottom of this file), but the DECLARATION stayed behind in include/app.h's own
+// `#else` and kept working, because app.h forward-declares before it includes this
+// header. So this file compiled off Windows only when reached THROUGH app.h.
+//
+// It surfaced when app.h swept four declarations it measured as having "no live use
+// anywhere else in that header" -- true of this name and irrelevant, because the use is
+// in a DIFFERENT header that app.h feeds. `scripts/probe-portable-linux.sh` failed on
+// this exact line with "'IDWriteTextAnalyzer' does not name a type", which is the whole
+// reason that probe is run rather than reasoned about: the Windows build includes the
+// real <dwrite.h> and cannot see any of this.
+//
+// Declared HERE rather than restored there, because the member moved here and its
+// declaration should have moved with it.
+struct IDWriteTextAnalyzer;
 #endif
 
 // The DirectWrite backend for the text seam.

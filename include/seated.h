@@ -50,8 +50,21 @@ struct Seated {
     std::unique_ptr<Seam> wrapper;
     Native* seated = nullptr;
 
-    // Kept named reset() so all 14 call sites outside this header -- 11 in
-    // d2d_init.cpp and 3 in input.cpp -- compile unchanged.
+    // NAMED reset() ON PURPOSE, and the reason has outlived the numbers that used to be
+    // written here. This said "all 14 call sites outside this header -- 11 in d2d_init.cpp
+    // and 3 in input.cpp -- compile unchanged", and every part of it is now false: neither
+    // file releases a seam wrapper any more (input.cpp calls reset() zero times), and the
+    // call sites live in include/app.h's own release helpers.
+    //
+    // THE SPELLING IS THE POINT, NOT THE COUNT. reset(), get() and operator bool are
+    // std::unique_ptr's names, taken deliberately so that a storage which stops having a
+    // native to seat can be COLLAPSED to a plain unique_ptr without touching one caller.
+    // That is not hypothetical: the thirteen chrome text-format storages did exactly this --
+    // their declared type changed and every reset() call on them compiled unchanged.
+    //
+    // A figure is deliberately not written here, for the same reason install() below stopped
+    // giving one: a header cannot see the rest of the tree, so any count it asserts about the
+    // tree ages silently and reads as current.
     void reset() { wrapper.reset(); seated = nullptr; }
     Seam* get() const { return wrapper.get(); }
     explicit operator bool() const { return static_cast<bool>(wrapper); }

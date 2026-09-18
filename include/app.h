@@ -9,9 +9,20 @@
 // for the app's UI code had ever actually been measured; every number about it was
 // a regex estimate. One line was hiding the whole question.
 //
-// It turns out to be cheap to answer. This header names 14 Direct2D/DirectWrite/WIC
-// interfaces and names them ONLY as pointers (45 occurrences, 0 by value), so
-// forward declarations suffice. It embeds tinta's own D2D* wrapper types by value
+// It turns out to be cheap to answer. This header names TEN Direct2D/DirectWrite/WIC
+// interfaces and names them ONLY as pointers -- zero by value -- so forward
+// declarations suffice. (TEN and not nine: `struct ID2D1RenderTarget;` was added back
+// deliberately, so this block no longer borrows a declaration from a header it includes
+// -- the reason is written above the declarations themselves.)
+// That sentence read "14 ... (45 occurrences, 0 by value)" and
+// the 14 had been wrong since the commit that removed IDWriteTypography: that commit
+// wrote a note about the removal three lines below the count and left the count itself
+// alone. It is the same failure this project keeps finding in README prose -- the
+// explanation gets written and the number does not -- and it is recorded here because
+// the count sat directly above its own refutation for several slices. The occurrence
+// figure is deliberately NOT replaced with a fresh one: it moves on almost every port
+// slice, nothing checks it, and the structural claim (pointers only) is what the
+// forward declarations actually depend on. It embeds tinta's own D2D* wrapper types by value
 // -- which is why the first attempt at this reported that forward declarations
 // could not work -- but those wrappers only store native pointers and dereference
 // none of them inline, so render_d2d.h and text_d2d.h are declaration-only off
@@ -44,24 +55,75 @@
 #include <dwrite_2.h>
 #include <wincodec.h>
 #else
-// Left incomplete on purpose. Every one of the 45 native members below is a
-// pointer, so this is enough to declare them, and an inline dereference added
-// later fails here rather than compiling into a portable build.
+// Left incomplete on purpose. No native appears BY VALUE anywhere below, so a
+// declaration is enough, and an inline dereference added later fails here rather
+// than compiling into a portable build. That property is the load-bearing part;
+// the count that used to be written beside it was not.
+//
+// IT SAID "45 NATIVE MEMBERS" and the measurement is 14 -- nine raw `Native*`
+// members and five `Seated<Seam, Native>`, whose only native-typed data is its own
+// cached `Native*`. The figure was true before the text formats went through the
+// seam and no longer described anything; it is replaced with the command rather
+// than with a new number, because a bare number here has now gone stale twice:
+//
+//   rg -n "(ID2D1|IDWrite|IWIC)[A-Za-z0-9]+" include/app.h | grep -vE "^[0-9]+: *//"
+//
+// stripping this block's own `struct` lines. Read it as MEMBERS, not occurrences:
+// the two conventions differ and the old figure did not say which it used.
+//
+// THIS BLOCK DECLARES WHAT THIS HEADER NAMES, AND THAT IS NEW. `ID2D1RenderTarget` is
+// named live at :305 and used to be absent here, arriving instead from
+// include/render_d2d.h's own `#else` because that header is included at :149, before App
+// is declared. It is declared here now -- three names below are already in both blocks,
+// so the redundancy is the existing convention rather than a new one.
+//
+// THE REASON IS A DEFECT THIS SLICE CAUSED AND THE PORTABLE PROBE CAUGHT. The census
+// that swept four declarations out of this block asked "is this name used anywhere else
+// in THIS header", and for IDWriteTextAnalyzer the answer was no and the answer was
+// irrelevant: include/text_d2d.h named it and had no declaration of its own, relying on
+// this block, because app.h declares before it includes that header. g++ said
+// "'IDWriteTextAnalyzer' does not name a type" and the fix went into text_d2d.h, where
+// the member had already moved. A header that leans on a sibling's forward declarations
+// breaks from an edit that never mentions it, so both ends were made to stand alone.
 struct ID2D1Factory;
 struct ID2D1HwndRenderTarget;
+struct ID2D1RenderTarget;
 struct ID2D1DeviceContext;
 struct ID2D1SolidColorBrush;
 struct ID2D1StrokeStyle;
-struct ID2D1PathGeometry;
 struct ID2D1Bitmap;
 struct IDWriteFactory;
-struct IDWriteTextFormat;
-struct IDWriteTextLayout;
-// IDWriteTypography's forward declaration is gone with the two members that
-// needed it -- App names no typography COM type at all now, on either platform.
 struct IDWriteFontFallback;
-struct IDWriteTextAnalyzer;
 struct IWICImagingFactory;
+// FOUR DECLARATIONS LEFT TOGETHER, and they were found as a class rather than one at a
+// time. IDWriteTextFormat went out with the thirteen chrome text-format storages, which
+// were the last things in this header to name it. ID2D1PathGeometry, IDWriteTextLayout
+// and IDWriteTextAnalyzer had ALREADY outlived their last member and were still declared
+// here -- nothing in this slice touched them, and nothing was going to notice them either.
+//
+// IDWriteTypography's own note used to stand here alone, saying the same thing about a
+// fifth, and that is what suggested looking for siblings. The census was "a name declared
+// in this block with no live use anywhere else in this header", it returned five, and
+// ID2D1Bitmap -- two live uses -- is the control proving the census can answer no.
+//
+// THREE OF THE FOUR WERE ACTUALLY DEAD, and that sentence is the correction: the census
+// question was wrong, not merely narrow. "Nowhere else in this header" says nothing about
+// the headers this one FEEDS -- app.h forward-declares at the top and includes render_d2d.h
+// and text_d2d.h below, so any name it declares is in scope for both of them. IDWriteTextAnalyzer
+// was live in include/text_d2d.h, which had no declaration of its own, and the removal broke
+// it. The right question is "is this name used anywhere that reaches this block", and the only
+// thing that can answer it is a compiler. See the paragraph above the declarations for the fix.
+//
+// REMOVING ONE IS ONLY WITNESSED OFF WINDOWS, which is the part worth reading twice, and is
+// how the break above was found rather than shipped. This entire branch is the #else, so a
+// green MSVC build says nothing about it: <dwrite.h> declares every one of these names, so
+// the Windows build compiles identically whether the line is here or not.
+// scripts/probe-portable-linux.sh is the only endpoint that reads this branch. Before its
+// pass was accepted, a use of IDWriteTextFormat was planted here with the declaration gone to
+// confirm the branch is compiled at all -- otherwise a green is indistinguishable from a
+// branch nothing ever includes -- and the run AFTER the plant came out is what failed on
+// text_d2d.h. Two arms and a control, and the control is the reason the second arm was run at
+// all instead of being assumed from the first.
 #endif
 
 #include <string>
@@ -454,13 +516,23 @@ struct App {
     // thirteen native members that used to sit in this block are gone with App::seatFormat
     // and App::seatTextFormats.
     //
-    // WHAT DID NOT DISAPPEAR, because the prediction above was one clause too optimistic:
-    // the chrome storages are still Seated<tinta::TextFormat, IDWriteTextFormat> where the
-    // document storages are plain unique_ptrs. The coupling is a TEMPLATE ARGUMENT now and
-    // nothing else -- no native is created, seated, compared or released anywhere in the
-    // chrome path. Collapsing the type is a separate mechanical slice, kept separate on
-    // purpose: it would touch all twenty members in the same commit as a behavioural port,
-    // which is what makes a before/after chrome dump unreadable.
+    // AND THE CHROME STORAGES FOLLOWED, which is what the paragraph here predicted and then
+    // deferred. All thirteen are plain std::unique_ptr<tinta::TextFormat> now, the same type the
+    // sixteen document formats below use, and the DirectWrite interface they named has NO live
+    // occurrence left in this header -- its forward declaration went out with the last one, so
+    // the central header every translation unit includes declares no DirectWrite text type at
+    // all. The deferral earned its keep: the type collapse rode a commit of its own, and the
+    // chrome dump either side of it is one comparison instead of two changes tangled together.
+    //
+    // WHAT IT WAS NOT is purely mechanical, and the comment on the makeFormat overload this
+    // slice deleted asserted in as many words that it was ("Nothing else differs"). The two
+    // bodies also differed on the FAILURE path: the surviving one assigns the factory's result
+    // over the storage and THEN tests it, so a failed CreateTextFormat now nulls the previous
+    // format, where the Seated<> body built into a local and left the old wrapper standing. The
+    // old shape left the storage non-null with its raw pointer null -- the exact inconsistency
+    // tests/theme_tests.cpp asserts against on the RELEASE path -- so the two paths agree now.
+    // Unreachable in practice, and recorded anyway, because "mechanical" is the word that
+    // nearly carried it in unread.
 
     // Overlay text formats (cached)
 
@@ -481,9 +553,9 @@ struct App {
     std::unique_ptr<tinta::TextFormat> codeItalicFormatStorage;
     std::unique_ptr<tinta::TextFormat> codeBoldItalicFormatStorage;
     std::unique_ptr<tinta::TextFormat> headingFormatsStorage[6];
-    Seated<tinta::TextFormat, IDWriteTextFormat> searchTextFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> themeTitleFormatStorage;
-    Seated<tinta::TextFormat, IDWriteTextFormat> themeHeaderFormatStorage;
+    std::unique_ptr<tinta::TextFormat> searchTextFormatStorage;
+    std::unique_ptr<tinta::TextFormat> themeTitleFormatStorage;
+    std::unique_ptr<tinta::TextFormat> themeHeaderFormatStorage;
 
     tinta::TextFormat* textFormat = nullptr;
     tinta::TextFormat* headingFormat = nullptr;
@@ -512,9 +584,9 @@ struct App {
     // IDENTITY across a second call, which is the only assertion that would catch a
     // push_back-per-theme rewrite.
     struct ThemePreviewFormats {
-        Seated<tinta::TextFormat, IDWriteTextFormat> nameStorage;
-        Seated<tinta::TextFormat, IDWriteTextFormat> previewStorage;
-        Seated<tinta::TextFormat, IDWriteTextFormat> codeStorage;
+        std::unique_ptr<tinta::TextFormat> nameStorage;
+        std::unique_ptr<tinta::TextFormat> previewStorage;
+        std::unique_ptr<tinta::TextFormat> codeStorage;
         tinta::TextFormat* name = nullptr;
         tinta::TextFormat* preview = nullptr;
         tinta::TextFormat* code = nullptr;
@@ -538,21 +610,21 @@ struct App {
     tinta::Typography codeTypography;
 
     // Folder browser text format
-    Seated<tinta::TextFormat, IDWriteTextFormat> folderBrowserFormatStorage;
+    std::unique_ptr<tinta::TextFormat> folderBrowserFormatStorage;
     tinta::TextFormat* folderBrowserFormat = nullptr;
 
     // TOC text formats
-    Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatStorage;
+    std::unique_ptr<tinta::TextFormat> tocFormatStorage;
     tinta::TextFormat* tocFormat = nullptr;
-    Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatBoldStorage;
+    std::unique_ptr<tinta::TextFormat> tocFormatBoldStorage;
     tinta::TextFormat* tocFormatBold = nullptr;
 
     // Signal chips: subtitles, badges, and the tiny PINNED/HELD labels
-    Seated<tinta::TextFormat, IDWriteTextFormat> signalSmallFormatStorage;
+    std::unique_ptr<tinta::TextFormat> signalSmallFormatStorage;
     tinta::TextFormat* signalSmallFormat = nullptr;
 
     // Stats overlay: UI chrome, so it must not follow the document zoom
-    Seated<tinta::TextFormat, IDWriteTextFormat> statsFormatStorage;
+    std::unique_ptr<tinta::TextFormat> statsFormatStorage;
     tinta::TextFormat* statsFormat = nullptr;
 
     // ELLIPSIS TRIMMING SIGNS, OWNED HERE BECAUSE THE SEAM DOES NOT SAY WHO OWNS THEM.
@@ -1431,11 +1503,11 @@ struct App {
     // this declaration stays put.
     std::unique_ptr<tinta::TextFormat> supSubFormatStorage;
     tinta::TextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
-    Seated<tinta::TextFormat, IDWriteTextFormat> editorTextFormatStorage;
+    std::unique_ptr<tinta::TextFormat> editorTextFormatStorage;
     tinta::TextFormat* editorTextFormat = nullptr;
     float editorCharWidth = 0.0f; // Measured monospace char width
     // Slim in-editor line-number gutter (design t11)
-    Seated<tinta::TextFormat, IDWriteTextFormat> editorGutterFormatStorage;
+    std::unique_ptr<tinta::TextFormat> editorGutterFormatStorage;
     tinta::TextFormat* editorGutterFormat = nullptr;
 
     // Metrics

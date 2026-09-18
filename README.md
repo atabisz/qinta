@@ -1232,7 +1232,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 40,664 / 64,751 | **62.8%** |
+| A. Source lines free of the Windows stack | 40,674 / 64,885 | **62.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 57 / 75 | 76.0% |
 | C. Files a running test links **off Windows** | 46 / 73 | 63.0% |
 | D. Test targets that *could* move, and do | 30 / 35 | 85.7% |
@@ -1478,8 +1478,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 54,903 lines of the 64,751,
-**basis A's ceiling is 84.8%, not 100%**, and 62.8% should be read against that. **THE CEILING AND
+can never enter the numerator. With `src/*.cpp` totalling 54,913 lines of the 64,885,
+**basis A's ceiling is 84.6%, not 100%**, and 62.7% should be read against that. **THE CEILING AND
 THE BASIS JUST MOVED IN OPPOSITE DIRECTIONS, WHICH IS THIS CLAUSE'S OWN MECHANISM CAUGHT IN THE
 ACT.** Basis A rose 62.7% → 62.8% while the ceiling fell 84.9% → 84.8%: the chrome-format port cut
 71 lines from `src/*.cpp` but only 15 from the denominator, because the difference was written
@@ -1487,7 +1487,22 @@ into `include/app.h`, `include/text_formats.h` and `include/d2d_init.h` as expla
 lines are denominator-only *by construction*, so **every paragraph moved into a header lowers the
 best score this basis could ever report**, and a slice can raise the basis and lower its ceiling in
 the same commit. That is not an argument against commenting headers — it is an argument for reading
-the two figures together, which is what this clause exists to make possible. **That trailing
+the two figures together, which is what this clause exists to make possible.
+
+**AND THE PASS AFTER IT IS THE PURE CASE, WITH NO CODE MOVEMENT AT ALL TO ARGUE ABOUT.** Collapsing
+the thirteen chrome storages from `Seated<tinta::TextFormat, IDWriteTextFormat>` to
+`std::unique_ptr<tinta::TextFormat>` deleted a `makeFormat` overload and changed nothing a user can
+see — `--dumpchrome` is byte-identical, 43 rows, and all 130 printed pages hash the same. Both
+figures still fell: **basis A 62.8% → 62.7%, and the ceiling 84.8% → 84.6%, its largest single
+drop recorded here.** The whole 134-line denominator rise decomposes, and it sums exactly:
+`include/app.h` +72, `include/render_d2d.h` +18, `include/text_d2d.h` +16, `include/seated.h` +13,
+`include/text_formats.h` +5 — **124 lines into headers** — plus `src/text_formats_app.cpp` +10,
+which is the only part that also entered the numerator. **So 124 of 134 new lines could only ever
+count against the port, and the numerator moved by 10 on a slice that removed a DirectWrite type
+from the header every file includes.** Read that as the metric's shape and not the slice's: the
+thing this basis cannot see is a coupling that lives in a *type* rather than in a call, and
+`IDWriteTextFormat` going out of `include/app.h` is invisible to every one of the seven bases on
+this page. That is the honest limit of counting lines, stated where the lines are counted. **That trailing
 percentage is a figure the gate does not watch, and it was stale for exactly one pass before this
 sentence was written** — `check-readme-figures.sh` asserts the ceiling *percentage* and the two line
 counts in the clause above, so it went green with the number after the comma still reading 62.9%.

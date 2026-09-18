@@ -49,30 +49,35 @@ void checkFormatClassification() {
     auto state = std::make_unique<App>();
     App& app = *state;
 
-    auto seatDocument = [](std::unique_ptr<tinta::TextFormat>& storage,
-                           tinta::TextFormat*& pointer) {
+    auto giveFormat = [](std::unique_ptr<tinta::TextFormat>& storage,
+                         tinta::TextFormat*& pointer) {
         storage = std::make_unique<FakeTextFormat>();
         pointer = storage.get();
     };
-    seatDocument(app.textFormatStorage, app.textFormat);
-    seatDocument(app.headingFormatStorage, app.headingFormat);
-    seatDocument(app.codeFormatStorage, app.codeFormat);
-    seatDocument(app.boldFormatStorage, app.boldFormat);
-    seatDocument(app.italicFormatStorage, app.italicFormat);
-    seatDocument(app.boldItalicFormatStorage, app.boldItalicFormat);
-    seatDocument(app.codeBoldFormatStorage, app.codeBoldFormat);
-    seatDocument(app.codeItalicFormatStorage, app.codeItalicFormat);
-    seatDocument(app.codeBoldItalicFormatStorage, app.codeBoldItalicFormat);
-    seatDocument(app.supSubFormatStorage, app.supSubFormat);
+    giveFormat(app.textFormatStorage, app.textFormat);
+    giveFormat(app.headingFormatStorage, app.headingFormat);
+    giveFormat(app.codeFormatStorage, app.codeFormat);
+    giveFormat(app.boldFormatStorage, app.boldFormat);
+    giveFormat(app.italicFormatStorage, app.italicFormat);
+    giveFormat(app.boldItalicFormatStorage, app.boldItalicFormat);
+    giveFormat(app.codeBoldFormatStorage, app.codeBoldFormat);
+    giveFormat(app.codeItalicFormatStorage, app.codeItalicFormat);
+    giveFormat(app.codeBoldItalicFormatStorage, app.codeBoldItalicFormat);
+    giveFormat(app.supSubFormatStorage, app.supSubFormat);
     for (int i = 0; i < 6; ++i)
-        seatDocument(app.headingFormatsStorage[i], app.headingFormats[i]);
+        giveFormat(app.headingFormatsStorage[i], app.headingFormats[i]);
 
     // Two chrome formats as the positive control: if releaseOverlayFormats is a no-op for
     // some reason, the document formats surviving proves nothing, so the test must also show
-    // the function DID run. install() is the door here because chrome storage is Seated<>.
-    app.signalSmallFormat = app.signalSmallFormatStorage.install(
-        std::make_unique<FakeTextFormat>());
-    app.tocFormat = app.tocFormatStorage.install(std::make_unique<FakeTextFormat>());
+    // the function DID run.
+    //
+    // THESE TWO USED TO NEED THEIR OWN DOOR. The line here said "install() is the door here
+    // because chrome storage is Seated<>", and it was the only reason this test knew the two
+    // kinds of format apart. Chrome storage is std::unique_ptr<tinta::TextFormat> now, so the
+    // same helper seats all eighteen and the asymmetry this comment existed to explain is
+    // gone -- which is also why the helper below is no longer named for documents only.
+    giveFormat(app.signalSmallFormatStorage, app.signalSmallFormat);
+    giveFormat(app.tocFormatStorage, app.tocFormat);
 
     app.releaseOverlayFormats();
 

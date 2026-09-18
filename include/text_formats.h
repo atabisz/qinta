@@ -29,15 +29,20 @@
 // installChromeFormats and ensureThemePreviewFormats below, and DirectWrite creates no text
 // format anywhere in this tree any more.
 //
-// WHAT IS STILL MIXED, because the "temporary by construction" clause was only half right:
-// the chrome formats' storage is still Seated<tinta::TextFormat, IDWriteTextFormat> where the
-// document formats' is a plain unique_ptr. The COUPLING TO DIRECTWRITE IS GONE FROM THE CODE
-// and survives only in the TYPE -- nothing constructs a native, nothing seats one, and
-// App::seatTextFormats and App::seatFormat are deleted -- so what remains is a template
-// parameter naming an interface no longer reached. Collapsing Seated<> to unique_ptr for the
-// chrome storages is a mechanical follow-on slice, deliberately not folded in here: it
-// touches every chrome member in app.h and would land in the same commit as the behavioural
-// port, which is precisely the shape that makes a chrome dump diff unreadable.
+// NOTHING IS MIXED ANY MORE, and the paragraph that stood here described the last of it: the
+// chrome formats' storage was still Seated<tinta::TextFormat, IDWriteTextFormat> where the
+// document formats' was a plain unique_ptr, so the coupling to DirectWrite had left the CODE
+// and survived in the TYPE. That follow-on slice has landed. EVERY text-format storage in App
+// is std::unique_ptr<tinta::TextFormat> -- no count is written here on purpose, because the
+// theme-preview storages are three per installed theme and a figure would age the way the one
+// above it did -- one makeFormat serves all 24 call sites in src/text_formats_app.cpp, and
+// include/app.h declares no DirectWrite text type at all.
+//
+// THIS COMMENT IS WHY THE SWEEP FOR THAT SLICE WAS INCOMPLETE AT PLAN TIME, which is worth
+// leaving on the page. The plan enumerated the stale-comment sites by grepping the thirteen
+// STORAGE MEMBER NAMES, and this header names none of them -- it names only the type. So the
+// first census returned three files and the census keyed on the TYPE SPELLING returned four,
+// and this was the fourth. Enumerate on the failure mode, not on the shape you already fixed.
 //
 // PORTABLE: nothing here or in src/text_formats_app.cpp names a Windows type, which is
 // what lets a non-Windows build create a document format at all. Before this existed, off

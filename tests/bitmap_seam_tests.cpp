@@ -234,8 +234,12 @@ void layoutBitmapFieldIsOnTheSeam() {
     // the whole point of the change is that the image cache, the layout vector and an
     // open lightbox each keep the bitmap alive independently.
     //
-    // AND THAT ESCAPE HATCH IS NOW UNUSED, WHICH CHANGES THE MESSAGE BUT NOT THE
-    // ASSERTION. print.cpp's drawDocumentRange takes a tinta::RenderTarget& and draws
+    // AND THAT ESCAPE HATCH IS NOW CLOSED, NOT MERELY UNUSED -- this paragraph said
+    // "unused" for one slice and the distinction is the whole point of the one that
+    // followed: nativeBitmap() is file-local in src/render_d2d.cpp, so print.cpp could
+    // not reach it now even if somebody wanted to invert this gate back. The assertion
+    // is unchanged either way.
+    // print.cpp's drawDocumentRange takes a tinta::RenderTarget& and draws
     // app.layoutBitmaps straight through the seam, so it no longer unwraps anything.
     // The trailing clause of the old failure text -- "print.cpp reaches the native
     // through nativeBitmap()" -- is therefore false, and it is corrected here rather

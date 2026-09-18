@@ -87,25 +87,39 @@ ID2D1StrokeStyle* nativeStrokeStyle(tinta::StrokeStyle* style) {
     return static_cast<D2DStrokeStyle*>(style)->native();
 }
 
-}  // namespace
-
-// Not in the anonymous namespace above, because render_d2d.h declares them.
+// STILL INSIDE THE ANONYMOUS NAMESPACE, AND THAT IS THE CHANGE. This comment used to
+// open "Not in the anonymous namespace above, because render_d2d.h declares them" --
+// and it no longer declares them. The namespace that used to close above nativeBitmap
+// now closes below nativePathGeometry, so all four unwrappers in this file are
+// file-local and none of them is reachable from another translation unit.
 //
-// THE CALLERS THAT JUSTIFIED DECLARING THEM ARE GONE. This note read: "paths and
+// THE CALLERS THAT JUSTIFIED DECLARING THEM WERE ALREADY GONE, so this is the follow-up
+// the previous note promised rather than a new finding. That note read: "paths and
 // bitmaps are the wrappers a caller outside this file has a reason to unwrap, the same
 // way text_d2d.h exposes nativeTextLayout. print.cpp and export_docx.cpp draw through
-// a device context this seam does not wrap." Both halves have since been retired --
+// a device context this seam does not wrap." Both halves were retired first --
 // export_docx.cpp's rasterisation moved onto the image seam, and print.cpp's
-// drawDocumentRange now takes a tinta::RenderTarget&. Nothing outside this file calls
-// either function today; the calls below in FillGeometry, DrawGeometry and DrawBitmap
-// are the whole population.
+// drawDocumentRange now takes a tinta::RenderTarget&. The three calls below, in
+// FillGeometry, DrawGeometry and DrawBitmap, are the whole population.
 //
-// So they COULD go back in the anonymous namespace, and the follow-up to do that is
-// recorded on the declarations in render_d2d.h. Left here for now because it is a
-// separate claim from the print retarget's -- one is proven by a page hash, the other
-// by a link -- and folding them together would mean neither reading discriminated.
-// nativeTextLayout is NOT in the same position: src/paint_document.cpp still needs it
-// for the colour-emoji device-context path.
+// IT TOOK TWO READINGS, BECAUSE "NOBODY CALLS IT" AND "NOBODY CAN" ARE DIFFERENT FACTS
+// and the previous note only ever had evidence for the first. The export itself is read
+// off the object file, where the two unwrappers above have always shown the shape this
+// pair had to acquire:
+//   dumpbin -symbols build-win-split/tinta.dir/Release/render_d2d.obj | rg native
+// an exported free function reads `External | ?nativeBitmap@@...`, a file-local one
+// reads `Static | ?nativeBitmap@?A0x...` with the anonymous-namespace token. The flag
+// must be spelled -symbols: `/SYMBOLS` is rewritten into a path under Git Bash, dumpbin
+// then dies with LNK1181, and a grep over its output reads a confident zero for every
+// symbol -- including for the control that must be present.
+//
+// The second reading is a plant, because a symbol table cannot distinguish an export
+// nobody calls from one nobody can: a call to nativeBitmap planted in src/print.cpp,
+// the file that used to make exactly that call, must fail to COMPILE.
+//
+// nativeTextLayout is NOT in the same position -- src/paint_document.cpp still needs it
+// for the colour-emoji device-context path -- and nativeTextFormat is now the ONLY free
+// function this backend leaves unresolved when TINTA_LEGACY_D2D is OFF.
 ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
     if (!bitmap) return nullptr;
     // dynamic_cast, so an owned bitmap passes too -- D2DOwnedBitmap derives from
@@ -124,6 +138,8 @@ ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry) {
     auto* concrete = dynamic_cast<D2DPathGeometry*>(geometry);
     return concrete ? concrete->native() : nullptr;
 }
+
+}  // namespace
 
 D2DPathGeometry::~D2DPathGeometry() {
     if (geometry_) geometry_->Release();

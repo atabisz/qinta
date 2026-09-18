@@ -166,36 +166,40 @@ private:
     ID2D1GeometrySink* sink_;      // OWNED until Close
 };
 
-// Asserts the handle really came from this backend, the same guarantee and for the
-// same reason as text_d2d.h's nativeTextLayout: a QtPathGeometry arriving at
-// D2DRenderTarget::FillGeometry must trip rather than draw nothing.
-ID2D1PathGeometry* nativePathGeometry(tinta::PathGeometry* geometry);
-
-// Same guarantee for bitmaps.
+// THE TWO UNWRAPPERS THAT USED TO BE DECLARED HERE ARE GONE, AND THE FOLLOW-UP THIS
+// HEADER ASKED FOR IS WHAT REMOVED THEM. `nativePathGeometry` and `nativeBitmap` are now
+// file-local in src/render_d2d.cpp's anonymous namespace, beside `nativeBrush` and
+// `nativeStrokeStyle`, which were never exported. The escape hatch out of the Direct2D
+// backend is closed rather than merely unused, and this tombstone is left because a grep
+// for either name will still land here.
 //
-// THE REASON IT IS EXPORTED HAS EXPIRED, AND THAT IS WORTH STATING HERE RATHER THAN
-// LEAVING FOR A GREP. This declaration used to read: "exported for the same reason
-// nativePathGeometry is: src/print.cpp draws app.layoutBitmaps through its OWN
-// ID2D1DeviceContext, which this seam does not wrap, so it needs the native pointer
-// back out." True when written. src/print.cpp's drawDocumentRange now takes a
-// tinta::RenderTarget& and draws bitmaps and cached paths through the seam, so it was
-// the LAST caller of either unwrapper from outside the backend.
+// THE INSTRUMENT THIS HEADER NAMED WAS THE WEAKER OF THE TWO AVAILABLE, and that is the
+// correction worth carrying forward. The paragraph that stood here said "un-exporting a
+// symbol is proven by a link". A link proves nothing CALLS the symbol; it cannot show
+// that the symbol stopped being exported, and those are different facts. The object
+// file carries the fact directly -- an exported free function reads
+// `External | ?nativeBitmap@@...` and a file-local one reads `Static | ?nativeBitmap@?A0x...`
+// with the anonymous-namespace token -- and the half a symbol table cannot see was
+// covered by planting a call in src/print.cpp, the file that used to make exactly that
+// call, and requiring it to fail to compile. Both readings are in the commit.
 //
-// Both are therefore reachable only from src/render_d2d.cpp today, and making them
-// file-local again is a real follow-up rather than a tidy-up -- it is what closes the
-// escape hatch. It is deliberately not done in the same commit as the print retarget,
-// whose claim is that the printed page does not change by one byte; that claim is
-// proven by page hashes, and un-exporting a symbol is proven by a link, so they are
-// separate readings. Do not read this paragraph as "unused": render_d2d.cpp's own
-// FillGeometry, DrawGeometry and DrawBitmap call them.
+// WHAT THE UN-EXPORT IS WORTH, MEASURED AND NOT ASSERTED: nothing. Both symbols had
+// already dropped out of the `-DTINTA_LEGACY_D2D=OFF` unresolved-external set before
+// this change, because the print retarget removed their last outside callers, so
+// closing the hatch moved that inventory by zero. It is worth doing anyway -- an export
+// with no caller is an invitation, and the previous note's own reason was that the
+// reason had expired -- but the port's own instrument does not credit it, and saying so
+// here is cheaper than someone later looking for the movement.
+//
+// The guarantee both still make, unchanged: they assert the handle really came from this
+// backend, so a QtPathGeometry arriving at D2DRenderTarget::FillGeometry trips rather
+// than drawing nothing, and `nativeBitmap` accepts an owned bitmap as well as a borrowed
+// one because D2DOwnedBitmap derives from D2DBitmap so one unwrapper serves both.
 //
 // Contrast text_d2d.h's nativeTextLayout, which stays legitimately exported --
 // src/paint_document.cpp needs it for the colour-emoji ID2D1DeviceContext path, which
-// has no seam equivalent at all.
-//
-// Accepts an owned bitmap as well as a borrowed one, because D2DOwnedBitmap derives
-// from D2DBitmap precisely so that one unwrapper serves both.
-ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap);
+// has no seam equivalent at all -- and nativeTextFormat, which after this change is the
+// ONLY free function still unresolved when the Direct2D backend is excluded.
 
 // BORROWS. The 2 remaining native holders of a bitmap (nativeLinkPeekBitmap and the
 // print-preview local) AddRef and Release their own, and d2d_init.cpp tears the member
@@ -236,6 +240,12 @@ protected:
 // Correcting the paragraph a grep pointed at is not the same as correcting the header,
 // and the surviving beneficiary is the one inside the backend -- render_d2d.cpp's own
 // DrawBitmap, which is handed both kinds and must not care which.
+//
+// That declaration is now GONE, so the distance no longer resolves and is kept as
+// history rather than a direction: the paragraph it refers to is the tombstone above,
+// and `nativeBitmap` itself is file-local in src/render_d2d.cpp. The reason to derive
+// from D2DBitmap is unchanged, because the single dynamic_cast that serves both kinds
+// went file-local with it.
 //
 // GetSize is inherited deliberately -- the size question does not depend on who owns
 // the pixels, and an override would be the same body twice.

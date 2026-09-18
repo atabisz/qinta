@@ -382,9 +382,11 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
             if (shape.geometry) {
                 // The cached path is a seam handle and it is now drawn AS ONE. This
                 // used to call nativePathGeometry() to unwrap it, because a raw device
-                // context cannot take a tinta::PathGeometry -- the unwrapper is exported
+                // context cannot take a tinta::PathGeometry -- the unwrapper WAS exported
                 // from render_d2d.h for exactly this call, and this was its last caller
-                // outside the backend.
+                // outside the backend. It is no longer exported at all: being the last
+                // caller is what let it go file-local, so this comment is the reason that
+                // slice was possible rather than a note about a call site.
                 tinta::Matrix3x2F previous;
                 target.GetTransform(&previous);
                 target.SetTransform(

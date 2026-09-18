@@ -155,9 +155,34 @@
 //         portability seam is not the place to accept. See image_api.h's "WHAT IS
 //         NOT IN HERE".
 //       - ID2D1DeviceContext::CreateBitmap with NULL pixels, 5 sites, all in
-//         src/print.cpp. These allocate an ID2D1Bitmap1 to draw INTO -- a GPU
-//         target plus a CPU staging copy -- which is device-lifetime work of the
-//         kind this whole list excludes, not an image handed to the drawing code.
+//         src/print.cpp. These allocate an ID2D1Bitmap1 to draw INTO, which is
+//         device-lifetime work of the kind this whole list excludes, not an image
+//         handed to the drawing code.
+//         THE FIVE ARE NOT ONE CLASS, and the sentence that said they were has
+//         been corrected here rather than left, for the reason spelled out at the
+//         end of this entry. It read "a GPU target plus a CPU staging copy",
+//         which describes FOUR of them: :534/:535 and :870/:871 are two
+//         target+staging PAIRS, each allocating a second bitmap with
+//         CPU_READ | CANNOT_DRAW to read the drawing back. THE FIFTH, :1056, IS
+//         A SINGLETON -- renderPeekBitmap allocates one OPTIONS_TARGET bitmap,
+//         draws the peek panel into it at 192 DPI, and keeps it. No staging
+//         bitmap, no CPU readback.
+//         That matters because the singleton's shape is exactly
+//         tinta::rasterizeToImage's -- draw offscreen, keep the result -- and
+//         that seam's entry two bullets up records its honest limit as serving
+//         ONE caller. So the one site here that could discharge that limit is
+//         the one the old wording characterised wrongly.
+//         IT IS STILL EXCLUDED, AND NOW FOR A STATED PRICE RATHER THAN A WRONG
+//         REASON: routing it would trade GPU rasterisation for the WIC software
+//         path plus two full-buffer copies per dwell (out to a DecodedImage
+//         vector, back up through CreateBitmap) on a panel that reaches roughly
+//         520x460 DIPs at 2x. That is the same trade the CreateBitmapFromWicBitmap
+//         bullet above refuses for src/render.cpp, in the same words -- a
+//         regression a portability seam is not the place to accept. The
+//         difference from the old exclusion is that this one can be argued with:
+//         renderPeekBitmap already returns a shared_ptr<tinta::Bitmap>, so only
+//         its body is Direct2D-terminal, and a measurement showing the copies
+//         are cheap at this size would settle it.
 //     THE COUNT IN THE OLD ENTRY WAS WRONG, and wrong in the way a comment count
 //     usually is: it said "CreateBitmap 2" having grepped only src/render.cpp. The
 //     tree has THREE CPU-buffer sites -- the two in src/render.cpp and the print

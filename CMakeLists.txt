@@ -228,10 +228,37 @@ endif()
 # The option's other job is unchanged and is why it is worth keeping even after the
 # cutover argument is settled: it is a MEASURING INSTRUMENT. Configure with
 # -DTINTA_LEGACY_D2D=OFF and the `tinta` link errors are an exact inventory of what
-# still depends on the stack being replaced -- currently 57 unresolved externals,
-# of which only 24 are real app-code leaks; the other 33 are referenced solely by
-# d2d_init.obj, whose entire job is constructing the D2D device and factories, so
-# they die WITH the backend instead of blocking it.
+# still depends on the stack being replaced.
+#
+# THE FIGURES THAT USED TO BE WRITTEN HERE WERE "57 unresolved externals, of which only
+# 24 are real app-code leaks; the other 33 are referenced solely by d2d_init.obj" -- AND
+# THIS WAS THE MISSED SITE OF A CORRECTION ALREADY MADE ONE COMMIT AGO. The 57 -> 30 fall
+# was measured and written into the README at bd681c0, whose own message says so; this
+# block held the identical stale 57 and nothing pointed at it, because a correction that
+# reaches the document a grep was aimed at is not the same as a correction of the tree.
+# Two of the three numbers have moved, and they are replaced rather than deleted because
+# WHICH one held still is the useful part. Measured 2026-09-19: `tinta` reports 30, of which 6
+# are referenced solely by d2d_init.obj -- whose entire job is constructing the D2D device
+# and factories, so those die WITH the backend instead of blocking it -- leaving 24 with a
+# real app-code referencer. So the headline nearly halved, 57 -> 30, while the number that
+# actually gates the cutover did not move at all. Re-derive rather than quote; 6 + 24 = 30
+# is the check that the split still sums to the linker's own LNK1120 total, and a
+# decomposition that does not sum is catching the classifier and not the code.
+#
+# AND THE INSTRUMENT IS BLIND TO ONE WHOLE HALF OF THIS PORT, WHICH IS WHY A FLAT READING
+# IS NOT A WASTED SLICE. A raw Direct2D call site (`bitmap->Release()`, `bitmap->GetSize()`)
+# is virtual dispatch through a COM vtable and emits NO external symbol at all, so excluding
+# the backend cannot produce an unresolved external for it. The seam's wrappers are ordinary
+# C++ classes whose out-of-line methods DO emit symbols. So moving a call site from raw
+# Direct2D onto the seam -- the exact work this port consists of -- can only leave this
+# number flat or push it UP, and it falls only when an entire D2D* wrapper class loses every
+# referencer. Measured on the link-peek slice, which did precisely that move: the unresolved
+# symbol sets are byte-identical across all 8 failing targets, base to head, while print.obj
+# newly pulls `??1D2DOwnedBitmap@@UEAA@XZ` and `?GetSize@D2DBitmap@@UEBA?AUSizeF@tinta@@XZ`
+# because the boundary wrap moved into it -- and src/input.cpp and src/overlays.cpp, the two
+# files the slice actually cleaned of `ID2D1Bitmap*`, contribute ZERO entries to this
+# inventory in BOTH arms. Do not read this number as the port's progress in either
+# direction; it measures what still LINKS against the backend, not what still NAMES it.
 option(TINTA_LEGACY_D2D
     "Build the transitional Direct2D/DirectWrite backends (DEPRECATED -- to be deleted once Qt covers Windows)"
     ON)
@@ -528,6 +555,14 @@ target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
 # stale count in a comment reads as a considered decision about the files it excludes, which
 # is strictly worse than reading as an omission. Nothing in this tree greps a prose count,
 # so the next one will go stale the same way.
+#
+# NONE OF THOSE THREE ACCESSORS EXISTS ANY MORE, and the prediction in the line above is what
+# came true -- not about a count this time, but about the nouns. All three are plain
+# `std::shared_ptr<tinta::Bitmap>` members, so there is no `seat<D2DBitmap>` call left to put
+# a guard around and no header-leaked symbol for the linker to want. The paragraph is kept in
+# the past tense it is already written in, because the LESSON is the live part: the guard was
+# spelled `_WIN32` when it meant this macro, and that mistake is available to any file, not
+# just to the ones that happened to make it.
 #
 # Gated on TINTA_LEGACY_D2D so OFF turns the macro off too -- otherwise the flag would
 # leave paint_document.cpp still compiling calls into backends the flag just removed, and
@@ -1606,6 +1641,19 @@ if(BUILD_TESTING)
     # because three nullptrs compare equal. Worth recording that the four assertions in
     # nullNativeYieldsNullSeam kept PASSING throughout, trivially, everything being null: they
     # read like coverage of this seam and would not have noticed its removal.
+    #
+    # THAT DETECTION NO LONGER WORKS, AND THE WHOLE TEST IS NOW IN THE POSITION THE LAST
+    # SENTENCE DESCRIBES. include/app.h contains ZERO live `#ifdef TINTA_D2D_BACKEND` -- the
+    # accessors those ten failures came from are gone, and every remaining mention of the
+    # macro in that header is a comment about their departure. So removing this line would
+    # no longer change a single branch bitmap_seam_tests compiles, and the target would go
+    # on passing 12/12. The definition STAYS because its own stated meaning is still simply
+    # true of this target (it compiles src/render_d2d.cpp, two lines up) and because
+    # src/paint_document.cpp is where the macro is load-bearing today -- but it is kept on a
+    # correctness argument, not on a measurement, and the itemised ten above should be read
+    # as history rather than as something still reachable from here.
+    # nullNativeYieldsNullSeam is itself renamed to unsetHandlesReadAsNull, for the same
+    # reason: there are no accessors left for a null check to be forgotten in.
     target_compile_definitions(bitmap_seam_tests PRIVATE UNICODE _UNICODE TINTA_D2D_BACKEND)
     add_test(NAME bitmap_seam COMMAND bitmap_seam_tests)
 

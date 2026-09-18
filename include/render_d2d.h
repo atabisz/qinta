@@ -54,10 +54,27 @@
 // are why D2DPathGeometry's destructor is OUT OF LINE -- releasing an incomplete type
 // is exactly the inline use this forward declaration exists to reject.
 //
-// ID2D1RenderTarget IS ALSO DECLARED FOR SOMEONE ELSE. include/app.h names it live and
-// does NOT declare it, relying on this block via its own include of this header. That
-// makes this line load-bearing outside this file, so deleting it on the grounds that
-// D2DRenderTarget went away would break a header that never mentioned the change.
+// ID2D1RenderTarget IS NO LONGER DECLARED FOR SOMEONE ELSE, AND THAT SENTENCE IS RETIRED
+// RATHER THAN DELETED because it was true, acted on, and is now the reverse. It read:
+// "include/app.h names it live and does NOT declare it, relying on this block via its own
+// include of this header", and therefore that deleting this line on the grounds that
+// D2DRenderTarget went away would break a header that never mentioned the change. app.h
+// declares it itself now -- its own #else block adopted the rule "this block declares what
+// this header names" for exactly that reason, so neither header leans on the other and
+// this line is load-bearing only inside this file again.
+//
+// ID2D1Bitmap NOW SITS IN THE OPPOSITE POSITION, AND IT IS WORTH KNOWING BEFORE TOUCHING
+// IT. app.h stopped naming it when the link peek became a shared_ptr<tinta::Bitmap>, and
+// its declaration there was removed -- so nothing outside this file needs this one. But
+// app.h includes this header BEFORE it declares App, which means this line keeps that name
+// in scope inside App whether app.h declares it or not. Measured, not reasoned: planting a
+// live `ID2D1Bitmap*` member in App with app.h's own declaration deleted left
+// scripts/probe-portable-linux.sh GREEN, because of this line. So this declaration
+// silently absorbs a class of mistake in a header it does not know about, and the portable
+// probe cannot attribute an ID2D1Bitmap diagnostic to either file while both declare it.
+// The same plant spelled `ID2D1Bitmap1*` -- declared in no #else block anywhere -- fails
+// the probe with 53 errors, which is how that green was shown to be real rather than the
+// branch going uncompiled.
 struct ID2D1RenderTarget;
 struct ID2D1SolidColorBrush;
 struct ID2D1StrokeStyle;
@@ -201,14 +218,26 @@ private:
 // has no seam equivalent at all -- and nativeTextFormat, which after this change is the
 // ONLY free function still unresolved when the Direct2D backend is excluded.
 
-// BORROWS. The 2 remaining native holders of a bitmap (nativeLinkPeekBitmap and the
-// print-preview local) AddRef and Release their own, and d2d_init.cpp tears the member
-// down. A wrapper that took a reference would make the ownership of those depend on
-// whether a drawing call had happened to be made through the seam.
+// BORROWS. The native holders of a bitmap release their own, and a wrapper that took a
+// reference would make their ownership depend on whether a drawing call had happened to
+// be made through the seam.
 //
-// It said 4, and the two app icons left when they became shared_ptr<tinta::Bitmap>
-// members -- so the borrowing rule now covers fewer holders than it did, and the count
-// is stated rather than left as "the remaining ones" precisely because it keeps falling.
+// THE COUNT SAID 4, THEN 2, AND IT IS NOW 0 MEMBERS -- so this rule no longer governs a
+// single field of App. The count is written out at each step rather than left as "the
+// remaining ones" precisely because it kept falling, and this is the step where it
+// reached the floor. The two app icons left when they became shared_ptr<tinta::Bitmap>
+// members; nativeLinkPeekBitmap was the last and left the same way.
+//
+// WHAT STILL BORROWS IS LOCALS, NOT MEMBERS, and that is a weaker obligation: the two
+// target+staging pairs in src/print.cpp (the preview at :532 and the page raster at :868)
+// create, draw through a borrowed wrapper, read back and release inside one function, so
+// the wrapper cannot outlive the native. Nothing has to be remembered across a call.
+//
+// The link peek used to be the strongest case for the rule and is now an illustration of
+// the alternative: src/print.cpp hands its bitmap straight to D2DOwnedBitmap, the OWNING
+// subclass below, so its lifetime is the returned handle's and no holder tracks it at all.
+// A bitmap can do that because a bitmap is data. A render target cannot, which is why
+// app.h still seats three of those.
 class D2DBitmap : public tinta::Bitmap {
 public:
     explicit D2DBitmap(ID2D1Bitmap* bitmap) : bitmap_(bitmap) {}

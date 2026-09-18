@@ -41,9 +41,19 @@ void printPreviewSetFormat(App& app, int paper, bool landscape);
 int printDebugPages(App& app, const std::wstring& outDir);
 
 // Link peek: renders the top of another markdown file at the live theme
-// into a 2x bitmap (caller releases). heightDips shrinks to the target's
-// content height when the document is shorter than the request.
-ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
-                              float widthDips, float& heightDips);
+// into a 2x bitmap. heightDips shrinks to the target's content height when
+// the document is shorter than the request.
+//
+// Returns a SEAM HANDLE, and the ownership note that used to read "(caller
+// releases)" is gone with the raw pointer -- the handle releases itself. The
+// implementation is still Direct2D-terminal and still rasterises on the GPU;
+// only the return type crossed the seam. Routing the body through
+// tinta::rasterizeToImage would make this function portable outright and give
+// that seam the second caller its own comment asks for, at the cost of a
+// software rasteriser plus two full-buffer copies per dwell -- see the note on
+// the CreateBitmap exclusion in render_api.h, which is where that trade is
+// weighed rather than here.
+std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
+                                                float widthDips, float& heightDips);
 
 #endif // TINTA_PRINT_H

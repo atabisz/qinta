@@ -1002,8 +1002,8 @@ bool exportPdfFile(App& app, const std::wstring& path) {
 // Link peek: renders the top of another markdown file at the live theme
 // into a 2x bitmap. The document swap rides the print-layout save/restore
 // (the palette switch is undone so the peek matches the screen).
-ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
-                              float widthDips, float& heightDips) {
+std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
+                                                float widthDips, float& heightDips) {
     if (!app.deviceContext || !app.root) return nullptr;
     std::ifstream file(path);
     if (!file) return nullptr;
@@ -1043,7 +1043,7 @@ ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
     app.deviceContext->GetDevice(&device);
     ID2D1DeviceContext* dc = nullptr;
     ID2D1Bitmap1* bitmap = nullptr;
-    ID2D1Bitmap* result = nullptr;
+    std::shared_ptr<tinta::Bitmap> result;
     if (device && SUCCEEDED(device->CreateDeviceContext(
                       D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc))) {
         D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
@@ -1071,7 +1071,33 @@ ID2D1Bitmap* renderPeekBitmap(App& app, const std::wstring& path,
                 brush->Release();
             }
             if (SUCCEEDED(dc->EndDraw())) {
-                result = bitmap;
+                // Wrapped at the boundary, the way image_win32.cpp's
+                // decodeIconBytesToBitmap ends: native internals, seam-typed
+                // return. D2DOwnedBitmap takes the reference this function
+                // already held, so the handle's destructor is the ONLY Release
+                // of this bitmap -- the three hand-written ones at the call
+                // sites went when the App member became a handle.
+                //
+                // The clear on the next line is what makes the four NORMAL paths
+                // release exactly once: CreateBitmap failing leaves it null,
+                // EndDraw failing leaves it set for the cleanup below, and
+                // success hands it over and clears it so that cleanup skips it.
+                //
+                // THE EXCEPTION PATH IS NOT COVERED, AND THIS NOTE SAID IT WAS.
+                // It claimed "if make_shared throws, the cleanup below releases
+                // it" -- it does not: a throw here propagates straight past those
+                // three Release() calls, because nothing in this function is
+                // scope-guarded. That is pre-existing rather than introduced --
+                // drawDocumentRange above can throw too, and would also leak dc
+                // and device AND leave app.root, app.currentFile and the print
+                // layout unrestored, which is the worse half. make_shared only
+                // adds a bad_alloc to a list that already had entries. Fixing it
+                // properly means unique_ptr-with-deleter locals plus a scope guard
+                // for the app-state restore, which is a different change from a
+                // return-type port and is not smuggled in here. Recorded so the
+                // next reader does not have to re-derive that the guarantee above
+                // stops at the normal paths.
+                result = std::make_shared<D2DOwnedBitmap>(bitmap);
                 bitmap = nullptr;
             }
         }

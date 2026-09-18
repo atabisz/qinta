@@ -9,11 +9,16 @@
 // for the app's UI code had ever actually been measured; every number about it was
 // a regex estimate. One line was hiding the whole question.
 //
-// It turns out to be cheap to answer. This header names TEN Direct2D/DirectWrite/WIC
+// It turns out to be cheap to answer. This header names NINE Direct2D/DirectWrite/WIC
 // interfaces and names them ONLY as pointers -- zero by value -- so forward
-// declarations suffice. (TEN and not nine: `struct ID2D1RenderTarget;` was added back
-// deliberately, so this block no longer borrows a declaration from a header it includes
-// -- the reason is written above the declarations themselves.)
+// declarations suffice. NINE AND NOT TEN, AND THE TWO MOVES THAT PRODUCED THAT NUMBER
+// WENT IN OPPOSITE DIRECTIONS UNDER ONE RULE: `struct ID2D1RenderTarget;` was ADDED back
+// deliberately, because this block had been borrowing that declaration from a header it
+// includes, and `struct ID2D1Bitmap;` was then DELETED, because porting the link peek
+// left it with no live use here at all. The rule is the same in both directions -- this
+// block declares what this header names, no more and no less -- and it is written out
+// above the declarations, together with what the portable probe can and cannot witness
+// about it.
 // That sentence read "14 ... (45 occurrences, 0 by value)" and
 // the 14 had been wrong since the commit that removed IDWriteTypography: that commit
 // wrote a note about the removal three lines below the count and left the count itself
@@ -60,11 +65,15 @@
 // than compiling into a portable build. That property is the load-bearing part;
 // the count that used to be written beside it was not.
 //
-// IT SAID "45 NATIVE MEMBERS" and the measurement is 14 -- nine raw `Native*`
-// members and five `Seated<Seam, Native>`, whose only native-typed data is its own
+// IT SAID "45 NATIVE MEMBERS" and the measurement is 12 -- eight raw `Native*`
+// members and four `Seated<Seam, Native>`, whose only native-typed data is its own
 // cached `Native*`. The figure was true before the text formats went through the
 // seam and no longer described anything; it is replaced with the command rather
-// than with a new number, because a bare number here has now gone stale twice:
+// than with a new number, because a bare number here has now gone stale twice --
+// and it has gone stale AGAIN since, from 14 to 12, when the link peek's
+// `ID2D1Bitmap*` member and its Seated storage became one
+// `shared_ptr<tinta::Bitmap>`. That is the third time, which is the argument for
+// the command and against the number:
 //
 //   rg -n "(ID2D1|IDWrite|IWIC)[A-Za-z0-9]+" include/app.h | grep -vE "^[0-9]+: *//"
 //
@@ -72,10 +81,20 @@
 // the two conventions differ and the old figure did not say which it used.
 //
 // THIS BLOCK DECLARES WHAT THIS HEADER NAMES, AND THAT IS NEW. `ID2D1RenderTarget` is
-// named live at :305 and used to be absent here, arriving instead from
-// include/render_d2d.h's own `#else` because that header is included at :149, before App
-// is declared. It is declared here now -- three names below are already in both blocks,
-// so the redundancy is the existing convention rather than a new one.
+// named live at :340 and used to be absent here, arriving instead from
+// include/render_d2d.h's own `#else` because that header is included at :184, before App
+// is declared. It is declared here now -- THREE names below are already in both blocks, so
+// the redundancy is the existing convention rather than a new one.
+//
+// THAT THREE IS MEASURED AND SURVIVED A WRONG CORRECTION, which is the only reason it is
+// still written as a number. Removing ID2D1Bitmap from this block looked like it had to
+// take the overlap with it, and it did not -- the deleted name is declared by render_d2d.h
+// and was never one of the three. Do not adjust it by arithmetic; the overlap is five
+// names across two siblings, three with render_d2d.h and IDWriteFactory/IDWriteFontFallback
+// with text_d2d.h, and it is one command:
+//
+//   comm -12 <(awk '/^#else/{f=1} /^#endif/{f=0} f && /^struct [A-Z]/{print $2}' \
+//   include/app.h | tr -d ';' | sort -u) <(same over include/render_d2d.h)
 //
 // THE REASON IS A DEFECT THIS SLICE CAUSED AND THE PORTABLE PROBE CAUGHT. The census
 // that swept four declarations out of this block asked "is this name used anywhere else
@@ -91,7 +110,6 @@ struct ID2D1RenderTarget;
 struct ID2D1DeviceContext;
 struct ID2D1SolidColorBrush;
 struct ID2D1StrokeStyle;
-struct ID2D1Bitmap;
 struct IDWriteFactory;
 struct IDWriteFontFallback;
 struct IWICImagingFactory;
@@ -104,7 +122,34 @@ struct IWICImagingFactory;
 // IDWriteTypography's own note used to stand here alone, saying the same thing about a
 // fifth, and that is what suggested looking for siblings. The census was "a name declared
 // in this block with no live use anywhere else in this header", it returned five, and
-// ID2D1Bitmap -- two live uses -- is the control proving the census can answer no.
+// ID2D1Bitmap -- two live uses -- was the control proving the census can answer no.
+//
+// THAT CONTROL HAS EXPIRED, AND ITS EXPIRY IS WHY ID2D1Bitmap IS NOT DECLARED HERE ANY
+// MORE. Both of its live uses were the link peek's: an `ID2D1Bitmap*` member and a
+// `Seated<tinta::Bitmap, ID2D1Bitmap>` storage, now one `shared_ptr<tinta::Bitmap>`. The
+// census returns ZERO for it, so the name that used to demonstrate a no became the sixth
+// yes. Worth stating as a lesson rather than a bookkeeping note: a census whose only
+// negative control is a subject of the port under way will keep losing its control to the
+// port, and the honest replacement is the census's own command above, re-run, not another
+// hand-picked name.
+//
+// AND THE PORTABLE PROBE CANNOT WITNESS THIS PARTICULAR DELETION -- measured, not assumed,
+// and it is the paragraph above seen from its other end. Deleting the line and planting a
+// live `ID2D1Bitmap*` member inside App left the probe GREEN, 0 FAIL, when it should have
+// failed: include/render_d2d.h declares `struct ID2D1Bitmap;` in its OWN #else, and this
+// header includes it at :184, BEFORE App is declared at :317, so the name is in scope
+// whether or not this block supplies it. Nothing can separate the two copies while both
+// exist and the sibling is included first. Above, leaning on a sibling's declarations is
+// what BREAKS a header from an edit that never mentions it; here the same coupling breaks
+// nothing and blinds the instrument instead.
+//
+// THE INSTRUMENT IS LIVE, WHICH IS THE ONLY REASON THE GREEN IS WORTH ANYTHING. Replanting
+// the same member as `ID2D1Bitmap1*` -- a name no #else block in this tree declares --
+// turned the probe RED: 53 FAILs, `'ID2D1Bitmap1' does not name a type`. So it does compile
+// this branch and would say so; what it cannot do is attribute the declaration. This
+// deletion therefore rests on the convention stated above rather than on a measurement,
+// and what the green does buy is the bound: nothing reaching this block needs THIS block's
+// copy.
 //
 // THREE OF THE FOUR WERE ACTUALLY DEAD, and that sentence is the correction: the census
 // question was wrong, not merely narrow. "Nowhere else in this header" says nothing about
@@ -955,7 +1000,11 @@ struct App {
     // Peeking a plain-text file: the whole-file code block drops its card
     // chrome, since the peek panel already frames the content
     bool peekFrameless = false;
-    ID2D1Bitmap* nativeLinkPeekBitmap = nullptr;  // owned while active
+    // A shared handle, not an AddRef'd native: the peek bitmap is created by
+    // renderPeekBitmap and lives until the peek disarms, which is what a
+    // shared_ptr already says. The three hand-written Release() calls this
+    // replaces were the release half of that pairing, spelled out three times.
+    std::shared_ptr<tinta::Bitmap> linkPeekBitmap;
     tinta::RectF linkPeekAnchorDoc{};        // hovered link rect (doc coords)
     tinta::RectF linkPeekPanel{};            // placed panel (screen coords)
     int annotEditorIndex = -1;    // -1 = creating a new annotation
@@ -1628,7 +1677,7 @@ struct App {
 
     void shutdown() {
         lightboxBitmap.reset();
-        releaseNative(nativeLinkPeekBitmap);
+        linkPeekBitmap.reset();
         clearLayoutCache();
         releaseOverlayFormats();
         releaseImageCache();
@@ -1777,62 +1826,36 @@ struct App {
         seatTextFactory();
     }
 
-    // ONE scalar bitmap is still reached through an ACCESSOR, rather than through a
-    // seated pointer field like the render target and the formats. The reason is its
-    // lifetime, not its type: the link peek arms and disarms while the app runs, so a
-    // seated field would need reseating at every one of its mutation sites, and missing
-    // one would leave a stale pointer that still draws the PREVIOUS image. Reseating
-    // on read cannot be forgotten. It is affordable only because D2DBitmap borrows
-    // (see render_d2d.h): rebuilding the wrapper is one pointer store and no
-    // refcount traffic. Deliberately NOT the shape to copy for an owning wrapper.
+    // NO BITMAP IN THIS STRUCT IS REACHED THROUGH AN ACCESSOR ANY MORE, and the count
+    // that used to stand here is gone rather than decremented, because it reached zero.
+    // It said FOUR, then the lightbox left, then both icons, and the link peek was the
+    // last -- five members, one shape, retired one slice at a time.
     //
-    // THIS COMMENT SAID "FOUR", THEN THE LIGHTBOX LEFT, AND NOW BOTH ICONS HAVE.
-    // Each one went the same way and for a better reason than the accessor: a
-    // shared_ptr<tinta::Bitmap> member has no native pointer behind it, so the
-    // staleness the accessor defends against cannot arise, AND the member stops naming
-    // a Direct2D type -- which is what let the two icons' `#ifdef` go rather than move.
-    // The accessor shape is what a BORROWED native needs, not what the seam prefers.
+    // The shape was: an `ID2D1Bitmap*` member plus a `mutable Seated<tinta::Bitmap,
+    // ID2D1Bitmap>` storage plus a const accessor that reseated the wrapper on every
+    // read, all behind `#ifdef TINTA_D2D_BACKEND` with an `#else` returning nullptr. The
+    // argument for it was lifetime, not type: a peek that arms and disarms while the app
+    // runs would need a seated field reseating at every mutation site, and missing one
+    // leaves a stale pointer that still draws the PREVIOUS image. Reseating on read
+    // cannot be forgotten.
     //
-    // const, with mutable storage, because lightboxImageRect takes a const App&.
+    // WHAT REPLACED IT IS STRICTLY BETTER, AND THE REASON IS WORTH KEEPING because it is
+    // the argument for the four Seated<> storages that remain NOT following: a
+    // shared_ptr<tinta::Bitmap> member has no native pointer behind it, so the staleness
+    // the accessor defended against cannot arise at all -- the defence is not reimplemented
+    // cheaper, it is unnecessary. That is only available when the thing held can be a seam
+    // handle. renderTargetStorage, brushStorage, dashedStrokeStyleStorage and
+    // textFactoryStorage each still wrap a native that really is created and really is
+    // borrowed, so for them the accessor argument above is still the live one. The bitmaps
+    // could leave because a bitmap is data; a render target is a device.
     //
-    // THE GUARD IS TINTA_D2D_BACKEND, NOT _WIN32, for the reason CMakeLists.txt spells out
-    // where that macro is defined: an `#ifdef _WIN32` in a header that BOTH stacks compile
-    // is asking about the OS when it means to ask about the backend. These accessors were
-    // the second instance of that mistake, after src/paint_document.cpp, and they were
-    // found the same way -- by a link failure rather than by reading. Under
-    // -DTINTA_LEGACY_D2D=OFF, qinta is a WINDOWS target with no D2D backend, so _WIN32 was
-    // defined, `seat<D2DBitmap>` instantiated, and four objects that have nothing to do with
-    // Direct2D (tabs, overlays, startpage, editrail) each came back with
-    //
-    //   error LNK2001: unresolved external symbol D2DBitmap::GetSize
-    //
-    // out of src/render_d2d.cpp, which qinta correctly does not compile. Those four are pure
-    // CALLERS -- none of them names a D2D type -- which is why the fix belongs here, in the
-    // one header they share, and not in any of them.
-    //
-    // Returning nullptr when the backend is absent is not a new behaviour, it is the SAME
-    // behaviour this file already had off Windows, and the callers already handle it (each
-    // one passes the pointer to a draw helper that skips a null bitmap). That was written
-    // when all three chrome icons drew on neither stack, pending a Qt path. TWO OF THE
-    // THREE NOW HAVE ONE and are members above; the link peek is the one still waiting,
-    // so the paragraph is still live for it and is no longer the whole story.
-    // No titleIconBitmap() or startPageIconBitmap() accessor either, and no
-    // lightboxBitmap() one: all three members of those names ARE tinta::Bitmap holders
-    // now, so .get() is the whole accessor and their Seated storages went with them.
-    // For the two icons that also deleted an `#ifdef TINTA_D2D_BACKEND` returning
-    // nullptr off Windows -- the guard existed only because the thing behind it was an
-    // ID2D1Bitmap*, so the icons now draw on both stacks instead of on neither.
-    tinta::Bitmap* linkPeekBitmap() const {
-#ifdef TINTA_D2D_BACKEND
-        return linkPeekBitmapStorage.seat<D2DBitmap>(nativeLinkPeekBitmap);
-#else
-        linkPeekBitmapStorage.reset();
-        return nullptr;
-#endif
-    }
-
-private:
-    mutable Seated<tinta::Bitmap, ID2D1Bitmap> linkPeekBitmapStorage;
+    // Each departure also took an `#ifdef TINTA_D2D_BACKEND` with it, which was the larger
+    // win: the guard existed ONLY because the thing behind it was an ID2D1Bitmap*, and its
+    // `#else` returned nullptr -- so these members drew on neither stack off Windows, and
+    // now draw on both. The `_WIN32`-when-it-meant-the-backend mistake that put those
+    // guards here in the first place is documented where the macro is defined, in
+    // CMakeLists.txt beside `TINTA_D2D_BACKEND`; it is not copied here, because with no
+    // guard left in this region there is nothing here for it to be about.
 };
 
 inline float dpi(const App& app, float value) {

@@ -1369,7 +1369,7 @@ void renderToc(App& app) {
 // --- Link peek ---
 
 void renderLinkPeek(App& app) {
-    if (!app.linkPeekActive || !app.nativeLinkPeekBitmap ||
+    if (!app.linkPeekActive || !app.linkPeekBitmap ||
         app.hoveredLink != app.linkPeekUrl || !app.folderBrowserFormat) {
         return;
     }
@@ -1400,9 +1400,10 @@ void renderLinkPeek(App& app) {
                     p.right - dpi(app, 10.0f), p.top + titleH),
         app.brush);
 
-    // The rendered page
+    // The rendered page. .get() is the whole accessor now -- the guard above
+    // has already established the handle is non-null.
     app.renderTarget->DrawBitmap(
-        app.linkPeekBitmap(),
+        app.linkPeekBitmap.get(),
         tinta::rectF(p.left + 1.0f, p.top + titleH, p.right - 1.0f,
                     p.bottom - 1.0f));
 

@@ -51,10 +51,7 @@ static void toggleFitBlock(App& app, HWND hwnd, unsigned key);
 static void clearLinkPeek(App& app) {
     app.linkPeekActive = false;
     app.linkPeekUrl.clear();
-    if (app.nativeLinkPeekBitmap) {
-        app.nativeLinkPeekBitmap->Release();
-        app.nativeLinkPeekBitmap = nullptr;
-    }
+    app.linkPeekBitmap.reset();
 }
 
 // Inline image under the document point, or nullptr (viewer lightbox)
@@ -4263,13 +4260,14 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
 
     float titleH = dpi(app, 22.0f);
     float contentH = h - titleH - 2.0f;
-    ID2D1Bitmap* bitmap =
+    std::shared_ptr<tinta::Bitmap> bitmap =
         renderPeekBitmap(app, target.wstring(), w - 2.0f, contentH);
     if (!bitmap) return;
     // The render may have shrunk to the target's real height
     app.linkPeekPanel.bottom = py + titleH + contentH + 2.0f;
-    if (app.nativeLinkPeekBitmap) app.nativeLinkPeekBitmap->Release();
-    app.nativeLinkPeekBitmap = bitmap;
+    // Assigning over the previous handle releases it -- the explicit Release
+    // that used to stand here was the same operation, spelled by hand.
+    app.linkPeekBitmap = std::move(bitmap);
     app.linkPeekTitle = target.filename().wstring();
     app.linkPeekActive = true;
     requestRepaint(hwnd);

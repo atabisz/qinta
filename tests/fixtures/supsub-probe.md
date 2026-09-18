@@ -11,10 +11,21 @@ XXXX^2222^ superscript
 
 XXXX~2222~ subscript
 
-WHAT THIS FIXTURE ASSERTS TODAY IS A BUG, and it is here to pin it rather than to bless it.
-On Windows `app.supSubFormat` is null for the whole run -- `updateTextFormats` creates it,
+THIS FIXTURE PINNED A BUG AND THE BUG IS FIXED, so the paragraph that described it as
+current is corrected here rather than left to read as today's behaviour. It said: "On
+Windows `app.supSubFormat` is null for the whole run -- `updateTextFormats` creates it,
 then `updateOverlayFormats` -> `releaseOverlayFormats` nulls the native before
 `seatTextFormats` runs -- so line 2 is pixel-identical to line 1 and line 3 is offset down
-at full size. The Qt path creates the format and never clears it, so the two backends
-render this file differently. Fixing that MOVES this page's hash, which is exactly why the
-hash is recorded first.
+at full size."
+
+Three separate things in that sentence are now false. `supSubFormat` is deliberately
+absent from `releaseOverlayFormats`, and `include/app.h` says so at the site with the
+invariant asserted in `tests/theme_tests.cpp`; `updateOverlayFormats` no longer exists,
+having become the shared `installChromeFormats`; and `seatTextFormats` no longer exists at
+all, because no text format is seated on either backend any more. So the three lines above
+are a same-glyph size comparison that both backends now render alike, which is what the
+fixture was built to be able to say.
+
+Editing this paragraph MOVES this page's hash, exactly as the old wording warned -- so the
+byte-identity arm for the slice that made these corrections was taken BEFORE this edit, and
+the move is a change to the printed text rather than to the renderer.

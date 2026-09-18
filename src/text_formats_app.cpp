@@ -1,5 +1,6 @@
 #include "text_formats.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "app.h"
@@ -45,6 +46,69 @@ tinta::TextFormat* makeFormat(App& app, std::unique_ptr<tinta::TextFormat>& stor
     // Setting it inside the helper makes that impossible rather than merely unlikely.
     storage->SetParagraphAlignment(tinta::ParagraphAlignment::Near);
     return storage.get();
+}
+
+// THE SAME HELPER OVER THE OTHER STORAGE SHAPE, for the ten chrome formats. Both overloads
+// are here now, which is the first time the two shapes have been visible in one file, and
+// seeing them together is what makes the remaining difference legible: this one ends in
+// storage.install(std::move(format)) and the one above in a plain assignment. Nothing else
+// differs -- same factory call, same locale, same ParagraphAlignment::Near on every format.
+//
+// The Seated<> parameter is the LAST piece of DirectWrite coupling in the chrome path, and it
+// is a type and not a behaviour: `IDWriteTextFormat` appears as a template argument that
+// nothing in this file constructs, compares or dereferences. It is spelled here rather than
+// hidden behind an alias so that the follow-on slice collapsing it to unique_ptr has an
+// obvious grep target. Off Windows the interface is an incomplete type and that is fine --
+// a pointer to an incomplete type is a legal template argument, which is why this body
+// compiles on the portable target that has no DirectWrite at all.
+tinta::TextFormat* makeFormat(App& app, Seated<tinta::TextFormat, IDWriteTextFormat>& storage,
+                              const wchar_t* family, tinta::FontWeight weight,
+                              tinta::FontStyle style, float size) {
+    std::unique_ptr<tinta::TextFormat> format = app.textFactory->CreateTextFormat(
+        family, weight, style, tinta::FontStretch::Normal, size, L"en-us");
+    if (!format) return nullptr;
+    format->SetParagraphAlignment(tinta::ParagraphAlignment::Near);
+    return storage.install(std::move(format));
+}
+
+// A single-line row that must not wrap and must trim with an ellipsis. Three formats want
+// exactly this -- folder browser, TOC, TOC bold -- and on Windows it was written TWICE:
+// once inline for the folder browser and once as a lambda for the two TOC formats. That
+// duplication is what let the two copies differ, and they did: the folder browser's ignored
+// the HRESULT from CreateEllipsisTrimmingSign and the TOC lambda checked it. One helper.
+void configureTrimmedRow(App& app, tinta::TextFormat* format) {
+    if (!format) return;
+
+    // NoWrap FIRST, and the order is load-bearing on one backend: QtTextRun's trimming
+    // branch is gated on `noWrap` (src/text_qt.cpp:165) and skips the elide entirely if the
+    // wrapping is still Wrap when the layout runs. Windows does not care. Ordering for the
+    // stricter backend is why one shared function is safe for both.
+    format->SetWordWrapping(tinta::WordWrapping::NoWrap);
+
+    std::unique_ptr<tinta::InlineObject> ellipsis =
+        app.textFactory->CreateEllipsisTrimmingSign(format);
+
+    // TRIMMING IS SET ONLY WITH A LIVE SIGN, and this is a BEHAVIOUR CHANGE on the Qt side
+    // plus the correction of a comment that asserted the opposite. The Qt body said the
+    // trimming was set even for a null sign, "which is d2d_init's behaviour and not an
+    // accident". It was not d2d_init's behaviour: BOTH Windows sites guarded SetTrimming on
+    // a non-null sign, so a failed CreateEllipsisTrimmingSign left granularity None on
+    // Windows and Character on Qt. Latent -- that call does not fail in practice -- and
+    // exactly the class this port keeps turning up: prose asserting parity that no
+    // instrument checked. The guard follows Windows because Windows is the backend whose
+    // rendering is measured, and now there is one behaviour to be right or wrong about
+    // instead of two.
+    if (ellipsis) {
+        const tinta::Trimming trimming{tinta::TrimmingGranularity::Character, 0, 0};
+        format->SetTrimming(trimming, ellipsis.get());
+
+        // AFTER SetTrimming, and this vector is why the function takes an App at all.
+        // DirectWrite retains the sign and Qt does not, so the only caller correct against
+        // both backends is one that keeps it alive itself. releaseChromeFormats clears it,
+        // and installChromeFormats releases before it installs -- without that pairing this
+        // push would run three times per theme change forever.
+        app.trimmingSigns.push_back(std::move(ellipsis));
+    }
 }
 
 }  // namespace
@@ -164,4 +228,177 @@ void installDocumentTextFormats(App& app) {
     app.spaceWidthBold = measureText(app, L" ", app.boldFormat);
     app.spaceWidthItalic = measureText(app, L" ", app.italicFormat);
     app.spaceWidthCode = measureText(app, L" ", app.codeFormat);
+}
+
+void releaseChromeFormats(App& app) {
+    // The ten drops plus the preview clear are App::releaseOverlayFormats, an inline member,
+    // for the same measured reason releaseDocumentTextFormats delegates to
+    // App::releaseDocumentFormats: App::shutdown() also has to drop them, and calling a free
+    // function from an inline member of app.h puts that symbol in the link closure of every
+    // target that includes the header -- twenty-odd test executables came back LNK2019 for a
+    // text format none of them uses. The member does the dropping; this function owns the
+    // two extras that are not formats.
+    app.releaseOverlayFormats();
+
+    // AFTER the formats that reference them. Nothing in either backend reads a sign back --
+    // QtTextFormat kept a bool and DirectWrite holds its own reference -- so this is not a
+    // dangling-pointer fix today. It is ordered this way because the reverse reads as "free
+    // the thing the format points at, then the format", and the next person to add a backend
+    // that DOES retain the raw pointer should find the rule rather than discover it.
+    app.trimmingSigns.clear();
+    app.editorCharWidth = 0.0f;
+}
+
+void installChromeFormats(App& app) {
+    // Release FIRST, then bail -- identical to installDocumentTextFormats and for the second
+    // of the two reasons stated at the declaration. Bailing first would leave the previous
+    // theme's formats live behind a factory the caller has told us it no longer has, and
+    // releasing only on the success path would let trimmingSigns grow by three on every
+    // theme change, zoom step and DPI change.
+    releaseChromeFormats(app);
+    if (!app.textFactory) return;
+
+    // contentScale ALONE, no zoomFactor, for the eight overlay formats. The reason is in
+    // d2d_init.cpp's own words at the site this body replaces: "fixed UI size so zooming the
+    // document cannot overflow the fixed stats box". The two editor formats are on the other
+    // scale further down, because editor text IS document text. Getting the two the wrong way
+    // round would make chrome grow with Ctrl+= and look like a feature.
+    const float scale = app.contentScale;
+    const wchar_t* segoe = L"Segoe UI";
+
+    using W = tinta::FontWeight;
+    using S = tinta::FontStyle;
+
+    // THE FAMILY LITERALS ARE A KNOWN DIVERGENCE OFF WINDOWS and they are copied verbatim
+    // anyway: neither Segoe UI nor Consolas exists on a stock Linux box, so Qt substitutes.
+    // A different family here would make the two stacks disagree on purpose, and the
+    // substitution is Qt's job -- it already happens for the document formats, whose theme
+    // families are equally Windows-flavoured.
+    app.searchTextFormat = makeFormat(app, app.searchTextFormatStorage,
+                                      app.theme.fontFamily, W::Normal, S::Normal,
+                                      16.0f * scale);
+    app.signalSmallFormat = makeFormat(app, app.signalSmallFormatStorage, segoe,
+                                       W::SemiBold, S::Normal, 10.0f * scale);
+    app.themeTitleFormat = makeFormat(app, app.themeTitleFormatStorage,
+                                      L"Segoe UI Light", W::Light, S::Normal,
+                                      28.0f * scale);
+    app.themeHeaderFormat = makeFormat(app, app.themeHeaderFormatStorage, segoe,
+                                       W::SemiBold, S::Normal, 11.0f * scale);
+
+    // The theme's CODE face, not its body face -- the stats line shows counts in the same
+    // font the document's code spans use. Worth naming because it is the format whose family
+    // column caught a published claim: on the default theme this resolves to Cascadia Code,
+    // and four sites said the default code face was Consolas. See tests/typography_tests.cpp.
+    app.statsFormat = makeFormat(app, app.statsFormatStorage, app.theme.codeFontFamily,
+                                 W::Normal, S::Normal, 13.0f * scale);
+
+    app.folderBrowserFormat = makeFormat(app, app.folderBrowserFormatStorage, segoe,
+                                         W::Normal, S::Normal, 13.0f * scale);
+    configureTrimmedRow(app, app.folderBrowserFormat);
+
+    // Bold at 13, plain at 12 -- the SIZES differ as well as the weights, which was easy to
+    // miss in the Windows original where the two calls were adjacent.
+    app.tocFormatBold = makeFormat(app, app.tocFormatBoldStorage, segoe, W::Bold,
+                                   S::Normal, 13.0f * scale);
+    app.tocFormat = makeFormat(app, app.tocFormatStorage, segoe, W::Normal, S::Normal,
+                               12.0f * scale);
+    configureTrimmedRow(app, app.tocFormatBold);
+    configureTrimmedRow(app, app.tocFormat);
+
+    // THE EDITOR FORMATS, on the OTHER scale.
+    const float editorScale = app.contentScale * app.zoomFactor;
+    const float editorFontSize = 14.0f * editorScale;
+
+    app.editorTextFormat = makeFormat(app, app.editorTextFormatStorage,
+                                      app.theme.codeFontFamily, W::Normal, S::Normal,
+                                      editorFontSize);
+    if (app.editorTextFormat) {
+        app.editorTextFormat->SetWordWrapping(tinta::WordWrapping::NoWrap);
+
+        // THE MEASUREMENT GOES THROUGH THE SEAM, WHERE THE WINDOWS ORIGINAL STAYED NATIVE,
+        // and the difference is the port's doing rather than a choice made here. That code
+        // explained itself at the site: at that point in that file app.editorTextFormat was
+        // still null, because seatTextFormats() ran forty lines earlier, so a seam call
+        // there would have read null and measured nothing. Here the wrapper is what
+        // makeFormat just returned, so there is no null to read and no ordering to get
+        // wrong. Same rule, opposite consequence -- and the native overload of measureText
+        // that the old site used no longer exists in the tree.
+        std::unique_ptr<tinta::TextLayout> measure =
+            app.textFactory->CreateTextLayout(L"M", 1, app.editorTextFormat,
+                                              10000.0f, 100.0f);
+        float naturalHeight = 0.0f;
+        float naturalBaseline = 0.0f;
+        if (measure) {
+            tinta::TextMetrics metrics{};
+            measure->GetMetrics(&metrics);
+            app.editorCharWidth = metrics.widthIncludingTrailingWhitespace;
+
+            tinta::LineMetrics lm{};
+            uint32_t lineCount = 0;
+            if (measure->GetLineMetrics(&lm, 1, &lineCount) && lineCount >= 1) {
+                naturalHeight = lm.height;
+                naturalBaseline = lm.baseline;
+            }
+        }
+
+        // Issue #181's arithmetic: rows sit on a fontSize*1.5 grid and the baseline centres
+        // the natural line box inside the cell, with fontSize*1.2 as the fallback when the
+        // metrics came back zero.
+        //
+        // THE ORDER MATTERS AGAINST THE MEASUREMENT ABOVE: the natural metrics have to be
+        // read BEFORE uniform spacing overrides them. Both predecessors measured first and
+        // both said so; keeping the order is the whole reason those two blocks are adjacent
+        // rather than tidied apart.
+        const float editorLineHeight = editorFontSize * 1.5f;
+        const float editorBaseline =
+            (naturalHeight > 0.0f && naturalBaseline > 0.0f)
+                ? naturalBaseline + (editorLineHeight - naturalHeight) * 0.5f
+                : editorFontSize * 1.2f;
+        app.editorTextFormat->SetLineSpacing(tinta::LineSpacingMethod::Uniform,
+                                             editorLineHeight, editorBaseline);
+    }
+
+    // 9.5 DIP Consolas, right-aligned against the gutter's inner edge, vertically centred in
+    // its row. The gutter is the one chrome format that pins a family rather than taking one
+    // from the theme, and it is on the EDITOR scale because it has to line up with the rows
+    // it numbers.
+    app.editorGutterFormat = makeFormat(app, app.editorGutterFormatStorage, L"Consolas",
+                                        W::Normal, S::Normal, 9.5f * editorScale);
+    if (app.editorGutterFormat) {
+        app.editorGutterFormat->SetTextAlignment(tinta::TextAlignment::Trailing);
+        app.editorGutterFormat->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
+        app.editorGutterFormat->SetWordWrapping(tinta::WordWrapping::NoWrap);
+    }
+}
+
+void ensureThemePreviewFormats(App& app) {
+    if (!app.textFactory) return;
+    if (!app.themePreviewFormats.empty()) return;
+
+    // contentScale alone, like every other overlay format. The chooser is chrome.
+    const float scale = app.contentScale;
+
+    using W = tinta::FontWeight;
+    using S = tinta::FontStyle;
+
+    // THE RESIZE-THEN-SEAT ORDERING WAS THE WHOLE HAZARD HERE and the port retires it rather
+    // than preserving it. The wrappers live INSIDE the vector's elements, so the Windows
+    // version had to create all ~30 natives, resize once, and only THEN seat -- seating
+    // before the resize left every wrapper pointing into a buffer resize() had reallocated,
+    // and App::seatTextFormats still carried a comment warning about exactly that. There is
+    // no seating pass left to order wrongly: install() returns the live pointer, so each slot
+    // is filled after the buffer it lives in is final. The single up-front resize stays,
+    // because a push_back per theme would still reallocate under the pointers already handed
+    // out inside the loop.
+    app.themePreviewFormats.resize(static_cast<size_t>(themeCount()));
+    for (int i = 0; i < themeCount(); i++) {
+        const D2DTheme& t = themeAt(i);
+        App::ThemePreviewFormats& slot = app.themePreviewFormats[static_cast<size_t>(i)];
+        slot.name = makeFormat(app, slot.nameStorage, t.fontFamily, W::SemiBold,
+                               S::Normal, 14.0f * scale);
+        slot.preview = makeFormat(app, slot.previewStorage, t.fontFamily, W::Normal,
+                                  S::Normal, 11.0f * scale);
+        slot.code = makeFormat(app, slot.codeStorage, t.codeFontFamily, W::Normal,
+                               S::Normal, 10.0f * scale);
+    }
 }

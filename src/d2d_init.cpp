@@ -276,190 +276,46 @@ void updateTextFormats(App& app) {
         static_cast<D2DTextFactory*>(app.textFactory)->setFontFallback(app.fontFallback);
     }
 
-    updateOverlayFormats(app);
-    app.seatTextFormats();
+    // The chrome formats, through the shared portable function -- and NOT followed by a
+    // seating call any more. See the tombstone below for why that pairing had to break in
+    // one commit rather than two.
+    installChromeFormats(app);
     app.appliedZoomFactor = app.zoomFactor;
     app.layoutDirty = true;
 }
 
-void updateOverlayFormats(App& app) {
-    app.releaseOverlayFormats();
-
-    float scale = app.contentScale;
-
-    // Search overlay format
-    app.dwriteFactory->CreateTextFormat(app.theme.fontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        16.0f * scale, L"en-us", &app.nativeSearchTextFormat);
-
-    // Signal chips: subtitles, badges, and the tiny state labels
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        10.0f * scale, L"en-us", &app.nativeSignalSmallFormat);
-    if (app.nativeSignalSmallFormat) {
-        app.nativeSignalSmallFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-    }
-
-    // Theme chooser formats
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI Light", nullptr,
-        DWRITE_FONT_WEIGHT_LIGHT, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        28.0f * scale, L"en-us", &app.nativeThemeTitleFormat);
-
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        11.0f * scale, L"en-us", &app.nativeThemeHeaderFormat);
-
-    // Theme preview formats (3 per theme, several distinct font families) are
-    // created lazily by ensureThemePreviewFormats when the chooser first opens
-    // — they were ~30 CreateTextFormat calls on the startup critical path.
-    // releaseOverlayFormats() above already cleared them; they rebuild at the
-    // current scale on next use.
-
-    // Stats overlay format: fixed UI size so zooming the document cannot
-    // overflow the fixed stats box
-    app.dwriteFactory->CreateTextFormat(app.theme.codeFontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.nativeStatsFormat);
-
-    // Folder browser format
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.nativeFolderBrowserFormat);
-    if (app.nativeFolderBrowserFormat) {
-        // Entries render on fixed-height rows: wrapping would overlap the next
-        // row, so keep everything single-line and trim with an ellipsis
-        app.nativeFolderBrowserFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-        IDWriteInlineObject* ellipsis = nullptr;
-        app.dwriteFactory->CreateEllipsisTrimmingSign(app.nativeFolderBrowserFormat, &ellipsis);
-        if (ellipsis) {
-            app.nativeFolderBrowserFormat->SetTrimming(&trimming, ellipsis);
-            ellipsis->Release();
-        }
-    }
-
-    // TOC formats
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        13.0f * scale, L"en-us", &app.nativeTocFormatBold);
-    app.dwriteFactory->CreateTextFormat(L"Segoe UI", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        12.0f * scale, L"en-us", &app.nativeTocFormat);
-    auto configureTocFormat = [&](IDWriteTextFormat* format) {
-        if (!format) return;
-        // TOC entries occupy fixed-height rows. Wrapping would paint into the
-        // following entry, so trim long headings to one line.
-        format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        DWRITE_TRIMMING trimming = { DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0 };
-        IDWriteInlineObject* ellipsis = nullptr;
-        if (SUCCEEDED(app.dwriteFactory->CreateEllipsisTrimmingSign(format, &ellipsis)) &&
-            ellipsis) {
-            format->SetTrimming(&trimming, ellipsis);
-            ellipsis->Release();
-        }
-    };
-    configureTocFormat(app.nativeTocFormatBold);
-    configureTocFormat(app.nativeTocFormat);
-
-    // Editor text format (monospace, same size as body)
-    float editorScale = app.contentScale * app.zoomFactor;
-    float editorFontSize = 14.0f * editorScale;
-    app.dwriteFactory->CreateTextFormat(app.theme.codeFontFamily, nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        editorFontSize, L"en-us", &app.nativeEditorTextFormat);
-    if (app.nativeEditorTextFormat) {
-        app.nativeEditorTextFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        // Measure actual monospace character width and the font's natural
-        // line metrics (before uniform spacing overrides them below)
-        //
-        // THIS MEASUREMENT STAYS NATIVE, and the reason is ORDERING rather than
-        // taste. app.editorTextFormat is seated by seatTextFormats(), whose calls in
-        // this file are at 323, 466 and 490. Line 323 runs before line 412 creates
-        // the native format, and seatFormat explicitly nulls its output when handed
-        // a null native -- so at THIS line app.editorTextFormat is null, and the
-        // next seat is 40-odd lines below. A seam call here would compile, read
-        // null, and measure nothing, which is exactly the failure that already
-        // happened twice in this file with a pre-seating null guard silently
-        // configuring nothing. Seating early to fix that is possible (seatFormat is
-        // idempotent) but buys nothing: this whole function is DirectWrite creation
-        // and configuration by construction and can never be in the portable
-        // manifest, so the standing rule applies unchanged -- creation and config
-        // read app.native*, drawing and measurement THROUGH the seam read the seam.
-        float naturalHeight = 0.0f, naturalBaseline = 0.0f;
-        IDWriteTextLayout* measureLayout = nullptr;
-        app.dwriteFactory->CreateTextLayout(L"M", 1, app.nativeEditorTextFormat,
-            10000.0f, 100.0f, &measureLayout);
-        if (measureLayout) {
-            DWRITE_TEXT_METRICS metrics{};
-            measureLayout->GetMetrics(&metrics);
-            app.editorCharWidth = metrics.widthIncludingTrailingWhitespace;
-            DWRITE_LINE_METRICS lm{};
-            UINT32 lineCount = 0;
-            if (SUCCEEDED(measureLayout->GetLineMetrics(&lm, 1, &lineCount)) &&
-                lineCount >= 1) {
-                naturalHeight = lm.height;
-                naturalBaseline = lm.baseline;
-            }
-            measureLayout->Release();
-        }
-        // The editor positions every visual row on a fontSize*1.5 grid, but
-        // by default each layout spaces its wrapped rows at the fonts' own
-        // (tighter) line height - so a long wrapped paragraph drew shorter
-        // than the rows it occupies, leaving a blank band before the next
-        // line that grows with paragraph length, and skewing click/caret/
-        // arrow math inside it (#181). Uniform spacing pins layout rows to
-        // the grid; the baseline centers the natural line box in the cell.
-        float editorLineHeight = editorFontSize * 1.5f;
-        float editorBaseline = (naturalHeight > 0.0f && naturalBaseline > 0.0f)
-            ? naturalBaseline + (editorLineHeight - naturalHeight) * 0.5f
-            : editorFontSize * 1.2f;
-        app.nativeEditorTextFormat->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM,
-            editorLineHeight, editorBaseline);
-    }
-
-    // Slim line-number gutter (design t11): small mono digits,
-    // right-aligned against the gutter's inner edge
-    app.dwriteFactory->CreateTextFormat(L"Consolas", nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL, 9.5f * editorScale, L"en-us",
-        &app.nativeEditorGutterFormat);
-    if (app.nativeEditorGutterFormat) {
-        app.nativeEditorGutterFormat->SetTextAlignment(
-            DWRITE_TEXT_ALIGNMENT_TRAILING);
-        app.nativeEditorGutterFormat->SetParagraphAlignment(
-            DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-        app.nativeEditorGutterFormat->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    }
-
-    // Seating is idempotent, so calling it here as well as at the end of
-    // updateTextFormats costs nothing and means this function is safe to call
-    // on its own -- which it is, from the overlay and DPI paths.
-    app.seatTextFormats();
-}
-
-void ensureThemePreviewFormats(App& app) {
-    if (!app.themePreviewFormats.empty()) return;
-
-    float scale = app.contentScale;
-    app.themePreviewFormats.resize(themeCount());
-    for (int i = 0; i < themeCount(); i++) {
-        const D2DTheme& t = themeAt(i);
-        app.dwriteFactory->CreateTextFormat(t.fontFamily, nullptr,
-            DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            14.0f * scale, L"en-us", &app.themePreviewFormats[i].nativeName);
-        app.dwriteFactory->CreateTextFormat(t.fontFamily, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            11.0f * scale, L"en-us", &app.themePreviewFormats[i].nativePreview);
-        app.dwriteFactory->CreateTextFormat(t.codeFontFamily, nullptr,
-            DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-            10.0f * scale, L"en-us", &app.themePreviewFormats[i].nativeCode);
-    }
-
-    // After the resize(), never before: the wrappers live inside the vector's
-    // elements, so seating earlier would leave them pointing into a buffer that
-    // resize() then reallocated.
-    app.seatTextFormats();
-}
+// THE TWENTY CHROME FORMATS ARE NO LONGER BUILT HERE, and with them goes the last
+// CreateTextFormat call in this tree's Windows backend. updateOverlayFormats' ten and
+// ensureThemePreviewFormats' three-per-theme are installChromeFormats and
+// ensureThemePreviewFormats in src/text_formats_app.cpp, portable, called by both stacks.
+//
+// THE DELETION WAS THE EASY HALF. What made this slice wait twice -- and the phase note of
+// two earlier ISAs says so in the same words both times -- is that chrome never appears on a
+// printed page, so the --printpages byte-identity rig that made the last three ports
+// trustworthy is structurally blind to it. The answer was an instrument, not a bigger
+// deletion: `tinta.exe --dumpchrome <file>` (src/chrome_dump_d2d.cpp) reads all forty formats
+// back off the NATIVE objects through nativeTextFormat(), eleven properties each, and it
+// survives this deletion because it resolves seam pointers rather than reading App's natives.
+// The before-and-after of that dump is the evidence this change rests on.
+//
+// AND THE INSTRUMENT PAID FOR ITSELF BEFORE THE PORT RAN. Its first reading printed
+// `stats family="Cascadia Code"`, contradicting four published sites that said the default
+// theme's code face was Consolas -- the stated reason a Qt typography divergence was safe.
+// The conclusion held; the reason and the scope estimate did not. See tests/typography_tests.cpp.
+//
+// WHAT WENT WITH THEM, and it had to go in the SAME commit rather than as tidy-up:
+// App::seatTextFormats and App::seatFormat, plus the thirteen native chrome members they
+// seated. A surviving seatTextFormats() would have called seatFormat with a null native for
+// every chrome format, and seatFormat's first act on a null native is storage.reset() -- so it
+// would have destroyed the formats installChromeFormats had just created, on a path that runs
+// after every theme change and every zoom step. app.h said this rule when the DOCUMENT
+// formats moved and said the compiler only enforces it because the native members went too.
+// That is why deleting them was mandatory here and not cosmetic.
+//
+// THE THREE seatTextFormats() CALLS THIS FILE HELD ARE GONE FOR THE SAME REASON -- one at the
+// end of updateTextFormats above, one at the end of each deleted function. The comment on the
+// last of them read "Seating is idempotent, so calling it here as well... costs nothing",
+// which was true and is now the wrong question: there is nothing to seat.
 
 // THE TYPOGRAPHY SETS ARE NO LONGER BUILT HERE. createTypography is
 // installTypography in src/text_formats_app.cpp, called by BOTH initialisers -- and

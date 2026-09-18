@@ -47,8 +47,18 @@ void writeRow(std::ofstream& out, const char* slot, IDWriteTextFormat* format) {
     IDWriteInlineObject* sign = nullptr;
     const bool trimmingRead = SUCCEEDED(format->GetTrimming(&trimming, &sign));
     // GetTrimming ADDREFS the sign. Releasing it here is correct and does not free the
-    // app's copy: the format holds its own reference (which is exactly why
-    // App::trimmingSigns exists on the Qt side and not this one -- see include/app.h).
+    // app's copy: the format holds its own reference.
+    //
+    // THE PARENTHESIS THAT STOOD HERE IS NOW FALSE and is corrected rather than dropped,
+    // because it was a claim about which backend owns what: "which is exactly why
+    // App::trimmingSigns exists on the Qt side and not this one". App::trimmingSigns is now
+    // populated on BOTH sides -- installChromeFormats is one shared body, so the Windows
+    // build pushes the same three signs. The DirectWrite half of the reasoning still holds
+    // and is the reason the release above is safe: the format retains its own reference, so
+    // Windows would survive without the vector where Qt would not. What changed is that the
+    // vector is no longer a Qt-only structure, and a reader taking the old sentence at face
+    // value would conclude the Windows arm cannot leak signs -- which is exactly the defect
+    // C11 exists to hold shut.
     const bool hasSign = sign != nullptr;
     if (sign) sign->Release();
 

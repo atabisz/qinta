@@ -19,15 +19,25 @@
 // codeBoldItalicFormat, supSubFormat and headingFormats[6]. Every bold/italic
 // combination exists because inline spans nest -- ***both***, **`code`**, *`code`*.
 //
-// NOT THE CHROME FORMATS, and the line is drawn by which function creates them on
-// Windows rather than by what they look like: these are what updateTextFormats builds,
-// the ~20 others are updateOverlayFormats and ensureThemePreviewFormats, and those two
-// still create theirs natively. That list read THREE until 2026-09-18, the third being
-// createTypography -- which is now installTypography below, in this header and the
-// portable file, because it never named DirectWrite in the first place. That is why App still
-// carries Seated<> storages next to the plain unique_ptrs these use -- a mixed shape that
-// is temporary by construction, since the second kind disappears as each of the other
-// three functions follows this one.
+// THE CHROME FORMATS ARE HERE NOW TOO, and the paragraph that stood here is corrected
+// rather than deleted because it was the roadmap and the roadmap has been walked. It read:
+// "NOT THE CHROME FORMATS... the ~20 others are updateOverlayFormats and
+// ensureThemePreviewFormats, and those two still create theirs natively... a mixed shape
+// that is temporary by construction, since the second kind disappears as each of the other
+// three functions follows this one." All three have now followed. `updateOverlayFormats` and
+// `ensureThemePreviewFormats` are gone from src/d2d_init.cpp; their bodies are
+// installChromeFormats and ensureThemePreviewFormats below, and DirectWrite creates no text
+// format anywhere in this tree any more.
+//
+// WHAT IS STILL MIXED, because the "temporary by construction" clause was only half right:
+// the chrome formats' storage is still Seated<tinta::TextFormat, IDWriteTextFormat> where the
+// document formats' is a plain unique_ptr. The COUPLING TO DIRECTWRITE IS GONE FROM THE CODE
+// and survives only in the TYPE -- nothing constructs a native, nothing seats one, and
+// App::seatTextFormats and App::seatFormat are deleted -- so what remains is a template
+// parameter naming an interface no longer reached. Collapsing Seated<> to unique_ptr for the
+// chrome storages is a mechanical follow-on slice, deliberately not folded in here: it
+// touches every chrome member in app.h and would land in the same commit as the behavioural
+// port, which is precisely the shape that makes a chrome dump diff unreadable.
 //
 // PORTABLE: nothing here or in src/text_formats_app.cpp names a Windows type, which is
 // what lets a non-Windows build create a document format at all. Before this existed, off
@@ -114,5 +124,48 @@ void installDocumentTextFormats(App& app);
 // format is the same class of bug as a stale wrapper over a released native, and it would
 // survive a reinstall silently because the new formats measure the same.
 void releaseDocumentTextFormats(App& app);
+
+// THE TEN CHROME FORMATS: search box, small signal, theme title, theme header, stats,
+// folder browser, both TOC rows, editor text and editor gutter. Created against App's
+// CURRENT theme and contentScale -- and the editor pair against contentScale * zoomFactor,
+// which is the one asymmetry in the function and the one worth checking a change against.
+//
+// IDEMPOTENT, AND THE REASON IS A DEFECT THIS PORT WOULD OTHERWISE HAVE INTRODUCED.
+// It releases first, like installDocumentTextFormats. That is not symmetry for its own
+// sake: three of the ten want an ellipsis trimming sign, App::trimmingSigns owns those
+// signs because Qt does not retain them, and the Qt body this function is MOVED FROM
+// pushed three per call and cleared none. Safe there, and its own comment said why -- "here
+// there is one caller and one lifetime" (installQtBackends, at startup). This function has
+// FOUR callers' worth of frequency instead: updateTextFormats runs it on every theme
+// change, every zoom step and every DPI change, so the un-released body would have leaked
+// three inline objects per call into a vector nothing trims. The Windows function this
+// replaces was idempotent for exactly this reason and said so; the property had to survive
+// the move, and a count assertion holds it rather than this paragraph.
+//
+// Requires App::textFactory. Returns having created nothing if it is absent -- but releases
+// FIRST even then, so a caller that has just dropped its factory cannot leave the previous
+// theme's formats live behind it.
+void installChromeFormats(App& app);
+
+// Drops the ten, clears the per-theme preview vector and zeroes App::editorCharWidth.
+//
+// THE PREVIEW VECTOR IS CLEARED AND NOT MERELY DROPPED, and it is the one line here that
+// would be wrong the other way: ensureThemePreviewFormats keys its early return on the
+// vector being EMPTY, so leaving ten slots of seated nulls behind makes the lazy door a
+// permanent no-op and the theme chooser finds null formats forever after the first release.
+// Both backends' predecessors cleared it. The measured editorCharWidth goes for the same
+// reason the document space widths do: it survives a reinstall silently, because the rebuilt
+// format measures the same right up to the DPI or zoom change that means it does not.
+void releaseChromeFormats(App& app);
+
+// THE PER-THEME PREVIEW TRIPLE -- name, preview and code face for every built-in theme, so
+// three times themeCount() formats. LAZY, and deliberately not part of installChromeFormats:
+// they are wanted only when the theme chooser opens, and building them at startup would put
+// ~30 CreateTextFormat calls on the critical path for a panel most runs never show.
+//
+// Early-returns when the vector is already non-empty, which is what makes it safe to call
+// from a render path -- src/overlays.cpp does exactly that, once per chooser paint.
+// releaseChromeFormats is the other half: it CLEARS the vector so this door reopens.
+void ensureThemePreviewFormats(App& app);
 
 #endif // TINTA_TEXT_FORMATS_H

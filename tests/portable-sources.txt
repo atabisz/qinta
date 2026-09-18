@@ -266,6 +266,19 @@ text_utils_app.cpp
 #
 # What it DID buy is on the Windows side: one copy of the table of families, sizes and
 # weights instead of two, where the second copy had no instrument watching it.
+#
+# THE SAME FILE TOOK THE TEN CHROME FORMATS AND THE THIRTY PREVIEWS later the same day, and
+# the paragraph above applies unchanged rather than by analogy: installQtChromeFormats and
+# ensureQtThemePreviewFormats were both already on this manifest under qt_init.cpp, both
+# already running under tests/qt_entry_tests.cpp, so this is again a body crossing a line
+# here and not a portable surface growing. `updateOverlayFormats` is gone from
+# src/d2d_init.cpp, which now creates no text format of any kind.
+#
+# ONE THING WAS GENUINELY NEW AND IT IS NOT COVERAGE, IT IS A CONTRACT: the merged
+# installChromeFormats releases before it installs. Neither original body needed that --
+# the Qt one had a single startup caller -- and sharing a body shares its callers, so the
+# survivor inherits Windows' theme-change/zoom/DPI frequency. tests/qt_entry_tests.cpp run
+# 11b asserts it, and that assertion is the only new portable claim on this line.
 text_formats_app.cpp
 
 # utils.cpp. THE WINDOWS FEATURE FILE THIS MANIFEST HAS TWICE PROMISED WOULD NEVER APPEAR

@@ -433,28 +433,36 @@ struct App {
     // would rewrap at each of the 36 layout-creation sites and buy nothing.
     Seated<tinta::TextFactory, IDWriteFactory> textFactoryStorage;
     tinta::TextFactory* textFactory = nullptr;
-    // Same pair rule as the Direct2D members above: native holds and owns,
-    // wrapper keeps the name the 106 DrawText sites already pass. Only 40 sites
-    // in the tree call an IDWrite method on one of these, and the creation calls
-    // in d2d_init.cpp take an address -- those moved to the native names; every
-    // other use bound to the wrapper untouched.
+    // EVERY TEXT FORMAT IN THIS STRUCT IS NOW A WRAPPER AND A STORAGE, WITH NO NATIVE.
+    // The pair rule this block used to open with is gone along with its subject; it read
+    // "native holds and owns, wrapper keeps the name the 106 DrawText sites already pass",
+    // and it is quoted rather than dropped because the SITE COUNT is still the reason none
+    // of this churned the call sites. Not one of those 106 changed across either move.
     //
-    // THE DOCUMENT FORMATS HAVE LEFT THIS BLOCK. The eleven that used to head it --
-    // nativeTextFormat through nativeHeadingFormats[6], plus nativeSupSubFormat further
-    // down -- are gone, because installDocumentTextFormats (include/text_formats.h)
-    // creates all sixteen objects through tinta::TextFactory::CreateTextFormat and hands
-    // back something that already owns itself. There is no native pointer to hold and
-    // nothing to seat, so those three-part triples collapsed to a unique_ptr and the raw
-    // wrapper pointer the consumers already read.
+    // The document formats went first: the eleven that used to head this block --
+    // nativeTextFormat through nativeHeadingFormats[6], plus nativeSupSubFormat -- because
+    // installDocumentTextFormats (include/text_formats.h) creates all sixteen through
+    // tinta::TextFactory::CreateTextFormat and hands back something that already owns
+    // itself. There was no native pointer to hold and nothing to seat.
     //
-    // The remaining natives here belong to updateOverlayFormats, which still creates
-    // its formats with DirectWrite. That asymmetry is the honest state of the port and
-    // not a design: it disappears when that function follows this one.
+    // THE CHROME FORMATS HAVE NOW FOLLOWED, and the sentence that stood here predicted
+    // exactly this: "The remaining natives here belong to updateOverlayFormats, which still
+    // creates its formats with DirectWrite. That asymmetry is the honest state of the port
+    // and not a design: it disappears when that function follows this one." It followed.
+    // updateOverlayFormats and ensureThemePreviewFormats are deleted, installChromeFormats
+    // and ensureThemePreviewFormats in include/text_formats.h create all twenty, and the
+    // thirteen native members that used to sit in this block are gone with App::seatFormat
+    // and App::seatTextFormats.
+    //
+    // WHAT DID NOT DISAPPEAR, because the prediction above was one clause too optimistic:
+    // the chrome storages are still Seated<tinta::TextFormat, IDWriteTextFormat> where the
+    // document storages are plain unique_ptrs. The coupling is a TEMPLATE ARGUMENT now and
+    // nothing else -- no native is created, seated, compared or released anywhere in the
+    // chrome path. Collapsing the type is a separate mechanical slice, kept separate on
+    // purpose: it would touch all twenty members in the same commit as a behavioural port,
+    // which is what makes a before/after chrome dump unreadable.
 
     // Overlay text formats (cached)
-    IDWriteTextFormat* nativeSearchTextFormat = nullptr;
-    IDWriteTextFormat* nativeThemeTitleFormat = nullptr;
-    IDWriteTextFormat* nativeThemeHeaderFormat = nullptr;
 
     // THE DOCUMENT FORMATS' STORAGE, and the type is the whole point of the change that
     // made it: a plain owning pointer, not Seated<>. Seated exists to wrap an
@@ -493,12 +501,17 @@ struct App {
 
     // Same three-part shape as the flat formats above. unique_ptr storage makes
     // this struct move-only, which is all std::vector::resize() needs, and the
-    // wrapper pointers are seated AFTER the one resize() so they cannot be left
-    // pointing into a reallocated buffer.
+    // three wrapper pointers are assigned AFTER the one resize() so they cannot be
+    // left pointing into a reallocated buffer.
+    //
+    // "SEATED" WAS THE WORD HERE AND IT NO LONGER MEANS ANYTHING: App::seatFormat and
+    // App::seatTextFormats are deleted, and nothing on either backend seats a text
+    // format. The ORDERING CONSTRAINT the sentence existed for is untouched and is why
+    // it is reworded rather than deleted -- ensureThemePreviewFormats still resizes
+    // once and fills afterwards, and tests/qt_entry_tests.cpp asserts it by POINTER
+    // IDENTITY across a second call, which is the only assertion that would catch a
+    // push_back-per-theme rewrite.
     struct ThemePreviewFormats {
-        IDWriteTextFormat* nativeName = nullptr;
-        IDWriteTextFormat* nativePreview = nullptr;
-        IDWriteTextFormat* nativeCode = nullptr;
         Seated<tinta::TextFormat, IDWriteTextFormat> nameStorage;
         Seated<tinta::TextFormat, IDWriteTextFormat> previewStorage;
         Seated<tinta::TextFormat, IDWriteTextFormat> codeStorage;
@@ -525,25 +538,20 @@ struct App {
     tinta::Typography codeTypography;
 
     // Folder browser text format
-    IDWriteTextFormat* nativeFolderBrowserFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> folderBrowserFormatStorage;
     tinta::TextFormat* folderBrowserFormat = nullptr;
 
     // TOC text formats
-    IDWriteTextFormat* nativeTocFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatStorage;
     tinta::TextFormat* tocFormat = nullptr;
-    IDWriteTextFormat* nativeTocFormatBold = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> tocFormatBoldStorage;
     tinta::TextFormat* tocFormatBold = nullptr;
 
     // Signal chips: subtitles, badges, and the tiny PINNED/HELD labels
-    IDWriteTextFormat* nativeSignalSmallFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> signalSmallFormatStorage;
     tinta::TextFormat* signalSmallFormat = nullptr;
 
     // Stats overlay: UI chrome, so it must not follow the document zoom
-    IDWriteTextFormat* nativeStatsFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> statsFormatStorage;
     tinta::TextFormat* statsFormat = nullptr;
 
@@ -1416,16 +1424,17 @@ struct App {
     //
     // supSubFormat is a DOCUMENT format that sits here rather than with its ten siblings,
     // and it is left where it is on purpose: moving a declaration is invisible in a diff
-    // that also changes its type, and this one has a bug attached (see
+    // that also changes its type, and this one HAD a bug attached (see
     // releaseOverlayFormats below) that a reader should find at the same address twice.
+    // Present tense there would now overstate it: the bug is fixed and the invariant is
+    // asserted in tests/theme_tests.cpp. The pointer to the explanation is still the reason
+    // this declaration stays put.
     std::unique_ptr<tinta::TextFormat> supSubFormatStorage;
     tinta::TextFormat* supSubFormat = nullptr;   // small size for ^sup^/~sub~
-    IDWriteTextFormat* nativeEditorTextFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> editorTextFormatStorage;
     tinta::TextFormat* editorTextFormat = nullptr;
     float editorCharWidth = 0.0f; // Measured monospace char width
     // Slim in-editor line-number gutter (design t11)
-    IDWriteTextFormat* nativeEditorGutterFormat = nullptr;
     Seated<tinta::TextFormat, IDWriteTextFormat> editorGutterFormatStorage;
     tinta::TextFormat* editorGutterFormat = nullptr;
 
@@ -1500,14 +1509,14 @@ struct App {
     }
 
     void releaseOverlayFormats() {
-        signalSmallFormatStorage.reset(); nativeSignalSmallFormat = nullptr; signalSmallFormat = nullptr;
-        searchTextFormatStorage.reset(); nativeSearchTextFormat = nullptr; searchTextFormat = nullptr;
-        themeTitleFormatStorage.reset(); nativeThemeTitleFormat = nullptr; themeTitleFormat = nullptr;
-        themeHeaderFormatStorage.reset(); nativeThemeHeaderFormat = nullptr; themeHeaderFormat = nullptr;
-        folderBrowserFormatStorage.reset(); nativeFolderBrowserFormat = nullptr; folderBrowserFormat = nullptr;
-        tocFormatStorage.reset(); nativeTocFormat = nullptr; tocFormat = nullptr;
-        tocFormatBoldStorage.reset(); nativeTocFormatBold = nullptr; tocFormatBold = nullptr;
-        statsFormatStorage.reset(); nativeStatsFormat = nullptr; statsFormat = nullptr;
+        signalSmallFormatStorage.reset(); signalSmallFormat = nullptr;
+        searchTextFormatStorage.reset(); searchTextFormat = nullptr;
+        themeTitleFormatStorage.reset(); themeTitleFormat = nullptr;
+        themeHeaderFormatStorage.reset(); themeHeaderFormat = nullptr;
+        folderBrowserFormatStorage.reset(); folderBrowserFormat = nullptr;
+        tocFormatStorage.reset(); tocFormat = nullptr;
+        tocFormatBoldStorage.reset(); tocFormatBold = nullptr;
+        statsFormatStorage.reset(); statsFormat = nullptr;
         // supSubFormat IS DELIBERATELY ABSENT FROM THIS FUNCTION -- do not add it back.
         // It is a DOCUMENT format: installDocumentTextFormats creates it alongside the other
         // ten, and releaseDocumentFormats above drops it. A line here releasing it as well
@@ -1521,12 +1530,12 @@ struct App {
         // function, so the two backends rendered ^sup^ differently and no test compared them.
         // The invariant is now asserted rather than described: tests/theme_tests.cpp checks
         // that this function leaves every document format standing.
-        editorTextFormatStorage.reset(); nativeEditorTextFormat = nullptr; editorTextFormat = nullptr;
-        editorGutterFormatStorage.reset(); nativeEditorGutterFormat = nullptr; editorGutterFormat = nullptr;
+        editorTextFormatStorage.reset(); editorTextFormat = nullptr;
+        editorGutterFormatStorage.reset(); editorGutterFormat = nullptr;
         for (auto& fmt : themePreviewFormats) {
-            fmt.nameStorage.reset(); fmt.nativeName = nullptr; fmt.name = nullptr;
-            fmt.previewStorage.reset(); fmt.nativePreview = nullptr; fmt.preview = nullptr;
-            fmt.codeStorage.reset(); fmt.nativeCode = nullptr; fmt.code = nullptr;
+            fmt.nameStorage.reset(); fmt.name = nullptr;
+            fmt.previewStorage.reset(); fmt.preview = nullptr;
+            fmt.codeStorage.reset(); fmt.code = nullptr;
         }
         themePreviewFormats.clear();
     }
@@ -1595,28 +1604,36 @@ struct App {
 
     // --- seam wrapper seating ------------------------------------------------
     // The tinta::* pointers above are what the drawing sites call; these reseat
-    // them onto whatever natives currently exist, so every creation path ends
-    // with one call rather than 25 inline rewraps.
+    // them onto whatever natives currently exist.
     //
-    // Seating is deliberately idempotent, and that is not a nicety. The two
-    // wrapper families differ in ownership: render_d2d.h's wrappers BORROW (no
-    // destructor, so reseating one is a plain assignment), while text_d2d.h's
-    // D2DTextFormat OWNS -- its destructor Releases. A blind reset-then-rewrap
-    // of an unchanged native would therefore Release the very pointer the new
-    // wrapper is about to hold, which is why seatFormat compares first.
-    static void seatFormat(Seated<tinta::TextFormat, IDWriteTextFormat>& storage,
-                           IDWriteTextFormat* native, tinta::TextFormat*& out) {
-#ifdef _WIN32
-        out = storage.seat<D2DTextFormat>(native);
-#else
-        // Unreachable off Windows for the same reason as every other seat: the
-        // native is an incomplete type there and nothing can produce one. Stating
-        // the postcondition rather than assuming it, as seatRenderTarget does.
-        (void)native;
-        storage.reset();
-        out = nullptr;
-#endif
-    }
+    // NO TEXT FORMAT IS SEATED ANY MORE. seatFormat and seatTextFormats are both
+    // deleted, and so are the thirteen native chrome members they read -- there is
+    // no IDWriteTextFormat* left in this struct. Every text format in the tree is
+    // now CREATED through tinta::TextFactory and handed back already owning itself,
+    // by installDocumentTextFormats and installChromeFormats in
+    // include/text_formats.h, so there is nothing to wrap in place.
+    //
+    // THE DELETION HAD TO HAPPEN IN THE SAME COMMIT AS THE CHROME PORT, and this is
+    // the note the next person moving a format family should read first. seatFormat's
+    // first act on a NULL native was storage.reset(), so once installChromeFormats
+    // owns creation, a single surviving seatTextFormats() call would have destroyed
+    // all twenty chrome formats immediately after they were built -- on the path that
+    // runs after every theme change, every zoom step and every DPI change. It would
+    // not have failed loudly: the formats would simply be null, chrome would stop
+    // drawing, and no test in the tree renders chrome.
+    //
+    // What makes that a caught bug rather than a shipped one is mechanical and worth
+    // stating: the natives went WITH the function, so the compiler rejects any
+    // surviving seat call by name. The same paragraph stood here for the document
+    // formats one slice ago and it was load-bearing then too. A comment would not
+    // have caught it; the missing member does.
+    //
+    // The idempotence argument that used to live here belonged to seatFormat and left
+    // with it: D2DTextFormat OWNS its native and Releases in its destructor, so a
+    // blind reset-then-rewrap of an unchanged native would have Released the very
+    // pointer the new wrapper was about to hold, which is why seatFormat compared
+    // first. That property now lives in Seated<>::seat itself (include/seated.h),
+    // where the render-target, brush and stroke-style seats below still rely on it.
 
     // The one seat function that needs a guard, and the reason is narrow: the
     // member is an ID2D1HwndRenderTarget* while D2DRenderTarget takes the base
@@ -1675,39 +1692,16 @@ struct App {
 #endif
     }
 
-    // THE ELEVEN DOCUMENT FORMATS ARE NOT SEATED HERE ANY MORE, and their absence is
-    // load-bearing rather than tidy. installDocumentTextFormats INSTALLS them, and
-    // seatFormat's first act on a null native is storage.reset() -- so a single surviving
-    // line for an installed format would destroy it, on a path that runs after every
-    // theme change and every zoom step. The compiler catches it only because the native
-    // members went with them; that is why deleting those was mandatory and not cosmetic.
-    void seatTextFormats() {
-        seatFormat(searchTextFormatStorage, nativeSearchTextFormat, searchTextFormat);
-        seatFormat(themeTitleFormatStorage, nativeThemeTitleFormat, themeTitleFormat);
-        seatFormat(themeHeaderFormatStorage, nativeThemeHeaderFormat, themeHeaderFormat);
-        seatFormat(folderBrowserFormatStorage, nativeFolderBrowserFormat,
-                   folderBrowserFormat);
-        seatFormat(tocFormatStorage, nativeTocFormat, tocFormat);
-        seatFormat(tocFormatBoldStorage, nativeTocFormatBold, tocFormatBold);
-        seatFormat(signalSmallFormatStorage, nativeSignalSmallFormat, signalSmallFormat);
-        seatFormat(statsFormatStorage, nativeStatsFormat, statsFormat);
-        seatFormat(editorTextFormatStorage, nativeEditorTextFormat, editorTextFormat);
-        seatFormat(editorGutterFormatStorage, nativeEditorGutterFormat,
-                   editorGutterFormat);
-        // Seated after the one resize() in ensureThemePreviewFormats, never
-        // before it, so these never point into a reallocated vector buffer.
-        for (auto& fmt : themePreviewFormats) {
-            seatFormat(fmt.nameStorage, fmt.nativeName, fmt.name);
-            seatFormat(fmt.previewStorage, fmt.nativePreview, fmt.preview);
-            seatFormat(fmt.codeStorage, fmt.nativeCode, fmt.code);
-        }
-    }
-
+    // THREE SEATS AND A FACTORY, down from four and a factory: the seatTextFormats()
+    // line that stood between the stroke style and the factory is gone with the
+    // function. Everything still listed here wraps a native that DirectWrite really
+    // does create -- the render target, the brush, the dashed stroke style and the
+    // DWrite factory itself -- which is the residue this port's anti-claim A2 said
+    // would stay. Text formats are the family that finished leaving.
     void seatSeamWrappers() {
         seatRenderTarget();
         seatBrush();
         seatDashedStrokeStyle();
-        seatTextFormats();
         seatTextFactory();
     }
 

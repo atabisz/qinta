@@ -1,6 +1,11 @@
 #include "overlays.h"
 #include "utils.h"
 #include "d2d_init.h"
+// FOR ensureThemePreviewFormats, WHICH USED TO ARRIVE VIA d2d_init.h ABOVE. The function
+// did not change name or signature when it was ported -- only its home -- so
+// renderThemeChooser's call site below is untouched and this one line is the whole cost of
+// the move to this 4,000-line unported file.
+#include "text_formats.h"
 #include "editor.h"
 #include "markdown.h"
 #include "pandoc.h"

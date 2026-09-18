@@ -106,6 +106,11 @@
 #include "qt_init.h"
 #include "qt_window.h"
 #include "text_api.h"
+// The chrome formats' own header, and the reason this file needs it now is the port: the
+// bodies run 11 asserts on moved out of src/qt_init.cpp into src/text_formats_app.cpp, so
+// installQtBackends' call resolves through here. qt_init.h still declares the Qt-named
+// wrappers, which is why every existing assertion below compiles unchanged.
+#include "text_formats.h"
 #include "theme_data.h"
 
 namespace {
@@ -1017,6 +1022,47 @@ int main(int argc, char** argv) {
     check(overflowWidth > narrow * 2.0f,
           "CONTROL: the editor format, NoWrap and untrimmed, overflows the same box by more "
           "than double -- so the fit above is an elide and not a narrow font");
+
+    // --- Run 11b: THE SHARED INSTALL IS IDEMPOTENT ---------------------------------
+    //
+    // A DEFECT THIS PORT WOULD HAVE INTRODUCED, not one it inherited, which is why the
+    // assertion is new rather than moved. installQtChromeFormats pushed three ellipsis
+    // signs into App::trimmingSigns per call and cleared none, and that was SAFE because
+    // it had exactly one caller at startup -- src/qt_init.cpp said so in as many words.
+    // Sharing the body with Windows shared its CALLERS, and updateOverlayFormats ran on
+    // every theme change, every zoom step and every DPI change. Three signs a theme change,
+    // for the life of the process, and nothing in either file would have flagged it.
+    //
+    // CALLED DIRECTLY rather than through installQtBackends, because the claim is about
+    // THIS function's contract: its first act is releaseChromeFormats(app).
+    const size_t signsAfterFirst = app.trimmingSigns.size();
+    tinta::TextFormat* const beforeSecond = app.folderBrowserFormat;
+    installChromeFormats(app);
+    const bool stillAllPresent =
+        app.searchTextFormat != nullptr && app.signalSmallFormat != nullptr &&
+        app.themeTitleFormat != nullptr && app.themeHeaderFormat != nullptr &&
+        app.statsFormat != nullptr && app.folderBrowserFormat != nullptr &&
+        app.tocFormat != nullptr && app.tocFormatBold != nullptr &&
+        app.editorTextFormat != nullptr && app.editorGutterFormat != nullptr;
+    std::printf("idem_signs=%zu,%zu idem_nonnull=%d idem_charwidth=%.3f\n", signsAfterFirst,
+                app.trimmingSigns.size(), stillAllPresent ? 10 : 0, app.editorCharWidth);
+    check(app.trimmingSigns.size() == 3,
+          "a SECOND installChromeFormats with no release between leaves THREE trimming signs "
+          "and not six -- the release-first is what makes the shared body safe on Windows, "
+          "where its caller runs on every theme change and every zoom step");
+    // THE OTHER HALF, and without it the assertion above passes on a function that releases
+    // and then returns: an empty vector is also not six.
+    check(stillAllPresent && app.editorCharWidth > 0.0f,
+          "and the ten formats are still non-null with editorCharWidth re-measured, so the "
+          "count above is a REBUILD and not a release that forgot to install");
+    // POINTER IDENTITY, ASSERTED THE OPPOSITE WAY ROUND FROM THE PREVIEWS BELOW, and the
+    // difference is the whole design: ensureThemePreviewFormats is a lazy door that early-
+    // returns, so the same pointer proves the no-op; installChromeFormats releases and
+    // rebuilds, so a SURVIVING pointer would mean the release-first never ran and the
+    // three-sign count above came from an early return instead.
+    check(app.folderBrowserFormat != beforeSecond,
+          "and the format is a NEW object -- idempotent in STATE, not by early return, which "
+          "is what a caller on the theme-change path needs");
 
     // --- Run 12: THE TWO-SCALE RULE ------------------------------------------------
     //

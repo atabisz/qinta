@@ -2711,12 +2711,29 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 int idx = saveCustomTheme(app.themeEditorTheme, name,
                     app.themeEditorFont, base.codeFontFamily, baseHeading);
                 if (idx >= 0) {
-                    // Preview format cache must grow for the chooser
-                    for (auto& pf : app.themePreviewFormats) {
-                        pf.nameStorage.reset(); pf.nativeName = nullptr; pf.name = nullptr;
-                        pf.previewStorage.reset(); pf.nativePreview = nullptr; pf.preview = nullptr;
-                        pf.codeStorage.reset(); pf.nativeCode = nullptr; pf.code = nullptr;
-                    }
+                    // THE PREVIEW CACHE MUST GROW FOR THE CHOOSER: saving a custom theme
+                    // makes themeCount() bigger, and ensureThemePreviewFormats early-returns
+                    // on a non-empty vector, so the chooser would keep showing the old
+                    // count until a restart. Emptying it reopens that lazy door and
+                    // applyTheme below rebuilds through updateTextFormats.
+                    //
+                    // clear() ALONE, and it was not alone until this commit. A hand-written
+                    // per-slot loop stood here resetting three storages, three natives and
+                    // three wrapper pointers before the clear -- the FOURTH copy of a release
+                    // that already existed in App::releaseOverlayFormats, in the Qt
+                    // initialiser and in the vector's own destructor. Every line of it was
+                    // redundant: clear() destroys the elements, which destroys the Seated<>
+                    // storages, which destroys the wrappers, and D2DTextFormat Releases in
+                    // its destructor. Same number of Releases before and after.
+                    //
+                    // IT IS ALSO WHAT MADE THIS SITE INVISIBLE. The port's reconnaissance
+                    // grepped for the native chrome members and concluded they were read in
+                    // exactly two files, include/app.h and src/d2d_init.cpp. This was the
+                    // third, 2,700 lines into an input handler, and nothing found it until
+                    // deleting the members turned it into three compiler errors. The same
+                    // clear()-alone correction was made for the image cache one slice ago
+                    // (see App::releaseImageCache) and called the explicit per-entry release
+                    // "the fourth hand-written half of the same pairing" -- this is another.
                     app.themePreviewFormats.clear();
                     applyTheme(app, idx);
                     persistThemeChoice(app);

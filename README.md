@@ -224,7 +224,7 @@ state per platform, before any commands:
 | Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
 | Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
 | Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
-| macOS | `qinta` — Qt 6 | **Nobody has ever configured, built or launched this.** The recipe below is derived from the build system, not witnessed. |
+| macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). 26/30 ctest entries pass. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
 
 There is **no CI** in this repo, so a date in that table means somebody ran it that day and
 nothing re-runs it for you. Where a command below is unverified it says so on the spot, rather
@@ -298,46 +298,54 @@ the timeout killed it. A path that cannot be opened prints `tinta: cannot open '
 **still** opens the window on the placeholder — so a bad argument reads `124` as well, and is
 not a refusal to launch.
 
-### macOS — derived from the build system, never run
+### macOS
 
-**No macOS machine has configured, built or launched this project.** Nothing in this subsection
-is a reading; all of it is read off `CMakeLists.txt` and the sources. It is here because
-"untried" and "unsupported" are different claims and the build system makes the first one true:
-there are **zero** `APPLE`, `Darwin` and `clang` branches in `CMakeLists.txt`, against 61
-`WIN32` gates in the same file, so macOS is not a special case in it — it takes the same generic
-non-Windows path Linux takes.
+Xcode Command Line Tools (for `clang`/`c++`), CMake 3.15+, and Qt 6's **qtbase** and **qtsvg**
+components. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64, with Apple clang
+21.0.0 (clang-2100.3.34.2), CMake 4.4.3, and Homebrew's `qtbase`/`qtsvg` 6.11.2 — the meta
+packages `qt` and `qt6` are not required and were not installed for this build.
 
 ```bash
-# UNVERIFIED, every line. Qt 6 by whatever route you install it; point CMake at its prefix.
-cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/path/to/qt6
+xcode-select --install                     # once, if `clang`/`c++` are not already present
+brew install cmake qtbase qtsvg
+
+cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)"
 cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
 (cd build-mac && ctest --output-on-failure)
+
 ./build-mac/qinta README.md
 ```
 
-What is known about that recipe from the build system, as opposed to from running it:
-
-- **The Qt requirement is identical to Linux's**, because it is literally the same `else()`
-  branch: Core and Gui or the configure stops, Widgets or it stops again, and Svg and Network
-  for `qinta` to link at all.
+- **The Qt requirement is identical to Linux's**: Core and Gui or the configure stops, Widgets
+  or it stops again, and Svg and Network for `qinta` to link at all. Homebrew splits those
+  across two formulae — `qtbase` (Core, Gui, Widgets, Network) and `qtsvg` — rather than one
+  combined package, so `CMAKE_PREFIX_PATH` needs both prefixes.
 - **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
   `MACOSX_BUNDLE` — zero occurrences of it in the file — so `qinta` builds as a command-line
-  binary there. Running it from a terminal is what the build system describes; a double-clickable
-  `.app` is not, because nothing creates one.
-- **The two macOS code paths that do exist have never been compiled.**
-  `src/platform_paths_qt.cpp` branches on `__APPLE__` in three places and labels each as
-  unmeasured: `_NSGetExecutablePath` for the executable directory, and
-  `~/Library/Application Support` for the config base — the latter deliberately *not*
-  `QStandardPaths`, whose generic config location is `~/Library/Preferences` on macOS and would
-  move the settings file. Those are the first lines to suspect if a first macOS build misbehaves.
-- **The compiler has never been clang.** Every measurement in this README is g++ 13.3.0, and
-  `clang++` is not installed on the machine they were taken on, so "untested with clang" is a
-  measured absence rather than something nobody got round to. Apple clang is the macOS default
-  and will have its own opinions about this code.
-- **The repo's own portability probe will not run there as written.**
+  binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`.
+- **26 of 30 ctest entries pass.** The four failures are not build or link problems — the
+  binary configures, builds and runs — but real behavioral gaps surfaced only by building here:
+  `platform_paths`/`platform_paths_bare_locale` fail on locale-tag normalization (the backend's
+  preferred-language list isn't being normalized to BCP 47, and a bare C/POSIX locale isn't
+  reported as empty); `qt_text` fails because a missing font family resolves to the system UI
+  font instead of a detectable substitute, and standard ligatures read as on by default where
+  the test expects otherwise; `qt_entry` has one idempotency check failing (a second
+  `installChromeFormats` call is expected to hand back a distinct object and doesn't, on Qt
+  6.11.2). None of these were fixed here — they're recorded as the current, measured state of a
+  first macOS build, not a claim that macOS is fully working.
+  `src/platform_paths_qt.cpp`'s `__APPLE__` branches (`_NSGetExecutablePath` for the executable
+  directory, `~/Library/Application Support` for the config base, deliberately not
+  `QStandardPaths`, whose generic config location is `~/Library/Preferences`) do compile and the
+  bulk of `platform_paths`' 72 assertions pass — only the locale-normalization ones above fail.
+- **The repo's own portability probe will not run here as written.**
   `scripts/probe-portable-linux.sh` calls `mktemp --suffix=.cpp` and
-  `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` rejects. The `linux` in the
-  filename is load-bearing.
+  `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` (macOS's default) rejects.
+  The `linux` in the filename is load-bearing. Not re-probed this pass.
+- **Only this one configuration has been measured.** Apple clang 21 on macOS 26.6.2/arm64 via
+  Homebrew Qt 6.11.2 — not Intel, not an older macOS or Xcode, not a non-Homebrew Qt install,
+  and no `CMAKE_OSX_DEPLOYMENT_TARGET` was set, so the minimum supported macOS version is
+  whatever CMake's default picks up from the host, unverified.
 
 ## Cross-platform port (Windows / macOS / Linux)
 
@@ -2095,7 +2103,10 @@ HTML and DOCX exports. Native printing keeps Tinta's existing light print palett
 - Qt 6 — the `qinta` target on all three platforms. **Core** and **Gui** are required off
   Windows and the configure stops without them; **Widgets** likewise, for the file-picker seam;
   **Svg** and **Network** are asked for optionally but are needed for `qinta` itself to link.
-  On Debian and Ubuntu that is `qt6-base-dev` plus `qt6-svg-dev`.
+  On Debian and Ubuntu that is `qt6-base-dev` plus `qt6-svg-dev`; on macOS, Homebrew's `qtbase`
+  plus `qtsvg` (the `qt`/`qt6` meta-formulae are not required).
+- Xcode Command Line Tools — macOS only, for `clang`/`c++` and the system headers CMake needs
+  to configure at all.
 
 ## License and attribution
 

@@ -7,6 +7,10 @@
 // the include on this line -- so nothing here needs the application state.
 #include "theme_data.h"
 
+// kDefaultFont / kDefaultFontLight (used as this table's main/heading font
+// below, and as the ini-driven fallback further down) are defined in
+// theme_data.h, per platform -- see that header's comment for why.
+
 // 10 Distinctive Themes - 5 Light, 5 Dark
 const D2DTheme THEMES[] = {
     // ═══════════════════════════════════════════════════════════
@@ -15,7 +19,7 @@ const D2DTheme THEMES[] = {
 
     // 1. Paper - Warm sepia, literary manuscript feel
     {
-        L"Paper", L"Segoe UI", nullptr, L"Consolas", false,
+        L"Paper", kDefaultFont, nullptr, L"Consolas", false,
         hexColor(0xF5F1E8),    // background - warm cream
         hexColor(0x3D3329),    // text - deep brown
         hexColor(0x2A1F16),    // heading - dark brown
@@ -36,7 +40,7 @@ const D2DTheme THEMES[] = {
 
     // 2. Sakura - Japanese cherry blossom, soft pink elegance
     {
-        L"Sakura", L"Segoe UI", nullptr, L"Consolas", false,
+        L"Sakura", kDefaultFont, nullptr, L"Consolas", false,
         hexColor(0xFDF8F8),    // background - soft blush white
         hexColor(0x404040),    // text - soft charcoal
         hexColor(0xC44569),    // heading - deep rose
@@ -57,7 +61,7 @@ const D2DTheme THEMES[] = {
 
     // 3. Arctic - Nordic ice blues, crisp and clean
     {
-        L"Arctic", L"Segoe UI", nullptr, L"Cascadia Code", false,
+        L"Arctic", kDefaultFont, nullptr, L"Cascadia Code", false,
         hexColor(0xF7FAFC),    // background - ice white
         hexColor(0x2D3748),    // text - deep slate
         hexColor(0x1A365D),    // heading - navy
@@ -78,7 +82,7 @@ const D2DTheme THEMES[] = {
 
     // 4. Meadow - Fresh organic greens, nature-inspired
     {
-        L"Meadow", L"Segoe UI", nullptr, L"Consolas", false,
+        L"Meadow", kDefaultFont, nullptr, L"Consolas", false,
         hexColor(0xF7FAF7),    // background - soft white-green
         hexColor(0x1A2F1A),    // text - forest
         hexColor(0x1C4532),    // heading - deep green
@@ -99,7 +103,7 @@ const D2DTheme THEMES[] = {
 
     // 5. Dusk - Golden hour warmth, sunset tones
     {
-        L"Dusk", L"Segoe UI", nullptr, L"Consolas", false,
+        L"Dusk", kDefaultFont, nullptr, L"Consolas", false,
         hexColor(0xFFFBF5),    // background - warm white
         hexColor(0x553C10),    // text - deep amber
         hexColor(0x9C4221),    // heading - burnt orange
@@ -124,7 +128,7 @@ const D2DTheme THEMES[] = {
 
     // 6. Midnight - Deep space, cosmic tranquility
     {
-        L"Midnight", L"Segoe UI", nullptr, L"Cascadia Code", true,
+        L"Midnight", kDefaultFont, nullptr, L"Cascadia Code", true,
         hexColor(0x0D1B2A),    // background - deep navy
         hexColor(0xE0E1DD),    // text - soft blue-white
         hexColor(0xF0F4F8),    // heading - moonlight
@@ -145,7 +149,7 @@ const D2DTheme THEMES[] = {
 
     // 7. Dracula - Classic dark, purples and pinks
     {
-        L"Dracula", L"Segoe UI", nullptr, L"Consolas", true,
+        L"Dracula", kDefaultFont, nullptr, L"Consolas", true,
         hexColor(0x282A36),    // background - deep purple-gray
         hexColor(0xF8F8F2),    // text - light gray
         hexColor(0xFF79C6),    // heading - pink
@@ -166,7 +170,7 @@ const D2DTheme THEMES[] = {
 
     // 8. Forest - Deep mystical greens
     {
-        L"Forest", L"Segoe UI", nullptr, L"Consolas", true,
+        L"Forest", kDefaultFont, nullptr, L"Consolas", true,
         hexColor(0x0D1512),    // background - deep green-black
         hexColor(0xB8C5B2),    // text - sage
         hexColor(0x9AE6B4),    // heading - bright green
@@ -187,7 +191,7 @@ const D2DTheme THEMES[] = {
 
     // 9. Ember - Warm charcoal with fire accents
     {
-        L"Ember", L"Segoe UI", nullptr, L"Consolas", true,
+        L"Ember", kDefaultFont, nullptr, L"Consolas", true,
         hexColor(0x1A1614),    // background - warm black
         hexColor(0xD4C5B9),    // text - warm gray
         hexColor(0xF6AD55),    // heading - amber
@@ -208,7 +212,7 @@ const D2DTheme THEMES[] = {
 
     // 10. Abyss - True black, neon accents (OLED-friendly)
     {
-        L"Abyss", L"Segoe UI Light", L"Segoe UI", L"Cascadia Mono", true,
+        L"Abyss", kDefaultFontLight, kDefaultFont, L"Cascadia Mono", true,
         hexColor(0x000000),    // background - pure black
         hexColor(0xEDEDED),    // text - off-white (OLED halation)
         hexColor(0x2EE6CF),    // heading - cyan, off the RGB rail
@@ -469,7 +473,7 @@ void loadCustomThemes() {
             finalize();
             current = std::make_unique<CustomTheme>();
             current->theme = THEMES[0];  // colors default to Paper
-            current->fontFamily = L"Segoe UI";
+            current->fontFamily = kDefaultFont;
             current->codeFontFamily = L"Consolas";
             continue;
         }
@@ -501,7 +505,7 @@ int saveCustomTheme(const D2DTheme& t, const std::wstring& name,
         index = themeCount() - 1;
     }
     slot->name = name;
-    slot->fontFamily = fontFamily.empty() ? L"Segoe UI" : fontFamily;
+    slot->fontFamily = fontFamily.empty() ? kDefaultFont : fontFamily;
     slot->headingFontFamily = headingFontFamily;  // empty inherits font
     slot->codeFontFamily = codeFontFamily.empty() ? L"Consolas" : codeFontFamily;
     slot->theme = t;

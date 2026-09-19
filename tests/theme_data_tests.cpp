@@ -128,11 +128,11 @@ int main() {
     // Paper leaves headingFontFamily null, meaning "headings use font=", so
     // setting font= alone restyles the whole document. Abyss sets both.
     check(THEMES[0].headingFontFamily == nullptr, "Paper leaves headingFontFamily null");
-    check(std::wcscmp(themeHeadingFont(THEMES[0]), L"Segoe UI") == 0,
+    check(std::wcscmp(themeHeadingFont(THEMES[0]), kDefaultFont) == 0,
           "a null headingFontFamily inherits the main font");
-    check(std::wcscmp(themeHeadingFont(THEMES[9]), L"Segoe UI") == 0,
+    check(std::wcscmp(themeHeadingFont(THEMES[9]), kDefaultFont) == 0,
           "an explicit headingFontFamily is used as given");
-    check(std::wcscmp(THEMES[9].fontFamily, L"Segoe UI Light") == 0,
+    check(std::wcscmp(THEMES[9].fontFamily, kDefaultFontLight) == 0,
           "...and is distinct from that theme's main font, so the test can tell them apart");
 
     // --- themeInlineCodeColor (#197) ----------------------------------------
@@ -233,8 +233,8 @@ int main() {
     check(std::wcscmp(minimal.name, L"Minimal") == 0, "the hand-authored name loaded");
     checkNear(minimal.background.r, channel(0x0A), "a leading '#' on a hex value is accepted");
     checkNear(minimal.text.r, THEMES[0].text.r, "an omitted colour falls back to Paper's");
-    check(std::wcscmp(minimal.fontFamily, L"Segoe UI") == 0,
-          "an omitted font= falls back to Segoe UI");
+    check(std::wcscmp(minimal.fontFamily, kDefaultFont) == 0,
+          "an omitted font= falls back to the platform default font");
     check(minimal.inlineCode.has_value(), "inlinecode= is read for a hand-authored theme");
 
     // A section with no name= is not a theme and must be dropped, not registered

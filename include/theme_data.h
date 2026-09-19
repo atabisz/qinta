@@ -40,6 +40,37 @@
 
 #include "geometry.h"
 
+// Default body/heading font, per platform. Every built-in theme in
+// src/themes.cpp used to hardcode a literal "Segoe UI" ("Segoe UI Light" for
+// Abyss's body) regardless of platform -- fine on Windows, where it ships, but
+// on Qt/macOS and Qt/Linux that name resolves only through Qt's cross-platform
+// alias table, built lazily on first lookup at a measured ~50ms cost and
+// logged as "Populating font family aliases". These name REAL, installed
+// families on each platform instead, so the lookup succeeds directly. Kept
+// here rather than file-local to src/themes.cpp so tests/theme_data_tests.cpp
+// can assert against the same source of truth instead of duplicating the
+// platform conditional with its own literal, which would silently drift.
+// Scope: only the body/heading default, which is uniform across all ten
+// built-in themes. The per-theme monospace choices (Consolas / Cascadia Code /
+// Cascadia Mono, in themes.cpp and in src/editrail.cpp, src/text_formats_app.cpp,
+// src/overlays.cpp) are a deliberate Windows aesthetic distinction, not a
+// uniform default, and are NOT covered here -- see src/themes.cpp's top comment.
+#if defined(_WIN32)
+inline constexpr const wchar_t* kDefaultFont = L"Segoe UI";
+inline constexpr const wchar_t* kDefaultFontLight = L"Segoe UI Light";
+#elif defined(__APPLE__)
+inline constexpr const wchar_t* kDefaultFont = L"Helvetica Neue";
+inline constexpr const wchar_t* kDefaultFontLight = L"Helvetica Neue Light";
+#else
+// [DEFERRED-VERIFY]: not measured against a real Linux host -- this session
+// has none to probe. DejaVu Sans ships with the core fontconfig packages on
+// effectively every mainstream distro, but whether it avoids the same
+// alias-population cost "Segoe UI" paid is unconfirmed. It has no distinct
+// Light-weight family, so kDefaultFontLight reuses the same name.
+inline constexpr const wchar_t* kDefaultFont = L"DejaVu Sans";
+inline constexpr const wchar_t* kDefaultFontLight = L"DejaVu Sans";
+#endif
+
 // Theme colors
 struct D2DTheme {
     const wchar_t* name;

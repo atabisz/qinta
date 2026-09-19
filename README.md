@@ -1291,25 +1291,31 @@ basis below is measured — Windows and Linux each built and tested in the same 
 > only that `grep` found something, which is why both arms exist and why neither is optional.
 >
 > **The arms read the gate's printed claim COUNT and not only its exit status, and that turned
-> out to be load-bearing rather than cautious.** One of the seventeen claims needs PCRE2 and
-> sits behind a `command -v rg` guard. Measured on this tree with `rg` off `PATH`: the script
-> checks **sixteen** claims, finds nothing wrong, exits **0**, and prints *"All 16 derived
-> claims are the ones the README states."* A bare `add_test` reading the exit code would have
-> recorded that as a clean pass with one published figure silently unasserted — so the arm
-> fails when the count is not seventeen, whatever the exit status says.
+> out to be load-bearing rather than cautious.** One of the **eighteen** claims needs PCRE2 and
+> sits behind a `command -v rg` guard. Measured on this tree with `rg` off `PATH`, **at a pass
+> when the total was seventeen**: the script checks **sixteen** claims, finds nothing wrong,
+> exits **0**, and prints *"All 16 derived claims are the ones the README states."* Those two
+> numbers are left at what the run printed rather than restated at today's total, because a
+> measurement rewritten to match a later count stops being a measurement — what transfers is the
+> shape, one-claim-short and silent about it, not the literal 16. A bare `add_test` reading the
+> exit code would have recorded that as a clean pass with one published figure silently
+> unasserted — so the arm fails when the count is not **eighteen**, whatever the exit status says.
 
 | Basis | Measured | |
 |---|---|---|
 | A. Source lines free of the Windows stack | 40,725 / 65,385 | **62.3%** |
 | B. `src/*.cpp` files compiling without Windows headers | 57 / 75 | 76.0% |
-| C. Files a running test links **off Windows** | 46 / 73 | 63.0% |
+| C. Files a running test links **off Windows** | 46 / 75 | 61.3% |
 | D. Test targets that *could* move, and do | 30 / 35 | 85.7% |
 | E. All test targets, run off Windows | 30 / 39 | 76.9% |
 | F. **Platforms running Tinta on the target stack** | 2 / 3 | **66.7%** |
 | G. Platforms where the Qt frontend builds, links, starts and paints | 2 / 3 | 66.7% |
 
 **THE CLIPBOARD-SEAM PASS MOVED FOUR OF THESE ROWS UP AND ONE DOWN, AND THE ONE THAT FELL IS
-THE SEAM WORKING RATHER THAN THE PORT SLIPPING.** Basis C reads 63.9% where it read 64.3%, and
+THE SEAM WORKING RATHER THAN THE PORT SLIPPING.** Basis C reads 63.9% where it read 64.3% —
+**that pair is the clipboard pass's own reading and not today's**, which the table above carries;
+it is left alone because a historical delta restated at a current total stops adding up and stops
+being checkable, the error recorded at length in the Windows-backends row. And
 its *numerator went up*: `clipboard_qt.cpp` is linked and executed by `clipboard_tests` on both
 platforms. What outran it is the denominator, because a seam lands **two** files and only one of
 them can ever be portable — `clipboard_win32.cpp` entered `src/*.cpp` and can never enter any
@@ -1535,6 +1541,31 @@ previous tree state returns 35, which is what the hand-kept figure said. That re
 is the reason to trust the figure at all; the union on its own would have been a second way to
 count basis B. The same gap of exactly one persists at today's 38, for the same one file.
 
+**THAT HEADLINE WAS TRUE OF ONE AFTERNOON AND FALSE AS A STANDING CLAIM — corrected 2026-09-19.**
+Nothing repeated the derivation. It was a careful manual run, not an instrument, so the numerator
+went straight back to being carried by hand, and the denominator beside it then sat stale for
+seventeen commits without a single thing in the repo able to notice. **A manual derivation and a
+gate differ in exactly one way: whether a later pass that forgets can still be caught** — and
+"stopped being hand-kept" is what only the second one earns. It is now a `check` in
+`scripts/probe-portable-linux.sh`, which is the one place that can see a link line, run on every
+Linux probe: it reads the executables off the build log, maps each *running* test to its binary,
+unions the `src/*.cpp` objects and asserts the README against the result. Re-derived at `f227dcb`
+by exactly that code, **the mechanical union reads 47 against a published 46**, so the gap of
+exactly one is still exactly one and still `file_dialog_qt.cpp`, and the judgment below stands
+untouched. The subtraction is now asserted **both ways** for the reason the source manifest is:
+a subtraction naming a file that has stopped being linked inflates the gap silently, and no
+numerator could ever show it.
+
+**Two of the three readings that code produced along the way were wrong, both flatteringly, and
+neither was visible in a total** — which is the argument for it printing every test's resolution
+rather than a number. Keying on `argv[0]` dropped `settings_roundtrip` and `theme_data`, which
+reach their binaries through `cmake -DTEST_BINARY=… -P tests/run_portable_test.cmake`, and with
+them `src/settings.cpp`: it read **46**. Matching an executable by bare basename then let
+`readme_figures`' `-DREPO_ROOT=<repo>` argument — basename `qinta`, which is also the application
+binary — drag the **entire application's** link line onto the union of a test that runs `bash`
+over a shell script: it read **48**. A directory is not an executable and `argv[0]` is not the
+binary; both fixes are in the code beside the trap they close.
+
 **Basis C's numerator did not move, and that is a judgment stated rather than an oversight.**
 `file_dialog_qt.cpp` and `file_dialog_win32.cpp` are both *linked into* a running test —
 `file_dialog_tests` compiles the platform's half so the manifest can honestly list the Qt one —
@@ -1609,6 +1640,47 @@ pass there was no rule to move C by. Its *numerator* certainly did not move — 
 `chrome_dump_d2d.cpp` — and D and E are untouched because the slice added no test target. **So C is
 left as it reads, with the gap stated: the next figure to gate is C's denominator, and until it is
 gated, C is the one row here that cannot be trusted to be current.**
+
+**THAT PARAGRAPH IS WRONG, IT IS LEFT STANDING BECAUSE THE REASONING IS THE FINDING, AND ITS
+REFUTATION IS ONE `git log` — 2026-09-19.** There is no excluded file. C's denominator **is** B's
+denominator, `|src/*.cpp|`, and every commit that ever edited the C row published the two **equal**:
+`cea6c6b` 69/69, `cf385ce` 70/70, `f8e8973` 71/71, `a7bdb91` 70/70, `effd2de` 72/72, `0a29eb5` 73/73.
+B then moved to 74 at `3645c8d` and 75 at `54740ac` and the C row was left behind — for seventeen
+commits, not one pass. **A gap of one was read as an exclusion; the exclusion could not be found;
+and its absence became the reason not to gate.** The document had already said so two hundred lines
+above, where a seam's Windows half "entered `src/*.cpp` and can never enter any numerator here" —
+a sentence that only parses if the denominator is the whole set — and where excluding those halves
+from the denominator is explicitly rejected as the "will never move" accounting this page abandoned.
+
+**So the figure needed no new measurement at all: it is `all_cpp_count`, the variable
+`check-readme-figures.sh` has computed for basis B since it was written**, which is the sharpest
+available evidence that "cannot be derived from this document" was never about the arithmetic. It is
+claim eighteen as of this pass, and the row now reads **46 / 75 = 61.3%** against a published
+**63.0%** — a 1.7-point overstatement, all of it denominator, the numerator surviving re-derivation
+unchanged.
+
+**A WRONG EXPLANATION COSTS MORE THAN A WRONG FIGURE, AND THIS IS THE CLEANEST SPECIMEN ON THIS PAGE,
+because a figure is precisely what a gate catches and this removed the gate from consideration.**
+Nothing here was careless: a gap implies a difference, a difference in a ratio implies an exclusion,
+an exclusion should be recorded somewhere, and the conclusion follows from every step but the first.
+That is what makes it worth keeping — the paragraph reads as authoritative and a reader has no
+handle on it, because it asserts an absence in the document rather than a property of the code, and
+the one probe that refutes it is in the history rather than the tree.
+
+**The near-miss is recorded beside the claim in the script, because it reproduces today's number
+exactly.** `src/` holds two real entry points, 75 − 2 = 73, and "a test binary has its own `main`,
+so an entry point can never be on a test's link line" is a **true** rule — it is simply not this
+rule, and it contradicts all six passes above. It lands in the **numerator**, where `main_qt.cpp`
+duly fails to appear. **An arithmetic coincidence plus a plausible mechanism is how a wrong figure
+survives re-derivation: every run agrees with the last.** What broke the tie was refusing to accept
+a rule that only had today's number to recommend it.
+
+**What the new claim CANNOT do, stated because this gate has been over-read before: the numerator is
+parsed out of the row and put straight back, so it catches a stale denominator or an inconsistent
+percentage and never a wrong numerator.** That is a link-time fact no static script can see; its
+instrument is `scripts/probe-portable-linux.sh`, which has the link lines, and it is deliberately
+**not** bumped in `--control` mode — a control that perturbed the half read from the document would
+pass without ever testing the derivation.
 
 **AND THE PASS AFTER *THAT* IS THE CHEAPEST DEMONSTRATION ON THIS PAGE THAT THE CEILING AND THE BASIS
 ARE ONE MECHANISM RATHER THAN TWO READINGS, BECAUSE ALMOST NONE OF WHAT MOVED THEM IS CODE.** The

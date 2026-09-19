@@ -4,7 +4,7 @@
 #
 # The gate's exit status is its failure count, so exit 0 does mean "every claim it
 # CHECKED was found". What exit 0 cannot say is how many it checked. One of the
-# seventeen claims sits inside a `command -v rg` guard
+# eighteen claims sits inside a `command -v rg` guard
 # (scripts/check-readme-figures.sh:342-348) and SKIPS when ripgrep is not on PATH,
 # because its pattern needs PCRE2. On such a machine the subject arm checks 16 claims
 # and exits 0, and the control arm -- whose test is `failures == checks` -- prints

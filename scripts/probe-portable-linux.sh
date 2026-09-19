@@ -563,6 +563,143 @@ while IFS= read -r test_name; do
     fi
 done <<< "$test_names"
 
+# ---------------------------------------------------------------------------
+note 'Basis C: the files a RUNNING TEST LINKS off Windows (derived, not typed)'
+# README.md publishes basis C as "Files a running test links off Windows". Its
+# DENOMINATOR is gated by scripts/check-readme-figures.sh, because it is just
+# |src/*.cpp| -- the same set basis B counts. Its NUMERATOR cannot be gated there:
+# no static read of the tree can tell which objects reached a link line. This is the
+# only place in the repo that knows, so this is where that half lives.
+#
+# WHY IT IS DERIVED HERE RATHER THAN DERIVED ONCE AND WRITTEN DOWN. It WAS derived
+# once, by hand, and README.md then said basis C "stopped being hand-kept" -- which
+# was true of that afternoon and false as a standing claim, because nothing repeated
+# it. The numerator went straight back to being carried by hand and the denominator
+# beside it sat stale for seventeen commits. A careful manual derivation and a gate
+# differ in exactly one way: whether a later pass that forgets can still be caught.
+#
+# THE METHOD, and both of its traps were live defects in the first version of it:
+#
+#   1. Executables are read off the log as the token after `-o` that contains no
+#      slash. A compile line's -o argument is a path (CMakeFiles/x.dir/src/y.cpp.o),
+#      a link line's is a bare name, so the slash test separates them with no list
+#      of target names to maintain.
+#   2. A test's binary is ANY argument naming one of those executables -- not
+#      argv[0]. settings_roundtrip and theme_data reach theirs through
+#      `cmake -DTEST_BINARY=$<TARGET_FILE:...> -P tests/run_portable_test.cmake`,
+#      so keying on argv[0] drops both, and with them src/settings.cpp. It read 46
+#      instead of 47 that way.
+#   3. A DIRECTORY whose basename collides with an executable is not that executable.
+#      readme_figures passes -DREPO_ROOT=<repo>, whose basename is `qinta` -- also the
+#      application binary -- so a bare basename match put the WHOLE APPLICATION's link
+#      line onto the union of a test that runs bash over a shell script. It read 48
+#      that way. Both readings were wrong in the flattering direction and neither was
+#      visible in a total, which is why every test's resolution is PRINTED below.
+c_log="$BUILD_DIR.build.log"
+linked_exes="$(awk '{for (i = 1; i < NF; i++) if ($i == "-o" && $(i+1) !~ /\//) print $(i+1)}' \
+    "$c_log" | sort -u)"
+
+c_cmds="$("$CMAKE_BIN" -E chdir "$BUILD_DIR" ctest -N -V 2>/dev/null \
+    | sed -n 's/^[0-9]*: Test command: //p')"
+
+c_binaries=""
+c_resolved=0
+c_scripted=""
+while IFS= read -r cmd; do
+    [ -n "$cmd" ] || continue
+    hit=""
+    for tok in $(printf '%s\n' "$cmd" | tr '"' ' ' | tr '=;' '  '); do
+        [ -d "$tok" ] && continue
+        base="$(basename "$tok")"
+        case " $(printf '%s ' $linked_exes)" in
+            *" $base "*) hit="$hit $base" ;;
+        esac
+    done
+    if [ -n "$hit" ]; then
+        c_resolved=$((c_resolved + 1))
+        c_binaries="$c_binaries$hit"
+    else
+        c_scripted="$c_scripted $(printf '%s\n' "$cmd" | awk '{print $NF}' | xargs -r basename)"
+    fi
+done <<< "$c_cmds"
+
+c_binaries="$(printf '%s\n' $c_binaries | sort -u)"
+echo "test commands       : $(printf '%s\n' "$c_cmds" | grep -c . || true)"
+echo "resolved to a binary: $c_resolved"
+echo "no binary at all    : ${c_scripted:-(none)}"
+echo "binaries            : $(printf '%s ' $c_binaries)"
+
+# The union, and every member attributed. A count cannot tell you which files.
+c_union=""
+for b in $c_binaries; do
+    c_union="$c_union $(awk -v t="$b" \
+        '{for (i = 1; i < NF; i++) if ($i == "-o" && $(i+1) == t) { print; break }}' "$c_log" \
+        | grep -oE '/src/[A-Za-z0-9_]+\.cpp\.o' | sed 's#^/src/##; s/\.cpp\.o$//')"
+done
+c_union="$(printf '%s\n' $c_union | grep -v '^$' | sort -u)"
+c_union_count="$(printf '%s\n' "$c_union" | grep -c . || true)"
+c_all_cpp="$(ls "$SOURCE_DIR"/src/*.cpp | xargs -n1 basename | sed 's/\.cpp$//' | sort)"
+c_all_count="$(printf '%s\n' "$c_all_cpp" | grep -c . || true)"
+echo "union of src/*.cpp on those link lines : $c_union_count of $c_all_count"
+
+# CONTROL: an empty or near-empty union is the failure mode this whole block has, and
+# it would read as a small honest number rather than as an error. If the object-path
+# convention changes, or ctest stops printing "Test command:", the union collapses.
+if [ "${c_union_count:-0}" -ge 20 ]; then
+    check 0 "CONTROL: the derived union is $c_union_count files, so the link lines were read at all"
+else
+    check 1 "CONTROL: the derived union is $c_union_count files -- implausibly low, so this section measured nothing (did -o parsing or 'Test command:' change?)"
+fi
+
+# LINKED BUT NEVER CALLED -- the standing judgment at README.md's basis C paragraphs.
+# file_dialog_qt.cpp is on three running tests' link lines and no test calls into it,
+# because requestOpenPath and requestSavePath do not return until a human clicks a
+# dialog; tests/file_dialog_tests.cpp says so in its own header comment. Crediting a
+# link that executes no instruction would make basis C measure what B measures while
+# sounding like coverage.
+#
+# Asserted BOTH WAYS on purpose. A subtraction naming a file that is no longer linked
+# is a silent inflation of the gap, and it would never show up in the numerator.
+c_not_called="file_dialog_qt"
+c_subtracted=0
+for f in $c_not_called; do
+    if printf '%s\n' "$c_union" | grep -qx "$f"; then
+        check 0 "the linked-but-never-called judgment still applies to src/$f.cpp (it IS on a running test's link line)"
+        c_subtracted=$((c_subtracted + 1))
+    else
+        check 1 "src/$f.cpp is subtracted from basis C as linked-but-never-called, but it is NOT on any running test's link line -- the judgment is stale and the numerator is wrong by one"
+    fi
+done
+c_expected=$((c_union_count - c_subtracted))
+echo "basis C numerator = $c_union_count linked - $c_subtracted linked-but-never-called = $c_expected"
+
+# And the README must say it. This is the numerator's only gate.
+c_row="$(sed -nE 's/^\| C\. Files a running test links \*\*off Windows\*\* \| ([0-9]+) \/ ([0-9]+) \|.*/\1 \2/p' \
+    "$SOURCE_DIR/README.md" | head -1)"
+c_pub_num="${c_row% *}"
+c_pub_den="${c_row#* }"
+if [ -z "$c_row" ]; then
+    check 1 "README.md publishes a basis C row this probe can parse (row not found)"
+else
+    check 0 "README.md's basis C row parsed as $c_pub_num / $c_pub_den"
+    if [ "$c_pub_num" = "$c_expected" ]; then
+        check 0 "README.md's basis C numerator ($c_pub_num) is the derived one"
+    else
+        check 1 "README.md's basis C numerator says $c_pub_num, derived is $c_expected"
+    fi
+    # The denominator is gated by check-readme-figures.sh off |src/*.cpp|; re-checked
+    # here because this script is the one that can also say the two agree, and they
+    # drifted apart once before -- C sat at 73 while B went to 75.
+    if [ "$c_pub_den" = "$c_all_count" ]; then
+        check 0 "README.md's basis C denominator ($c_pub_den) is |src/*.cpp|, the set basis B counts"
+    else
+        check 1 "README.md's basis C denominator says $c_pub_den, |src/*.cpp| is $c_all_count"
+    fi
+fi
+
+echo "-- linked by NO running test ($((c_all_count - c_union_count))) --"
+comm -23 <(printf '%s\n' "$c_all_cpp") <(printf '%s\n' "$c_union") | sed 's/^/       /'
+
 note 'Result'
 if [ "$failures" = "0" ]; then
     echo "PASS: tinta's portable core builds and tests clean with $CXX_BIN."

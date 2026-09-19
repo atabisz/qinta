@@ -2556,7 +2556,7 @@ if(BUILD_TESTING)
 # script reads the source tree and needs no build, so it is correct on both platforms
 # and the Linux suite gaining it is the point rather than a side effect.
 #
-# scripts/check-readme-figures.sh re-derives seventeen figures README.md publishes about
+# scripts/check-readme-figures.sh re-derives eighteen figures README.md publishes about
 # the port and asserts the README actually says them. It is the ONLY instrument in this
 # repo that reads prose -- the portable probe checks the manifest, ctest checks the tests,
 # the compiler checks the code -- and until now it ran when someone remembered to type it.
@@ -2565,7 +2565,7 @@ if(BUILD_TESTING)
 # dropping exactly that flag and reporting the subject's pass twice.
 #
 # TWO ARMS FOR THE SAME REASON clipboard/clipboard_control ARE TWO. The control is what
-# says the seventeen assertions are anchored to their own sentences rather than matching
+# says the eighteen assertions are anchored to their own sentences rather than matching
 # some other number in a document made of numbers -- the script's first version matched
 # bare numbers and its control found 6 of 39 claims still matching when perturbed. A green
 # subject arm with no control arm beside it proves that grep found something.
@@ -2586,13 +2586,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=17
+        -DEXPECTED_CHECKS=18
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=17
+        -DEXPECTED_CHECKS=18
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

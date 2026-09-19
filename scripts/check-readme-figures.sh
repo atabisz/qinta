@@ -138,6 +138,40 @@ echo
 echo "-- the bases table"
 claim "basis A"          "| $(c "$numerator") / $(c "$denominator") | **$(pct "$numerator" "$denominator")%** |"
 claim "basis B"          "| $manifest_count / $all_cpp_count | $(pct "$manifest_count" "$all_cpp_count")% |"
+
+# BASIS C's DENOMINATOR, GATED 2026-09-19, AND IT NEEDED NO NEW MEASUREMENT AT ALL: it is
+# $all_cpp_count, the SAME variable basis B's denominator comes from. C counts which of
+# src/*.cpp a running test links off Windows; B counts which of src/*.cpp compile without
+# Windows headers. Different numerators over ONE set.
+#
+# THE README SPENT A PARAGRAPH EXPLAINING WHY THIS COULD NOT BE DONE, AND THE EXPLANATION WAS
+# INVENTED. It read: "C's denominator was 73 while B's was 74, and nothing here records which
+# single src/*.cpp file the exclusion is" -- and concluded the figure "cannot be derived from
+# this document". There is no exclusion. Every commit that ever edited the C row published the
+# two denominators EQUAL: cea6c6b 69/69, cf385ce 70/70, f8e8973 71/71, a7bdb91 70/70,
+# effd2de 72/72, 0a29eb5 73/73. B then moved to 74 (3645c8d) and 75 (54740ac) and the C row was
+# left behind for 17 commits. A gap of one was read as an exclusion, the exclusion could not be
+# found, and its absence became the reason not to gate -- so a wrong EXPLANATION cost more than a
+# wrong figure ever does, because a figure gets caught by a gate and this removed the gate from
+# consideration.
+#
+# The near-miss is worth a line because it reproduces today's number exactly: src/ holds two real
+# entry points (main_d2d.cpp's WinMain, main_qt.cpp's main), 75 - 2 = 73, and "a test binary has
+# its own main, so an entry point can never be on a test's link line" is a TRUE rule that is not
+# this rule. It contradicts all six historical passes. That rule is real and it lands in the
+# NUMERATOR, where main_qt.cpp duly fails to appear.
+#
+# WHAT THIS CLAIM CANNOT DO, stated because the gate has been over-read before: the numerator is
+# parsed OUT OF the row and put straight back, so this cannot catch a wrong numerator -- only a
+# stale denominator, or a percentage inconsistent with the pair. The numerator is a link-time
+# fact that no static script can see; its instrument is scripts/probe-portable-linux.sh, which
+# has the link lines. Deliberately NOT bumped in control mode for the same reason: the control
+# must fire on the component this script DERIVES, and a control that also perturbs the part read
+# from the document would pass without ever testing the derivation.
+c_row=$(sed -nE 's/^\| C\. Files a running test links \*\*off Windows\*\* \| ([0-9]+) \/ [0-9]+ \|.*/\1/p' "$README" | head -1)
+[ -n "$c_row" ] || c_row=0
+claim "basis C denominator (= B's)" \
+      "| C. Files a running test links **off Windows** | $c_row / $all_cpp_count | $(pct "$c_row" "$all_cpp_count")% |"
 claim "basis A ceiling"  "$(c "$src_cpp_lines") lines of the $(c "$denominator")"
 
 # The ceiling percentage needs a BIGGER perturbation than every other check, and the

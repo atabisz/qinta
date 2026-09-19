@@ -1695,8 +1695,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                         }
                     }
                     if (!name.empty() &&
-                        clipboardImageToPngFile(app, hwnd,
-                                                target.wstring())) {
+                        clipboardImageToPngFile(target.wstring())) {
                         std::wstring linkName = name;
                         size_t sp = 0;  // spaces break the link target
                         while ((sp = linkName.find(L' ', sp)) !=

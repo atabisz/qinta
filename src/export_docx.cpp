@@ -6,6 +6,10 @@
 
 #include "export.h"
 
+// For platform::setClipboardImage and platform::clipboardImage. The clipboard half of
+// this file is now two calls into a seam with a Qt implementation behind it; what stays
+// Windows-only here is the DOCX half, for objbase.h and not for the clipboard.
+#include "clipboard.h"
 #include "editor.h"
 #include "image_api.h"
 #include "math_render.h"
@@ -240,56 +244,30 @@ bool rasterDimensions(float w, float h, unsigned& outW, unsigned& outH) {
     return outW <= kRasterMaxDimension && outH <= kRasterMaxDimension;
 }
 
-// THE REMAINDER, AND IT IS DELIBERATE RATHER THAN UNFINISHED. This used to have three
-// consumers; two of them rasterised, and both now go through tinta::encodePng. The one
-// left is clipboardImageToPngFile at the bottom of this file, which does not rasterise
-// anything -- it READS an HBITMAP off the clipboard, decodes it through WIC, and encodes
-// the result. include/clipboard.h:131-136 drew that boundary before this slice existed:
-// "the WIC decode they feed -- stays in export_docx.cpp, because moving it would drag
-// ID2D1/WIC types through a header that has none."
+// THE REMAINDER IS GONE, 2026-09-19, AND WHAT IT PREDICTED IS WHAT HAPPENED. There used
+// to be a clipboardBitmapToPng here -- 52 lines of CreateStreamOnHGlobal,
+// IWICBitmapEncoder and GetHGlobalFromStream, the last survivor of an encodeWicPng that
+// once had four call sites. Its comment argued it was a deliberate remainder rather than
+// an unfinished port, and it named the slice that would remove it:
 //
-// So this is not a call site waiting for a portable spelling. Routing it through
-// tinta::encodePng would take a GDI GetDIBits rewrite of the clipboard read, which is a
-// different slice against a recorded decision. Worse, it cannot be done NAIVELY:
-// WICBitmapIgnoreAlpha below yields 32bppBGR, and handing those bytes to a function
-// whose contract says premultiplied BGRA would encode a fully transparent PNG -- a
-// plausible-looking file with nothing in it.
+//   "Routing it through tinta::encodePng would take a GDI GetDIBits rewrite of the
+//    clipboard read, which is a different slice against a recorded decision. Worse, it
+//    cannot be done NAIVELY: WICBitmapIgnoreAlpha below yields 32bppBGR, and handing
+//    those bytes to a function whose contract says premultiplied BGRA would encode a
+//    fully transparent PNG -- a plausible-looking file with nothing in it."
 //
-// THE NAME IS PART OF THAT, AND IT USED TO BE encodeWicPng. Four call sites became one,
-// and a name that says only "encode through WIC" reads, at the one site left, like
-// rasterisation somebody forgot to port. clipboardBitmapToPng says which half of the file
-// it belongs to, so the next census sees a remainder rather than an oversight -- which is
-// the same duty C16 puts on copyDiagramImage, applied to the function instead of the call.
-std::string clipboardBitmapToPng(App& app, IWICBitmap* bitmap, UINT width,
-                                 UINT height) {
-    std::string png;
-    IStream* stream = nullptr;
-    if (FAILED(CreateStreamOnHGlobal(nullptr, TRUE, &stream))) return png;
-    IWICBitmapEncoder* encoder = nullptr;
-    IWICBitmapFrameEncode* frame = nullptr;
-    if (SUCCEEDED(app.wicFactory->CreateEncoder(GUID_ContainerFormatPng,
-                                                nullptr, &encoder)) &&
-        SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
-        SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) &&
-        SUCCEEDED(frame->Initialize(nullptr)) &&
-        SUCCEEDED(frame->SetSize(width, height)) &&
-        SUCCEEDED(frame->WriteSource(bitmap, nullptr)) &&
-        SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit())) {
-        HGLOBAL global = nullptr;
-        if (SUCCEEDED(GetHGlobalFromStream(stream, &global))) {
-            SIZE_T size = GlobalSize(global);
-            void* bits = GlobalLock(global);
-            if (bits && size) {
-                png.assign((const char*)bits, size);
-                GlobalUnlock(global);
-            }
-        }
-    }
-    if (frame) frame->Release();
-    if (encoder) encoder->Release();
-    stream->Release();
-    return png;
-}
+// That is exactly the slice, and the trap it named is the reason platform::clipboardImage
+// forces the alpha byte to 255 and tests/clipboard_tests.cpp asserts a PIXEL rather than a
+// size. Both halves of the clipboard image path now live in src/clipboard_win32.cpp and
+// src/clipboard_qt.cpp behind include/clipboard.h.
+//
+// WHAT THIS FILE KEEPS OF WIC IS NOTHING, and what the TREE keeps of it is most of it --
+// stating the second half matters more than the first, because "WIC is gone" is the kind
+// of sentence that gets believed. Measured at this commit: src/print.cpp names the
+// factory at five places -- four real calls (two CreatePrintControl, CreateStream,
+// CreateEncoder) plus a null check -- src/render.cpp:2460 holds one null check,
+// src/d2d_init.cpp:83 is what creates it, and src/image_win32.cpp is built on WIC
+// throughout. The factory is as alive as it was; two of its callers moved.
 
 // Draws a prim list built at `scale` the way layoutMermaidExtDiagram
 // translates it for the viewer.
@@ -1497,7 +1475,19 @@ bool exportDocxFile(App& app, const std::wstring& path) {
 // Rasterizes the diagram exactly like the DOCX path, then hands the pixels
 // to the clipboard as CF_DIB (universal) plus a "PNG" stream (kept by apps
 // that prefer lossless with metadata)
-bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8) {
+//
+// THE HWND IS GONE, on include/clipboard.h's own argument for the text half: "what
+// picture is on the clipboard" has no window in it, the handle only ever reached
+// OpenClipboard, and QClipboard is application-global with nowhere to put one. The
+// Windows backend calls OpenClipboard(nullptr), which associates the clipboard with the
+// calling task rather than a window, and the header records the one thing that would make
+// that unsafe -- delayed rendering, which nothing in this tree uses.
+//
+// WHAT IS LEFT IN THIS FUNCTION IS THE PART THAT IS ABOUT DIAGRAMS. The two things it
+// used to also be about -- building a BITMAPINFOHEADER with a bottom-up row flip, and
+// copying a PNG into an HGLOBAL under a registered clipboard format -- moved to
+// src/clipboard_win32.cpp, where a Qt implementation stands beside them.
+bool copyDiagramImage(App& app, const std::string& sourceUtf8) {
     mermaidext::Built built = buildDiagramPrims(app, sourceUtf8, kRasterScale);
     if (!built.ok || built.prims.empty()) return false;
     if (!app.renderTarget) return false;
@@ -1510,99 +1500,41 @@ bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8) {
         });
     if (!image.ok) return false;
 
-    // THE CopyPixels CALL IS GONE AND THE DIB IS BUILT FROM THE SAME BYTES. The old code
-    // asked a 32bppPBGRA WIC bitmap for tightly packed rows at stride = width * 4;
-    // DecodedImage documents premultiplied BGRA at exactly that stride as its invariant,
-    // and image_qt.cpp copies row by row to guarantee it. So the buffer feeding the
-    // header below has the same layout it always did -- which is what lets the row-flip
-    // loop stay character-for-character what it was.
-    const size_t stride = (size_t)image.width * 4;
-    const std::vector<uint8_t>& pixels = image.pixels;
-
-    // CF_DIB: header plus bottom-up 32bpp rows (background is opaque, so
-    // the ignored alpha byte is 255 everywhere)
-    HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE,
-                              sizeof(BITMAPINFOHEADER) + pixels.size());
-    if (!dib) return false;
-    if (BYTE* out = (BYTE*)GlobalLock(dib)) {
-        BITMAPINFOHEADER hdr{};
-        hdr.biSize = sizeof(hdr);
-        hdr.biWidth = (LONG)image.width;
-        hdr.biHeight = (LONG)image.height;
-        hdr.biPlanes = 1;
-        hdr.biBitCount = 32;
-        hdr.biCompression = BI_RGB;
-        hdr.biSizeImage = (DWORD)pixels.size();
-        memcpy(out, &hdr, sizeof(hdr));
-        for (unsigned row = 0; row < image.height; row++) {
-            memcpy(out + sizeof(hdr) + (size_t)row * stride,
-                   pixels.data() + (size_t)(image.height - 1 - row) * stride,
-                   stride);
-        }
-        GlobalUnlock(dib);
-    } else {
-        GlobalFree(dib);
-        return false;
-    }
-
-    std::string png = tinta::encodePng(image);
-    HGLOBAL pngGlobal = nullptr;
-    if (!png.empty()) {
-        pngGlobal = GlobalAlloc(GMEM_MOVEABLE, png.size());
-        if (pngGlobal) {
-            if (void* bits = GlobalLock(pngGlobal)) {
-                memcpy(bits, png.data(), png.size());
-                GlobalUnlock(pngGlobal);
-            } else {
-                GlobalFree(pngGlobal);
-                pngGlobal = nullptr;
-            }
-        }
-    }
-
-    if (!OpenClipboard(hwnd)) {
-        GlobalFree(dib);
-        if (pngGlobal) GlobalFree(pngGlobal);
-        return false;
-    }
-    EmptyClipboard();
-    bool ok = SetClipboardData(CF_DIB, dib) != nullptr;
-    if (!ok) GlobalFree(dib);
-    if (pngGlobal) {
-        UINT pngFormat = RegisterClipboardFormatW(L"PNG");
-        if (!pngFormat || !SetClipboardData(pngFormat, pngGlobal)) {
-            GlobalFree(pngGlobal);
-        }
-    }
-    CloseClipboard();
-    return ok;
+    // The PNG is encoded HERE and passed in rather than being computed inside the seam,
+    // and that is a link decision rather than a division of labour: tinta::encodePng
+    // lives in src/image_win32.cpp and src/image_qt.cpp, so calling it from the clipboard
+    // seam would put the whole WIC and Direct2D link line onto tests/clipboard_tests.
+    // See include/clipboard.h at setClipboardImage. An empty result is not a failure --
+    // it means the image lands as a bitmap only, which is what this code always did.
+    return platform::setClipboardImage(image, tinta::encodePng(image));
 }
 
 // Ctrl+V in the editor with a bitmap on the clipboard: encode it as PNG
 // into the given file (screenshots land beside the document)
-bool clipboardImageToPngFile(App& app, HWND hwnd, const std::wstring& path) {
-    if (!IsClipboardFormatAvailable(CF_BITMAP) || !app.wicFactory) {
-        return false;
-    }
-    if (!OpenClipboard(hwnd)) return false;
-    bool ok = false;
-    if (HBITMAP hbm = (HBITMAP)GetClipboardData(CF_BITMAP)) {
-        IWICBitmap* bitmap = nullptr;
-        if (SUCCEEDED(app.wicFactory->CreateBitmapFromHBITMAP(
-                hbm, nullptr, WICBitmapIgnoreAlpha, &bitmap))) {
-            UINT w = 0, h = 0;
-            bitmap->GetSize(&w, &h);
-            std::string png = clipboardBitmapToPng(app, bitmap, w, h);
-            bitmap->Release();
-            if (!png.empty()) {
-                std::ofstream out(path, std::ios::binary | std::ios::trunc);
-                if (out) {
-                    out.write(png.data(), (std::streamsize)png.size());
-                    ok = out.good();
-                }
-            }
-        }
-    }
-    CloseClipboard();
-    return ok;
+//
+// THIS IS WHERE THE WIC DECODE WENT, and the answer is that it did not go anywhere -- it
+// was deleted. platform::clipboardImage reads the CF_BITMAP with GDI's GetDIBits and
+// tinta::encodePng writes the PNG, so the IWICBitmap, the CreateBitmapFromHBITMAP and the
+// 52-line encoder this function used to call are all gone. See the note where that
+// encoder used to be, near the top of this file, for the trap it predicted.
+//
+// THE app.wicFactory NULL CHECK WENT WITH THEM, and its absence is not a dropped guard:
+// it was guarding the factory this function no longer touches. What replaces it is
+// clipboardImage's own ok flag, which covers strictly more -- no bitmap on the clipboard,
+// a clipboard that will not open, a GetDIBits that reads short, or a dimension at or above
+// tinta::kMaxImageDimension.
+//
+// THE App PARAMETER WENT TOO, and it is worth separating from the HWND: the HWND was
+// dropped by the seam's design, while `app` simply has no remaining reader here. Its only
+// use was reaching the imaging factory. Keeping it as a `(void)app;` would have left a
+// signature asserting a dependency that no longer exists.
+bool clipboardImageToPngFile(const std::wstring& path) {
+    tinta::DecodedImage image = platform::clipboardImage();
+    if (!image.ok) return false;
+    std::string png = tinta::encodePng(image);
+    if (png.empty()) return false;
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+    out.write(png.data(), (std::streamsize)png.size());
+    return out.good();
 }

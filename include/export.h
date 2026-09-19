@@ -34,11 +34,21 @@ mermaidext::Built buildDiagramPrims(App& app, const std::string& sourceUtf8,
 mermaidext::Built buildFlowchartPrims(App& app, const std::string& sourceUtf8,
                                       float scale);
 
-// Rasterizes a diagram at 2x and puts it on the clipboard as CF_DIB plus
-// a PNG stream, for pasting into slides/chats/documents (export_docx.cpp)
-bool copyDiagramImage(App& app, HWND hwnd, const std::string& sourceUtf8);
+// Rasterizes a diagram at 2x and puts it on the clipboard as a bitmap plus
+// a PNG, for pasting into slides/chats/documents (export_docx.cpp)
+//
+// NO HWND, 2026-09-19: the clipboard write goes through include/clipboard.h's seam, which
+// takes no window handle for the reason that header sets out at length -- the handle only
+// ever reached OpenClipboard, and QClipboard is application-global. The format names moved
+// with it, which is why this comment no longer says CF_DIB: on Windows it still is one,
+// off Windows it is a QImage on a QMimeData, and this declaration is true either way.
+bool copyDiagramImage(App& app, const std::string& sourceUtf8);
 
 // Clipboard bitmap -> PNG file (editor image paste; export_docx.cpp)
-bool clipboardImageToPngFile(App& app, HWND hwnd, const std::wstring& path);
+//
+// NO App EITHER, and that is a different loss from the HWND above: `app` was here to
+// reach the WIC factory, and the read is GDI now with the encode going through
+// tinta::encodePng. Nothing left in the body wants the application state.
+bool clipboardImageToPngFile(const std::wstring& path);
 
 #endif  // TINTA_EXPORT_H

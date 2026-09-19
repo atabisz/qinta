@@ -30,13 +30,45 @@
 // std::wstring crosses this boundary through QString's own conversions and not
 // through a cast, because wchar_t is 16 bits on Windows and 32 on Linux. A
 // reinterpret_cast would work on exactly one of the two platforms this file is for.
+//
+// THE IMAGE DATA HALF ARRIVED 2026-09-19, and on this side it is the translation the
+// Windows side is not: QClipboard::setMimeData with an image and an image/png entry,
+// and QMimeData::imageData back. There is no encoder here and no decoder -- Qt owns
+// both -- which is why this file gains five includes and no Qt MODULE. Counted rather
+// than estimated: three Qt headers (QByteArray, QVariant in Qt6::Core, QImage in
+// Qt6::Gui, both already on this target) plus <cstring> and image_api.h. The module list
+// in CMakeLists.txt is untouched, and that is the claim worth making -- an include is
+// free, a module is a link line.
+//
+// WHAT IT DOES NOT CLAIM is the round trip. The Qt arm of tests/clipboard_tests runs
+// under the OFFSCREEN QPA plugin, whose clipboard never leaves the process, exactly as
+// the CRLF paragraph above says. So a green image assertion here is evidence about an
+// in-process clipboard and not about xcb, wayland or the Windows QPA plugin, each of
+// which crosses a real system boundary that can convert or drop a format.
 
 #include "clipboard.h"
 
+#include <QByteArray>
 #include <QClipboard>
 #include <QGuiApplication>
+#include <QImage>
 #include <QMimeData>
 #include <QString>
+#include <QVariant>
+
+#include <cstring>
+
+#include "image_api.h"
+
+// The same little-endian assumption src/image_qt.cpp asserts, for the same reason and
+// stated separately rather than inherited: Qt's Format_ARGB32_Premultiplied and
+// Format_RGB32 both name a 32-bit INTEGER, 0xAARRGGBB and 0xffRRGGBB, whose memory
+// order is B,G,R,A only on a little-endian machine. tinta::DecodedImage names its bytes
+// in memory order. They agree on one byte order and this file would silently swap
+// channels on the other.
+#if Q_BYTE_ORDER != Q_LITTLE_ENDIAN
+#error "clipboard_qt.cpp assumes little-endian: Qt's 32-bit formats are BGRA in memory only there"
+#endif
 
 namespace platform {
 
@@ -75,6 +107,90 @@ bool clipboardHasImage() {
     if (!clipboard) return false;
     const QMimeData* mime = clipboard->mimeData();
     return mime && mime->hasImage();
+}
+
+bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngBytes) {
+    if (!image.ok || image.width == 0 || image.height == 0) return false;
+    const size_t stride = static_cast<size_t>(image.width) * 4;
+    if (image.pixels.size() != stride * image.height) return false;
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard) return false;
+
+    // The non-owning QImage constructor, then copy(). QImage over a borrowed buffer does
+    // not take ownership and does not extend the buffer's lifetime, and `image` is a
+    // const reference whose pixels belong to the caller -- so the copy is what makes
+    // this safe rather than a cost to optimize away later.
+    const QImage view(image.pixels.data(), static_cast<int>(image.width),
+                      static_cast<int>(image.height), static_cast<int>(stride),
+                      QImage::Format_ARGB32_Premultiplied);
+    if (view.isNull()) return false;
+
+    // setMimeData rather than setImage, because the PNG has to ride on the SAME
+    // QMimeData as the image. Two calls would leave only the second one's data on the
+    // clipboard: setImage replaces the mime data wholesale. Ownership of the QMimeData
+    // passes to the clipboard, which is Qt's documented contract for this call and is
+    // why there is no delete here.
+    QMimeData* mime = new QMimeData();
+    mime->setImageData(view.copy());
+    if (!pngBytes.empty()) {
+        mime->setData(QStringLiteral("image/png"),
+                      QByteArray(pngBytes.data(), static_cast<int>(pngBytes.size())));
+    }
+    clipboard->setMimeData(mime);
+    return true;  // see the header note on setClipboardText: Qt reports no acceptance
+}
+
+tinta::DecodedImage clipboardImage() {
+    tinta::DecodedImage image;
+    QClipboard* clipboard = QGuiApplication::clipboard();
+    if (!clipboard) return image;
+    const QMimeData* mime = clipboard->mimeData();
+    if (!mime || !mime->hasImage()) return image;
+
+    const QImage src = qvariant_cast<QImage>(mime->imageData());
+    if (src.isNull()) return image;
+    // tinta::kMaxImageDimension's bound, EXCLUSIVE, matching src/image_qt.cpp's
+    // dimensionsAcceptable and src/clipboard_win32.cpp's copy of the same test. The seam
+    // enforces it in every backend so the two cannot drift.
+    if (src.width() <= 0 || src.height() <= 0 ||
+        static_cast<unsigned>(src.width()) >= tinta::kMaxImageDimension ||
+        static_cast<unsigned>(src.height()) >= tinta::kMaxImageDimension) {
+        return image;
+    }
+
+    // Format_RGB32 -- 0xffRRGGBB -- because this seam's contract is that the clipboard is
+    // OPAQUE, and off Windows that has to be enforced rather than inherited: Qt can hand
+    // back a genuinely transparent image where a CF_BITMAP simply has no alpha channel to
+    // hand back. Converting to an opaque format is the only part of this that composites,
+    // and this file does not claim what it composites AGAINST -- that is a Qt internal
+    // nothing here has measured. What it does claim is the alpha byte, below.
+    const QImage opaque = src.format() == QImage::Format_RGB32
+                              ? src
+                              : src.convertToFormat(QImage::Format_RGB32);
+    if (opaque.isNull()) return image;
+
+    const unsigned width = static_cast<unsigned>(opaque.width());
+    const unsigned height = static_cast<unsigned>(opaque.height());
+    // Row by row, for the reason src/image_qt.cpp gives at copyOutPixels: QImage pads
+    // each scanline, so bytesPerLine() is not width * 4 by definition even though it is
+    // for a 32-bit format. A whole-buffer memcpy would become a slanted image under a
+    // later format change rather than a compile error.
+    image.pixels.resize(static_cast<size_t>(width) * height * 4);
+    for (unsigned y = 0; y < height; ++y) {
+        std::memcpy(image.pixels.data() + static_cast<size_t>(y) * width * 4,
+                    opaque.constScanLine(static_cast<int>(y)),
+                    static_cast<size_t>(width) * 4);
+    }
+    // The alpha byte is written even though Format_RGB32's own definition already fixes
+    // it at 0xff, because the invariant this function promises should not depend on what
+    // a conversion does internally. Same line as the Windows half, where it is load
+    // bearing instead of belt-and-braces -- see include/clipboard.h.
+    for (size_t i = 3; i < image.pixels.size(); i += 4) image.pixels[i] = 255;
+
+    image.width = width;
+    image.height = height;
+    image.ok = true;
+    return image;
 }
 
 }  // namespace platform

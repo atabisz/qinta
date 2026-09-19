@@ -27,14 +27,39 @@
 //   export_docx.cpp:1464             write IMAGE  --              --
 //   export_docx.cpp:1548             read IMAGE   --              --
 //
-// THE IMAGE HALF IS DELIBERATELY NOT HERE, and that is a scope decision with a
-// reason rather than an omission. Those two sites trade in CF_DIB, a registered
-// L"PNG" format and an HBITMAP; none of the three has a QClipboard shape that is a
-// translation rather than a rewrite. They also live in the one file that cannot
-// compile off Windows for an unrelated reason (objbase.h), so pulling them in would
-// widen this seam without unblocking anything. When the image half arrives it wants
-// its own census, because "put a picture on the clipboard" is a different question
-// from "put text on the clipboard" in a way that "open" and "save" are not.
+// THE IMAGE HALF IS HERE NOW, 2026-09-19, AND THE SENTENCE THAT KEPT IT OUT ASKED FOR
+// EXACTLY THE PARAGRAPH BELOW. It read: "THE IMAGE HALF IS DELIBERATELY NOT HERE, and
+// that is a scope decision with a reason rather than an omission. Those two sites trade
+// in CF_DIB, a registered L\"PNG\" format and an HBITMAP; none of the three has a
+// QClipboard shape that is a translation rather than a rewrite. They also live in the one
+// file that cannot compile off Windows for an unrelated reason (objbase.h), so pulling
+// them in would widen this seam without unblocking anything. When the image half arrives
+// it wants its own census, because 'put a picture on the clipboard' is a different
+// question from 'put text on the clipboard' in a way that 'open' and 'save' are not."
+//
+// THE CENSUS IT ASKED FOR, and the reason the refusal expired rather than being
+// overruled. Three claims were made and they do not all survive:
+//
+//   1. "none of the three has a QClipboard shape that is a translation" -- HALF FALSE.
+//      CF_DIB -> QClipboard::setImage, the registered PNG -> QMimeData::setData with
+//      "image/png", and QMimeData::imageData -> QImage are each a translation. The
+//      Windows CF_BITMAP READ is the one genuine rewrite, and it is the rewrite that
+//      pays for the slice: WIC out, GDI GetDIBits in, which is how IWICBitmap left
+//      src/export_docx.cpp.
+//   2. "would widen this seam without unblocking anything" -- SURVIVES AS WRITTEN and
+//      is still true. src/export_docx.cpp dies on objbase.h before and after. This seam
+//      did not unblock that file and does not claim to; what it unblocked is WIC's
+//      presence in that file's clipboard path.
+//   3. The third claim is at clipboardImage() below, because it is about the DATA and
+//      not about the census: "moving it would drag ID2D1/WIC types through a header that
+//      has none." That premise is the one that expired, and it expired because
+//      tinta::DecodedImage arrived.
+//
+// So a refusal made of three reasons lost one, kept one, and had the third expire under
+// it -- which is why each is answered separately instead of the block being deleted. A
+// premise going stale is not a decision reversing itself; src/settings_app.cpp is the
+// counter-example in this tree, where the stated premise went false and the exclusion
+// still held on re-argument.
 //
 // THE THREE READS DISAGREE, AND THE DISAGREEMENT IS CARRIED RATHER THAN UNIFIED.
 // This is file_dialog.h's rule about OFN_NOCHANGEDIR applied to a subtler case: a
@@ -87,6 +112,20 @@
 // allocation for the process's lifetime. Both become the one implementation in
 // src/clipboard_win32.cpp, which does what utils.cpp did. The seam cannot preserve
 // both behaviours because they differ only in whether a bug is present.
+
+// FORWARD-DECLARED RATHER THAN #include "image_api.h", and the reason is the same one
+// image_api.h itself gives for forward-declaring RenderTarget: a declaration costs
+// nothing and carries no condition. image_api.h pulls in geometry.h, which pulls
+// <d2d1.h> inside #ifdef _WIN32 -- harmless, but it would mean this header transitively
+// named Direct2D types on Windows, and "a header that has none" is the exact phrase the
+// image half was kept out of this seam with. Keeping it literally true is cheaper than
+// explaining that it is only nearly true. A reference parameter and a by-value return
+// type in a DECLARATION need no definition; every consumer includes image_api.h anyway,
+// because it cannot do anything with a DecodedImage without it.
+namespace tinta {
+struct DecodedImage;
+}
+
 namespace platform {
 
 // The clipboard's Unicode text, exactly as the platform reports it, or an empty
@@ -128,19 +167,26 @@ bool setClipboardText(const std::wstring& text);
 // Does the clipboard currently hold an IMAGE? Not the image itself -- just the
 // availability question.
 //
-// THE NARROWNESS IS THE POINT, because this header's census deliberately left the
-// image half of the clipboard outside the seam and src/clipboard_win32.cpp says so.
-// This admits exactly one bit of it and no more: `IsClipboardFormatAvailable(CF_BITMAP)`
-// with nothing read. The DATA half -- CF_DIB, the registered L"PNG" format, the
-// CF_BITMAP handle read, and the WIC decode they feed -- stays in export_docx.cpp,
-// because moving it would drag ID2D1/WIC types through a header that has none.
+// THE NARROWNESS WAS THE POINT AND IT IS NOT ANY MORE, which is a state change rather
+// than a correction, so the retired paragraph is kept whole: "THE NARROWNESS IS THE POINT,
+// because this header's census deliberately left the image half of the clipboard outside
+// the seam and src/clipboard_win32.cpp says so. This admits exactly one bit of it and no
+// more: IsClipboardFormatAvailable(CF_BITMAP) with nothing read. The DATA half -- CF_DIB,
+// the registered L\"PNG\" format, the CF_BITMAP handle read, and the WIC decode they feed
+// -- stays in export_docx.cpp, because moving it would drag ID2D1/WIC types through a
+// header that has none." The data half is two declarations below as of 2026-09-19, and
+// this function is no longer the narrow admission of a larger thing left out. It is just
+// the cheap question, kept separate because it answers without opening the clipboard.
 //
-// TWO SITES, WHICH IS ALSO WHY THIS IS THE NARROW VERSION. editor.cpp:1649 asks the
-// question, and export_docx.cpp:1545 -- the first line of clipboardImageToPngFile,
-// the function editor.cpp goes on to call -- asks it again. The editor's check is
-// therefore REDUNDANT with its callee's, and it is being routed rather than deleted:
-// dropping it would leave editor.cpp running up to 100 fs::exists calls hunting for a
-// free `-img-NN.png` filename before the callee refused, on every plain-text paste.
+// STILL TWO SITES, BUT NOT THE SAME TWO, and the difference matters to anyone auditing
+// the redundancy. It used to be editor.cpp:1649 and export_docx.cpp:1545 -- the second
+// being the first line of clipboardImageToPngFile, the function the first goes on to
+// call. Now it is editor.cpp and clipboardImage() below, which asks it as its own first
+// line, so the redundancy survived the move intact and moved INTO this seam.
+//
+// The editor's check stays REDUNDANT with its callee's, and is still routed rather than
+// deleted: dropping it would leave editor.cpp running up to 100 fs::exists calls hunting
+// for a free `-img-NN.png` filename before the callee refused, on every plain-text paste.
 // Same outcome, different work, so removing it is a behaviour change and not a
 // simplification.
 //
@@ -153,7 +199,86 @@ bool setClipboardText(const std::wstring& text);
 //
 // False on any failure, matching clipboardText's empty-for-anything-wrong: the
 // caller's existing else-branch is an ordinary text paste, which is exactly right.
+//
+// THE "TWO SITES" AND "NOTHING OWED HERE LATER" ABOVE ARE STILL TRUE, and the clause
+// that has gone is the last one: "What the caller then does with a true answer off
+// Windows is a separate question and currently ends at clipboardImageToPngFile, which is
+// Windows-only." It no longer ends there -- that function's body is the two calls below
+// plus tinta::encodePng, all three of which exist on both platforms.
 bool clipboardHasImage();
+
+// --- The image DATA half, which this header refused until 2026-09-19 ---------------
+
+// Put `image` on the clipboard, replacing its contents. False on any failure.
+//
+// `pngBytes` is the SAME image already encoded as PNG -- tinta::encodePng(image) -- and
+// it is a parameter rather than something this seam computes, which is a link decision
+// and not a style one. tinta::encodePng lives in src/image_win32.cpp and src/image_qt.cpp;
+// calling it from here would put the whole WIC and Direct2D link line onto
+// tests/clipboard_tests, a target whose entire value is that it links ONE platform file
+// and nothing else. The caller already has the bytes at both existing call sites.
+//
+// BOTH ARMS USE BOTH ARGUMENTS, which is why this is not a Windows parameter that Qt
+// ignores. Windows publishes CF_DIB plus the registered L"PNG" format, because
+// applications differ in which they prefer and the original code offered both. Qt
+// publishes image/png on the same QMimeData as the image itself, for the same reason.
+// A parameter one backend discarded would be a parameter that only documents an
+// intention -- see image_api.h's note on why encodePng takes no format enum.
+//
+// An empty `pngBytes` is legal and means "bitmap only": the image still lands and this
+// still returns true. That is the honest reading of the original code, which treated a
+// failed PNG encode as a reason to publish less rather than to publish nothing.
+//
+// THE CLIPBOARD IS OPAQUE AND THAT IS A CONTRACT, NOT A LIMITATION DISCOVERED LATE.
+// CF_DIB's alpha byte is ignored by the format and CF_BITMAP carries no alpha at all,
+// so a partially transparent DecodedImage cannot survive this round trip on Windows and
+// nothing here pretends otherwise. Callers in this tree rasterise over an opaque theme
+// background, so every pixel they hand over already has alpha 255.
+bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngBytes);
+
+// The clipboard's image as premultiplied BGRA, or a DecodedImage with ok == false when
+// there is none, when the read fails, or when the dimensions are outside
+// tinta::kMaxImageDimension.
+//
+// THE PREMISE THAT KEPT THIS OUT HAS EXPIRED, and it is worth separating from the census
+// at the top of this file because it is a different claim. It read: "The DATA half --
+// CF_DIB, the registered L\"PNG\" format, the CF_BITMAP handle read, and the WIC decode
+// they feed -- stays in export_docx.cpp, because moving it would drag ID2D1/WIC types
+// through a header that has none." That was true of the SHAPE the data had at the time,
+// an IWICBitmap. tinta::DecodedImage (include/image_api.h) is premultiplied BGRA bytes in
+// a std::vector<uint8_t> and names no COM type, so the data half expressed in it drags
+// nothing -- this header still includes only <string> and still forward-declares rather
+// than including image_api.h, so not even a transitive <d2d1.h> reaches a consumer.
+//
+// SO THE WIC DECODE DID NOT MOVE HERE; IT WAS DELETED. src/export_docx.cpp's
+// clipboardBitmapToPng -- CreateBitmapFromHBITMAP, an IWICBitmapEncoder and
+// GetHGlobalFromStream, 52 lines -- is gone, and src/clipboard_win32.cpp reads the
+// bitmap with GDI's GetDIBits instead. export_docx.cpp:251 predicted exactly this and
+// called it "a different slice against a recorded decision", which is what this is.
+//
+// ALPHA IS FORCED TO 255 AND THE REASON IS A SILENT FAILURE THE OLD CODE NAMED. A
+// CF_BITMAP has no alpha channel, so the bytes GetDIBits returns have an alpha byte that
+// means nothing -- and MEASURED 2026-09-19, a 32bpp BI_RGB DIB published with zero there
+// reads back with all of it still zero, so the byte passes through GDI untouched. (An
+// earlier draft of this paragraph said it "is frequently ZERO" in practice, which was a
+// claim about other applications with nothing behind it. How often a real producer leaves
+// zero there is unmeasured and does not need measuring: undefined is the contract and once
+// is enough.) Handing those straight back
+// under this function's premultiplied-BGRA contract would produce, in export_docx.cpp's
+// own words about the WIC version of the same trap, "a fully transparent PNG -- a
+// plausible-looking file with nothing in it". Every length check and every `ok` flag
+// passes on that file. So the Windows implementation overwrites the alpha byte, and
+// tests/clipboard_tests.cpp asserts a PIXEL rather than a size.
+//
+// OFF WINDOWS THE OPACITY IS ALSO ENFORCED, AND IT IS NOT A CARRIED-OVER WORKAROUND: Qt
+// can hand back an image with real transparency, and this seam's contract says the
+// clipboard is opaque. So the Qt half converts to QImage::Format_RGB32 -- the format
+// whose own definition is 0xffRRGGBB -- and then writes the alpha byte anyway, because
+// the invariant this function promises should not depend on what a conversion does
+// internally. What the COLOUR bytes are after that is whatever Qt's conversion to an
+// opaque format produced; this seam does not composite, and claiming a particular
+// blend would be asserting a Qt internal nothing here has measured.
+tinta::DecodedImage clipboardImage();
 
 // --- The three transformations, split out so they can be asserted --------------
 

@@ -1,5 +1,13 @@
-// include/clipboard.h -- the clipboard seam's three line-ending transformations, and
-// a round trip through whichever backend this build selected.
+// include/clipboard.h -- the clipboard seam's three line-ending transformations, and a
+// round trip of both TEXT and IMAGE through whichever backend this build selected.
+//
+// THE IMAGE ROUND TRIP ASSERTS A PIXEL AND NOT A SIZE, and that is the one design note
+// worth reading before the code. src/export_docx.cpp used to carry a warning about
+// handing alpha-less bytes to a premultiplied-BGRA contract: it "would encode a fully
+// transparent PNG -- a plausible-looking file with nothing in it". Every check a lazier
+// test would make passes on that file. It is the right length, the dimensions are right,
+// the ok flag is true, and a PNG encoder accepts it. So the assertions below read the
+// bytes: every alpha byte, and every colour triple at its own coordinate.
 //
 // WHY THE TRANSFORMATIONS ARE THE PART WORTH ASSERTING, which is file_dialog.h's
 // argument about its filter encoders applied to a different seam. clipboardText() and
@@ -28,11 +36,19 @@
 
 #include "clipboard.h"
 
+#include "image_api.h"
+
+#include <cstdint>
 #include <iostream>
 #include <string>
+#include <vector>
 
 #ifdef TINTA_CLIPBOARD_BACKEND_QT
 #include <QGuiApplication>
+#else
+#include <windows.h>
+
+#include <cstring>
 #endif
 
 namespace {
@@ -162,6 +178,254 @@ void testTheThreeDisagree() {
           "the flatten is not a normalization at all");
 }
 
+// --- the image half: a fixture built so a flip or a swap cannot hide ------------
+
+constexpr unsigned kImgW = 4;
+constexpr unsigned kImgH = 3;
+
+// EVERY CHANNEL DEPENDS ON BOTH COORDINATES, which is the whole reason this is not a
+// solid colour or a gradient in one direction. A solid fixture round-trips through a
+// backend that flipped every row, mirrored every column and swapped red for blue. These
+// three formulas make each of those three mistakes change at least one byte, and the
+// assertions below then only have to compare.
+uint8_t blueAt(unsigned x, unsigned y) { return (uint8_t)(10 + x * 20 + y * 3); }
+uint8_t greenAt(unsigned x, unsigned y) { return (uint8_t)(40 + y * 50 + x * 2); }
+uint8_t redAt(unsigned x, unsigned y) { return (uint8_t)(200 - x * 10 - y * 7); }
+
+tinta::DecodedImage makeTestImage() {
+    tinta::DecodedImage img;
+    img.width = kImgW;
+    img.height = kImgH;
+    img.pixels.resize((size_t)kImgW * kImgH * 4);
+    for (unsigned y = 0; y < kImgH; y++) {
+        for (unsigned x = 0; x < kImgW; x++) {
+            uint8_t* p = img.pixels.data() + ((size_t)y * kImgW + x) * 4;
+            p[0] = blueAt(x, y);
+            p[1] = greenAt(x, y);
+            p[2] = redAt(x, y);
+            // Alpha 255 throughout, which makes every colour above a VALID premultiplied
+            // value -- at full opacity the premultiplied and straight representations of
+            // a pixel are the same bytes, so the fixture cannot be rejected as impossible.
+            p[3] = 255;
+        }
+    }
+    img.ok = true;
+    return img;
+}
+
+#ifndef TINTA_CLIPBOARD_BACKEND_QT
+// A PRODUCER THE SEAM NEVER IS: a raw CF_DIB carrying the fixture's colours with ZERO in
+// every fourth byte, published without going through platform::setClipboardImage. It
+// exists because the round trip alone cannot measure what the read's forced alpha is for.
+//
+// MEASURED 2026-09-19, and it is why this function was written rather than assumed: with
+// the forced-alpha line deleted from src/clipboard_win32.cpp, the round trip below stayed
+// GREEN -- all 44 checks, including the alpha contract. Everything the seam writes carries
+// alpha 255, so GetDIBits hands 255 back, and "the read forces opaque" and "the read
+// preserved what the write put there" are indistinguishable through the seam's own front
+// door. A sentinel confirmed the assertion is wired (forcing 254 fails it by name), so the
+// gap was in the INPUT, not the check.
+//
+// What this supplies is the case the force actually defends: a screenshot tool, Paint, or
+// any other application publishing a 32bpp BI_RGB DIB, where the fourth byte is documented
+// as undefined and nothing had a reason to write 255 into it.
+//
+// The open retries for the same measured reason src/clipboard_win32.cpp's writes do -- that
+// helper is file-local there, deliberately, so this repeats the loop rather than widening
+// the seam's surface for a test's benefit.
+bool publishZeroAlphaDib() {
+    const size_t stride = (size_t)kImgW * 4;
+    const size_t bytes = stride * kImgH;
+    HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + bytes);
+    if (!dib) return false;
+    BYTE* out = (BYTE*)GlobalLock(dib);
+    if (!out) {
+        GlobalFree(dib);
+        return false;
+    }
+    BITMAPINFOHEADER hdr{};
+    hdr.biSize = sizeof(hdr);
+    hdr.biWidth = (LONG)kImgW;
+    hdr.biHeight = (LONG)kImgH;  // positive: bottom-up, so row 0 of the DIB is the LAST row
+    hdr.biPlanes = 1;
+    hdr.biBitCount = 32;
+    hdr.biCompression = BI_RGB;
+    hdr.biSizeImage = (DWORD)bytes;
+    std::memcpy(out, &hdr, sizeof(hdr));
+    for (unsigned y = 0; y < kImgH; y++) {
+        BYTE* row = out + sizeof(hdr) + (size_t)(kImgH - 1 - y) * stride;
+        for (unsigned x = 0; x < kImgW; x++) {
+            row[x * 4 + 0] = blueAt(x, y);
+            row[x * 4 + 1] = greenAt(x, y);
+            row[x * 4 + 2] = redAt(x, y);
+            row[x * 4 + 3] = 0;  // the whole point of this fixture
+        }
+    }
+    GlobalUnlock(dib);
+
+    bool opened = false;
+    for (int attempt = 0; attempt < 10 && !opened; attempt++) {
+        opened = OpenClipboard(nullptr) != 0;
+        if (!opened) Sleep(10);
+    }
+    if (!opened) {
+        GlobalFree(dib);
+        return false;
+    }
+    EmptyClipboard();
+    bool ok = SetClipboardData(CF_DIB, dib) != nullptr;
+    if (!ok) GlobalFree(dib);  // ownership transfers only on success
+    CloseClipboard();
+    return ok;
+}
+#endif
+
+void testImageSeam() {
+    std::cout << "-- the image half of the seam, through whichever backend this build selected\n";
+
+    // Refused before anything is touched, same shape as the empty-text contract: an
+    // ok == false DecodedImage has unspecified fields by image_api.h's own documentation,
+    // so a backend that read them would be reading uninitialized memory.
+    contract(!platform::setClipboardImage(tinta::DecodedImage(), std::string()),
+             "an image with ok == false is refused");
+
+    const tinta::DecodedImage wrote = makeTestImage();
+
+    // THE FIXTURE'S OWN CONTROL, asserted before the round trip rather than assumed by
+    // it. If the top-left and bottom-left pixels were equal, the row-order assertion
+    // further down could not fail no matter what the backend did, and it would read green
+    // forever. This is the same trap as asserting two readings of one surface against
+    // each other.
+    contract(blueAt(0, 0) != blueAt(0, kImgH - 1) && greenAt(0, 0) != greenAt(0, kImgH - 1),
+             "the fixture's top-left and bottom-left differ, so a row flip is detectable");
+
+    if (!platform::setClipboardImage(wrote, std::string())) {
+        // Not a failure, for the same reason the text round trip's skip is not: a build
+        // with no application instance, or a clipboard another process is holding open,
+        // reaches here without anything being wrong with the seam.
+        std::cout << "  SKIP  the image round trip -- setClipboardImage refused"
+                     " (no application instance, or the clipboard was unavailable)\n";
+        return;
+    }
+
+    contract(platform::clipboardHasImage(),
+             "the availability bit sees the image the seam just wrote");
+
+    const tinta::DecodedImage back = platform::clipboardImage();
+    contract(back.ok, "an image written through the seam reads back with ok == true");
+    if (!back.ok) return;
+    contract(back.width == kImgW && back.height == kImgH,
+             "...at the dimensions it was written");
+    contract(back.pixels.size() == (size_t)back.width * back.height * 4,
+             "...satisfying DecodedImage's own documented size invariant");
+    if (back.width != kImgW || back.height != kImgH ||
+        back.pixels.size() != wrote.pixels.size()) {
+        return;
+    }
+
+    // THE ALPHA ASSERTION, which is the one the deleted WIC encoder's warning asked for.
+    // A CF_BITMAP has no alpha channel and GetDIBits leaves the fourth byte undefined.
+    //
+    // WHAT THIS ONE DOES AND DOES NOT PROVE, measured rather than reasoned: deleting the
+    // forced-alpha line from src/clipboard_win32.cpp leaves this check GREEN, because the
+    // bytes it is reading back were written by this same seam with alpha 255. So this
+    // contract proves the seam does not DAMAGE alpha, and nothing more. The claim that the
+    // force is load-bearing needs a producer that publishes zero there, which is what
+    // publishZeroAlphaDib supplies further down -- and that one does go red when the line
+    // is deleted. Both are kept: this one covers the path the application actually uses.
+    unsigned notOpaque = 0;
+    for (size_t i = 3; i < back.pixels.size(); i += 4) {
+        if (back.pixels[i] != 255) notOpaque++;
+    }
+    contract(notOpaque == 0,
+             "EVERY alpha byte reads 255 -- the forced-opaque contract, which no length check sees");
+
+    // THE COLOUR ASSERTION, per coordinate. This is what makes the round trip a claim
+    // about pixels: a flipped row order, a mirrored column order or a swapped B and R
+    // channel each move at least one byte off its own coordinate.
+    unsigned mismatches = 0;
+    for (unsigned y = 0; y < kImgH; y++) {
+        for (unsigned x = 0; x < kImgW; x++) {
+            const uint8_t* p = back.pixels.data() + ((size_t)y * kImgW + x) * 4;
+            if (p[0] != blueAt(x, y) || p[1] != greenAt(x, y) || p[2] != redAt(x, y)) {
+                mismatches++;
+            }
+        }
+    }
+    std::cout << "  MEASURED colour_mismatches=" << mismatches << " of " << (kImgW * kImgH)
+              << " pixels\n";
+    contract(mismatches == 0,
+             "EVERY colour triple reads back at its OWN coordinate -- rows unflipped, channels unswapped");
+
+    // Row order again, on its own, so a flip has a NAME rather than showing up only as a
+    // pixel count. The second half is the part that matters: matching the top row is not
+    // enough if the top and bottom rows are interchangeable.
+    const uint8_t* first = back.pixels.data();
+    contract(first[0] == blueAt(0, 0) && first[0] != blueAt(0, kImgH - 1),
+             "the TOP row reads back as the top row, and not as the bottom one");
+
+    // THE pngBytes PARAMETER EXERCISED, not asserted, and the distinction is honest: this
+    // seam publishes those bytes under a format it never reads back, so there is no route
+    // from here to what a receiving application would get. What CAN be asserted is that
+    // publishing them does not disturb the bitmap -- which on Windows means the second
+    // SetClipboardData did not displace the first, and on Qt means the image and the
+    // image/png entry are on the same QMimeData rather than two that replaced each other.
+    const std::string notAPng = "qinta clipboard seam test -- deliberately not a PNG";
+    if (platform::setClipboardImage(wrote, notAPng)) {
+        const tinta::DecodedImage again = platform::clipboardImage();
+        contract(again.ok && again.width == kImgW && again.height == kImgH,
+                 "publishing pngBytes alongside does not displace the bitmap");
+        // Rewritten WITHOUT the bogus bytes before this function returns, so the test does
+        // not leave a format on the user's clipboard whose contents are not a PNG. The
+        // text restore in testSeam runs after this and usually supersedes it anyway; this
+        // covers the case where there was no text to restore.
+        platform::setClipboardImage(wrote, std::string());
+    }
+
+#ifndef TINTA_CLIPBOARD_BACKEND_QT
+    // THE FORCED ALPHA, MEASURED AGAINST A PRODUCER THAT DOES NOT COOPERATE. Windows only,
+    // and not because the Qt arm is exempt from the question: Qt's read converts to
+    // Format_RGB32, which sets the fourth byte itself, so the alpha loop there is
+    // belt-and-braces by the backend's own documentation rather than load-bearing. There is
+    // no equivalent raw publish to write here -- QMimeData carries a QImage, not a DIB.
+    if (publishZeroAlphaDib()) {
+        const tinta::DecodedImage zeroed = platform::clipboardImage();
+        if (zeroed.ok && zeroed.pixels.size() == (size_t)kImgW * kImgH * 4) {
+            unsigned transparent = 0;
+            for (size_t i = 3; i < zeroed.pixels.size(); i += 4) {
+                if (zeroed.pixels[i] != 255) transparent++;
+            }
+            std::cout << "  MEASURED transparent_bytes=" << transparent << " of "
+                      << (kImgW * kImgH) << " pixels published with alpha 0\n";
+            contract(transparent == 0,
+                     "a bitmap published with ZERO in the fourth byte reads back OPAQUE -- the "
+                     "forced alpha is load-bearing, not decorative");
+            // The colours survive that forcing, which is the other half: writing 255 into
+            // the alpha byte must not disturb the three beside it, and a premultiplied
+            // reading of alpha-0 pixels would have had to zero them.
+            unsigned moved = 0;
+            for (unsigned y = 0; y < kImgH; y++) {
+                for (unsigned x = 0; x < kImgW; x++) {
+                    const uint8_t* p = zeroed.pixels.data() + ((size_t)y * kImgW + x) * 4;
+                    if (p[0] != blueAt(x, y) || p[1] != greenAt(x, y) || p[2] != redAt(x, y)) {
+                        moved++;
+                    }
+                }
+            }
+            contract(moved == 0, "...with its colour triples untouched by the forcing");
+        } else {
+            std::cout << "  SKIP  the zero-alpha producer -- the seam declined to read the"
+                         " raw CF_DIB back\n";
+        }
+        // The valid fixture goes back on the clipboard, so nothing downstream -- or on
+        // Alex's desktop -- is left holding a fully transparent bitmap.
+        platform::setClipboardImage(wrote, std::string());
+    } else {
+        std::cout << "  SKIP  the zero-alpha producer -- the raw CF_DIB publish refused\n";
+    }
+#endif
+}
+
 // --- the seam's own two functions ----------------------------------------------
 void testSeam() {
     std::cout << "-- the seam, through whichever backend this build selected\n";
@@ -199,6 +463,11 @@ void testSeam() {
         std::cout << "  SKIP  the round trip -- setClipboardText refused"
                      " (no application instance, or the platform has no clipboard)\n";
     }
+
+    // The image half runs INSIDE the text half's save/restore bracket rather than beside
+    // it, and that is deliberate: it clobbers the clipboard the same way, and the restore
+    // below is the only thing putting the user's data back.
+    testImageSeam();
 
     if (!saved.empty()) platform::setClipboardText(saved);
 }

@@ -3131,8 +3131,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     } else if (diagramPngButtonAt(app, app.mouseX, app.mouseY)) {
         // Diagram image button: 2x raster to the clipboard
         if (copyDiagramImage(
-                app, hwnd,
-                toUtf8(app.codeBlocks[app.hoveredCodeBlock].codeText))) {
+                app, toUtf8(app.codeBlocks[app.hoveredCodeBlock].codeText))) {
             tinta::RectF anchor = app.codeBlocks[app.hoveredCodeBlock].bounds;
             signalPush(app, SIG_SUCCESS, SIGI_CHECK,
                        tr(app, "diagram.copied"), L"", L"", SIGA_NONE,

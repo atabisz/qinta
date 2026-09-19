@@ -176,7 +176,7 @@ else()
     set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 endif()
 
-# The clipboard seam (include/clipboard.h): the TEXT half of the system clipboard,
+# The clipboard seam (include/clipboard.h): the system clipboard, text AND image,
 # selected like the four above.
 #
 # QtGui IS ENOUGH HERE, and the contrast with the seam directly above is the point.
@@ -185,11 +185,27 @@ endif()
 # of having a real second implementation in general -- and reading it as the latter
 # would make every future seam look more expensive than it is.
 #
-# The IMAGE half of the clipboard is NOT part of this seam. src/export_docx.cpp keeps
-# CF_DIB, a registered L"PNG" format and a CF_BITMAP read, because none of the three
-# has a QClipboard shape that is a translation rather than a rewrite, and that file
-# cannot compile off Windows for an unrelated reason anyway. So a build off Windows
-# gets the text half and no image half, which is honest: it is what exists.
+# THE IMAGE HALF JOINED THIS SEAM ON 2026-09-19, and the sentence that kept it out is
+# quoted rather than deleted because one of its two clauses was WRONG and the other was
+# RIGHT. It read: "The IMAGE half of the clipboard is NOT part of this seam.
+# src/export_docx.cpp keeps CF_DIB, a registered L\"PNG\" format and a CF_BITMAP read,
+# because none of the three has a QClipboard shape that is a translation rather than a
+# rewrite, and that file cannot compile off Windows for an unrelated reason anyway. So a
+# build off Windows gets the text half and no image half, which is honest: it is what
+# exists."
+#
+# WRONG: two of the three ARE translations -- CF_DIB becomes a QImage on a QMimeData and
+# the registered L"PNG" format becomes an "image/png" entry on the same QMimeData. The
+# CF_BITMAP READ is the one genuine rewrite, and that rewrite is what the slice was FOR:
+# GetDIBits replaced an IWICBitmap, which is how a 52-line WIC encoder left
+# src/export_docx.cpp.
+#
+# RIGHT: that file still cannot compile off Windows, and nothing here claims otherwise.
+# objbase.h and the OPC package are why, and they are untouched. What changed is that the
+# clipboard is no longer one of the reasons.
+#
+# So a build off Windows now gets both halves of the clipboard, which is still just a
+# statement of what exists rather than a claim about src/export_docx.cpp.
 if(WIN32)
     set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_win32.cpp)
     set(PLATFORM_CLIPBOARD_LIBS "")

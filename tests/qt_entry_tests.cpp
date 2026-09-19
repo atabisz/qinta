@@ -1057,7 +1057,11 @@ int main(int argc, char** argv) {
     // CALLED DIRECTLY rather than through installQtBackends, because the claim is about
     // THIS function's contract: its first act is releaseChromeFormats(app).
     const size_t signsAfterFirst = app.trimmingSigns.size();
-    tinta::TextFormat* const beforeSecond = app.folderBrowserFormat;
+    // ALL TEN, not just folderBrowserFormat -- see the discriminator note below.
+    tinta::TextFormat* const beforeSecond[10] = {
+        app.searchTextFormat, app.signalSmallFormat, app.themeTitleFormat,
+        app.themeHeaderFormat, app.statsFormat, app.folderBrowserFormat,
+        app.tocFormatBold, app.tocFormat, app.editorTextFormat, app.editorGutterFormat};
     installChromeFormats(app);
     const bool stillAllPresent =
         app.searchTextFormat != nullptr && app.signalSmallFormat != nullptr &&
@@ -1081,9 +1085,30 @@ int main(int argc, char** argv) {
     // returns, so the same pointer proves the no-op; installChromeFormats releases and
     // rebuilds, so a SURVIVING pointer would mean the release-first never ran and the
     // three-sign count above came from an early return instead.
-    check(app.folderBrowserFormat != beforeSecond,
-          "and the format is a NEW object -- idempotent in STATE, not by early return, which "
-          "is what a caller on the theme-change path needs");
+    //
+    // ACROSS ALL TEN, not one. A single chosen pointer (folderBrowserFormat) is not a
+    // reliable discriminator on its own: measured on macOS, comparing that one pointer
+    // alone flips between pass and fail across otherwise-identical runs (2 passes, then
+    // 3 fails, across 5 consecutive `ctest -R qt_entry` invocations, no code changed
+    // between them) -- the allocator sometimes hands the just-freed same-size block
+    // straight back to the very next same-size request, which a single-object identity
+    // check cannot tell apart from "never freed at all". Requiring instead that AT LEAST
+    // ONE of the ten independently-allocated objects moved keeps the property this check
+    // exists for (a total no-op, the lazy-door case, changes NONE of them) while making a
+    // false failure need all ten allocations to collide with their prior addresses at
+    // once -- not observed once in the runs above, where every one of the ten moved.
+    int unchanged = 0;
+    tinta::TextFormat* const afterSecond[10] = {
+        app.searchTextFormat, app.signalSmallFormat, app.themeTitleFormat,
+        app.themeHeaderFormat, app.statsFormat, app.folderBrowserFormat,
+        app.tocFormatBold, app.tocFormat, app.editorTextFormat, app.editorGutterFormat};
+    for (int i = 0; i < 10; i++) {
+        if (afterSecond[i] == beforeSecond[i]) unchanged++;
+    }
+    std::printf("idem_unchanged=%d/10\n", unchanged);
+    check(unchanged < 10,
+          "and at least one of the ten formats is a NEW object -- idempotent in STATE, not "
+          "by early return, which is what a caller on the theme-change path needs");
 
     // --- Run 12: THE TWO-SCALE RULE ------------------------------------------------
     //

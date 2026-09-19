@@ -66,6 +66,12 @@ constexpr bool kOnWindows = true;
 constexpr bool kOnWindows = false;
 #endif
 
+#ifdef __APPLE__
+constexpr bool kOnMacOS = true;
+#else
+constexpr bool kOnMacOS = false;
+#endif
+
 // THE TOLERANCE FOR COMPARING A QTextLine WIDTH AGAINST A QFontMetricsF ADVANCE, and it
 // has to be a whole pixel rather than the 0.01 this file used to demand. The two are
 // DIFFERENT MEASUREMENT PATHS, not two readings of one: QTextLine accumulates subpixel
@@ -142,14 +148,19 @@ int main(int argc, char** argv) {
 
     // A family the test can rely on resolving, NAMED PER PLATFORM because there is no
     // single family present on all of them. DejaVu ships with Qt's own fontconfig setup
-    // on Linux; Segoe UI has shipped with every Windows since Vista.
+    // on Linux; Segoe UI has shipped with every Windows since Vista; Helvetica has
+    // shipped with every macOS release and resolved to itself when measured (Homebrew
+    // Qt 6.11.2, macOS 26.6.2) -- DejaVu Sans is not installed there and silently
+    // substitutes to the system UI font instead, which is exactly the un-asserted
+    // substitution this control exists to catch.
     //
     // The requested name used to be "DejaVu Sans" unconditionally, and the only check on
     // it was that the resolved family was non-empty -- which is true of every
     // substitution, so it is not a control at all. Windows silently substituted TAHOMA
     // and four assertions below were measured against a font nobody had chosen. So the
     // resolution is now asserted EQUAL to the request, and printed either way.
-    const char* const kPrimaryFamily = kOnWindows ? "Segoe UI" : "DejaVu Sans";
+    const char* const kPrimaryFamily =
+        kOnWindows ? "Segoe UI" : (kOnMacOS ? "Helvetica" : "DejaVu Sans");
     QFont font(QString::fromLatin1(kPrimaryFamily), 32.0);
     const QFontInfo info(font);
     std::printf("      font requested=\"%s\" resolved=\"%s\" platform=%s\n",
@@ -300,8 +311,12 @@ int main(int argc, char** argv) {
     // "fi": Calibri 1; Tahoma, Segoe UI, Cambria, Times New Roman and Arial all 2. So
     // "ligatures are on by default" is a claim about Qt's shaper that can only be
     // demonstrated through a font whose GSUB actually offers the substitution, and
-    // asserting it against a UI font measures the font's inventory instead.
-    const char* const kLigatureFamily = kOnWindows ? "Calibri" : "DejaVu Sans";
+    // asserting it against a UI font measures the font's inventory instead. Measured on
+    // macOS (Homebrew Qt 6.11.2): Helvetica gives glyph count 1 for "fi" (has the
+    // ligature); Arial, Times New Roman, Georgia and Menlo all give 2 (no ligature) --
+    // the same shape as the Windows measurement, a different font supplying it.
+    const char* const kLigatureFamily =
+        kOnWindows ? "Calibri" : (kOnMacOS ? "Helvetica" : "DejaVu Sans");
     QFont ligFont(QString::fromLatin1(kLigatureFamily), 32.0);
     check(QFontInfo(ligFont).family() == QString::fromLatin1(kLigatureFamily),
           "the ligature family resolved to itself, so the glyph counts below are its own");

@@ -224,7 +224,7 @@ state per platform, before any commands:
 | Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
 | Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
 | Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
-| macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). 26/30 ctest entries pass. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
+| macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
 
 There is **no CI** in this repo, so a date in that table means somebody ran it that day and
 nothing re-runs it for you. Where a command below is unverified it says so on the spot, rather
@@ -324,20 +324,44 @@ cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
 - **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
   `MACOSX_BUNDLE` — zero occurrences of it in the file — so `qinta` builds as a command-line
   binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`.
-- **26 of 30 ctest entries pass.** The four failures are not build or link problems — the
-  binary configures, builds and runs — but real behavioral gaps surfaced only by building here:
-  `platform_paths`/`platform_paths_bare_locale` fail on locale-tag normalization (the backend's
-  preferred-language list isn't being normalized to BCP 47, and a bare C/POSIX locale isn't
-  reported as empty); `qt_text` fails because a missing font family resolves to the system UI
-  font instead of a detectable substitute, and standard ligatures read as on by default where
-  the test expects otherwise; `qt_entry` has one idempotency check failing (a second
-  `installChromeFormats` call is expected to hand back a distinct object and doesn't, on Qt
-  6.11.2). None of these were fixed here — they're recorded as the current, measured state of a
-  first macOS build, not a claim that macOS is fully working.
+- **Every ctest entry passes**, after fixing four macOS-specific gaps the first build here
+  surfaced — none of them were build or link problems, the binary configured and ran from the
+  start:
+  - `platform_paths`'s forced-locale control set `LANGUAGE` via `setenv()`, which Linux's glibc
+    backend honours and macOS's does not: `QLocale::system()` there resolves through
+    CoreFoundation/`NSUserDefaults` (System Settings), never consulting
+    `LANG`/`LC_ALL`/`LANGUAGE`. The working macOS equivalent is `-AppleLanguages (tags)`, an
+    argument-domain override read from argv at process start — CMakeLists.txt now passes it on
+    the `platform_paths` test's command line on `APPLE`, and the exact-match assertion on the
+    most-preferred tag was loosened to a primary-subtag prefix check, because macOS's canonical
+    expansion order puts the maximized form (`zh-Hans-CN`) ahead of the literally-requested one
+    (`zh-CN`) — both match the "zh" prefix the real caller (`detectSystemLanguage()`) actually
+    depends on.
+  - `platform_paths_bare_locale` has no macOS equivalent at all: every override CoreFoundation
+    exposes (`LC_ALL=C`/`LANG=C`/empty `LANGUAGE`, an empty `-AppleLanguages ()`, `-AppleLocale
+    C`) falls back to the real system language list rather than reporting bare `"C"`, so the
+    state this control probes for is not reachable from a macOS test process. It is no longer
+    registered there (`CMakeLists.txt`, `NOT WIN32 AND NOT APPLE`), rather than left failing
+    against an unreachable target.
+  - `qt_text` assumed DejaVu Sans, which Linux gets from Qt's own fontconfig setup but macOS
+    does not ship at all — it silently substituted the system UI font instead, which is the
+    exact un-asserted substitution this test exists to catch, and had no 'fi' ligature either.
+    `kOnMacOS` now selects Helvetica for both the primary-family and ligature checks: it
+    resolves to itself and measured glyph count 1 for "fi" (has the ligature), the same shape
+    as the existing per-platform branches for Segoe UI/Calibri.
+  - `qt_entry`'s idempotency check compared one pointer (`folderBrowserFormat`) before and
+    after a second `installChromeFormats` call, expecting a fresh heap allocation to prove a
+    real release-and-rebuild happened rather than a no-op. Measured: that single comparison is
+    genuinely flaky on macOS's allocator — 2 passes then 3 fails across 5 consecutive,
+    code-identical `ctest` runs — because a just-freed same-size block is sometimes handed
+    straight back to the very next same-size request. The check now compares all ten format
+    pointers and requires at least one to have moved; a real no-op still fails it (none would
+    move), but one coincidental address reuse no longer does. Stable across 8+ repeated runs
+    after the fix.
+
   `src/platform_paths_qt.cpp`'s `__APPLE__` branches (`_NSGetExecutablePath` for the executable
   directory, `~/Library/Application Support` for the config base, deliberately not
-  `QStandardPaths`, whose generic config location is `~/Library/Preferences`) do compile and the
-  bulk of `platform_paths`' 72 assertions pass — only the locale-normalization ones above fail.
+  `QStandardPaths`, whose generic config location is `~/Library/Preferences`) compile and pass.
 - **The repo's own portability probe will not run here as written.**
   `scripts/probe-portable-linux.sh` calls `mktemp --suffix=.cpp` and
   `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` (macOS's default) rejects.

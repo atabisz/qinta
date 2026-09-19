@@ -839,9 +839,21 @@ if(BUILD_TESTING)
         # assertion would silently test the wrong thing on whichever side moved.
         target_compile_definitions(platform_paths_tests PRIVATE TINTA_PATHS_BACKEND_QT)
     endif()
-    add_test(NAME platform_paths COMMAND platform_paths_tests)
+    if(APPLE)
+        # macOS's Qt backend does not read LANG/LC_ALL/LANGUAGE at all: QLocale::system()
+        # resolves through CoreFoundation/NSUserDefaults (System Settings > Language &
+        # Region), so the env-var steering the Linux branch below relies on has no effect
+        # here -- measured: setenv("LANGUAGE", "zh_CN...") left the reported list at the
+        # real system languages, unchanged. The one knob that DOES steer it is
+        # `-AppleLanguages (tags)`, an NSUserDefaults *argument*-domain override that is
+        # read from argv at first access, which is why it has to be supplied here, at
+        # process launch, rather than via setenv() inside the test after main() starts.
+        add_test(NAME platform_paths COMMAND platform_paths_tests -AppleLanguages "(zh-CN, ja-JP)")
+    else()
+        add_test(NAME platform_paths COMMAND platform_paths_tests)
+    endif()
 
-    if(NOT WIN32)
+    if(NOT WIN32 AND NOT APPLE)
         # A SECOND ENTRY FOR ONE ASSERTION, because it cannot share a process with
         # the first. preferredUiLanguages drops the C/POSIX locale, and the Qt
         # backend resolves the system locale once and caches it -- so a run that
@@ -854,6 +866,15 @@ if(BUILD_TESTING)
         # LC_ALL=C plus LANG=C plus an empty LANGUAGE yields exactly one tag, "C".
         # This is set here rather than in the test because a test that edits its own
         # environment before the first query is the bug this replaced.
+        #
+        # NOT registered on APPLE: this control has no macOS equivalent. Measured every
+        # override CoreFoundation exposes -- LC_ALL/LANG/LANGUAGE (no effect, see above),
+        # an empty `-AppleLanguages ()` (falls back to the real system languages, not
+        # empty), and `-AppleLocale C` (same fallback) -- and none of them reach a state
+        # where QLocale::system() reports bare "C"/"POSIX". macOS's user-facing language
+        # list is sourced from System Settings, which is never actually empty on a real
+        # machine, so the state this control probes for is not reachable from a test
+        # process here at all.
         add_test(NAME platform_paths_bare_locale
                  COMMAND platform_paths_tests --bare-locale)
         set_tests_properties(platform_paths_bare_locale PROPERTIES

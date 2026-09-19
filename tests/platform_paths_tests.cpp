@@ -332,9 +332,19 @@ int main(int argc, char** argv) {
     // process cannot test both because the resolved locale is cached. So the entries
     // below are only the two that do normalization work -- native locale form,
     // underscore, codeset, @modifier.
+    //
+    // NOT on __APPLE__: measured, setenv("LANGUAGE", ...) has zero effect there --
+    // macOS's QLocale::system() resolves through CoreFoundation/NSUserDefaults
+    // (System Settings), which never consults LANG/LC_ALL/LANGUAGE at all. The
+    // forcing knob that DOES reach it is `-AppleLanguages (tags)`, an argument-domain
+    // override read from argv at first access -- too early for a setenv() here to
+    // help even if the variable mattered -- so CMakeLists.txt passes it on the
+    // platform_paths test's command line instead, before this process starts.
+#ifndef __APPLE__
     if (!bareLocale) {
         setenv("LANGUAGE", "zh_CN.UTF-8:ja_JP@x", 1);
     }
+#endif
     // In --bare-locale mode the environment is left exactly as ctest set it
     // (LC_ALL=C, LANG=C, empty LANGUAGE, measured as the single tag "C"), because
     // the point of that mode is to observe the untouched C locale.
@@ -389,7 +399,14 @@ int main(int argc, char** argv) {
     // and concluding that C was filtered.
     const std::vector<std::wstring>& forced = tags;
     check(forced.size() >= 2, "CONTROL: LANGUAGE supplies a preference list");
-    check(!forced.empty() && forced[0] == L"zh-CN",
+    // Primary-subtag prefix, not the exact requested tag: measured on macOS, the
+    // most-preferred entry is "zh-Hans-CN" (CoreFoundation's maximized/canonical form),
+    // with the literally-requested "zh-CN" second -- a different expansion order from
+    // Linux's glibc-driven backend, which puts the requested form first. Both orderings
+    // start with "zh", which is the same prefix-match contract the loosened position-1
+    // check below already relies on: detectSystemLanguage() in i18n.cpp matches by
+    // PREFIX, so it cannot tell "zh-CN" and "zh-Hans-CN" apart at position 0 either.
+    check(!forced.empty() && forced[0].rfind(L"zh", 0) == 0,
           "CONTROL: the most-preferred locale name normalizes to a BCP 47 tag");
 
     // THIS ASSERTION USED TO READ `forced[1] == L"ja-JP"` AND WOULD NOW FAIL

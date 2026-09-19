@@ -15,18 +15,46 @@
 // design. That matters for reading it -- if a pixel changes on Windows, this
 // extraction is wrong.
 //
-// WHAT IS STILL NATIVE, both stated here rather than left to be found by grep:
+// WHAT IS STILL NATIVE. ONE THING, stated here rather than left to be found by grep:
 //
 //   1. The dashed stroke style. Direct2D builds one from the factory; off Windows a
 //      marker object stands in (see the #else arm in the .cpp).
-//   2. The colour-emoji DrawTextLayout, which needs an ID2D1DeviceContext and has no
-//      seam equivalent. It was already guarded at RUNTIME by `if (app.deviceContext)`,
-//      null off Windows -- but a runtime guard does not make an incomplete type
-//      compile, so it is inside #ifdef _WIN32 as well.
 //
-// Those are the only two, and that is a measurement rather than an impression: the
-// extracted range was scanned for Direct2D, DirectWrite and WIC identifiers and
-// these are what it found.
+// That is the only one, and it is a measurement rather than an impression: the extracted
+// range was scanned for Direct2D, DirectWrite and WIC identifiers and this is what it
+// found. Re-measured 2026-09-19 --
+// `rg 'nativeTextLayout|text_d2d\.h|app\.native|deviceContext|IDWrite' src/paint_document.cpp`
+// returns 5 matches and NOT ONE IS A CODE LINE. Three comment on the removal (lines 16, 23
+// and the block above the seam call); the other two, at 88 and 94, are about
+// app.nativeDashedStrokeStyle -- entry 1 above, a different subject, and the one native thing
+// that is supposed to still be discussed here. This said "only comments about the removal"
+// until 2026-09-19, which described 3 of the 5 and quietly folded entry 1's evidence into the
+// deletion's. Read the matches; a total is not a classification.
+//
+// THIS LIST HAD A SECOND ENTRY AND THE ENTRY WAS FALSE. It read: "The colour-emoji
+// DrawTextLayout, which needs an ID2D1DeviceContext and has no seam equivalent." The seam
+// has carried tinta::DrawTextOptions::EnableColorFont since it was built -- see
+// include/text_api.h -- so the native branch was a duplicate of an existing seam path, and
+// it was deleted on 2026-09-19. Four comments in this tree said that same thing about the
+// same code, each citing the others, and none of them was ever re-probed. Worth knowing
+// when reading the remaining entry above: a list of what is "still native" is a claim with
+// an expiry date, and this file's copy outlived its truth by months.
+//
+// A CONSEQUENCE WORTH KNOWING BEFORE IT IS FILED AS A BUG. This pass now asks for colour
+// fonts and almost nothing else does. Counted 2026-09-19: `rg -c 'DrawTextLayout\(' src`
+// returns 33 textual hits, of which 3 are backend definitions or forwards (src/render_d2d.cpp
+// twice, src/render_qt.cpp once) and 1 is a comment -- leaving 29 call sites, of which TWO
+// pass tinta::DrawTextOptions::EnableColorFont (here and src/math_render.cpp) and 27 pass
+// nothing at all. On Direct2D, where the flag is what gates colour, that means the same emoji
+// renders in COLOUR in the document pane and MONOCHROME in the editor pane (src/editor.cpp,
+// five option-less sites), the overlays (seven) and the tab strip. Qt shows no such split,
+// because that backend paints colour glyphs whether or not the flag arrives.
+//
+// This is a real inconsistency and it is deliberately not fixed here -- widening it is a
+// behaviour change for each pane that wants its own decision, not a side effect of deleting a
+// duplicate branch. Two places to start if it is taken up: src/editor.cpp's five sites, and
+// src/export_docx.cpp:556, a second exporter that omits the flag exactly as src/print.cpp
+// does but carries no comment saying the omission is on purpose.
 
 struct App;
 

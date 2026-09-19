@@ -426,15 +426,47 @@ struct App {
     }
     ID2D1SolidColorBrush* nativeBrush = nullptr;
     Seated<tinta::Brush, ID2D1SolidColorBrush> brushStorage;
-    // The scratch brush every draw call passes: 991 sites name it, of which only
-    // 483 call a method (474 SetColor, 6 Release, 3 GetColor). SetColor and
-    // GetColor are on tinta::Brush already and their arguments are tinta::Color
-    // after the value-type sweep, so those 474 needed no edit either.
+    // The scratch brush every draw call passes. Census below is of `fc9ceb0^` -- the tree
+    // the seam sweep operated ON, which is what the past tense in the last sentence is
+    // about -- via `git grep -o -e '<pattern>' 'fc9ceb0^' -- src include tests | wc -l`.
+    // It is deliberately NOT a live reading: the sentence explains why that sweep needed no
+    // edit at those sites, and re-pointing the numbers at HEAD would describe a different
+    // tree than the claim does. Live counts drift: the same unbounded `app\.brush` probe
+    // reads 996 at HEAD against 991 here, two of those being `app.brushStorage` rather than
+    // the member. That drift is expected and is not a defect in this comment.
+    //
+    // 991 sites name it (pattern `app\.brush`), of which 448 call a method
+    // (pattern `app\.brush->[A-Za-z]+`): 447 SetColor, 1 Release, 0 GetColor -- those two
+    // methods are the whole set, not a selection from a longer one. SetColor is on
+    // tinta::Brush already and its argument is tinta::Color after the value-type sweep, so
+    // all 447 needed no edit either.
+    //
+    // THE METHOD FIGURES READ 485 / 476 / 6 / 3 UNTIL 2026-09-19 AND REPRODUCE UNDER NO
+    // PATTERN. Not stale -- unreproducible: 485 is not the count for `app\.brush->`, and it
+    // is not the count for a bare `brush->` either (474), so the probe that produced it
+    // cannot be recovered. The 991 and the 996 above DO reproduce, which is the whole reason
+    // the pattern is now written into the comment beside every number: a figure whose probe
+    // is elided cannot be re-run, so it cannot be corrected -- only deleted or believed.
     tinta::Brush* brush = nullptr;
-    // Stays native deliberately. Its 9 sites are 6 GetDevice, 2 Release and one
-    // DrawTextLayout -- colour-emoji work with no seam equivalent, and it is
-    // obtained by QueryInterface off the native target, not through the seam.
-    ID2D1DeviceContext* deviceContext = nullptr;  // For color emoji rendering
+    // STAYS NATIVE, and the reason is print.cpp -- NOT colour emoji, which is what this
+    // comment said until 2026-09-19 and was wrong about.
+    //
+    // Measured: 15 code lines name it across 17 occurrences -- comment lines excluded, which
+    // matters because the comments written on 2026-09-19 mention the member too and an
+    // unfiltered `rg -n deviceContext src include` now returns 19. ELEVEN of the 15 are in
+    // src/print.cpp (the other four: 2 in src/d2d_init.cpp, 2 here), which reaches the
+    // device via GetDevice -> CreateDeviceContext, carries no preprocessor guards at all,
+    // and is absent from tests/portable-sources.txt. That file is why this member cannot
+    // go. The old comment read "9 sites ... colour-emoji work with no seam equivalent";
+    // its "6 GetDevice" are in fact print.cpp's six, which is how the print and preview
+    // path came to be described as colour-emoji work.
+    //
+    // There is no colour-emoji claim here any more. The seam has carried
+    // tinta::DrawTextOptions::EnableColorFont since it was built, src/paint_document.cpp's
+    // duplicate native branch is deleted, and the on-screen colour-emoji path now goes
+    // through tinta::RenderTarget like every other DrawTextLayout. Obtained by
+    // QueryInterface off the native target, not through the seam.
+    ID2D1DeviceContext* deviceContext = nullptr;  // For src/print.cpp's device access
 
     // WIC (Windows Imaging Component) for image loading
     IWICImagingFactory* wicFactory = nullptr;

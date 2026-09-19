@@ -73,9 +73,11 @@
 #include <string>
 #endif
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cwchar>
 #include <memory>
 #include <vector>
 
@@ -120,6 +122,28 @@ int rightmostPainted(RenderHarness& h) {
         for (int y = 0; y < kHeight; y++)
             if (h.pixel(x, y) != kWhite) return x;
     return -1;
+}
+
+// The widest gap between any single pixel's R, G and B. Zero across a whole surface
+// means every pixel is a shade of grey, which is exactly what a MONOCHROME glyph
+// painted with a black brush produces; a colour-font glyph carries its own palette and
+// cannot come out neutral. So this is the one reading that distinguishes "the colour
+// font was used" from "something was drawn".
+//
+// Alpha is deliberately not part of the spread. An antialiased edge varies alpha while
+// staying neutral in hue, so including it would make every arm look colourful and the
+// discriminator would stop discriminating.
+int maxChannelSpread(RenderHarness& h) {
+    int worst = 0;
+    for (int y = 0; y < kHeight; y++) {
+        for (int x = 0; x < kWidth; x++) {
+            const Rgba p = h.pixel(x, y);
+            const int hi = std::max(p.r, std::max(p.g, p.b));
+            const int lo = std::min(p.r, std::min(p.g, p.b));
+            worst = std::max(worst, hi - lo);
+        }
+    }
+    return worst;
 }
 
 // A w x h block of the surface, read back row-major. Used only by the bitmap-creation
@@ -867,6 +891,170 @@ int runRenderApiAssertions(RenderHarness& h) {
         check(rights[1] <= 71,
               "and what survives stays inside the layout box -- x 10 plus 60, plus a "
               "pixel of antialiasing");
+    }
+
+    // --- EnableColorFont: the flag whose "no seam equivalent" was never true ------
+    //
+    // src/paint_document.cpp carried a native `#ifdef TINTA_D2D_BACKEND` branch calling
+    // app.deviceContext->DrawTextLayout with D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT,
+    // and FOUR separate comments -- in that file, include/app.h, include/paint_document.h
+    // and include/render_d2d.h -- each asserted colour emoji had "no seam equivalent".
+    // The seam has carried DrawTextOptions::EnableColorFont since it was built, held
+    // value-equal to the Direct2D constant by a static_assert in src/render_d2d.cpp, with
+    // a live caller in src/math_render.cpp. The four comments agreed with each other and
+    // were all wrong, and the reason the duplicate branch survived is the same reason the
+    // Clip block above gives for itself: an unexercised flag is indistinguishable from an
+    // unimplemented one. This is the exercise.
+    //
+    // THE LENGTH IS COMPUTED, NOT LITERAL, AND THAT IS NOT FUSSINESS. U+1F600 is ONE
+    // wchar_t where wchar_t is 32-bit and a surrogate PAIR where it is 16-bit, so a
+    // hardcoded 2 would read past the terminator off Windows and a hardcoded 1 would cut
+    // the pair in half on it. The seam's offset contract is stated in caller wchar_t
+    // units precisely so a cross-backend test cannot dodge this.
+    //
+    // THE BRUSH IS BLACK ON PURPOSE. A monochrome glyph takes the brush colour, so every
+    // pixel it paints is neutral; a colour-font glyph carries its own palette and ignores
+    // the brush. maxChannelSpread is therefore a reading of which kind of glyph arrived,
+    // and it is the only thing that separates "the flag did nothing" from "there was no
+    // colour glyph here to act on".
+    {
+        const wchar_t* const kEmoji = L"\U0001F600";
+        const uint32_t kEmojiLength = static_cast<uint32_t>(std::wcslen(kEmoji));
+        const tinta::Color black = tinta::colorF(0.0f, 0.0f, 0.0f);
+        const tinta::DrawTextOptions order[2] = {tinta::DrawTextOptions::None,
+                                                 tinta::DrawTextOptions::EnableColorFont};
+        int painted[2] = {-1, -1};
+        int spread[2] = {-1, -1};
+        std::vector<Rgba> surface[2];
+
+        for (int i = 0; i < 2; i++) {
+            std::unique_ptr<tinta::TextFormat> format = makeFormat(h, 48.0f);
+            if (!format) continue;
+            std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                kEmoji, kEmojiLength, format.get(), kWidth - 20.0f, kHeight - 20.0f);
+            if (!layout) continue;
+
+            whiteSurface(h);
+            std::unique_ptr<tinta::Brush> brush = h.makeBrush(black);
+            h.begin().DrawTextLayout(tinta::pointF(10, 10), layout.get(), brush.get(),
+                                     order[i]);
+            h.end();
+            painted[i] = countNonWhite(h);
+            spread[i] = maxChannelSpread(h);
+            surface[i] = readBlock(h, 0, 0, kWidth, kHeight);
+        }
+
+        check(painted[0] > 0 && painted[1] > 0,
+              "CONTROL: both EnableColorFont arms painted something, so neither reading "
+              "below is of an empty surface");
+
+        // Printed whatever the verdict, because a claim about this flag is worth nothing
+        // without the numbers it was read from -- and because the two hosts this file runs
+        // on do not have the same fonts, so a future reader needs the readings and not
+        // just the pass.
+        std::printf("       EnableColorFont: painted None=%d Colour=%d, channel spread "
+                    "None=%d Colour=%d, surfaces %s (backend=%s)\n",
+                    painted[0], painted[1], spread[0], spread[1],
+                    (surface[0] == surface[1] ? "IDENTICAL" : "DIFFER"), h.name());
+
+        // 8 rather than 0: an un-premultiplied readback and a subpixel-antialiased edge
+        // can each introduce a channel or two of drift on a neutral glyph, and a
+        // threshold of 0 would call that colour. Measured, the two backends sit nowhere
+        // near it -- a neutral glyph reads 0 and a colour one reads 209-214.
+        // NO ASSERTION OVER THE TWO CAPTURES ABOVE CAN FAIL, AND UNTIL 2026-09-19 THIS BLOCK
+        // MADE TWO OF THEM. Both sat inside `if (painted[1] > 0 && spread[1] > 8)`:
+        //   check(spread[1] > 8, ...)                          -- the branch guard itself.
+        //   check(spread[0] > 8 || surface[0] != surface[1])    -- spread is a pure function
+        //     of the captured surface (maxChannelSpread scans the region readBlock reads), so
+        //     surfaces equal implies spread[0] == spread[1] > 8 and the left disjunct holds;
+        //     surfaces unequal and the right one does. True either way.
+        // The second one's comment claimed it rejected "colour without the flag, monochrome
+        // with it" -- that shape gives spread[0] > 8, so it PASSES. A vacuous assertion is
+        // worse than none: it reports a measurement to ctest that was never taken.
+        //
+        // THE STRUCTURAL REASON, worth keeping because it generalises: both readings derive
+        // from one pair of captures, so any predicate over them is a statement about that
+        // pair and not about the seam. Falsifiability needs a quantity the captures do not
+        // determine. Two exist, and this block now uses both -- an INDEPENDENT layout
+        // (below), and the Clip block further up, which passes its own option through the
+        // identical `options` parameter of D2DRenderTarget::DrawTextLayout. That is what
+        // actually pins "the option reaches the backend": drop the forward and
+        // `check(rights[1] <= 71, ...)` fails. This block never guarded that, and its
+        // UNDECIDABLE path would have stayed silent while it broke.
+        const bool sawColourGlyph = painted[1] > 0 && spread[1] > 8;
+        if (!sawColourGlyph) {
+            // UNDECIDABLE, NOT NEGATIVE, and printed rather than checked. With no colour
+            // glyph on this host there is nothing for the flag to change, so "the two
+            // arms match" is true and says nothing whatever about the seam. A check()
+            // here would record a pass for a measurement that never happened, which is
+            // the failure this file's opening comment exists to reject.
+            std::printf("       UNDECIDABLE on this host: the EnableColorFont arm produced "
+                        "no saturated pixel (spread %d, needs > 8), so no colour glyph "
+                        "reached the surface and the comparison above is not evidence in "
+                        "either direction. Install a colour emoji font to decide it.\n",
+                        spread[1]);
+        } else {
+            // REPORTED, NOT ASSERTED, for the reason given above. Measured: direct2d GATES
+            // colour on the flag (spread 0 -> 214, surfaces differ), qt paints the colour
+            // glyph unconditionally (209 -> 209, surfaces identical) because QTextLayout
+            // hands the run to QPainter, which resolves a colour font on its own. Both are
+            // correct, which is why an earlier draft asserting the direct2d shape for both
+            // failed qt on a difference that was not a defect -- and why the draft after
+            // that, reaching for something that would hold on both, reached a tautology.
+            // The honest form of a per-host reading is a printed reading.
+            std::printf("       EnableColorFont: %s (backend=%s)\n",
+                        spread[0] > 8 ? "backend paints colour glyphs unconditionally and "
+                                        "ignores the flag"
+                                      : "backend gates colour on the flag",
+                        h.name());
+        }
+
+        // THE FALSIFIABLE HALF, and it guards the change that actually shipped. Since
+        // 2026-09-19 src/paint_document.cpp passes EnableColorFont on EVERY text run, not
+        // just ones holding emoji, so the flag's effect on ordinary text stopped being
+        // hypothetical. An independent layout makes this non-vacuous: nothing above
+        // determines these captures, so the comparison can fail.
+        //
+        // It must be byte-identical. A backend that perturbed plain text when asked for
+        // colour fonts -- different hinting, a different rasteriser path, a fallback font --
+        // would change every document in the app on the strength of one enum value, and
+        // would do it invisibly, since the emoji reading above would still look right.
+        {
+            const wchar_t* const kPlain = L"Hello";
+            const uint32_t kPlainLength = static_cast<uint32_t>(std::wcslen(kPlain));
+            const tinta::Color plainBrushColor = tinta::colorF(0.0f, 0.0f, 0.0f);
+            const tinta::DrawTextOptions plainOrder[2] = {
+                tinta::DrawTextOptions::None, tinta::DrawTextOptions::EnableColorFont};
+            std::vector<Rgba> plain[2];
+            int plainPainted[2] = {-1, -1};
+
+            for (int i = 0; i < 2; i++) {
+                std::unique_ptr<tinta::TextFormat> format = makeFormat(h, 48.0f);
+                if (!format) continue;
+                std::unique_ptr<tinta::TextLayout> layout = h.textFactory().CreateTextLayout(
+                    kPlain, kPlainLength, format.get(), kWidth - 20.0f, kHeight - 20.0f);
+                if (!layout) continue;
+
+                whiteSurface(h);
+                std::unique_ptr<tinta::Brush> brush = h.makeBrush(plainBrushColor);
+                h.begin().DrawTextLayout(tinta::pointF(10, 10), layout.get(), brush.get(),
+                                         plainOrder[i]);
+                h.end();
+                plainPainted[i] = countNonWhite(h);
+                plain[i] = readBlock(h, 0, 0, kWidth, kHeight);
+            }
+
+            check(plainPainted[0] > 0 && plainPainted[1] > 0,
+                  "CONTROL: both plain-text arms painted something, so the comparison below "
+                  "is not between two blank surfaces");
+            check(plain[0] == plain[1],
+                  "EnableColorFont leaves NON-EMOJI text byte-identical -- it is passed on "
+                  "every run now, so it must not perturb ordinary glyphs");
+            std::printf("       EnableColorFont on plain text: painted None=%d Colour=%d, "
+                        "surfaces %s (backend=%s)\n",
+                        plainPainted[0], plainPainted[1],
+                        (plain[0] == plain[1] ? "IDENTICAL" : "DIFFER"), h.name());
+        }
     }
 
     // --- Trimming: the ellipsis sign, and the 4 call sites that pass none ------

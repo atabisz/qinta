@@ -446,7 +446,23 @@ bool createRenderTarget(App& app) {
     hr = app.nativeRenderTarget->CreateSolidColorBrush(tinta::colorF(1, 1, 1), &app.nativeBrush);
     if (FAILED(hr)) return false;
 
-    // Cache device context for color emoji rendering
+    // Cache the device context. NOT for colour emoji rendering, which is what this comment
+    // said until 2026-09-19: that caller was src/paint_document.cpp's native
+    // DrawTextLayout branch, it was a duplicate of a seam call already carrying
+    // tinta::DrawTextOptions::EnableColorFont, and it is deleted. The QI stays because
+    // src/print.cpp still reaches the device through app.deviceContext -- eleven of the
+    // FIFTEEN code lines naming the member are in that file (17 occurrences on those 15
+    // lines; this said "seventeen lines" until 2026-09-19, conflating the two). See
+    // include/app.h's note on the member for the census and its patterns.
+    //
+    // THE HRESULT IS DISCARDED ON PURPOSE AND THAT HAS A COST. A failed QI leaves
+    // app.deviceContext null, src/print.cpp checks it, and printing declines -- so the
+    // failure is survivable here. But nothing records that the target is not a device
+    // context, and src/paint_document.cpp and src/math_render.cpp both now pass
+    // tinta::DrawTextOptions::EnableColorFont through the seam unconditionally, to a target
+    // D2DRenderTarget holds as ID2D1RenderTarget*. Neither can consult this outcome.
+    // See the behaviour note in src/paint_document.cpp before adding a caller that would
+    // want to.
     if (app.deviceContext) { app.deviceContext->Release(); app.deviceContext = nullptr; }
     app.nativeRenderTarget->QueryInterface(__uuidof(ID2D1DeviceContext),
         reinterpret_cast<void**>(&app.deviceContext));

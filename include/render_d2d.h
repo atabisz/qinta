@@ -271,10 +271,20 @@ private:
 // than drawing nothing, and `nativeBitmap` accepts an owned bitmap as well as a borrowed
 // one because D2DOwnedBitmap derives from D2DBitmap so one unwrapper serves both.
 //
-// Contrast text_d2d.h's nativeTextLayout, which stays legitimately exported --
-// src/paint_document.cpp needs it for the colour-emoji ID2D1DeviceContext path, which
-// has no seam equivalent at all -- and nativeTextFormat, which after this change is the
-// ONLY free function still unresolved when the Direct2D backend is excluded.
+// Contrast text_d2d.h's nativeTextLayout, which stays legitimately exported -- but NOT for
+// the reason this comment gave until 2026-09-19. It said src/paint_document.cpp needed it
+// "for the colour-emoji ID2D1DeviceContext path, which has no seam equivalent at all".
+// There was always a seam equivalent (tinta::DrawTextOptions::EnableColorFont), that branch
+// is deleted, and src/paint_document.cpp no longer names DirectWrite at all.
+//
+// The export is still required, and the real reason is plainer: src/render_d2d.cpp:335
+// calls it inside D2DRenderTarget::DrawTextLayout, and src/text_d2d.cpp:855 defines it --
+// a different translation unit, so the declaration has to be in the header. A cross-TU
+// call is a reason that can be checked by the linker; "some other file needs it for X" is
+// a reason that rots silently, and did.
+//
+// nativeTextFormat, meanwhile, is the ONLY free function still unresolved when the
+// Direct2D backend is excluded.
 
 // BORROWS. The native holders of a bitmap release their own, and a wrapper that took a
 // reference would make their ownership depend on whether a drawing call had happened to

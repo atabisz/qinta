@@ -477,9 +477,18 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
         // was in the way.
         //
         // NO options argument, matching the old call, which means the printed page has
-        // no colour-emoji pass. src/paint_document.cpp's on-screen sibling DOES take one
-        // (through app.deviceContext, with EnableColorFont) and this deliberately still
-        // does not: adding it would change what prints.
+        // no colour-emoji pass. src/paint_document.cpp's on-screen sibling DOES pass
+        // EnableColorFont and this deliberately still does not: adding it would change what
+        // prints. The sibling no longer does it "through app.deviceContext" as this said
+        // until 2026-09-19 -- it passes the option through the seam like any other draw, so
+        // the difference between the two sites is now one argument and nothing else, which
+        // is the whole reason it is worth a comment.
+        //
+        // On Direct2D that argument is what decides it: measured spread 0 without the bit
+        // against 214 with it (tests/render_api_shared.cpp). On Qt it would be no change at
+        // all, because that backend paints colour glyphs either way -- so if printing ever
+        // moves to QPrinter, this omission stops being load-bearing and the printed page
+        // gains colour emoji whether or not anyone edits this line.
         target.DrawTextLayout(tinta::pointF(run.pos.x + dx, run.pos.y + dy),
                               run.layout.get(), brush);
         resetBand(banded);

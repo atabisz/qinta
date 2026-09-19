@@ -48,9 +48,20 @@ static_assert(static_cast<int>(tinta::BitmapInterpolationMode::Linear) ==
 // text_d2d.cpp because D2D1_DRAW_TEXT_OPTIONS is declared in <d2d1.h> and not in
 // <dwrite.h>: the flags belong to the render target that draws the text, not to
 // the font machinery that shapes it. EnableColorFont is the only value any call
-// site passes (src/main_d2d.cpp and src/math_render.cpp, one each), and it is the
-// one whose silent loss would be hardest to spot -- emoji would simply render
-// monochrome.
+// site passes, and it is the one whose silent loss would be hardest to spot --
+// emoji would simply render monochrome.
+//
+// THE CALL SITES, corrected 2026-09-19: src/math_render.cpp:733,
+// src/paint_document.cpp:491 and tests/render_api_shared.cpp. This said
+// "src/main_d2d.cpp and src/math_render.cpp, one each" and main_d2d.cpp was NEVER
+// one of them -- `git log -S'EnableColorFont' -- src/main_d2d.cpp` is empty across
+// the whole history, positive-controlled against math_render.cpp, which returns
+// a7bdb91. What main_d2d.cpp did carry was the NATIVE constant
+// D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT (added 8716dcb, removed cea6c6b), and
+// someone wrote the native constant down as the seam enum. Four comments then
+// reasoned from that one layer confusion, including this one, which sat 70 lines
+// above a comment being rewritten for exactly that error. Cite the symbol and
+// re-run the probe; do not copy a call-site list from a neighbouring comment.
 static_assert(static_cast<int>(tinta::DrawTextOptions::None) ==
                   static_cast<int>(D2D1_DRAW_TEXT_OPTIONS_NONE),
               "tinta::DrawTextOptions::None must match D2D1_DRAW_TEXT_OPTIONS_NONE");
@@ -117,9 +128,12 @@ ID2D1StrokeStyle* nativeStrokeStyle(tinta::StrokeStyle* style) {
 // nobody calls from one nobody can: a call to nativeBitmap planted in src/print.cpp,
 // the file that used to make exactly that call, must fail to COMPILE.
 //
-// nativeTextLayout is NOT in the same position -- src/paint_document.cpp still needs it
-// for the colour-emoji device-context path -- and nativeTextFormat is now the ONLY free
-// function this backend leaves unresolved when TINTA_LEGACY_D2D is OFF.
+// nativeTextLayout is NOT in the same position, though the reason changed on 2026-09-19:
+// this said src/paint_document.cpp needed it "for the colour-emoji device-context path",
+// and that path was a duplicate of a seam call that already carried EnableColorFont, so it
+// is gone. What keeps the export honest is DrawTextLayout below, at line 335 -- this TU
+// calls it, src/text_d2d.cpp defines it. nativeTextFormat is still the ONLY free function
+// this backend leaves unresolved when TINTA_LEGACY_D2D is OFF.
 ID2D1Bitmap* nativeBitmap(tinta::Bitmap* bitmap) {
     if (!bitmap) return nullptr;
     // dynamic_cast, so an owned bitmap passes too -- D2DOwnedBitmap derives from

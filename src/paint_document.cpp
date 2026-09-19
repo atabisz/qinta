@@ -6,25 +6,27 @@
 #include <cmath>
 #include <memory>
 
-// TINTA_D2D_BACKEND, NOT _WIN32, AND THAT DISTINCTION COST A LINK FAILURE. All three
-// guards in this file said `#ifdef _WIN32` when they were written, which was true of
-// every target that existed then. qinta is a WINDOWS target with no Direct2D backend,
-// so _WIN32 was defined, the colour-emoji branch below compiled, and the link came back
-// `unresolved external symbol nativeTextLayout` out of src/text_d2d.cpp -- a file
-// qinta correctly does not compile. The dashed block further down was worse: it
-// resolves through d2d1.lib, so it would have LINKED and then dereferenced a null
-// app.d2dFactory at the first dashed mermaid connector.
+// TINTA_D2D_BACKEND, NOT _WIN32, AND THAT DISTINCTION COST A LINK FAILURE. Kept as a
+// record because the reasoning still governs the dashed block below, and because the
+// failure it describes is the one a future guard here would repeat.
+//
+// All three guards in this file said `#ifdef _WIN32` when they were written, which was
+// true of every target that existed then. qinta is a WINDOWS target with no Direct2D
+// backend, so _WIN32 was defined, the colour-emoji branch then in the run loop compiled,
+// and the link came back `unresolved external symbol nativeTextLayout` out of
+// src/text_d2d.cpp -- a file qinta correctly does not compile. The dashed block further
+// down was worse: it resolves through d2d1.lib, so it would have LINKED and then
+// dereferenced a null app.d2dFactory at the first dashed mermaid connector.
+//
+// THAT COLOUR-EMOJI BRANCH IS GONE as of 2026-09-19 -- it duplicated a seam path that
+// already carried DrawTextOptions::EnableColorFont, see the run loop for the evidence --
+// and with it went the `#ifdef TINTA_D2D_BACKEND` include of text_d2d.h that served it.
+// So this file no longer names DirectWrite at all, and nothing here downcasts a layout.
+// The lesson outlives its example: the question a guard in a file BOTH stacks compile has
+// to ask is which backend it got, never which OS it is on.
 //
 // The macro is defined by CMakeLists.txt on the targets that actually link the backend,
 // gated on TINTA_LEGACY_D2D, and it goes away when those two backend files are deleted.
-// The question a guard in a file BOTH stacks compile has to ask is which backend it got,
-// never which OS it is on.
-#ifdef TINTA_D2D_BACKEND
-// The colour-emoji branch needs the layout back as an IDWriteTextLayout*, and
-// nativeTextLayout() is the asserted downcast that does it. DirectWrite-only by
-// construction, so the include is too -- text_d2d.h names DirectWrite types.
-#include "text_d2d.h"
-#endif
 
 namespace {
 
@@ -461,31 +463,56 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         }
         app.brush->SetColor(run.color);
         tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
-#ifdef TINTA_D2D_BACKEND
-        if (app.deviceContext) {
-            // Stays native, deliberately. app.deviceContext is the colour-emoji path
-            // and has no seam equivalent (see its declaration in app.h), so this is
-            // the one call that needs the layout back as an IDWriteTextLayout*.
-            app.deviceContext->DrawTextLayout(drawPos, nativeTextLayout(run.layout.get()),
-                app.nativeBrush, D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT);
-        } else
-#endif
-        {
-            // The `} else` above closes inside the #ifdef on purpose, so that without
-            // the Direct2D backend this block is simply the whole branch and there is no
-            // second copy of the seam call to keep in step. app.deviceContext exists off
-            // Windows as a forward-declared pointer that is always null, so the runtime
-            // shape is identical either way; what the #ifdef buys is that an incomplete
-            // ID2D1DeviceContext is never dereferenced at COMPILE time -- and, since the
-            // guard became TINTA_D2D_BACKEND, that qinta never references
-            // nativeTextLayout, which is what its link failure was.
-            //
-            // Onto the seam, which is one of the 26 DrawTextLayout sites render_api.h
-            // was sized for. It could not move before this commit: the layout was a
-            // native pointer, and passing it here would have needed a wrapper built
-            // per frame per run.
-            app.renderTarget->DrawTextLayout(drawPos, run.layout.get(), app.brush);
-        }
+        // ONE CALL, BOTH BACKENDS, AND THE COLOUR-EMOJI OPTION GOES THROUGH THE SEAM.
+        //
+        // This was two arms until 2026-09-19: a `#ifdef TINTA_D2D_BACKEND` branch calling
+        // app.deviceContext->DrawTextLayout(..., D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT)
+        // whenever the QueryInterface for ID2D1DeviceContext had succeeded, falling back to
+        // this seam call when it had not. The native arm was a duplicate of a path the seam
+        // has carried since it was built, and four comments in this tree -- here, in app.h,
+        // in paint_document.h and in render_d2d.h -- each asserted colour emoji had "no seam
+        // equivalent", citing one another. All four were wrong the whole time:
+        // tinta::DrawTextOptions::EnableColorFont (the enumerator in include/text_api.h) is
+        // static_assert'd equal to D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT near the top of
+        // src/render_d2d.cpp and forwarded by D2DRenderTarget::DrawTextLayout in that same
+        // file, and src/math_render.cpp was already passing it.
+        //
+        // Those three citations were LINE NUMBERS until 2026-09-19 and two of them were
+        // already stale -- include/text_api.h:184 had become :205 and the forward is not on
+        // the line named -- both moved by the very comments written to fix this class of rot.
+        // Symbols do not move; grep for them.
+        //
+        // Measured before and after, not argued: tests/render_api_shared.cpp now asserts this
+        // flag across both backends, and it reads channel spread 0 without the flag against
+        // 214 with it on Direct2D -- a black brush cannot produce a saturated pixel any other
+        // way. Qt reads 209 either way, because QTextLayout hands the run to QPainter, which
+        // resolves a colour font itself; Qt has therefore been rendering colour emoji all
+        // along through the plain call this line replaces, which is the clearest evidence the
+        // native arm bought nothing.
+        //
+        // ONE DELIBERATE BEHAVIOUR CHANGE, AND IT HAS AN UNMEASURED TAIL. Stated plainly
+        // because the first version of this comment called it "an improvement rather than a
+        // wash", which was a claim about every run made from a measurement of one.
+        //
+        // The old code passed the option only when the QueryInterface for ID2D1DeviceContext
+        // had succeeded, and fell through to a no-option seam call when it had not. The
+        // option is now unconditional. Where the QI succeeds -- which is the case on every
+        // host this has been run on, and the case the pixel figures above were taken under --
+        // the two are identical. Where it FAILS, the old code was monochrome by construction
+        // and the new code hands bit 4 to a target that D2DRenderTarget declares as
+        // ID2D1RenderTarget*, not as a device context. What Direct2D does with the colour
+        // bit on a plain render target is NOT measured here and cannot be settled from this
+        // tree; the QI's own HRESULT is discarded in src/d2d_init.cpp, so nothing downstream
+        // can even observe which case it is in.
+        //
+        // WHAT KEEPS THIS FROM BEING A NEW RISK: src/math_render.cpp has passed the same bit
+        // through the same seam method to the same target unconditionally since a7bdb91, with
+        // no QI check of any kind. So the hazard predates this change by a long way. What
+        // this change does is widen its reach from documents containing maths to every
+        // document. That is a real widening and worth knowing; it is not a path this commit
+        // opened, and reinstating a guard here would not close it while math_render stands.
+        app.renderTarget->DrawTextLayout(drawPos, run.layout.get(), app.brush,
+                                         tinta::DrawTextOptions::EnableColorFont);
         app.drawCalls++;
     }
 

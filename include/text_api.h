@@ -173,10 +173,31 @@ enum class LineSpacingMethod {
     Uniform = 1,
 };
 
-// Two sites pass EnableColorFont (main_d2d.cpp, math_render.cpp) and every other
-// DrawText site passes nothing at all. The remaining values are here because the
-// parameter is a bit field and a backend must not treat an unrecognised bit as
-// zero without saying so.
+// THREE sites pass EnableColorFont as of 2026-09-19 -- src/math_render.cpp:733,
+// src/paint_document.cpp:491 and tests/render_api_shared.cpp -- and every other DrawText
+// site passes nothing at all. The remaining values are here because the parameter is a bit
+// field and a backend must not treat an unrecognised bit as zero without saying so.
+//
+// THIS SAID "two sites (main_d2d.cpp, math_render.cpp)" AND main_d2d.cpp WAS NEVER ONE OF
+// THEM: `git log -S EnableColorFont -- src/main_d2d.cpp` is empty across the whole history,
+// positive-controlled against math_render.cpp, which returns a7bdb91. So that half was
+// false when written rather than gone stale -- the colour-emoji path in main_d2d.cpp went
+// through Direct2D's own D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT, never this enum, which
+// is exactly the confusion that kept four other comments in this tree asserting the seam
+// had no colour-emoji option while it had carried one all along.
+//
+// WHAT THE BACKENDS ACTUALLY DO WITH THE BIT IS NOT UNIFORM, and the seam does not promise
+// that it is. Measured 2026-09-19 through tests/render_api_shared.cpp, one black brush and
+// one U+1F600, reading max channel spread over the surface:
+//
+//   direct2d  spread 0 without the bit, 214 with it   -- gates colour on the flag
+//   qt        spread 209 either way, surfaces byte-identical -- paints colour glyphs
+//             unconditionally and ignores the flag
+//
+// Both are legal readings of "enable", so the shared test asserts the IMPLICATION rather
+// than either shape: with the bit set a colour glyph must appear, and a backend that paints
+// neutral without it must change the pixels when it is passed. Do not write "the backends
+// honour this flag" here -- one of them has nothing to honour.
 enum class DrawTextOptions {
     None = 0,
     NoSnap = 1,

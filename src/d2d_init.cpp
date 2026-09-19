@@ -457,9 +457,14 @@ bool createRenderTarget(App& app) {
     // so the wrappers have to be seated before the first frame. Both natives are
     // non-null here; every early return above leaves them null and the matching
     // seam pointer null with them, which is what callers already null-check.
+    // No seatDashedStrokeStyle() here any more, and its absence is deliberate rather
+    // than an omission. App holds the dashed stroke style as one owning
+    // unique_ptr<tinta::StrokeStyle> built by ensureDashedStrokeStyle, so there is no
+    // native to seat -- and because this function runs on device RECREATION as well as
+    // creation, a surviving call would have destroyed a live style every time the device
+    // came back. The style is a factory object and outlives the device by design.
     app.seatRenderTarget();
     app.seatBrush();
-    app.seatDashedStrokeStyle();
 
     return true;
 }

@@ -65,15 +65,17 @@
 // than compiling into a portable build. That property is the load-bearing part;
 // the count that used to be written beside it was not.
 //
-// IT SAID "45 NATIVE MEMBERS" and the measurement is 12 -- eight raw `Native*`
-// members and four `Seated<Seam, Native>`, whose only native-typed data is its own
+// IT SAID "45 NATIVE MEMBERS" and the measurement is 10 -- seven raw `Native*`
+// members and three `Seated<Seam, Native>`, whose only native-typed data is its own
 // cached `Native*`. The figure was true before the text formats went through the
 // seam and no longer described anything; it is replaced with the command rather
 // than with a new number, because a bare number here has now gone stale twice --
 // and it has gone stale AGAIN since, from 14 to 12, when the link peek's
 // `ID2D1Bitmap*` member and its Seated storage became one
-// `shared_ptr<tinta::Bitmap>`. That is the third time, which is the argument for
-// the command and against the number:
+// `shared_ptr<tinta::Bitmap>`, and AGAIN from 12 to 10 the slice after that, when the
+// dashed stroke style's `ID2D1StrokeStyle*` member and its Seated storage became one
+// `unique_ptr<tinta::StrokeStyle>`. That is four times, twice by the same move on
+// consecutive slices, which is the argument for the command and against the number:
 //
 //   rg -n "(ID2D1|IDWrite|IWIC)[A-Za-z0-9]+" include/app.h | grep -vE "^[0-9]+: *//"
 //
@@ -83,15 +85,20 @@
 // THIS BLOCK DECLARES WHAT THIS HEADER NAMES, AND THAT IS NEW. `ID2D1RenderTarget` is
 // named live at :340 and used to be absent here, arriving instead from
 // include/render_d2d.h's own `#else` because that header is included at :184, before App
-// is declared. It is declared here now -- THREE names below are already in both blocks, so
+// is declared. It is declared here now -- TWO names below are already in both blocks, so
 // the redundancy is the existing convention rather than a new one.
 //
-// THAT THREE IS MEASURED AND SURVIVED A WRONG CORRECTION, which is the only reason it is
-// still written as a number. Removing ID2D1Bitmap from this block looked like it had to
-// take the overlap with it, and it did not -- the deleted name is declared by render_d2d.h
-// and was never one of the three. Do not adjust it by arithmetic; the overlap is five
-// names across two siblings, three with render_d2d.h and IDWriteFactory/IDWriteFontFallback
-// with text_d2d.h, and it is one command:
+// THAT NUMBER IS MEASURED, HAS SURVIVED A WRONG CORRECTION ONCE AND HAS SINCE MOVED FOR
+// REAL, which between them are the whole argument for writing the command instead of the
+// figure. It read THREE until this slice. Removing ID2D1Bitmap from this block, one slice
+// ago, looked like it had to take the overlap with it and did not -- that name is declared
+// by render_d2d.h and was never one of the three. Removing ID2D1StrokeStyle, this slice,
+// looked like the same non-event and was not: it WAS one of the three. Nothing about the
+// two edits told them apart from the outside, which is why the rule here is do not adjust
+// it by arithmetic -- re-run the command. Measured 2026-09-19 after the deletion: the
+// overlap is FOUR names across two siblings, ID2D1RenderTarget/ID2D1SolidColorBrush with
+// render_d2d.h and IDWriteFactory/IDWriteFontFallback with text_d2d.h, and it is one
+// command:
 //
 //   comm -12 <(awk '/^#else/{f=1} /^#endif/{f=0} f && /^struct [A-Z]/{print $2}' \
 //   include/app.h | tr -d ';' | sort -u) <(same over include/render_d2d.h)
@@ -109,7 +116,6 @@ struct ID2D1HwndRenderTarget;
 struct ID2D1RenderTarget;
 struct ID2D1DeviceContext;
 struct ID2D1SolidColorBrush;
-struct ID2D1StrokeStyle;
 struct IDWriteFactory;
 struct IDWriteFontFallback;
 struct IWICImagingFactory;
@@ -359,9 +365,40 @@ struct App {
 
     // Cached dashed stroke for mermaid edges (factory object: created once,
     // survives render-target recreation)
-    ID2D1StrokeStyle* nativeDashedStrokeStyle = nullptr;
-    Seated<tinta::StrokeStyle, ID2D1StrokeStyle> dashedStrokeStyleStorage;
-    tinta::StrokeStyle* dashedStrokeStyle = nullptr;
+    //
+    // ONE MEMBER, WHERE THIS WAS THREE, AND THE COLLAPSE IS THE POINT RATHER THAN THE
+    // TYPE NAME. It was an ID2D1StrokeStyle* native, a Seated<> storage over it, and a
+    // tinta::StrokeStyle* read pointer. Commit fc9ceb0 changed CreateStrokeStyle's
+    // out-parameter from the seam spelling to the native one and never added the line
+    // that seated the wrapper over it: both spellings compiled, the wrong one was merely
+    // never read, and every dashed mermaid connector drew SOLID for several commits while
+    // CreateStrokeStyle re-ran per frame and leaked the previous pointer. Two members
+    // that must agree can stop agreeing; one member cannot.
+    //
+    // NOT Seated<>, on this header's own rule for the distinction -- the same sentence
+    // the document text formats below carry. Seated exists to wrap an ALREADY-CREATED
+    // native in place and keep that wrapping idempotent, and its second member is a
+    // comparison key for "the same native I wrapped last time". ensureDashedStrokeStyle
+    // now returns an owning portable pointer, so there is no native left to compare, and
+    // keeping the template would have left the coupling in the TYPE while removing it
+    // from the call.
+    //
+    // THE READ SITES TAKE .get() RATHER THAN A SECOND MEMBER, which is where this differs
+    // from the text formats above -- they keep a raw alias beside each storage because the
+    // draw path reads app.textFormat at hundreds of sites. This has three:
+    // src/paint_document.cpp, src/print.cpp and src/export_docx.cpp, one each. A raw
+    // alias to save three calls would have reintroduced the pair that fc9ceb0 came apart
+    // on, to save nothing measurable.
+    //
+    // AND SOMETHING WATCHES IT NOW, which is the half of fc9ceb0 the type change does not
+    // fix. tests/qt_entry_tests.cpp run 18 calls the real ensureDashedStrokeStyle and
+    // asserts this member is non-null afterwards, with a reset control so the assertion can
+    // come back red. Verified by mutation: deleting the install statement turns it red and
+    // restoring it green. One thing that run establishes and the type change does not --
+    // the LATCH assertion ("a second call returns the same pointer") stayed GREEN under
+    // that mutation, because two null pointers compare equal. If this member ever grows a
+    // sibling again, the install assertion is the one that would catch it, not the latch.
+    std::unique_ptr<tinta::StrokeStyle> dashedStrokeStyle;
 
     // Editor paint-path line layouts, keyed by line start offset. Cleared on
     // any text/format/width/wrap change; between changes the 500 ms cursor
@@ -1685,9 +1722,10 @@ struct App {
         releaseNative(nativeBrush);
         brushStorage.reset();
         brush = nullptr;
-        releaseNative(nativeDashedStrokeStyle);
-        dashedStrokeStyleStorage.reset();
-        dashedStrokeStyle = nullptr;
+        // One reset() where three lines stood: a releaseNative on the native, a storage
+        // reset and a null of the read pointer. ~D2DOwnedStrokeStyle does the Release now,
+        // which is the same trade the two bitmap handles above made.
+        dashedStrokeStyle.reset();
         releaseNative(deviceContext);
         releaseNative(nativeRenderTarget);
         renderTargetStorage.reset();
@@ -1803,26 +1841,31 @@ struct App {
 #endif
     }
 
-    void seatDashedStrokeStyle() {
-#ifdef _WIN32
-        dashedStrokeStyleStorage.seat<D2DStrokeStyle>(nativeDashedStrokeStyle);
-        dashedStrokeStyle = dashedStrokeStyleStorage.get();
-#else
-        dashedStrokeStyleStorage.reset();
-        dashedStrokeStyle = nullptr;
-#endif
-    }
+    // seatDashedStrokeStyle() STOOD HERE AND IS DELETED, along with its one caller at
+    // src/d2d_init.cpp. Removing it is a hazard removal and not tidying, which is worth
+    // saying because the call looked inert: d2d_init runs on device RECREATION as well as
+    // creation, the stroke style is a factory object that survives recreation (see its
+    // member above), so today that call re-seats a still-valid native and does nothing
+    // visible. After this change there is no native to seat, and a surviving
+    // seatDashedStrokeStyle() would have RESET the installed style on every device
+    // recreation -- silently rebuilding it through the create-once latch, or leaving it
+    // null for any caller that reads before the next ensureDashedStrokeStyle.
 
-    // THREE SEATS AND A FACTORY, down from four and a factory: the seatTextFormats()
-    // line that stood between the stroke style and the factory is gone with the
-    // function. Everything still listed here wraps a native that DirectWrite really
-    // does create -- the render target, the brush, the dashed stroke style and the
-    // DWrite factory itself -- which is the residue this port's anti-claim A2 said
-    // would stay. Text formats are the family that finished leaving.
+    // TWO SEATS AND A FACTORY, down from three and a factory, and down from four before
+    // that: seatTextFormats() went with its function, and seatDashedStrokeStyle() has now
+    // gone with its member. What is left wraps a native that really is created and really
+    // is borrowed by its wrapper -- the render target, the brush and the DWrite factory.
+    //
+    // THE DASHED STROKE STYLE IS THE FIRST DEPARTURE FROM THIS LIST THAT WAS NOT A
+    // BITMAP, and that matters more than the count. The note below this function argues
+    // that the remaining storages cannot follow the bitmaps because a bitmap is data
+    // while these wrap a real borrowed native. The stroke style met that description
+    // exactly and left anyway -- not by becoming data, but by having its wrapper take
+    // OWNERSHIP of the native instead of borrowing it. So "the native is real and
+    // borrowed" was never the barrier; who releases it was.
     void seatSeamWrappers() {
         seatRenderTarget();
         seatBrush();
-        seatDashedStrokeStyle();
         seatTextFactory();
     }
 
@@ -1839,15 +1882,30 @@ struct App {
     // leaves a stale pointer that still draws the PREVIOUS image. Reseating on read
     // cannot be forgotten.
     //
-    // WHAT REPLACED IT IS STRICTLY BETTER, AND THE REASON IS WORTH KEEPING because it is
-    // the argument for the four Seated<> storages that remain NOT following: a
+    // WHAT REPLACED IT IS STRICTLY BETTER, AND THE REASON IS WORTH KEEPING: a
     // shared_ptr<tinta::Bitmap> member has no native pointer behind it, so the staleness
     // the accessor defended against cannot arise at all -- the defence is not reimplemented
-    // cheaper, it is unnecessary. That is only available when the thing held can be a seam
-    // handle. renderTargetStorage, brushStorage, dashedStrokeStyleStorage and
-    // textFactoryStorage each still wrap a native that really is created and really is
-    // borrowed, so for them the accessor argument above is still the live one. The bitmaps
-    // could leave because a bitmap is data; a render target is a device.
+    // cheaper, it is unnecessary.
+    //
+    // THIS PARAGRAPH USED TO END BY ARGUING THAT THE REMAINING FOUR Seated<> STORAGES
+    // COULD NOT FOLLOW, AND ONE OF THEM HAS SINCE FOLLOWED, so the argument is corrected
+    // here rather than deleted -- the part it got wrong is the useful part. It read:
+    // "renderTargetStorage, brushStorage, dashedStrokeStyleStorage and textFactoryStorage
+    // each still wrap a native that really is created and really is borrowed, so for them
+    // the accessor argument above is still the live one. The bitmaps could leave because a
+    // bitmap is data; a render target is a device."
+    //
+    // dashedStrokeStyleStorage met that description in every particular -- a real
+    // ID2D1StrokeStyle from a real CreateStrokeStyle, borrowed by its wrapper -- and it is
+    // gone, replaced by a single unique_ptr<tinta::StrokeStyle>. It did not become data.
+    // What changed is that D2DOwnedStrokeStyle RELEASES the native, so App no longer has
+    // to hold one to release it later, and with no native member there is nothing for a
+    // seated pointer to go stale against. So the real test was never data-versus-device: it
+    // is whether the wrapper can take ownership. THREE remain -- renderTargetStorage,
+    // brushStorage, textFactoryStorage -- and the live question for each is now that one.
+    // For the render target the answer is probably no on its own terms rather than by this
+    // argument: the device is recreated under App on resize and device loss, which is the
+    // event Seated<>'s comparison key exists for.
     //
     // Each departure also took an `#ifdef TINTA_D2D_BACKEND` with it, which was the larger
     // win: the guard existed ONLY because the thing behind it was an ID2D1Bitmap*, and its

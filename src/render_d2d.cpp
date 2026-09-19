@@ -255,6 +255,13 @@ D2DOwnedBitmap::~D2DOwnedBitmap() {
     if (bitmap_) bitmap_->Release();
 }
 
+// Same reason, same shape. This is the only Release of the dashed stroke style now:
+// App::shutdown's releaseNative(nativeDashedStrokeStyle) is deleted in this commit,
+// because the member it released does not exist any more.
+D2DOwnedStrokeStyle::~D2DOwnedStrokeStyle() {
+    if (style_) style_->Release();
+}
+
 void D2DBrush::SetColor(const tinta::Color& color) {
     // geometry.h's implicit operator D2D1_COLOR_F() is what makes this a
     // forwarding call rather than a conversion, and it is layout-asserted there.

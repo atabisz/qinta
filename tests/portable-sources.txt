@@ -789,6 +789,15 @@ render.cpp
 # An extraction that had left three would have been a different claim, so the script that
 # cut it asserted the count on the extracted text before writing it out.
 #
+# ONE OF THOSE TWO BLOCKS IS NOW EXECUTED BY NAME, and the distinction matters for reading
+# the line above. qt_entry_tests run 18 calls ensureDashedStrokeStyle directly and asserts
+# the style is installed when it returns -- and this is the ONLY target that can, because
+# every other target compiling this file inherits TINTA_D2D_BACKEND from `tinta` and would
+# take the CreateStrokeStyle arm into a null app.d2dFactory. So the dashed block's #else arm
+# has a red-on-mutation instrument and the colour-emoji block still has none. "Compiled,
+# linked and RUN" was already true of the file; it is now true of one of its two guarded
+# arms, which is a narrower and more useful claim than the file-level one.
+#
 # THEY ARE SPELLED #ifdef TINTA_D2D_BACKEND, AND THIS LINE SAID `#ifdef _WIN32` UNTIL A
 # LINK FAILURE CORRECTED IT. Both guards were _WIN32 when the file was cut, which was true
 # of every target that existed at the time. qinta is a WINDOWS target with NO Direct2D

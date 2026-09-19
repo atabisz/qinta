@@ -118,20 +118,78 @@ struct ID2D1GeometrySink;
 // render_api.h cannot make this assertion itself without including d2d1.h, which
 // would defeat the entire point of the header.
 
-class D2DStrokeStyle final : public tinta::StrokeStyle {
+// STILL THE BORROWED KIND, and it is no longer the only kind -- see
+// D2DOwnedStrokeStyle below. `final` came off for the reason D2DBitmap's did: an owning
+// subclass needs to derive from this one so that nativeStrokeStyle's single
+// dynamic_cast in src/render_d2d.cpp covers both kinds, and a second unwrapper for a
+// second spelling is exactly the shape that lets two paths disagree.
+//
+// WHO STILL BORROWS ONE. Nothing in App does any more -- App's member is owning. This
+// stays because the seam's DrawLine takes a tinta::StrokeStyle* it does not own, so a
+// caller that already holds a native and wants to pass it through one call has a
+// wrapper to do it with, and because deleting it would put the only ID2D1StrokeStyle
+// wrapper in the owning class, where a borrowed native would be double-released.
+class D2DStrokeStyle : public tinta::StrokeStyle {
 public:
     explicit D2DStrokeStyle(ID2D1StrokeStyle* style) : style_(style) {}
     ID2D1StrokeStyle* native() const { return style_; }
 
-private:
+    // Not final any more, so the rule of five is stated rather than inherited by luck
+    // -- the same sentence D2DBitmap carries, and for the same reason: copying a
+    // borrowed wrapper is harmless, copying an OWNING one would double-release, and the
+    // owning subclass deletes them for itself.
+    D2DStrokeStyle(const D2DStrokeStyle&) = default;
+    D2DStrokeStyle& operator=(const D2DStrokeStyle&) = default;
+
+protected:
     ID2D1StrokeStyle* style_;  // borrowed
 };
 
-// THE ONE OWNING WRAPPER IN THIS FILE, and the header comment above says the
-// opposite, so this is a stated exception rather than an inconsistency.
+// OWNS its stroke style: it came from ID2D1Factory::CreateStrokeStyle, which hands the
+// caller the only reference. Derives from D2DStrokeStyle rather than reimplementing it
+// so that nativeStrokeStyle's single dynamic_cast covers both kinds -- the same
+// arrangement as D2DBitmap/D2DOwnedBitmap below, chosen the same way.
 //
-// Everything else here borrows because App already owns and already Releases the
-// thing being wrapped. A path geometry has no such owner: it did not exist before
+// THE DESTRUCTOR IS OUT OF LINE for the reason the forward declarations above give: off
+// Windows ID2D1StrokeStyle is incomplete, and calling Release on an incomplete type
+// inline here would be the exact mistake those declarations exist to catch.
+//
+// WHY THIS EXISTS AT ALL, which is the part worth reading. App used to hold the dashed
+// stroke style as a native pointer PLUS a Seated<> storage PLUS a seam pointer, and
+// commit fc9ceb0 moved CreateStrokeStyle's out-parameter from the seam spelling to the
+// native one without adding the line that seated the wrapper over it. Both spellings
+// compiled; the wrong one was merely never read. Every dashed mermaid connector drew
+// SOLID for several commits, and because the null check was the create-once latch,
+// CreateStrokeStyle re-ran on every frame with a dashed connector and overwrote the
+// previous pointer with no Release -- a silent behaviour change and a per-frame COM
+// leak, from a seam whose entire contract is that behaviour does not change. An owning
+// wrapper installed into a single unique_ptr member leaves one spelling, so that
+// particular pair cannot come apart again.
+class D2DOwnedStrokeStyle final : public D2DStrokeStyle {
+public:
+    explicit D2DOwnedStrokeStyle(ID2D1StrokeStyle* style) : D2DStrokeStyle(style) {}
+    ~D2DOwnedStrokeStyle() override;
+
+    D2DOwnedStrokeStyle(const D2DOwnedStrokeStyle&) = delete;
+    D2DOwnedStrokeStyle& operator=(const D2DOwnedStrokeStyle&) = delete;
+};
+
+// THE FOURTH OWNING WRAPPER IN THIS FILE, and this line used to read "THE ONE OWNING
+// WRAPPER IN THIS FILE" -- which was already false by two before this slice touched
+// anything. Measured rather than adjusted: the owning wrappers are D2DPathGeometry
+// (below), D2DPathSink, D2DOwnedBitmap and now D2DOwnedStrokeStyle, against the
+// borrowed D2DStrokeStyle, D2DBitmap, D2DBrush and D2DRenderTarget, off
+//
+//   rg -n "^class D2D|~D2D[A-Za-z]*\(\) override|// OWNED|// borrowed" include/render_d2d.h
+//
+// A count inside a header ages with no gate to catch it -- the figure gate reads the
+// README, and nothing reads this. So the command is written beside the number, which is
+// the only form of it that can be re-derived instead of trusted.
+//
+// The header comment above still says wrappers here BORROW, and that remains the rule
+// this and the three others are stated exceptions to. Everything else here borrows
+// because App already owns and already Releases the thing being wrapped. A path
+// geometry has no such owner: it did not exist before
 // BeginPath was called, and the only member that holds one
 // (App::LayoutShape::geometry) is now a unique_ptr precisely so that destroying a
 // shape destroys its path. Borrowing would leave nobody to Release it -- the two

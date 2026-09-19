@@ -82,44 +82,63 @@ void ensureDashedStrokeStyle(App& app) {
         D2D1_DASH_STYLE_DASH,
         0.0f,
     };
-    app.d2dFactory->CreateStrokeStyle(properties, nullptr, 0,
-                                      &app.nativeDashedStrokeStyle);
-    // A DEFECT FIX, AND IT IS MINE. Commit fc9ceb0 ("Route the app's drawing
-    // calls through the portable render seam") changed the out-parameter above
-    // from app.dashedStrokeStyle to app.nativeDashedStrokeStyle and changed the
-    // local at the call site from ID2D1StrokeStyle* to tinta::StrokeStyle* -- and
-    // never added the line that seats the wrapper over the new native. So since that
-    // commit, on Windows: app.dashedStrokeStyle stayed null forever, every
-    // dashed mermaid connector drew SOLID, and because the null check above is
-    // the "create once" latch, CreateStrokeStyle ran again on every frame that
-    // had a dashed connector, overwriting the previous pointer without a
-    // Release. A silent behaviour regression plus a per-frame COM leak, from a
-    // seam whose entire contract is that behaviour does not change.
+    // THE NATIVE IS A LOCAL NOW, AND THAT IS THE WHOLE FIX. It used to be
+    // &app.nativeDashedStrokeStyle, a member, with a sibling member holding the seam
+    // wrapper and a third holding the read pointer.
     //
-    // Two lessons, both cheap to state and both already true elsewhere in this
-    // tree. The compiler cannot see this class of bug: both spellings exist,
-    // both type-check, and the wrong one is merely never read. And no test
-    // covers it -- the dashed path is a mermaid connector on a painted window,
-    // which is exactly the region this slice is the first to put under test.
-    // The fix is one call, and it belongs here rather than at init: at init
-    // (src/d2d_init.cpp:673) the native is still null, and Seated::seat(nullptr)
-    // resets rather than seats, which is why the init call could not do it.
-    app.seatDashedStrokeStyle();
+    // WHAT THAT COST, recorded because the shape is what carried it rather than the
+    // typo. Commit fc9ceb0 ("Route the app's drawing calls through the portable render
+    // seam") changed this out-parameter from app.dashedStrokeStyle to
+    // app.nativeDashedStrokeStyle and changed the local at the call site from
+    // ID2D1StrokeStyle* to tinta::StrokeStyle* -- and never added the line that seated
+    // the wrapper over the new native. So from that commit on, on Windows:
+    // app.dashedStrokeStyle stayed null forever, every dashed mermaid connector drew
+    // SOLID, and because the null check above is the "create once" latch,
+    // CreateStrokeStyle ran again on every frame that had a dashed connector,
+    // overwriting the previous pointer without a Release. A silent behaviour regression
+    // plus a per-frame COM leak, from a seam whose entire contract is that behaviour
+    // does not change.
+    //
+    // A SEATING CALL FIXED IT AND A SINGLE OWNING MEMBER RETIRES IT. The compiler could
+    // not see the original defect because both spellings existed, both type-checked, and
+    // the wrong one was merely never read. There is now one spelling: this function is
+    // the only writer, app.dashedStrokeStyle is the only member, and forgetting the
+    // wrap is a compile error rather than a silent solid line. The call this used to
+    // end with -- app.seatDashedStrokeStyle() -- is deleted along with the method, and
+    // so is its caller in src/d2d_init.cpp; see app.h's note where the method stood for
+    // why that caller was a latent hazard rather than merely redundant.
+    //
+    // THE HRESULT IS CHECKED, WHERE IT WAS DISCARDED, and the behaviour on failure is
+    // deliberately the same as before: leave the member null, so the latch above retries
+    // on the next frame and DrawLine draws solid in the meantime. What changes is that a
+    // failed create can no longer install a wrapper over a null native, which WOULD have
+    // been a new failure -- a non-null member satisfying the latch forever while every
+    // connector draws solid, which is the fc9ceb0 outcome reached by a different door.
+    ID2D1StrokeStyle* native = nullptr;
+    HRESULT hr = app.d2dFactory->CreateStrokeStyle(properties, nullptr, 0, &native);
+    if (FAILED(hr) || !native) return;
+    app.dashedStrokeStyle = std::make_unique<D2DOwnedStrokeStyle>(native);
 #else
     // No factory and no native pointer without the Direct2D backend, so the marker
     // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
     // "non-Windows" arm any more, and reading it as one is how the guard came to be
     // spelled _WIN32 in the first place.
     //
-    // Through the storage rather than by assigning app.dashedStrokeStyle a
-    // pointer to a static: App's storage is what OWNS a seam wrapper in this
-    // tree, and install() is the door include/seated.h wrote for exactly this
-    // case ("nothing off Windows can produce a native COM pointer, so seat() is
-    // unreachable there"). Same call shape as src/qt_init.cpp:18. A file-local
-    // static would work too and would leave App holding a pointer whose lifetime
-    // no member records -- which is the shape the Seated refactor removed.
-    app.dashedStrokeStyle =
-        app.dashedStrokeStyleStorage.install(std::make_unique<MarkerStrokeStyle>());
+    // THE TWO ARMS NOW END IN THE SAME STATEMENT, which they did not before: this one
+    // called dashedStrokeStyleStorage.install() while the Direct2D arm called
+    // app.seatDashedStrokeStyle(). Both are assignments into one unique_ptr member now,
+    // and Seated<> is gone from this member entirely -- install() was the door
+    // include/seated.h wrote for the case where "nothing off Windows can produce a native
+    // COM pointer, so seat() is unreachable there", and a member that never seats does not
+    // need the template that exists to make seating idempotent. That header predicted this
+    // exact collapse: reset(), get() and operator bool are std::unique_ptr's names
+    // "taken deliberately so that a storage which stops having a native to seat can be
+    // COLLAPSED to a plain unique_ptr without touching one caller".
+    //
+    // Still not a pointer to a file-local static, for the reason that choice was rejected
+    // the first time: it would leave App holding a pointer whose lifetime no member
+    // records, which is the shape the Seated refactor removed.
+    app.dashedStrokeStyle = std::make_unique<MarkerStrokeStyle>();
 #endif
 }
 
@@ -196,7 +215,7 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
             [](const App::LayoutConnector& connector) { return connector.dashed; })) {
         ensureDashedStrokeStyle(app);
     }
-    tinta::StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle;
+    tinta::StrokeStyle* dashedStrokeStyle = app.dashedStrokeStyle.get();
 
     for (const auto& connector : app.layoutConnectors) {
         if (connector.bounds.bottom < viewportTop - cullMargin ||

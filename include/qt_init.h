@@ -82,10 +82,27 @@ class RenderTarget;
 // `native` parameter of the seating helper "a grep cannot tell from a field" -- and the
 // re-count for this correction read 14 Seated<> lines against 13 native members before
 // noticing the fourteenth was seatFormat's parameter, the same off-by-one in the same
-// header, found the same way. The whole-file figure is 30 lines and it decomposes exactly:
-// 13 native members, 13 Seated<> storages, 2 seatFormat parameters (one of each type on
-// consecutive lines), 1 forward declaration, 1 comment. Written as a decomposition, not a
-// total, because every wrong version of this figure has been a total.
+// header, found the same way.
+//
+// FOURTH CORRECTION, AND THE DECOMPOSITION IS NOW ZERO IN EVERY LIVE ROW. This paragraph
+// ended "The whole-file figure is 30 lines and it decomposes exactly: 13 native members,
+// 13 Seated<> storages, 2 seatFormat parameters (one of each type on consecutive lines),
+// 1 forward declaration, 1 comment. Written as a decomposition, not a total, because every
+// wrong version of this figure has been a total." Re-measured rather than adjusted:
+//
+//   rg -c "IDWriteTextFormat" include/app.h
+//
+// returns FOUR, and `rg -n` shows all four are comment lines -- two tombstones plus the
+// planted-use note at app.h:173 and app.h:1770's own "no IDWriteTextFormat* left in this
+// struct". Every native member and every Seated<> storage in that decomposition is gone:
+// the chrome and document formats are `std::unique_ptr<tinta::TextFormat>` now. So the
+// decomposition did not drift by one, it emptied, and a paragraph three lines above this
+// one boasts that this figure had been "cross-checked rather than merely recounted" -- which
+// is exactly the state [[a-gated-total-licenses-its-decomposition-to-rot]] describes, in a
+// header with no gate over it. FOUND INCIDENTALLY by the dashed-stroke slice's sweep and
+// OUT of its subject: nothing that slice measured refutes this, the grep for a neighbouring
+// figure is what surfaced it, and it is corrected here rather than carried because the next
+// reader cannot tell a stale cross-check from a live one.
 //
 // QApplication has to exist first. QtTextFactory itself constructs nothing Qt on
 // its own, but the QFont/QTextLayout work every TextFormat it hands out performs

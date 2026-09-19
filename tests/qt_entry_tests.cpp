@@ -45,6 +45,17 @@
 //      could never produce is a laid-out box, so run 17 is a pair of documents whose TeX
 //      differs by one token -- valid or not -- read in App's own primitive lists and in
 //      pixels. Its first version measured an H1 underline and said so; see the fixtures.
+//   9. THE DASHED STROKE STYLE (run 18), and it is the one run here that exists for a
+//      DEFECT rather than for a seam. Commit fc9ceb0 left App::dashedStrokeStyle null
+//      forever on Windows -- the create wrote one member and every reader read another --
+//      so every dashed mermaid connector drew solid for several commits and the create-once
+//      latch turned it into a per-frame COM leak. Nothing in the tree could see it. This run
+//      calls the real ensureDashedStrokeStyle out of src/paint_document.cpp and asserts the
+//      member afterwards, and THIS TARGET IS THE ONLY ONE THAT CAN: every other target
+//      compiling that file inherits TINTA_D2D_BACKEND from `tinta`, which puts the
+//      CreateStrokeStyle arm in the build and dereferences a null app.d2dFactory.
+//      No pixels -- the style has no on-screen effect without a mermaid fixture, and a
+//      fixture would make this a rendering assertion instead of an ownership one.
 //
 // THE CONTROL IS THE POINT OF THE THIRD RUN. "Some pixels in the text band differ
 // from the background" is only evidence that text was drawn if the same measurement
@@ -103,6 +114,16 @@
 #include "file_utils.h"
 #include "geometry.h"
 #include "math_render.h"
+// For ensureDashedStrokeStyle, which run 18 calls directly. This target already LINKED
+// src/paint_document.cpp before this include existed -- the file is in QINTA_APP_SOURCES
+// (CMakeLists.txt:674 -- and :410 is the OTHER list, `SOURCES`, which is the one that
+// carries TINTA_D2D_BACKEND) because the document runs above paint through it, so the only
+// thing missing was a declaration, not a build change. That mattered for choosing where
+// run 18 lives: every OTHER target that compiles paint_document.cpp inherits
+// TINTA_D2D_BACKEND from `tinta`, which puts the CreateStrokeStyle arm in the build and
+// makes the call dereference a null app.d2dFactory. This target is the only one that
+// compiles that function with its portable arm live.
+#include "paint_document.h"
 #include "qt_init.h"
 #include "qt_window.h"
 #include "text_api.h"
@@ -1534,6 +1555,74 @@ int main(int argc, char** argv) {
           "and the two windows are not the same image, pixel for pixel -- which is the difference "
           "between typesetting an equation and printing its source");
 
+    // ---- RUN 18: THE DASHED STROKE STYLE, AND THE fc9ceb0 FAILURE MODE ----------------
+    //
+    // WHAT THIS IS FOR. Commit fc9ceb0 left App::dashedStrokeStyle null forever on
+    // Windows: ensureDashedStrokeStyle's Direct2D arm wrote the native handle into one
+    // member and every reader read a DIFFERENT one. Both spellings compiled. Every dashed
+    // mermaid connector drew solid for several commits, and because the create-once latch
+    // is `if (app.dashedStrokeStyle) return;`, the create re-ran every frame and leaked the
+    // previous COM pointer. Nothing in the tree caught it, and the reason nothing did is
+    // that the only caller was a mermaid connector inside a Win32 WM_PAINT -- so the fix
+    // that retired the member trio is worth exactly as much as the instrument that can see
+    // it come back.
+    //
+    // THIS CALLS THE REAL FUNCTION. Not a copy of the property block, not a local
+    // MarkerStrokeStyle: src/paint_document.cpp's own ensureDashedStrokeStyle, linked out
+    // of this target's QINTA_APP_SOURCES. A test holding its own copy of the creation
+    // cannot fail on a defect planted in the real one.
+    //
+    // WHAT IT CAN AND CANNOT SEE. This target compiles the #else arm, so the assertion
+    // below is "the portable arm installs a handle", not "CreateStrokeStyle's HRESULT is
+    // checked". The two arms now end in the SAME statement -- assign to
+    // app.dashedStrokeStyle -- which is why an arm-specific test still constrains the
+    // shared shape: the failure fc9ceb0 was is a missing assignment, and a missing
+    // assignment is what this measures. The Direct2D arm's own failure path needs a
+    // d2dFactory and stays uncovered; said here rather than left implied.
+    //
+    // The document runs above never touched it: no fixture in this file contains a mermaid
+    // diagram, so paintDocumentLayout's call at src/paint_document.cpp:216 never ran. That
+    // is asserted rather than assumed, because if it HAD run the "starts null" precondition
+    // below would be doing no work and the run would still read green.
+    check(app.dashedStrokeStyle == nullptr,
+          "PRECONDITION: nothing in this file's fixtures has a dashed connector, so the style is "
+          "still null after seventeen runs of painting");
+
+    ensureDashedStrokeStyle(app);
+    check(app.dashedStrokeStyle != nullptr,
+          "THE fc9ceb0 ASSERTION: ensureDashedStrokeStyle INSTALLED a handle. This is the exact "
+          "state that was wrong for several commits -- the function ran, reported nothing, and "
+          "left the member null, so every dashed line drew solid");
+
+    // THE LATCH, which is the other half of what fc9ceb0 cost. A second call must not
+    // build a second object: on the Direct2D arm that is a per-frame COM leak, and the
+    // pointer identity is the only thing that can tell "returned early" from "created
+    // again and got a coincidentally equal address" -- on the portable arm
+    // MarkerStrokeStyle has static storage duration, so a re-create WOULD return the same
+    // address. So the identity check is backed by the reset control below rather than
+    // standing alone.
+    const tinta::StrokeStyle* firstStyle = app.dashedStrokeStyle.get();
+    ensureDashedStrokeStyle(app);
+    check(app.dashedStrokeStyle.get() == firstStyle,
+          "and a second call returned early rather than creating a second one -- the create-once "
+          "latch, which is what turned the missing install into a per-frame leak");
+
+    // THE CONTROL, and without it the assertion above is not discriminating: a member that
+    // were non-null for any reason other than this call would satisfy it. Clear it, prove
+    // the same expression reads null, then prove the function fills it again. A green that
+    // cannot go red is not a reading.
+    app.dashedStrokeStyle.reset();
+    check(app.dashedStrokeStyle == nullptr,
+          "CONTROL: the member reads null once reset, so the assertion above can come back red");
+    ensureDashedStrokeStyle(app);
+    check(app.dashedStrokeStyle != nullptr,
+          "CONTROL: and the function fills it again after a reset, which is the shape App::shutdown "
+          "leaves behind on a device loss");
+
+    // Left empty for the same reason every other run cleans up after itself: the next
+    // assertion in this file should not depend on a state this one created.
+    app.dashedStrokeStyle.reset();
+
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that
     // made them out of App. Cleared here for the same reason
     // tests/math_layout_tests.cpp:265 clears it before CoUninitialize.
@@ -1554,7 +1643,9 @@ int main(int argc, char** argv) {
     std::printf("checks=%d failures=%d\n", g_checks, g_failures);
     if (g_failures == 0)
         std::printf("PASS: a Qt window lays out and draws a parsed document through "
-                    "render.cpp and paint_document.cpp, off the Windows path, and TYPESETS an "
-                    "equation through math_render.cpp rather than falling back to its source.\n");
+                    "render.cpp and paint_document.cpp, off the Windows path, TYPESETS an "
+                    "equation through math_render.cpp rather than falling back to its source, and "
+                    "ensureDashedStrokeStyle INSTALLS a stroke style handle -- the state commit "
+                    "fc9ceb0 got wrong with nothing watching.\n");
     return g_failures == 0 ? 0 : 1;
 }

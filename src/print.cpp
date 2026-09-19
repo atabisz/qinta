@@ -300,9 +300,13 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
         for (size_t i = 1; i < connector.points.size(); i++) {
             const auto& from = connector.points[i - 1];
             const auto& to = connector.points[i];
-            // app.dashedStrokeStyle, not app.nativeDashedStrokeStyle, and the two are
-            // null or non-null TOGETHER -- seatDashedStrokeStyle sets both, so this is
-            // the same read rather than a new one.
+            // THERE IS ONLY ONE SPELLING TO READ NOW. This note used to say
+            // "app.dashedStrokeStyle, not app.nativeDashedStrokeStyle, and the two are
+            // null or non-null TOGETHER -- seatDashedStrokeStyle sets both, so this is the
+            // same read rather than a new one." Both of those members are gone: App holds
+            // one owning unique_ptr<tinta::StrokeStyle>, so there is no second member to
+            // pick the wrong one of, and the sentence explaining which to pick has nothing
+            // left to explain.
             //
             // WHAT IS DELIBERATELY NOT FIXED HERE: this reads the style without
             // calling ensureDashedStrokeStyle(app), so a document whose dashed
@@ -313,7 +317,7 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
             target.DrawLine(tinta::pointF(from.x + dx, from.y + dy),
                             tinta::pointF(to.x + dx, to.y + dy),
                             brush, connector.stroke,
-                            connector.dashed ? app.dashedStrokeStyle : nullptr);
+                            connector.dashed ? app.dashedStrokeStyle.get() : nullptr);
         }
         if (connector.directed) {
             const auto& tip = connector.points.back();

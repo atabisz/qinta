@@ -312,7 +312,7 @@ void drawPrims(App& app, tinta::RenderTarget& target, tinta::Brush* brush,
     // ensureDashedStrokeStyle exists to stop, and it is why the lazy creation could not
     // stay inside the paint pass once a second caller appeared.
     ensureDashedStrokeStyle(app);
-    tinta::StrokeStyle* dashed = app.dashedStrokeStyle;
+    tinta::StrokeStyle* dashed = app.dashedStrokeStyle.get();
 
     auto fillPolygon = [&](const std::vector<mermaidext::Point>& pts,
                            const tinta::Color& fill,

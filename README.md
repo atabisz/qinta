@@ -1284,13 +1284,23 @@ basis below is measured — Windows and Linux each built and tested in the same 
 > scripts/check-readme-figures.sh`, which reads the tree and asserts that the README says what
 > the tree says. It exists because five figures here were found stale in one pass, each of them
 > *correct when written*, and because nothing else in the repo can read prose: the probe checks
-> the manifest, `ctest` checks the tests, `g++` checks the code. Run it with `--control` and
-> every claim must fail; a green run that has not been controlled proves only that `grep` found
-> something.
+> the manifest, `g++` checks the code, and until 2026-09-19 `ctest` checked only the tests.
+> **It is now two ctest arms — `readme_figures` and `readme_figures_control` — so the control
+> is an arm rather than a flag to remember**, and `ctest -LE prose` gets the fast suite back
+> for the cost of not checking this section. A green run that has not been controlled proves
+> only that `grep` found something, which is why both arms exist and why neither is optional.
+>
+> **The arms read the gate's printed claim COUNT and not only its exit status, and that turned
+> out to be load-bearing rather than cautious.** One of the seventeen claims needs PCRE2 and
+> sits behind a `command -v rg` guard. Measured on this tree with `rg` off `PATH`: the script
+> checks **sixteen** claims, finds nothing wrong, exits **0**, and prints *"All 16 derived
+> claims are the ones the README states."* A bare `add_test` reading the exit code would have
+> recorded that as a clean pass with one published figure silently unasserted — so the arm
+> fails when the count is not seventeen, whatever the exit status says.
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 40,694 / 65,193 | **62.4%** |
+| A. Source lines free of the Windows stack | 40,698 / 65,228 | **62.4%** |
 | B. `src/*.cpp` files compiling without Windows headers | 57 / 75 | 76.0% |
 | C. Files a running test links **off Windows** | 46 / 73 | 63.0% |
 | D. Test targets that *could* move, and do | 30 / 35 | 85.7% |
@@ -1313,8 +1323,27 @@ exist, and the alternative — excluding the Windows halves from the denominator
 not.** C, D and E here are the previous pass's absolute figures moved by this pass's measured
 delta (C +1/+2, D +2/+2, E +2/+2, the last two being `clipboard` and `clipboard_control` added
 to both platforms), which is weaker than a derivation and is stated rather than blurred. D and E
-are checkable against a number that *was* re-derived: `ctest` configures **39** tests on Windows
-and **30** off it this pass, which is where both denominators and E's numerator come from.
+are checkable against a number that *was* re-derived: `ctest` configured **39** tests on Windows
+and **30** off it on the pass that set these figures, which is where both denominators and E's
+numerator came from.
+
+**THAT CROSS-CHECK HAS JUST STOPPED BEING ONE, AND SAYING SO IS CHEAPER THAN LETTING A READER
+FIND IT.** Wiring the figure gate into `ctest` on 2026-09-19 added two entries —
+`readme_figures` and `readme_figures_control` — so Windows now configures **41** and off Windows
+the count goes **30 → 32**, measured by running it rather than predicted from the CMake sitting
+outside `if(WIN32)`: the portable probe's own ctest reports 32/32, with both arms in it by name.
+**D and E deliberately do NOT move**, because both rows
+count test *targets* and these are the first entries in this suite backed by **no target at
+all**: there is no binary, only `bash` over a script. So the ctest entry count and E's
+denominator have diverged, and the cross-check offered above no longer holds in either direction.
+The alternative was to bump E to 32 / 41 and D to 32 / 37, which is what the clipboard pass did
+when it counted `clipboard_control` — a second entry over an *existing* binary — and the reason
+that precedent is not followed here is the rule this document already wrote down for itself in
+the pass that registered `platform_paths_tests` twice: *the count that moved is entries, not
+targets.* Two passes have now answered the same question differently, so the honest thing is that
+**D and E are target counts that were sourced from an entry count, and the two are no longer the
+same number.** Whoever next re-derives C, D and E properly should settle it rather than inherit
+it.
 
 **Basis F did NOT move, and that refutes what I said before building the entry point.** The
 plan for this pass called it "the only work that can move basis F off 0/3". It was not: F says
@@ -1536,8 +1565,16 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 54,991 lines of the 65,193,
-**basis A's ceiling is 84.4%, not 100%**, and 62.4% should be read against that. **THE CEILING AND
+can never enter the numerator. With `src/*.cpp` totalling 54,995 lines of the 65,228,
+**basis A's ceiling is 84.3%, not 100%**, and 62.4% should be read against that. **AND THE MOVE THAT
+TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
+`ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into
+`include/theme_data.h` and a net 4 into `src/themes.cpp` — so the numerator rose **4** against a
+denominator rising **35**, the ratio held at 62.4% to the decimal it is published at, and the ceiling
+took the whole difference. Those three figures went stale in the commit that changed the code and
+were corrected in the next one, which is a shorter gap than any stale figure on this page has had
+before, and the reason is that the figure gate is a ctest arm now rather than something to remember.
+**THE CEILING AND
 THE BASIS JUST MOVED IN OPPOSITE DIRECTIONS, WHICH IS THIS CLAUSE'S OWN MECHANISM CAUGHT IN THE
 ACT.** Basis A rose 62.7% → 62.8% while the ceiling fell 84.9% → 84.8%: the chrome-format port cut
 71 lines from `src/*.cpp` but only 15 from the denominator, because the difference was written

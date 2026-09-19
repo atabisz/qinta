@@ -2551,6 +2551,79 @@ if(BUILD_TESTING)
     add_test(NAME render_d2d COMMAND render_d2d_tests)
     endif()  # TINTA_LEGACY_D2D
     endif()  # WIN32
+
+# The README figure gate, as two ctest arms. OUTSIDE the WIN32 block on purpose: the
+# script reads the source tree and needs no build, so it is correct on both platforms
+# and the Linux suite gaining it is the point rather than a side effect.
+#
+# scripts/check-readme-figures.sh re-derives seventeen figures README.md publishes about
+# the port and asserts the README actually says them. It is the ONLY instrument in this
+# repo that reads prose -- the portable probe checks the manifest, ctest checks the tests,
+# the compiler checks the code -- and until now it ran when someone remembered to type it.
+# Its positive control ran only when someone remembered to type a FLAG, which is a weaker
+# thing again, and a wrapper in this project's own scratch rig has already been caught
+# dropping exactly that flag and reporting the subject's pass twice.
+#
+# TWO ARMS FOR THE SAME REASON clipboard/clipboard_control ARE TWO. The control is what
+# says the seventeen assertions are anchored to their own sentences rather than matching
+# some other number in a document made of numbers -- the script's first version matched
+# bare numbers and its control found 6 of 39 claims still matching when perturbed. A green
+# subject arm with no control arm beside it proves that grep found something.
+#
+# EXPECTED_CHECKS is a second reading and not belt-and-braces over the exit status; see
+# tests/run_figure_gate.cmake for why the exit status cannot say how many claims ran.
+# Move the number when a claim is added to the script -- the driver fails in both
+# directions and names which direction it was.
+# HINTS ahead of PATH because C:\Windows\System32\bash.exe is the WSL launcher and exists
+# on this host: winning the search there would run the gate under a Linux rootfs against a
+# Windows working directory. That failure is loud rather than silent -- the script exits 90
+# saying it cannot find README.md -- but preferring Git's bash means not relying on PATH
+# order to avoid it. Off Windows the hints simply do not exist and PATH answers.
+find_program(BASH_EXECUTABLE NAMES bash
+    HINTS "$ENV{ProgramFiles}/Git/usr/bin" "$ENV{ProgramFiles}/Git/bin")
+if(BASH_EXECUTABLE)
+    add_test(NAME readme_figures COMMAND ${CMAKE_COMMAND}
+        -DBASH_EXE=${BASH_EXECUTABLE}
+        -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
+        -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECTED_CHECKS=17
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
+    add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
+        -DBASH_EXE=${BASH_EXECUTABLE}
+        -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
+        -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECTED_CHECKS=17
+        -DGATE_CONTROL=ON
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
+    # LABELLED because these two are the slowest arms in the suite by more than an order of
+    # magnitude, and the comparison is against the WHOLE of the rest rather than against its
+    # slowest member: `ctest -L prose` reads 48.9 s + 46.2 s = 95.2 s for the two, while
+    # `ctest -LE prose` reads 2.8 s for all thirty-nine others combined. So EITHER arm alone
+    # costs about seventeen times the entire pre-existing suite, and the pair is what turns a
+    # three-second `ctest` into a ninety-five-second one.
+    # Stated as a range rather than to two decimals on purpose -- across runs each arm lands
+    # between 37 s and 49 s, so a precise figure here would be false precision.
+    # BOTH READINGS ARE WARM RUNS, AND MIXING WARM WITH COLD IS HOW THIS COMMENT WAS WRONG
+    # THE FIRST TIME. The first `ctest` after a link pays an antivirus scan on every freshly
+    # built .exe: the same thirty-nine tests that sum to 2.8 s warm summed to 66.6 s in the
+    # run straight after a rebuild, which is 20x, and blockquote_layout alone read 11.5 s
+    # there against 0.1 s warm. Neither number is wrong; they answer different questions, and
+    # a cold prose figure divided by a warm suite figure answers neither.
+    # The cost of the arms themselves is process spawns -- the script shells out to rg and
+    # grep a few hundred times and Windows charges for every one -- not anything it could
+    # compute faster, which is why they do NOT get cheaper on a warm run the way the
+    # compiled tests do.
+    # `ctest -LE prose` gets the old suite back, and the label exists so that the answer
+    # to "the suite got slow" is a documented flag rather than someone deleting the arms.
+    set_tests_properties(readme_figures readme_figures_control PROPERTIES LABELS prose)
+else()
+    # Said out loud, because a suite that is quietly two entries shorter is the same class
+    # of problem the driver's count assertion exists to catch. The figures in README.md go
+    # unchecked on this configuration and the configure log is where a reader finds that out.
+    message(STATUS
+        "readme_figures: SKIPPED -- no bash found, so the README figure gate is not wired "
+        "into ctest on this configuration. Run it by hand: bash scripts/check-readme-figures.sh")
+endif()
 endif()
 
 # Install

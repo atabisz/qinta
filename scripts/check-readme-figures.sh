@@ -24,7 +24,22 @@
 #
 # So this is not belt-and-braces over some other instrument. For these figures it is
 # the ONLY instrument that exists: the probe checks the manifest, ctest checks the
-# tests, g++ checks the code, and NOTHING checks prose.
+# tests, g++ checks the code, and nothing else checks prose.
+#
+# AS OF 2026-09-19 CTEST RUNS THIS SCRIPT, as the `readme_figures` and
+# `readme_figures_control` arms (CMakeLists.txt, outside the WIN32 block). So "ctest
+# checks the tests" and "nothing checks prose" are no longer two separate facts, and the
+# sentence above is corrected rather than deleted because the reason it was written still
+# holds: nothing else in the repo reads prose, and this file is still the only thing that
+# does. What changed is who types it.
+#
+# ONE THING THE WIRING ADDED THAT MATTERS TO ANYONE EDITING THIS FILE. The arms assert
+# the printed readme_figures_checked= count as well as the exit status, because of the
+# `command -v rg` guard further down: without ripgrep this script checks SIXTEEN claims,
+# finds nothing wrong, and exits 0 saying so. Measured, not feared -- run with rg off PATH
+# it prints "All 16 derived claims are the ones the README states." So if you add a claim
+# here, move EXPECTED_CHECKS in CMakeLists.txt with it; the driver fails loudly in both
+# directions and says which direction it was.
 #
 # WHAT IT MATCHES, and this is the part the control rewrote. The first version of
 # this script looked for each derived NUMBER anywhere in the README. Its positive

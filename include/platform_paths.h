@@ -74,6 +74,40 @@ std::wstring userConfigDirectory(const std::wstring& appName);
 // L'\\' on Windows, L'/' everywhere else.
 wchar_t pathSeparator();
 
+// The value of environment variable `name`, or empty if it is not set.
+//
+// EMPTY COLLAPSES TWO STATES AND THAT IS A DECISION, not a limitation of either
+// platform: a variable that is set to the empty string reads the same here as one
+// that is absent. Windows can tell them apart (GetEnvironmentVariableW returns 0
+// for both and GetLastError says which), and so can POSIX (getenv returns "" for
+// one and nullptr for the other), so the collapse is this seam's choice. It is the
+// right one for every caller the tree has: each asks for a variable in order to
+// build a path out of it, and an empty prefix is no more usable than no prefix.
+// A caller that genuinely needs the difference needs a different function, not a
+// second return value bolted onto this one.
+std::wstring environmentVariable(const std::wstring& name);
+
+// Locate an executable by BARE NAME -- `L"pandoc"`, never `L"pandoc.exe"` -- and
+// return its full path, or empty if it was not found.
+//
+// The suffix is the seam's business and not the caller's, which is the whole
+// reason this takes a bare name: `.exe` is a Windows convention, POSIX has no
+// suffix at all, and a caller spelling it out would be writing one platform's rule
+// into portable code. Windows appends it through SearchPathW's own lpExtension
+// parameter; the Qt arm lets QStandardPaths::findExecutable apply PATHEXT or the
+// execute bit as the host requires.
+//
+// THE TWO ARMS DO NOT SEARCH THE SAME SET, and the name deliberately says "on
+// path" rather than "on PATH" because of it. Win32's search order begins with the
+// directory of the running executable and includes the system directories before
+// it ever reaches PATH; QStandardPaths::findExecutable searches PATH and nothing
+// else, and additionally requires the execute bit. So a hit on one platform is not
+// evidence the same file would be found on the other, and neither arm is wrong --
+// each implements its own host's notion of "installed and runnable". A caller that
+// needs an exact directory list should pass one, which means extending this
+// function rather than assuming what it does.
+std::wstring findExecutableOnPath(const std::wstring& name);
+
 // UTF-8 <-> wide conversion at the OS boundary.
 //
 // These are here because the tree had reimplemented the same pair by hand in ten

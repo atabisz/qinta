@@ -162,7 +162,7 @@ int main() {
                     "input.cpp filter matches the deleted literal up to its extra NUL");
     }
 
-    // --- pandoc.cpp:171, the dynamically built filter --------------------------
+    // --- pandoc.cpp:205, the dynamically built filter --------------------------
     //
     // Built at runtime from a PandocFormat, so the assertion is on the SHAPE the
     // call site constructs: description as given, pattern as `*` + the extension.

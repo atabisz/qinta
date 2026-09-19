@@ -301,6 +301,18 @@ text_formats_app.cpp
 #     it re-launches the executable with `--cascade --new`, and src/main_qt.cpp parses a
 #     file argument and nothing else, so a Qt half would open a plain window in the wrong
 #     place and report success.
+#
+#     THAT FRAMES THE BLOCKER AS PARSING AND IT IS NOT, corrected here 2026-09-19 in the
+#     same pass as the comment it was copied from (src/quicknote_win32.cpp). A parser is
+#     necessary and nowhere near sufficient: src/main_qt.cpp has no menus, no tabs, no
+#     input and no settings load, so there is no window, tab or placement state for
+#     `--cascade`, `--new`, `--tabbed` or `--pos` to reach. A parser written today would
+#     parse flags nothing can honour. The chain is parser -> Qt window/tab/placement
+#     state -> process seam, and the middle link is src/input.cpp, 4,361 lines, fatal on
+#     windowsx.h -- and notably scoring ZERO under the README's native-mention pattern,
+#     so it is a windowing port and not a Direct2D one. Read the full argument at the
+#     comment in src/quicknote_win32.cpp; this copy exists because the claim was here too
+#     and a correction remembered in one place is a correction half made.
 #   * the rest -- two binary searches over layout buckets, a title string, a link click, a
 #     path canonicalisation -- which never needed Windows and is what is on this line.
 #

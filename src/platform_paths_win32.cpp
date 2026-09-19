@@ -17,6 +17,49 @@ wchar_t pathSeparator() {
     return L'\\';
 }
 
+std::wstring environmentVariable(const std::wstring& name) {
+    // Sized in two calls rather than into a fixed buffer, and this is the ONE
+    // place in this file that deliberately does not preserve the behaviour it
+    // replaces. src/pandoc.cpp read its variables into a MAX_PATH buffer, so a
+    // value longer than 259 characters came back as nothing at all -- and that is
+    // not hypothetical for an environment variable, where PATH alone routinely
+    // exceeds it. The change is safe in one direction only, which is why it is
+    // acceptable here: every caller uses the value to build a path and then asks
+    // whether that path exists, so a longer value can only turn a miss into a
+    // hit, never a hit into a miss.
+    //
+    // The first call asks for the size and includes the terminator; the second
+    // returns the count written and excludes it. A `written >= needed` is the
+    // variable having grown between the two calls, and is reported as absent
+    // rather than truncated.
+    DWORD needed = GetEnvironmentVariableW(name.c_str(), nullptr, 0);
+    if (needed == 0) return std::wstring();
+    std::wstring value(needed, L'\0');
+    DWORD written = GetEnvironmentVariableW(name.c_str(), value.data(), needed);
+    if (written == 0 || written >= needed) return std::wstring();
+    value.resize(written);
+    return value;
+}
+
+std::wstring findExecutableOnPath(const std::wstring& name) {
+    // lpExtension is what makes the header's bare-name contract work without this
+    // file having to test for a suffix: SearchPathW appends L".exe" only when
+    // `name` carries no extension of its own. Passing nullptr there -- which is
+    // what src/pandoc.cpp did, spelling L"pandoc.exe" at the call site instead --
+    // is the same lookup with the platform's convention moved into portable code.
+    //
+    // MAX_PATH for the same reason executableDirectory above gives, and with the
+    // same honesty: it is the limit the replaced code had, so nothing regresses,
+    // but a longer install path fails here and revisiting it is its own change.
+    // A return of MAX_PATH or more is SearchPathW reporting the size it wanted,
+    // not a path, so it is read as not-found rather than copied out.
+    wchar_t found[MAX_PATH]{};
+    DWORD len =
+        SearchPathW(nullptr, name.c_str(), L".exe", MAX_PATH, found, nullptr);
+    if (len == 0 || len >= MAX_PATH) return std::wstring();
+    return std::wstring(found, len);
+}
+
 std::wstring executableDirectory() {
     // MAX_PATH matches the buffer the replaced code used. A longer path failed
     // there too, so this is not a new limitation -- but it is a known one, and

@@ -29,7 +29,7 @@
 //   editor.cpp:1079          Open  3 static  --           --       no
 //   export_html.cpp:1468     Save  3 static  doc stem     --       YES
 //   input.cpp:686            Open  2 static  --           --       no
-//   pandoc.cpp:171           Save  1 DYNAMIC doc stem+ext  dynamic  no
+//   pandoc.cpp:205           Save  1 DYNAMIC doc stem+ext  dynamic  no
 //
 // The two columns on the right are the whole reason this header is not a
 // one-argument function.
@@ -51,7 +51,7 @@
 // difference in what the dialog does:
 //
 //   OFN_NOCHANGEDIR   3 of 5 (editor x2, export_html). Absent at input.cpp:686 and
-//                     pandoc.cpp:171, which therefore DO let the process's current
+//                     pandoc.cpp:205, which therefore DO let the process's current
 //                     directory follow the user's browsing. Unifying that would
 //                     change where a later relative path resolves.
 //   OFN_HIDEREADONLY  1 of 5 (editor.cpp:1079 only). Hides the read-only checkbox.
@@ -82,7 +82,7 @@ namespace platform {
 
 // One row of a file-type filter: what the user reads, and what it matches.
 //
-// std::wstring rather than const wchar_t*, and pandoc.cpp:171 is the reason: it
+// std::wstring rather than const wchar_t*, and pandoc.cpp:205 is the reason: it
 // builds both halves at runtime from a PandocFormat, so a non-owning row would
 // point at a temporary. Four of the five sites could use pointers and the fifth
 // could not, and a seam that is safe at four sites out of five is not safe.

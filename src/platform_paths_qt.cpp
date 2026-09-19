@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLocale>
+#include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QString>
 #include <QStringList>
@@ -124,6 +125,41 @@ std::wstring executableDirectory() {
     // between platforms the way three hand-written find_last_of calls could.
     const QString dir = QFileInfo(file).absolutePath();
     return dir.isEmpty() ? std::wstring() : nativeWide(dir);
+}
+
+std::wstring environmentVariable(const std::wstring& name) {
+    // QProcessEnvironment RATHER THAN qEnvironmentVariable, and the reason is a
+    // measured constraint on this tree rather than a preference. The two hosts that
+    // build it are four minor releases apart -- Qt 6.8.3 on Windows, Qt 6.4.2 in
+    // the WSL probe -- and qEnvironmentVariable's home moved across that gap:
+    // <QtEnvironmentVariables> exists from 6.5 and is absent in 6.4.2, while
+    // relying on <QtGlobal> to forward it is relying on exactly the arrangement
+    // that split. QProcessEnvironment has been QtCore since Qt 4.6, so it compiles
+    // on both without a version test. The scan of the whole environment to read one
+    // variable is the price, paid at most three times per session by the one caller.
+    //
+    // systemEnvironment() is read per call, not cached, so this sees a variable set
+    // after startup exactly as the Windows arm does.
+    const QString value =
+        QProcessEnvironment::systemEnvironment().value(toQString(name));
+    // Empty covers both absent and set-to-empty, which is the header's stated
+    // collapse. QProcessEnvironment::value() returns the same empty QString for
+    // either, so this arm does not have to implement the decision -- it inherits it.
+    return value.isEmpty() ? std::wstring() : toWide(value);
+}
+
+std::wstring findExecutableOnPath(const std::wstring& name) {
+    // findExecutable applies the host's own suffix and permission rules -- PATHEXT
+    // on Windows, the execute bit on POSIX -- which is precisely why the header
+    // takes a bare name. Empty QString for not found, and the seam's empty means
+    // the same thing.
+    //
+    // nativeWide rather than toWide: Qt hands back forward slashes on Windows, and
+    // this path is handed to the tree as a string that gets compared and displayed
+    // alongside paths from everywhere else. Same argument the helper's own comment
+    // makes, applied here because a returned PATH is exactly the case it is for.
+    const QString found = QStandardPaths::findExecutable(toQString(name));
+    return found.isEmpty() ? std::wstring() : nativeWide(found);
 }
 
 bool regularFileExists(const std::wstring& path) {

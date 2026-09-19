@@ -3,7 +3,12 @@
 
 // THE WIN32 VALUE TYPES TINTA'S HEADERS PASS AROUND, IN ONE PLACE.
 //
-// On Windows this is `#include <windows.h>` and nothing else. Off Windows it
+// On Windows this is `#include <windows.h>` plus WIN32_LEAN_AND_MEAN, NOMINMAX and
+// three standard headers the stand-ins below are pinned against -- see :85-95, which
+// is the authority for this sentence. It read "and nothing else" until 2026-09-19,
+// when src/pandoc.cpp QUOTED that phrase to justify dropping its own <shlobj.h> and
+// the quote was checked against the code. An inaccurate self-description is cheap
+// until something cites it; then it is a false premise in another file. Off Windows it
 // declares the handful of Win32 types that appear BY VALUE in tinta's own
 // headers, which forward declarations cannot cover -- a `HWND` parameter or an
 // embedded `RECT` needs a definition, not a promise that one exists.

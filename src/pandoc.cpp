@@ -13,7 +13,39 @@
 #include "platform_paths.h"
 #include "file_dialog.h"
 
-#include <shlobj.h>
+// NO WINDOWS HEADER OF ITS OWN, and the absence is measured rather than tidy.
+// This file carried <shlobj.h> and used no shell API at all -- probed at HEAD for
+// SHGetKnownFolderPath, FOLDERID_*, CSIDL_* and IShellLink, none present -- so it
+// was inherited rather than needed. What it WAS doing was reaching windows.h, and
+// editor.h above already does that -- by TWO routes, which is why removing shlobj.h
+// changes nothing on Windows: editor.h:4 includes app.h, which reaches windows.h
+// through <d2d1.h>, and editor.h:12 includes win32_types.h, whose _WIN32 arm includes
+// it directly. So the Win32 calls in pandocExportFlow below still compile here.
+//
+// THE FIRST DRAFT OF THIS COMMENT QUOTED win32_types.h AS BEING "#include <windows.h>
+// AND NOTHING ELSE" ON WINDOWS, WHICH IS WHAT THAT FILE SAYS ABOUT ITSELF AND IS NOT
+// WHAT IT DOES. Its _WIN32 arm (:85-95) is WIN32_LEAN_AND_MEAN, then NOMINMAX, then
+// <windows.h>, then <cstddef>, <cstdint> and <type_traits>. The correction is recorded
+// here rather than silently fixed because of HOW it got in: I quoted a neighbouring
+// comment instead of reading the code under it, so an absence claim propagated one file
+// without ever being probed -- which is the exact failure this tree has catalogued as
+// the costliest kind, committed while writing a comment about measuring things.
+// win32_types.h's own line has been corrected too, so the quote and its source agree.
+//
+// WIN32_LEAN_AND_MEAN is the part that would actually have mattered had it bitten: it
+// trims windows.h rather than extending it, so "windows.h is reachable" is not the same
+// claim as "every Win32 declaration is reachable". Everything this file uses is in the
+// lean set, and the green build is the evidence for that rather than this sentence.
+//
+// Off Windows the same chain supplies only the stand-in value types, so removing
+// shlobj.h does NOT make this file portable -- it changes how it fails. It was the
+// one row in scripts/census-nonportable-linux.sh whose first cause was shlobj.h,
+// which meant the census stopped at line 16 and could report nothing else about it.
+// The remaining Win32 surface is real and is all in the export flow: MAX_PATH,
+// DWORD, HANDLE, STARTUPINFOW, PROCESS_INFORMATION, CreateProcessW,
+// WaitForSingleObject, GetExitCodeProcess, TerminateProcess, CloseHandle,
+// CreateThread, GetTempPathW, GetCurrentProcessId, DeleteFileW, swprintf_s and
+// _countof. That is a PROCESS seam, not a paths one, and it is the next slice.
 
 #include <fstream>
 #include <string>
@@ -41,12 +73,6 @@ std::wstring toWideStr(const std::string& s) {
 
 std::string toUtf8Str(const std::wstring& s) {
     return platform::toUtf8(s);
-}
-
-bool fileExists(const std::wstring& path) {
-    DWORD attrs = GetFileAttributesW(path.c_str());
-    return attrs != INVALID_FILE_ATTRIBUTES &&
-           !(attrs & FILE_ATTRIBUTE_DIRECTORY);
 }
 
 // The document's display stem, for default filenames and epub metadata
@@ -108,27 +134,40 @@ void pandocResolve(App& app) {
     app.pandocExe.clear();
 
     // 1. The user's explicit choice wins
-    if (!app.pandocUserPath.empty() && fileExists(app.pandocUserPath)) {
+    if (!app.pandocUserPath.empty() &&
+        platform::regularFileExists(app.pandocUserPath)) {
         app.pandocExe = app.pandocUserPath;
         return;
     }
 
-    // 2. PATH
-    wchar_t found[MAX_PATH]{};
-    if (SearchPathW(nullptr, L"pandoc.exe", nullptr, MAX_PATH, found,
-                    nullptr) > 0) {
+    // 2. PATH. The bare name is the seam's contract -- `.exe` is a Windows
+    // convention and belongs in platform_paths_win32.cpp, not here.
+    std::wstring found = platform::findExecutableOnPath(L"pandoc");
+    if (!found.empty()) {
         app.pandocExe = found;
         return;
     }
 
-    // 3. The installer's default locations
+    // 3. The installer's default locations.
+    //
+    // THESE THREE VARIABLE NAMES ARE WINDOWS INSTALLER CONVENTIONS and they stay
+    // here rather than behind the seam on purpose: the seam answers "what is this
+    // variable set to", and which variables are worth asking about is knowledge
+    // about pandoc's installer, not about the platform. Putting the table in
+    // platform_paths_win32.cpp would make a platform file own a fact about pandoc.
+    //
+    // The honest consequence, stated rather than discovered later: off Windows all
+    // three are simply unset, every probe returns empty, and resolution has already
+    // fallen through to step 2 -- which is where pandoc lives on a Linux box
+    // anyway, installed by a package manager onto PATH. So this step being inert
+    // there is correct behaviour and not a gap. It is also NOT a claim that pandoc
+    // export works off Windows: pandocExportFlow below is still Win32 throughout.
     auto probe = [&](const wchar_t* env, const wchar_t* tail) {
         if (!app.pandocExe.empty()) return;
-        wchar_t base[MAX_PATH]{};
-        if (GetEnvironmentVariableW(env, base, MAX_PATH) > 0) {
-            std::wstring p = std::wstring(base) + tail;
-            if (fileExists(p)) app.pandocExe = p;
-        }
+        const std::wstring base = platform::environmentVariable(env);
+        if (base.empty()) return;
+        const std::wstring p = base + tail;
+        if (platform::regularFileExists(p)) app.pandocExe = p;
     };
     probe(L"LOCALAPPDATA", L"\\Pandoc\\pandoc.exe");
     probe(L"ProgramFiles", L"\\Pandoc\\pandoc.exe");

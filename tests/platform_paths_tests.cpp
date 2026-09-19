@@ -48,12 +48,27 @@ void check(bool condition, const char* message) {
 int main(int argc, char** argv) {
     namespace fs = std::filesystem;
 
-    // --bare-locale runs the SAME assertions against a deliberately empty language
-    // environment, and it exists because one process cannot test both cases: the
-    // backend caches the first resolved system locale, so forcing LANGUAGE and
-    // observing the C-locale fallback are mutually exclusive within one run.
-    // CMakeLists.txt registers this as a second ctest entry with LC_ALL=C, LANG=C
-    // and an empty LANGUAGE, which measured as exactly one reported tag, "C".
+    // --bare-locale runs MOST of these assertions against a deliberately empty
+    // language environment, and it exists because one process cannot test both
+    // cases: the backend caches the first resolved system locale, so forcing
+    // LANGUAGE and observing the C-locale fallback are mutually exclusive within
+    // one run. CMakeLists.txt registers this as a second ctest entry with LC_ALL=C,
+    // LANG=C and an empty LANGUAGE, which measured as exactly one reported tag, "C".
+    //
+    // "MOST" corrects "the SAME", which stood here until 2026-09-20 and was off by a
+    // third. Measured on Linux the same day: 90 assertions in the normal entry, 57 in
+    // the bare one. The gap is deliberate and is the branch below -- the LANGUAGE
+    // setenv at :359 is `!bareLocale`, and then :388 is an `if (bareLocale) / else`
+    // whose bare arm holds the C/POSIX filter's ONLY control and whose else arm
+    // (:406, closing at :455) holds the LANGUAGE-forcing controls. So the two entries
+    // are not one test run twice; each holds a control the other cannot reach, and
+    // reading them as identical would make either look redundant.
+    //
+    // Those three line numbers were wrong in this comment's first draft, by the one
+    // mechanism the tree had not yet catalogued: not a different file growing, but
+    // THIS EDIT shifting the lines it was citing. Writing eight lines moved every
+    // address below by eight, so the numbers were stale before the file was saved --
+    // which makes "cite, then re-derive after saving" the only order that works.
     bool bareLocale = false;
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--bare-locale") bareLocale = true;
@@ -488,6 +503,100 @@ int main(int argc, char** argv) {
         // whole path for a dot, which would hide everything under any dotdir.
         check(!platform::isHiddenEntry(L"/home/u/.config/visible.md", L"visible.md"),
               "CONTROL: a dot in a parent directory does not hide the entry");
+#endif
+    }
+
+    // --- environmentVariable -------------------------------------------------
+    //
+    // Arranged with the platform's own setter, which is not a seam and does not
+    // want to be: nothing in tinta sets an environment variable, so a write side
+    // would be surface built for its own test. On Windows this writes the Win32
+    // block, which is what BOTH arms read there -- GetEnvironmentVariableW
+    // directly, and QProcessEnvironment because that is where it looks.
+    {
+#ifdef _WIN32
+        auto setVar = [](const wchar_t* name, const wchar_t* value) {
+            SetEnvironmentVariableW(name, value);
+        };
+#else
+        auto setVar = [](const wchar_t* name, const wchar_t* value) {
+            setenv(platform::toUtf8(name).c_str(),
+                   platform::toUtf8(value).c_str(), 1);
+        };
+#endif
+
+        setVar(L"TINTA_PATHS_PROBE", L"a-known-value");
+        check(platform::environmentVariable(L"TINTA_PATHS_PROBE") ==
+                  L"a-known-value",
+              "a variable the test set reads back exactly");
+
+        check(platform::environmentVariable(L"TINTA_NO_SUCH_VARIABLE_12345")
+                  .empty(),
+              "a variable that cannot exist reads empty");
+
+        // PINS THE HEADER'S DOCUMENTED COLLAPSE rather than leaving it as prose.
+        // Both platforms CAN distinguish set-to-empty from absent, and the seam
+        // chooses not to; if somebody later decides the difference matters, this
+        // assertion fails and sends them to the header to change the contract
+        // first. That is the point of asserting a decision and not just a result.
+        setVar(L"TINTA_PATHS_PROBE_EMPTY", L"");
+        check(platform::environmentVariable(L"TINTA_PATHS_PROBE_EMPTY").empty(),
+              "a variable set to the empty string is indistinguishable from absent");
+
+        // LONGER THAN MAX_PATH, and this one is the assertion that would have failed
+        // on the code this seam replaces. src/pandoc.cpp read its variables into a
+        // wchar_t[MAX_PATH], so a 600-character value came back as nothing at all --
+        // silently, because the call reports the size it wanted and the old code
+        // only tested for > 0. An environment variable exceeding 260 characters is
+        // ordinary; PATH usually does.
+        const std::wstring longValue(600, L'x');
+        setVar(L"TINTA_PATHS_PROBE_LONG", longValue.c_str());
+        const std::wstring readBack =
+            platform::environmentVariable(L"TINTA_PATHS_PROBE_LONG");
+        check(readBack.size() == 600,
+              "a 600-character value is returned whole, not truncated to MAX_PATH");
+        check(readBack == longValue, "the long value round-trips byte for byte");
+
+        // The values here are ASCII on purpose. The two arms decode the environment
+        // by different routes -- a wide Win32 block on Windows, QProcessEnvironment's
+        // local 8-bit decoding on POSIX -- so a non-ASCII assertion would be pinning
+        // the host's locale rather than this seam's behaviour. That is a real limit of
+        // this block and it is stated rather than papered over.
+    }
+
+    // --- findExecutableOnPath ------------------------------------------------
+    {
+        // An executable guaranteed present on each host, named WITHOUT a suffix,
+        // because the bare name is the seam's contract. This is not a claim that
+        // pandoc -- the one real caller -- is installed anywhere; nothing in this
+        // tree's tests requires that, and pandoc may well be absent on both hosts.
+#ifdef _WIN32
+        const wchar_t* presentTool = L"cmd";
+#else
+        const wchar_t* presentTool = L"sh";
+#endif
+        const std::wstring resolved = platform::findExecutableOnPath(presentTool);
+        check(!resolved.empty(), "an executable known to be installed resolves");
+
+        // THE TWO NEW FUNCTIONS CHECK EACH OTHER, which is worth more than either
+        // checking itself: a path that findExecutableOnPath invented rather than
+        // found would satisfy the non-empty assertion above and fail this one.
+        check(platform::regularFileExists(resolved),
+              "the resolved path is a regular file that actually exists");
+
+        check(platform::findExecutableOnPath(L"tinta-no-such-executable-12345")
+                  .empty(),
+              "an executable that cannot exist resolves to empty");
+
+#ifdef _WIN32
+        // CONTROL for the suffix rule: SearchPathW's lpExtension is appended only
+        // when the name carries no extension, so a name that already ends in .exe
+        // must still resolve. Without this an implementation that concatenated
+        // unconditionally would look correct on the bare-name test above while
+        // turning "cmd.exe" into "cmd.exe.exe" -- and the one real caller used to
+        // pass exactly that spelling, so it is the regression a reader would fear.
+        check(!platform::findExecutableOnPath(L"cmd.exe").empty(),
+              "CONTROL: a name that already carries .exe still resolves");
 #endif
     }
 

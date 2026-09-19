@@ -47,7 +47,7 @@ QString toQt(const std::wstring& text) { return QString::fromStdWString(text); }
 // An instance rather than the static QFileDialog::getSaveFileName helpers, and
 // defaultExtension is the reason: the setting that implements it, setDefaultSuffix,
 // exists only on an instance. Reaching for the statics would have silently dropped
-// the flag at two of the five sites -- editor.cpp:1048 (L"md") and pandoc.cpp:171
+// the flag at two of the five sites -- editor.cpp:1048 (L"md") and pandoc.cpp:205
 // (the format's own extension) -- so a name typed without an extension would land
 // on disk without one.
 std::optional<FileDialogResult> show(const FileDialogRequest& request, bool save) {

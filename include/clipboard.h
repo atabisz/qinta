@@ -21,7 +21,7 @@
 //   site                             kind         on failure      line endings
 //   annotations.cpp:361              read text    empty string    CRLF -> LF only
 //   editor.cpp:572                   read text    empty string    CR -> LF, eat LF
-//   input.cpp:351                    read text    empty string    CR/LF/TAB -> space
+//   input.cpp:3538                   read text    empty string    CR/LF/TAB -> space
 //   editor.cpp:558                   write text   silent void     --
 //   utils.cpp:160                    write text   returns bool    --
 //   export_docx.cpp:1464             write IMAGE  --              --
@@ -70,7 +70,7 @@
 //                        SURVIVES, and reaches the note buffer as a carriage return.
 //   editor.cpp:572       maps every CR to LF and swallows an immediately following
 //                        LF. A lone CR becomes a newline. Strictly more thorough.
-//   input.cpp:351        maps CR, LF and TAB each to one space. Not a normalization
+//   input.cpp:3538       maps CR, LF and TAB each to one space. Not a normalization
 //                        at all -- a flattening, for a single-line input field.
 //
 // So the seam returns the text RAW and the three transformations are the inline
@@ -311,9 +311,19 @@ inline std::wstring normalizeNewlines(const std::wstring& text) {
     return out;
 }
 
-// input.cpp:351's rule, used by input.cpp and editor.cpp:2252: CR, LF and TAB each
-// become ONE space. Character-for-character, so CRLF becomes two spaces -- see the
-// header note on why that is preserved rather than tidied.
+// input.cpp:3538's rule, used at input.cpp:4172 and editor.cpp:2286 as well: CR, LF
+// and TAB each become ONE space. Character-for-character, so CRLF becomes two spaces
+// -- see the header note on why that is preserved rather than tidied.
+//
+// THIS ADDRESS WAS `:351` FOR SEVERAL SPANS AND POINTED AT A DELETED FUNCTION, which
+// is a citation failure with a decision in it rather than an arithmetic fix. `:351`
+// was `clipboardLine`'s definition; input.cpp:356 tombstones its removal and pins
+// `:351` as the historical address, so a sweep can reasonably argue the number is
+// FROZEN and correct as history. It is not, here: these three sites name a RULE and
+// the places that apply it, both of which are live, so freezing the number would have
+// left three comments pointing at `closeFolderBrowserInput` -- an unrelated function
+// that moved in underneath them. The test is what the sentence PROMISES the reader
+// will be at the line, not whether the line once held the thing.
 inline std::wstring flattenToSingleLine(std::wstring text) {
     for (wchar_t& ch : text) {
         if (ch == L'\r' || ch == L'\n' || ch == L'\t') ch = L' ';

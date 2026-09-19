@@ -27,11 +27,11 @@
 //      is correct and it is also surprising, so it is asserted rather than described.
 //
 // THE NUMBERS ARE COPIED, NOT CHOSEN, and the sites are named so a reviewer can check
-// them: src/input.cpp:884 (wheel, 60), :3945 and :3966 (arrows, 50), :3267 (page,
-// height * 0.8), :3979 (Home), :3985 (End, after ensureLayoutComplete). The horizontal
-// step is 60 as well, from :876 and :3954.
+// them: src/input.cpp:888 (wheel, 60), :3964 and :3985 (arrows, 50), :3286 (page,
+// height * 0.8), :3998 (Home), :4004 (End, after ensureLayoutComplete). The horizontal
+// step is 60 as well, from :881 and :3972.
 //
-// WHAT IS DELIBERATELY NOT HERE. Ctrl+wheel zoom, which input.cpp:873 routes to
+// WHAT IS DELIBERATELY NOT HERE. Ctrl+wheel zoom, which input.cpp:878 routes to
 // applyZoomDelta -- zoom rescales the scroll position to keep content anchored and
 // lives in the same file as the rest of the zoom state, so lifting one branch of it
 // would split a coupled thing. Smooth scrolling is also absent: the Windows code sets
@@ -43,7 +43,7 @@
 //
 // ONE DELIBERATE DIVERGENCE FROM src/input.cpp, ASSERTED RATHER THAN FOOTNOTED.
 // input.cpp's arrow-key sites clamp the HORIZONTAL offset at zero only -- `targetScrollX
-// += dpi(60)` at :3959 has no upper bound -- and rely on src/paint_document.cpp:73 to
+// += dpi(60)` at :3978 has no upper bound -- and rely on src/paint_document.cpp:73 to
 // clamp `scrollX` at paint time. The visible pixels are therefore right on both stacks,
 // but on Windows `targetScrollX` keeps growing past the end of the content, so after
 // holding Right at the right-hand edge the first several Lefts do nothing. Here the
@@ -57,7 +57,7 @@ namespace tinta {
 
 // Clamp both axes into range and mirror the targets onto the live values. Every
 // function below ends with this, and the Windows sites all end with the same two
-// lines open-coded -- see src/input.cpp:3995-3996 and :886-887.
+// lines open-coded -- see src/input.cpp:4014-4015 and :890-891.
 //
 // Public because a caller that sets app.targetScrollY itself still needs the clamp,
 // and because a test can assert it in isolation.
@@ -84,7 +84,7 @@ void scrollDocumentByPage(App& app, int direction);
 void scrollDocumentToTop(App& app);
 
 // Calls ensureLayoutComplete first, because jump-to-bottom needs the FINAL content
-// height and layout is incremental -- src/input.cpp:3983 does the same, with the same
+// height and layout is incremental -- src/input.cpp:4002 does the same, with the same
 // comment, and it is the only scroll target that cannot be computed from what is
 // already laid out.
 void scrollDocumentToBottom(App& app);

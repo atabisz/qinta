@@ -474,6 +474,11 @@ drafts.cpp
 #     press and release -- and that is only safe because the bracket was measured: all 3
 #     captures here are inside handleEditorMouseDown and all 3 releases inside
 #     handleEditorMouseUp.
+#     SCOPE NOTE ADDED 2026-09-20: that sentence is true of THIS file's 3 and 3 and was
+#     later over-generalised in win32_api.h to the seam as a whole, where re-measuring
+#     input.cpp and tabs.cpp refuted it at 1 of 9 release sites (tabs.cpp::tabDragCancel,
+#     reached from a keystroke and from WM_CAPTURECHANGED, neither of which ends Qt's
+#     implicit grab). Read the per-file scope as load-bearing, not as decoration.
 #   * WM_CLOSE in win32_types.h, beside WM_APP and with the same Windows-side static_assert
 #     against the real SDK. A constant, so the types header rather than the calls header.
 #   * platform::clipboardHasImage in the clipboard seam -- the AVAILABILITY question only.
@@ -515,7 +520,7 @@ drafts.cpp
 # fall through to the tabOpenQuickNote branch beside it -- that would give the user a new TAB
 # where they asked for a new WINDOW, which is a wrong picture rather than a visible gap. What
 # is missing is a Qt-side parser for the flags the relaunch passes, one piece of work serving
-# three callers (here, input.cpp:3632, tabs.cpp:1650), so it is its own slice.
+# three callers (here, input.cpp:3640, tabs.cpp:1639), so it is its own slice.
 editor.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside

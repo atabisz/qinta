@@ -18,6 +18,7 @@
 #include "i18n.h"
 #include "input.h"
 #include "utils.h"
+#include "win32_api.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -1093,7 +1094,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
         app.tabDragOffsetX = (float)x - hit.rect.left;
         app.tabDragStartX = x;
         app.tabDragStartY = y;
-        SetCapture(hwnd);
+        captureMouse(hwnd);
         return true;
     }
     return true;  // strip clicks never fall through to the document
@@ -1601,7 +1602,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     app.tabDragging = false;
     app.tabDragDetached = false;
     ghostDestroy(app);
-    if (GetCapture() == hwnd) ReleaseCapture();
+    releaseMouseIfCaptured(hwnd);
 
     if (detached && index < (int)app.tabs.size()) {
         bool active = index == app.activeTab;
@@ -1681,13 +1682,32 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
     postWindowMessage(hwnd, WM_CLOSE, 0, 0);
 }
 
+// THE ONE RELEASE SITE IN THE TREE THAT SITS OUTSIDE THE PRESS-TO-RELEASE BRACKET,
+// and it is flagged here because win32_api.h's mouse-capture note argues that its
+// off-Windows no-op is the FINAL answer rather than a placeholder -- an argument that
+// holds only for sites Qt's implicit grab covers, and this is not one. That note also
+// asked the next file routed through the seam to re-measure the bracket instead of
+// inheriting the paragraph, which is how this was found rather than shipped.
+//
+// TWO callers reach here and NEITHER is a mouse-up. src/input.cpp's handleKeyDown
+// calls it on VK_ESCAPE, and src/main_d2d.cpp's WM_CAPTURECHANGED calls it when
+// something else takes the mouse. Qt holds its implicit grab from press to release
+// and a keystroke does not end it, so on Qt an Esc here would abort the drag's STATE
+// while the widget kept grabbing the mouse -- the ghost vanishes and the next click
+// still goes to the tab strip. That needs an explicit QWidget::releaseMouse, so the
+// empty arm is a REAL GAP at this site and not the settled answer it is elsewhere.
+//
+// The WM_CAPTURECHANGED caller is the interesting half: capture has ALREADY been lost
+// by the time it runs, so the guard makes the call a no-op on Windows too and the
+// Qt equivalent is not a release at all but QEvent::UngrabMouse arriving on the
+// widget. Two callers, two different Qt shapes, one of them not a call.
 void tabDragCancel(App& app, HWND hwnd) {
     if (app.tabDragIndex < 0) return;
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
     ghostDestroy(app);
-    if (GetCapture() == hwnd) ReleaseCapture();
+    releaseMouseIfCaptured(hwnd);
     requestRepaint(hwnd);
 }
 

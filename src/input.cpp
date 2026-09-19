@@ -23,6 +23,11 @@
 #include "i18n.h"
 #include "selection.h"
 #include "file_dialog.h"
+// Named directly rather than relied on through app.h, which happens to include it:
+// this file now calls setCursorShape, captureMouse, releaseMouse and
+// releaseMouseIfCaptured, and an include that arrives by accident is one someone can
+// remove from a header two files away without a single error here.
+#include "win32_api.h"
 
 #include <windowsx.h>
 #include <shellapi.h>
@@ -33,11 +38,15 @@
 #include <algorithm>
 #include <chrono>
 
-// Cached cursor handles - avoid calling LoadCursor() on every WM_MOUSEMOVE
-static HCURSOR cursorArrow = LoadCursor(nullptr, IDC_ARROW);
-static HCURSOR cursorHand  = LoadCursor(nullptr, IDC_HAND);
-static HCURSOR cursorIBeam = LoadCursor(nullptr, IDC_IBEAM);
-static HCURSOR cursorSizeWE = LoadCursor(nullptr, IDC_SIZEWE);
+// The four cached cursor handles that used to live here are GONE, and the comment
+// that justified them -- "avoid calling LoadCursor() on every WM_MOUSEMOVE" -- went
+// with them because win32_api.h's setCursorShape now holds the identical four
+// statics and says why that is lifetime-neutral. There were FIVE, not four: a
+// function-local `static HCURSOR replaceIBeam = LoadCursor(nullptr, IDC_IBEAM)` sat
+// at the old :1162 loading the same system cursor a file-scope static two hundred
+// lines up already held. Both spellings were correct and neither leaked, which is
+// exactly why nothing ever reported the duplicate; naming a SHAPE instead of a
+// handle is what made it impossible to write twice.
 
 static const App::TaskRect* taskRectAt(const App& app);
 static void startPageInvoke(App& app, HWND hwnd, int id);
@@ -79,36 +88,36 @@ static void setCursorFromHits(const std::vector<std::pair<tinta::RectF, int>>& h
         if (!cursorPointInRect(x, y, it->first)) continue;
         int action = it->second;
         if (sliders && (action == SET_SLIDER_READING || action == SET_SLIDER_ZEN)) {
-            SetCursor(cursorSizeWE);
+            setCursorShape(CursorShape::SizeWE);
         } else if (textFields && action >= TE_FIELD_BG && action <= TE_FIELD_NAME) {
-            SetCursor(cursorIBeam);
+            setCursorShape(CursorShape::IBeam);
         } else {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         }
         return;
     }
-    SetCursor(cursorArrow);
+    setCursorShape(CursorShape::Arrow);
 }
 
 static void setPrintPreviewCursor(const App& app, float x, float y) {
     if (cursorPointInRect(x, y, app.printPreviewPrintBtn) ||
         cursorPointInRect(x, y, app.printPreviewCancelBtn)) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
     for (int i = 0; i < PRINT_PAPER_COUNT; i++) {
         if (cursorPointInRect(x, y, app.printPreviewPaperBtn[i])) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
             return;
         }
     }
     for (const auto& rect : app.printPreviewOrientBtn) {
         if (cursorPointInRect(x, y, rect)) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
             return;
         }
     }
-    SetCursor(cursorArrow);
+    setCursorShape(CursorShape::Arrow);
 }
 
 // Resolve the chooser hit under a point (rects from the last paint);
@@ -124,8 +133,8 @@ static int themeChooserHitAt(const App& app, float x, float y) {
 }
 
 static void setThemeChooserCursor(const App& app, float x, float y) {
-    SetCursor(themeChooserHitAt(app, x, y) != INT_MIN ? cursorHand
-                                                      : cursorArrow);
+    setCursorShape(themeChooserHitAt(app, x, y) != INT_MIN ? CursorShape::Hand
+                                                           : CursorShape::Arrow);
 }
 
 static void setTocCursor(App& app, float x, float y) {
@@ -134,48 +143,48 @@ static void setTocCursor(App& app, float x, float y) {
     if (cursorPointInRect(x, y, app.tocPinRect) ||
         cursorPointInRect(x, y, app.tocCloseRect) ||
         tocItemIndexAt(app, x, y) >= 0) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
-    SetCursor(cursorArrow);
+    setCursorShape(CursorShape::Arrow);
 }
 
 static void setFolderBrowserCursor(const App& app, float x, float y) {
     FolderBrowserMetrics g = folderBrowserMetrics(app);
     if (x < g.panelX || x > g.panelX + g.panelWidth) {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
         return;
     }
 
     bool inHeader = y >= g.headerY && y <= g.headerY + g.headerH;
 
     if (app.folderBrowserEditingPath) {
-        SetCursor(inHeader ? cursorIBeam : cursorArrow);
+        setCursorShape(inHeader ? CursorShape::IBeam : CursorShape::Arrow);
         return;
     }
     if (inHeader && y >= g.btnY && y <= g.btnY + g.btnSize &&
         ((x >= g.pinBtnX && x <= g.pinBtnX + g.btnSize) ||
          (x >= g.folderBtnX && x <= g.folderBtnX + g.btnSize) ||
          (x >= g.fileBtnX && x <= g.fileBtnX + g.btnSize))) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
     if (inHeader && x >= g.cardLeft + dpi(app, 6.0f) &&
         x < g.folderBtnX - dpi(app, 2.0f)) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
 
     if (app.folderBrowserNaming != 0 &&
         y >= g.listStartY && y <= g.listStartY + g.itemHeight) {
-        SetCursor(cursorIBeam);
+        setCursorShape(CursorShape::IBeam);
         return;
     }
     if (folderItemIndexAt(app, x, y) >= 0) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
-    SetCursor(cursorArrow);
+    setCursorShape(CursorShape::Arrow);
 }
 
 static void setSearchCursor(const App& app, float x, float y) {
@@ -193,9 +202,9 @@ static void setSearchCursor(const App& app, float x, float y) {
     float textX = barX + dpi(app, 42.0f);
     float textRight = barX + barWidth - dpi(app, 120.0f);
     if (x >= textX && x <= textRight && y >= barY && y <= barY + barHeight) {
-        SetCursor(cursorIBeam);
+        setCursorShape(CursorShape::IBeam);
     } else {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
     }
 }
 
@@ -345,9 +354,9 @@ static void closeFolderBrowserInput(App& app) {
 }
 
 // clipboardLine IS GONE, replaced at all THREE call sites by the seam's own spelling:
-// two here (:3509 and :4143) and one in editor.cpp. The census that scoped this seam
+// two here (:3538 and :4172) and one in editor.cpp. The census that scoped this seam
 // said TWO, and the reason it said two is worth keeping: the grep that produced it
-// filtered out `^src/input.cpp:35` to drop this function's own definition at :351, and
+// filtered out `^src/input.cpp:35` to drop its now-HISTORICAL definition at :351, and
 // that pattern also swallows every line from 3500 to 3599 -- where one of the calls
 // lived. A line-number prefix is a prefix, not a line number, and the build is what
 // caught it.
@@ -910,7 +919,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
     }
     if (iconHover && appMenuAvailable(app) && app.tabDragIndex < 0 &&
         !app.editorSelecting && !app.draggingSeparator && !app.selecting) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
         return;
     }
     // An armed tab drag owns the mouse until release (capture held)
@@ -934,7 +943,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                     (float)app.mouseX <= img.right &&
                     (float)app.mouseY >= img.top &&
                     (float)app.mouseY <= img.bottom;
-        SetCursor(over || app.lightboxDragging ? cursorHand : cursorArrow);
+        setCursorShape(over || app.lightboxDragging ? CursorShape::Hand : CursorShape::Arrow);
         return;
     }
 
@@ -979,11 +988,11 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                 app.tabSwitcherHover = rowHover;
                 requestRepaint(hwnd);
             }
-            SetCursor(rowHover >= 0 ? cursorHand : cursorArrow);
+            setCursorShape(rowHover >= 0 ? CursorShape::Hand : CursorShape::Arrow);
             return;
         }
         if (newHover >= 0 || overStripButton) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
             return;
         }
     }
@@ -1010,7 +1019,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.tabMenuHover = item;
             requestRepaint(hwnd);
         }
-        SetCursor(item >= 0 ? cursorHand : cursorArrow);
+        setCursorShape(item >= 0 ? CursorShape::Hand : CursorShape::Arrow);
         return;
     }
     if (app.showShortcutEditor) {
@@ -1029,7 +1038,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
     if (app.showSettings) {
         if (app.settingsDragSlider) {
             settingsSliderApply(app, app.settingsDragSlider, (float)app.mouseX);
-            SetCursor(cursorSizeWE);
+            setCursorShape(CursorShape::SizeWE);
             return;
         }
         setCursorFromHits(app.settingsHits, (float)app.mouseX,
@@ -1051,14 +1060,14 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             app.hoveredLink.clear();
             repaint = true;
         }
-        SetCursor(contextMenuItemEnabled(app, item) ? cursorHand : cursorArrow);
+        setCursorShape(contextMenuItemEnabled(app, item) ? CursorShape::Hand : CursorShape::Arrow);
         if (repaint) requestRepaint(hwnd);
         return;
     }
 
     // Help overlay scrollbar dragging
     if (app.helpScrollbarDragging) {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
         float maxScroll = std::max(0.0f, app.helpContentHeight - app.helpVisibleHeight);
         if (maxScroll > 0) {
             float sbHeight = app.helpVisibleHeight / app.helpContentHeight * app.helpVisibleHeight;
@@ -1074,7 +1083,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         return;
     }
     if (app.showHelp) {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
         return;
     }
 
@@ -1087,7 +1096,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
             }
         }
         if (folderSearchToggleAt(app, (float)app.mouseX, (float)app.mouseY) || overResult) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         } else {
             setSearchCursor(app, (float)app.mouseX, (float)app.mouseY);
         }
@@ -1142,12 +1151,12 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
     if (app.annotEditorOpen && !app.editMode) {
         if (annotationEditorButtonAt(app, (float)app.mouseX,
                                      (float)app.mouseY) != 0) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         } else if (annotationEditorContains(app, (float)app.mouseX,
                                             (float)app.mouseY)) {
-            SetCursor(cursorIBeam);
+            setCursorShape(CursorShape::IBeam);
         } else {
-            SetCursor(cursorArrow);
+            setCursorShape(CursorShape::Arrow);
         }
         return;
     }
@@ -1159,13 +1168,12 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         // buttons, text beam over the two input fields (#119 feedback)
         if (app.showSearch && app.searchReplaceMode &&
             !app.draggingSeparator && !app.editorSelecting) {
-            static HCURSOR replaceIBeam = LoadCursor(nullptr, IDC_IBEAM);
             for (const auto& hit : app.searchReplaceHits) {
                 if ((float)app.mouseX >= hit.first.left &&
                     (float)app.mouseX <= hit.first.right &&
                     (float)app.mouseY >= hit.first.top &&
                     (float)app.mouseY <= hit.first.bottom) {
-                    SetCursor(hit.second >= 3 ? cursorHand : replaceIBeam);
+                    setCursorShape(hit.second >= 3 ? CursorShape::Hand : CursorShape::IBeam);
                     return;
                 }
             }
@@ -1185,7 +1193,7 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
                 requestRepaint(hwnd);
             }
             if (over) {
-                SetCursor(cursorHand);
+                setCursorShape(CursorShape::Hand);
                 return;
             }
         }
@@ -1386,9 +1394,9 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         float panelX = -panelWidth * (1.0f - app.folderBrowserAnimation);
         bool inPanel = (app.mouseX >= panelX && app.mouseX <= panelX + panelWidth);
         if (inPanel && app.hoveredFolderIndex >= 0) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         } else {
-            SetCursor(cursorArrow);
+            setCursorShape(CursorShape::Arrow);
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
@@ -1398,28 +1406,28 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
         float panelX = tocPanelX(app, panelWidth);
         bool inPanel = (app.mouseX >= panelX && app.mouseX <= panelX + panelWidth);
         if (inPanel && app.hoveredTocIndex >= 0) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         } else {
-            SetCursor(cursorArrow);
+            setCursorShape(CursorShape::Arrow);
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
             requestRepaint(hwnd);
     } else if (app.scrollbarHovered || app.scrollbarDragging ||
         app.hScrollbarHovered || app.hScrollbarDragging) {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
     } else if (signalMouseMove(app, (float)app.mouseX, (float)app.mouseY)) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (startPageActive(app) && app.startPageHover != 0) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (!app.annotationMarks.empty() &&
                (annotationRailHit(app, (float)app.mouseX,
                                   (float)app.mouseY) >= 0 ||
                 annotationCopyButtonHit(app, (float)app.mouseX,
                                         (float)app.mouseY))) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (taskRectAt(app) != nullptr) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (app.hoveredCodeBlock >= 0) {
         // Show hand cursor only when over the copy button area
         const auto& cb = app.codeBlocks[app.hoveredCodeBlock];
@@ -1434,24 +1442,24 @@ void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
              docY >= btnY && docY <= btnY + btnH) ||
             diagramPngButtonAt(app, app.mouseX, app.mouseY) ||
             diagramFitButtonAt(app, app.mouseX, app.mouseY)) {
-            SetCursor(cursorHand);
+            setCursorShape(CursorShape::Hand);
         } else if (app.overText) {
-            SetCursor(cursorIBeam);
+            setCursorShape(CursorShape::IBeam);
         } else {
-            SetCursor(cursorArrow);
+            setCursorShape(CursorShape::Arrow);
         }
     } else if (app.hoveredTable >= 0 &&
                (tableCopyButtonAt(app, app.mouseX, app.mouseY) ||
                 tableFitButtonAt(app, app.mouseX, app.mouseY))) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (!app.hoveredLink.empty()) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (!app.editMode && layoutBitmapAt(app, docX, docY) != nullptr) {
-        SetCursor(cursorHand);
+        setCursorShape(CursorShape::Hand);
     } else if (app.overText) {
-        SetCursor(cursorIBeam);
+        setCursorShape(CursorShape::IBeam);
     } else {
-        SetCursor(cursorArrow);
+        setCursorShape(CursorShape::Arrow);
     }
 
     if (wasHovered != app.scrollbarHovered ||
@@ -1775,7 +1783,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             app.lightboxDragStartY = my;
             app.lightboxDragPanX = app.lightboxPanX;
             app.lightboxDragPanY = app.lightboxPanY;
-            SetCapture(hwnd);
+            captureMouse(hwnd);
         } else {
             closeLightbox(app);
         }
@@ -1800,7 +1808,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
                 app.settingsDragSlider = hit.second;
-                SetCapture(hwnd);
+                captureMouse(hwnd);
                 settingsSliderApply(app, hit.second, mx);
                 return;
             }
@@ -1844,7 +1852,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
                 app.helpScrollbarDragging = true;
                 app.helpScrollbarDragStartY = (float)clickY;
                 app.helpScrollbarDragStartScroll = app.helpScroll;
-                SetCapture(hwnd);
+                captureMouse(hwnd);
 
                 // Jump if clicked outside thumb
                 float sbHeight = app.helpVisibleHeight / app.helpContentHeight * app.helpVisibleHeight;
@@ -2054,7 +2062,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     app.mouseDown = true;
     app.mouseX = GET_X_LPARAM(lParam);
     app.mouseY = GET_Y_LPARAM(lParam);
-    SetCapture(hwnd);
+    captureMouse(hwnd);
     float previewOffsetX = documentViewportX(app);
     float docX = (app.mouseX - previewOffsetX) + app.scrollX;
     float docY = app.mouseY + app.scrollY;
@@ -2118,7 +2126,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         // front: the Open action runs a modal picker whose release never
         // reaches this window.
         if (startPageActive(app)) {
-            if (GetCapture() == hwnd) ReleaseCapture();
+            releaseMouseIfCaptured(hwnd);
             int hit = startPageHitAt(app, (float)GET_X_LPARAM(lParam),
                                      (float)GET_Y_LPARAM(lParam));
             app.swallowNextMouseUp = true;
@@ -2128,7 +2136,7 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         // Capture the mouse for the duration of a selection drag: without
         // it, mouse events stop at the window edge and the drag can neither
         // auto-scroll past the viewport nor finalize outside the window
-        SetCapture(hwnd);
+        captureMouse(hwnd);
         // Detect double/triple clicks
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2590,7 +2598,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // must let go no matter which branch handles it. A branch that
     // returned early used to leak the capture, which silently killed the
     // caption buttons' non-client hit-testing until the next full click.
-    if (GetCapture() == hwnd) ReleaseCapture();
+    releaseMouseIfCaptured(hwnd);
     // Release belonging to a context-menu item click: already handled
     if (app.swallowNextMouseUp) {
         app.swallowNextMouseUp = false;
@@ -2601,7 +2609,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showLightbox) {
         if (app.lightboxDragging) {
             app.lightboxDragging = false;
-            if (GetCapture() == hwnd) ReleaseCapture();
+            releaseMouseIfCaptured(hwnd);
             if (!app.lightboxDragMoved) closeLightbox(app);
             requestRepaint(hwnd);
         }
@@ -2748,7 +2756,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showSettings) {
         if (app.settingsDragSlider) {
             app.settingsDragSlider = 0;
-            ReleaseCapture();
+            releaseMouse();
             return;
         }
         float mx = (float)GET_X_LPARAM(lParam);
@@ -2800,7 +2808,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Help scrollbar release
     if (app.helpScrollbarDragging) {
         app.helpScrollbarDragging = false;
-        ReleaseCapture();
+        releaseMouse();
         requestRepaint(hwnd);
         return;
     }
@@ -2878,7 +2886,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         return;
     }
 
-    ReleaseCapture();
+    releaseMouse();
 
     // A scrollbar drag ends at this release no matter where it lands -
     // the panel branches below must not run first and leave the drag
@@ -3248,7 +3256,7 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     app.selShiftExtend = false;
     // Selection drags capture the mouse; the settings slider releases its
     // own capture earlier, so this is a no-op for everything else
-    if (GetCapture() == hwnd) ReleaseCapture();
+    releaseMouseIfCaptured(hwnd);
 }
 
 // Zen mode: borderless fullscreen + centered reading column (F11)

@@ -41,7 +41,7 @@
 // would be inventing a measurement.
 //
 // ONE `DrawTextW` REMAINS IN THE TREE AND IT IS NOT A STALE SPELLING:
-// src/tabs.cpp:1481 calls the raw GDI DrawTextW on a memory DC, which is a
+// src/tabs.cpp:1470 calls the raw GDI DrawTextW on a memory DC, which is a
 // different function from a different API that happens to share a name with this
 // seam's method. A sweep that "finished the rename" by rewriting it would break the
 // Windows build, so it is named here to stop that happening.

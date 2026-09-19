@@ -121,7 +121,7 @@ void QtAppWindow::promptOpenDocument() {
 }
 
 void QtAppWindow::wheelEvent(QWheelEvent* event) {
-    // Ctrl+wheel is ZOOM on Windows (input.cpp:874, applyZoomDelta) and is not
+    // Ctrl+wheel is ZOOM on Windows (input.cpp:878, applyZoomDelta) and is not
     // implemented here. Ignored rather than treated as a scroll, so the gesture does
     // nothing instead of doing the wrong thing -- and ignore() rather than accept() so
     // a parent that does implement it would still see it.
@@ -138,7 +138,7 @@ void QtAppWindow::wheelEvent(QWheelEvent* event) {
     const float horizontal = static_cast<float>(event->angleDelta().x()) / kAngleDeltaPerNotch;
 
     if (event->modifiers() & Qt::ShiftModifier) {
-        // Shift+wheel is horizontal, matching input.cpp:875-881. The vertical delta is
+        // Shift+wheel is horizontal, matching input.cpp:879-885. The vertical delta is
         // what a shifted wheel reports, so `vertical` is the right input here.
         tinta::scrollDocumentHorizontallyByNotches(app_, vertical);
     } else {
@@ -148,7 +148,7 @@ void QtAppWindow::wheelEvent(QWheelEvent* event) {
         // documented convention that a positive x delta is a rotation to the LEFT,
         // which is the same direction a positive vertical notch means, hence the same
         // helper with no negation. Win32's WM_MOUSEHWHEEL uses the opposite sign
-        // (input.cpp:895 adds where :877 subtracts), so this is exactly the kind of
+        // (input.cpp:900 adds where :881 subtracts), so this is exactly the kind of
         // detail a port gets backwards; it is called out rather than left to be
         // discovered as a "scrolling goes the wrong way" report.
         if (horizontal != 0.0f) tinta::scrollDocumentHorizontallyByNotches(app_, horizontal);

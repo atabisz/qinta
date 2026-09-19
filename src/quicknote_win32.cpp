@@ -40,7 +40,7 @@
 // Direct2D" makes every remaining blocker sound like a rendering job, and the one
 // standing between this file and its Qt half is not one.
 //
-// The same question governs the OTHER self-relaunch, src/tabs.cpp:1638, which is why
+// The same question governs the OTHER self-relaunch, src/tabs.cpp:1639, which is why
 // neither was answered here: one parser answers both, and answering one at a time
 // invents a second mechanism. That site wants MORE than this one -- it passes
 // `--cascade --tabbed --pos X Y` plus a path -- so it is the stronger statement of the
@@ -49,7 +49,7 @@
 // EVERY LINE NUMBER IN THIS FILE WAS STALE -- four of four, not the three I expected
 // when I started checking, and the fourth is the one worth naming because it is in a
 // paragraph that reads as settled fact. The WinMain parse sites read :1488 and :1495
-// and are :1495 and :1502. The tabs.cpp relaunch read :1650 and is :1638. And
+// and are :1495 and :1502. The tabs.cpp relaunch read :1650 and is :1639. And
 // `CMakeLists.txt:1251-1252`, cited below as where INPUT_TEST_SOURCES is defined, is
 // now two lines in the middle of an unrelated comment about selection_tests -- the set
 // and its REMOVE_ITEM are at :1605-1606.

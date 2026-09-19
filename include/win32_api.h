@@ -150,7 +150,7 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // because Windows can refuse a post when a queue is full or a window is gone. That
 // correspondence is measured, not assumed, and it is what makes false the right
 // answer: the existing error path does precisely the correct thing off Windows,
-// with no new code and no leak. (The fourth cast, input.cpp:696, passes a string
+// with no new code and no leak. (The fourth cast, input.cpp:701, passes a string
 // literal and owns nothing, so it neither checks nor needs to.)
 //
 // The general lesson worth keeping: when a call already has a documented failure
@@ -173,13 +173,38 @@ inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM
 // Set the mouse cursor to one of the four shapes this tree uses.
 //
 // THIS ONE ENTERS ON THE FIRST ARM OF THE RULE ABOVE BY A WIDE MARGIN, and the
-// margin is why it takes a SHAPE instead of a handle. Measured across src/*.cpp
-// with comments stripped: 58 SetCursor, 13 LoadCursor, 10 HCURSOR and 14 IDC_*,
-// spread over four files -- input.cpp 52 SetCursor alone, editor.cpp 6, plus
-// LoadCursor in main_d2d.cpp. A seam taking an HCURSOR would have moved one call
-// and left HCURSOR, LoadCursor and every IDC_* constant in the caller, which is
-// most of what makes those files unreadable off Windows. Only four distinct
-// shapes are ever asked for, so the shape is the thing to name.
+// margin is why it takes a SHAPE instead of a handle. The figures that first made
+// that argument were "58 SetCursor, 13 LoadCursor, 10 HCURSOR and 14 IDC_*, spread
+// over four files -- input.cpp 52 SetCursor alone, editor.cpp 6, plus LoadCursor in
+// main_d2d.cpp". A seam taking an HCURSOR would have moved one call and left
+// HCURSOR, LoadCursor and every IDC_* constant in the caller, which is most of what
+// makes those files unreadable off Windows. Only four distinct shapes are ever
+// asked for, so the shape is the thing to name.
+//
+// THOSE FIGURES WERE STALE AND ARE REPLACED RATHER THAN DELETED, because what they
+// reconcile TO is the useful part. Re-measured 2026-09-20 across src/ and include/
+// with comments stripped, after input.cpp was routed through here: 4 SetCursor, 5
+// LoadCursor, 4 HCURSOR and 5 IDC_* remain tree-wide. Four of each are the four
+// lines of this seam's own implementation below, and every single one under src/ is
+// gone; the two ODD ENTRIES are main_d2d.cpp's LoadCursor/IDC_ARROW pair, which
+// registers a window class rather than setting a hover shape and is therefore out
+// of this seam's scope rather than missed by it.
+//
+// THE 5s ARE A CORRECTION TO THIS PARAGRAPH'S FIRST DRAFT, which read "4 LoadCursor
+// ... 4 IDC_* ... zero of any of them anywhere under src/" and then named the
+// main_d2d.cpp pair as an exception in the same breath -- a sentence that
+// contradicted itself by arithmetic, because an exception under src/ is not
+// compatible with zero under src/. The cause is worth recording since it is the
+// same one that made the figures above stale: the replacement numbers were WRITTEN
+// BEFORE BEING MEASURED, from the shape of the fix rather than from a count. The
+// four decompositions that do hold are 4+0, 4+1, 4+0 and 4+1.
+//
+// The old figures reconcile against the new ones exactly: 58 was input.cpp's 52
+// plus editor.cpp's 6, both now zero, and the 4 counted here are the seam's own
+// implementation, which the original measurement was taken before writing. That the
+// arithmetic closes is what proves the drift is two conversions rather than a
+// counting error -- and a figure in a comment rots with no diff to point at it,
+// which is why this paragraph re-derives rather than adjusts.
 //
 // THE STATIC CACHES MOVED IN HERE, AND THAT IS THE ONE THING IN THIS SLICE THAT
 // IS NOT A STRAIGHT CARRY -- so it is stated rather than left to be discovered.
@@ -223,16 +248,27 @@ inline void setCursorShape(CursorShape shape) {
 // --- Mouse capture ------------------------------------------------------------
 //
 // Route mouse messages to this window until the button is released, so a drag
-// that leaves the window keeps tracking. 9 SetCapture and 12 ReleaseCapture
-// sites across input.cpp, editor.cpp and tabs.cpp.
+// that leaves the window keeps tracking. The count first written here was "9
+// SetCapture and 12 ReleaseCapture sites across input.cpp, editor.cpp and
+// tabs.cpp", and like the cursor figures above it is replaced rather than deleted
+// because the reconciliation is the evidence: editor.cpp's three of each were
+// converted first, leaving 6 and 9, and input.cpp's 5 and 7 plus tabs.cpp's 1 and 2
+// are exactly that remainder. Re-measured 2026-09-20 after routing both, the only
+// SetCapture and ReleaseCapture calls left in the tree are the ones below.
 //
-// THIS IS THE ONE ENTRY IN THIS HEADER WHOSE OFF-WINDOWS NO-OP IS THE FINAL
-// ANSWER RATHER THAN A PLACEHOLDER, and that is worth stating because every
-// other function here promises a Qt implementation later. Qt grabs the mouse
-// IMPLICITLY between press and release: a widget that receives a press receives
-// every subsequent move and the release, inside its bounds or outside them,
-// with no call at all. So the Qt path needs nothing here, and the empty arm
-// below is correct rather than owed.
+// THIS WAS WRITTEN AS "THE ONE ENTRY IN THIS HEADER WHOSE OFF-WINDOWS NO-OP IS
+// THE FINAL ANSWER RATHER THAN A PLACEHOLDER", and the re-measurement recorded
+// below REFUTED THAT FOR ONE SITE OF NINE. The claim is kept in its original
+// words because the refutation is only legible against them, and because it was
+// the claim's own instruction to re-measure that produced the counter-example --
+// deleting it would hide the mechanism that worked. Corrected form: the no-op is
+// the final answer for EIGHT of the nine release sites and owes Qt code at one.
+//
+// The argument, unchanged where it holds: Qt grabs the mouse IMPLICITLY between
+// press and release -- a widget that receives a press receives every subsequent
+// move and the release, inside its bounds or outside them, with no call at all.
+// For any site bracketed by that press and release the Qt path needs nothing and
+// the empty arms below are correct rather than owed.
 //
 // That claim is only safe because the call sites match the implicit grab's
 // bracket exactly, which was measured rather than assumed: in editor.cpp all
@@ -242,6 +278,46 @@ inline void setCursorShape(CursorShape shape) {
 // implicit grab and would need QWidget::grabMouse, so the next file routed
 // through here should re-measure that bracket rather than inherit this
 // paragraph.
+//
+// THAT RE-MEASUREMENT HAS NOW BEEN DONE, for input.cpp and tabs.cpp, AND IT FOUND
+// ONE SITE THE PARAGRAPH ABOVE DOES NOT COVER. input.cpp survives it intact: all 5
+// of its SetCapture calls are inside handleMouseDown (src/input.cpp:1715-2590) and
+// all 7 of its ReleaseCapture calls inside handleMouseUp (:2592-3260). tabs.cpp
+// does NOT. Its capture is in tabStripMouseDown and its two releases are in
+// tabDragEnd and tabDragCancel; tabDragEnd is reached from handleMouseUp and is
+// bracketed, but tabDragCancel is reached from handleKeyDown on VK_ESCAPE and from
+// main_d2d.cpp's WM_CAPTURECHANGED. A KEYSTROKE DOES NOT END QT'S IMPLICIT GRAB, so
+// on Qt an Esc there would abort the drag's state while the widget kept grabbing
+// the mouse. That site needs an explicit QWidget::releaseMouse and the full
+// argument is written at the site rather than here, because the two callers need
+// two different Qt shapes and only one of them is a call.
+//
+// So the score is 8 of 9 settled and 1 owed, which is a better answer than the
+// paragraph's own prediction of covered-or-bug: the exception is neither, it is a
+// release keyed on a different event class entirely. Worth noting what made it
+// findable -- the instruction to re-measure rather than inherit. An inherited
+// paragraph would have shipped a wrong claim about a file it had never opened.
+//
+// THE 5-AGAINST-7 ASYMMETRY IS WHY THIS WAS WORTH MEASURING AND IS NOT A MISMATCH,
+// which is the opposite of what the counts predict and therefore the finding. Two
+// things produce it and neither leaves the bracket: handleMouseUp has several early
+// returns and releases on each, and ONE of the releases is inside handleMouseDown
+// (:2129), letting go of the capture the same press just took because the start
+// page's Open action opens a modal picker whose release never reaches this window.
+// A release inside a press handler is not a site the paragraph above anticipated,
+// so it is named here: Qt breaks the implicit grab for a modal itself, so the
+// no-op remains correct for that site too.
+//
+// WHAT THE RE-MEASUREMENT DID CHANGE is that a bare ReleaseCapture is not the only
+// spelling in use. 6 of the 9 release sites read `if (GetCapture() == hwnd)
+// ReleaseCapture();` -- a guard against releasing a capture that belongs to another
+// window on the same thread, which matters here because the quick-note window is a
+// second window. GetCapture was invisible to the first census because that census
+// was keyed on the two calls this seam already had, which is the blind spot a
+// census keyed on the shape you already fixed always has. Rather than leave 6 sites
+// raw -- which would have kept ReleaseCapture AND added GetCapture to the list of
+// what makes input.cpp unreadable off Windows -- the guarded form gets its own
+// entry below. It qualifies on the first arm of this header's rule at 6 sites.
 inline void captureMouse(HWND hwnd) {
 #ifdef _WIN32
     SetCapture(hwnd);
@@ -253,6 +329,32 @@ inline void captureMouse(HWND hwnd) {
 inline void releaseMouse() {
 #ifdef _WIN32
     ReleaseCapture();
+#endif
+}
+
+// Release the capture only if THIS window holds it.
+//
+// Two calls behind one name, deliberately, because the pair is the unit: the guard
+// is meaningless without the release and the release is wrong without the guard.
+// ReleaseCapture() releases whatever window on the CALLING THREAD holds the mouse,
+// not necessarily the one asking, so an unguarded call from a window that never
+// captured would let go of a drag belonging to a sibling -- and this tree has a
+// sibling, the quick-note window. Every one of the 6 sites spelled the guard by
+// hand and identically, which is what makes this one call rather than two.
+//
+// OFF WINDOWS THIS IS THE ENTRY THAT OWES QT CODE, and it is this one rather than
+// releaseMouse because the one unbracketed site in the tree spells its release
+// with the guard. Five of its six callers are inside a mouse-up and need nothing;
+// the sixth is tabs.cpp's tabDragCancel, reached from a keystroke and from
+// WM_CAPTURECHANGED, where an empty arm leaves Qt still grabbing. So the arm below
+// IS a placeholder at one call site out of six -- which is why the reason is
+// written at that site, where the reader deciding what to do has the callers in
+// front of them, and not only here.
+inline void releaseMouseIfCaptured(HWND hwnd) {
+#ifdef _WIN32
+    if (GetCapture() == hwnd) ReleaseCapture();
+#else
+    (void)hwnd;
 #endif
 }
 

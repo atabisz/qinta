@@ -1624,7 +1624,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // What is actually missing is not this call: it is a Qt-side parser for
                 // the command-line flags the relaunch passes, which main_qt.cpp has no
                 // equivalent of. That is one piece of work serving THREE callers --
-                // this one, input.cpp:3632, and tabs.cpp:1650 -- so it belongs in its
+                // this one, input.cpp:3640, and tabs.cpp:1639 -- so it belongs in its
                 // own slice, not smuggled into an editor port.
                 if (shift) {
 #ifdef _WIN32

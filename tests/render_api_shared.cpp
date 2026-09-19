@@ -2302,6 +2302,102 @@ int runRenderApiAssertions(RenderHarness& h) {
                   "std::function");
         }
 
+        // --- THE LINK PEEK'S WHOLE PATH: a 2x transform out, a 192-dpi handle back ---
+        //
+        // `renderPeekBitmap` (src/print.cpp) draws the hover panel at 2x and hands back a
+        // `shared_ptr<Bitmap>` that reports HALF its pixel size in DIPs. It used to do
+        // that with a native `D2D1_BITMAP_OPTIONS_TARGET` bitmap created at 192 dpi, so
+        // the 2x lived in the bitmap's own DPI. Through this seam it cannot: the WIC
+        // target `src/image_win32.cpp:628-631` builds is HARDCODED at 96 dpi, so the
+        // scale has to be a transform inside the callback and the 192 has to go on
+        // `CreateBitmap` instead. Those are two different mechanisms reaching the same
+        // result, and getting either wrong is silent -- the peek renders at half size in
+        // the top-left corner of an otherwise blank panel, or at the right size and twice
+        // the intended DIP extent. Neither throws, neither logs.
+        //
+        // NOTHING ELSE IN THE TREE ASSERTS THIS. `CreateBitmap` at 192 dpi is checked
+        // above (line ~1921) over a hand-built buffer, and `SetTransform` is checked
+        // against the harness's own surface -- but the surface is not the offscreen WIC
+        // target, and a transform reaching one does not prove it reaches the other. The
+        // composition is what the port rests on, so the composition is what is asserted.
+        //
+        // And `src/print.cpp` cannot be reached from any test: it appears exactly once in
+        // CMakeLists.txt, in the application target, so no test binary compiles
+        // `renderPeekBitmap` itself. This is the closest arm that exists -- the same two
+        // seam calls in the same order with the same arguments -- and the gap is stated
+        // rather than implied.
+        {
+            constexpr uint32_t kPeekW = 64, kPeekH = 64;
+            constexpr float kDip = 10.0f;  // a DIP rect 0..10 must cover px 0..20 at 2x
+
+            tinta::RenderTarget& rt = h.begin();
+            const tinta::DecodedImage scaled = tinta::rasterizeToImage(
+                rt, kPeekW, kPeekH, tinta::colorF(1.0f, 1.0f, 1.0f, 1.0f),
+                [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+                    if (!brush) return;
+                    target.SetTransform(tinta::matrixScale(2.0f, 2.0f));
+                    brush->SetColor(tinta::colorF(0.0f, 0.0f, 0.0f, 1.0f));
+                    target.FillRectangle(tinta::rectF(0.0f, 0.0f, kDip, kDip), brush);
+                    target.SetTransform(tinta::matrixIdentity());
+                });
+            // THE CONTROL IS THE SAME DRAW WITHOUT THE TRANSFORM, and it is what makes
+            // the three pixel reads above mean anything: if the offscreen target ignored
+            // transforms entirely, or if some later change made the seam apply its own
+            // 2x, this arm and the one above would read IDENTICALLY and the assertions
+            // would be tautologies over one surface
+            // ([[an-assertion-over-one-capture-cannot-fail]]).
+            const tinta::DecodedImage plain = tinta::rasterizeToImage(
+                rt, kPeekW, kPeekH, tinta::colorF(1.0f, 1.0f, 1.0f, 1.0f),
+                [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+                    if (!brush) return;
+                    brush->SetColor(tinta::colorF(0.0f, 0.0f, 0.0f, 1.0f));
+                    target.FillRectangle(tinta::rectF(0.0f, 0.0f, kDip, kDip), brush);
+                });
+            // The handle the peek actually returns, built from the raster's own bytes at
+            // 192 dpi -- the second half of the body, and the reason the caller can lay
+            // the panel out in DIPs without knowing a raster happened.
+            std::unique_ptr<tinta::Bitmap> handle;
+            if (scaled.ok) {
+                handle = rt.CreateBitmap(kPeekW, kPeekH, scaled.pixels.data(), kPeekW * 4,
+                                         192.0f);
+            }
+            h.end();
+
+            auto inkAt = [&](const tinta::DecodedImage& img, uint32_t x, uint32_t y) -> int {
+                const size_t i = (static_cast<size_t>(y) * kPeekW + x) * 4;
+                return i + 3 < img.pixels.size() ? img.pixels[i] : -1;
+            };
+
+            check(scaled.ok && plain.ok,
+                  "CONTROL: both the scaled and unscaled rasters succeeded, so the pixel "
+                  "comparisons below are between two real buffers");
+            check(inkAt(scaled, 5, 5) == 0,
+                  "under a 2x transform the offscreen raster is inked at device pixel "
+                  "(5,5), inside the rect on either reading");
+            check(inkAt(scaled, 15, 15) == 0,
+                  "and inked at (15,15), which a DIP rect of 0..10 only covers if the 2x "
+                  "transform reached the offscreen target -- this is the pixel that goes "
+                  "light when the link peek renders at half size");
+            check(inkAt(scaled, 25, 25) != 0,
+                  "and NOT inked at (25,25), so the transform scaled the rect rather than "
+                  "the whole buffer coming back dark");
+            check(inkAt(plain, 15, 15) != 0 && inkAt(plain, 5, 5) == 0,
+                  "CONTROL: the same rect WITHOUT the transform is inked at (5,5) and "
+                  "light at (15,15) -- so the transform is what moved the boundary, and "
+                  "the assertion above is not reading a constant");
+            check(handle != nullptr,
+                  "the raster's own bytes become a Bitmap handle, which is what "
+                  "renderPeekBitmap returns to its caller");
+            if (handle) {
+                const tinta::SizeF dips = handle->GetSize();
+                check(dips.width == static_cast<float>(kPeekW) / 2.0f &&
+                          dips.height == static_cast<float>(kPeekH) / 2.0f,
+                      "and at 192 dpi it reports HALF its pixel size in DIPs, so the "
+                      "panel that lays the peek out in DIPs gets the extent it had "
+                      "before the body stopped using a native 192-dpi target");
+            }
+        }
+
         // --- encodePng, and the round trip that makes a length check worthless -----
         //
         // A byte count would pass on any blob. So: the PNG SIGNATURE, then the bytes go to

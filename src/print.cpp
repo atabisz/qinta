@@ -9,6 +9,7 @@
 // value and so has always pulled render_d2d.h in transitively. drawDocumentRange now
 // takes a tinta::RenderTarget& and the three call sites construct D2DRenderTarget and
 // D2DBrush, so this file uses both headers directly and says so.
+#include "image_api.h"   // tinta::rasterizeToImage -- the link peek's offscreen raster
 #include "render_api.h"
 #include "render_d2d.h"
 
@@ -1017,7 +1018,9 @@ bool exportPdfFile(App& app, const std::wstring& path) {
 // (the palette switch is undone so the peek matches the screen).
 std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
                                                 float widthDips, float& heightDips) {
-    if (!app.deviceContext || !app.root) return nullptr;
+    // app.renderTarget rather than app.deviceContext now: the raster goes through the seam,
+    // which needs a live tinta::RenderTarget only to reach that backend's own factories.
+    if (!app.renderTarget || !app.root) return nullptr;
     std::ifstream file(path);
     if (!file) return nullptr;
     std::stringstream buffer;
@@ -1025,17 +1028,54 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     auto parsed = parseDocument(app.parser, buffer.str(), path);
     if (!parsed.success || !parsed.root) return nullptr;
 
-    qmd::ElementPtr savedRoot = app.root;
-    std::string savedFile = app.currentFile;
-    SavedView saved{};
-    enterPrintLayout(app, saved);
+    // EVERYTHING THIS FUNCTION BORROWS FROM App IS RESTORED BY A DESTRUCTOR, NOT BY THE
+    // LINES AT THE BOTTOM. The old shape restored four pieces of state on the normal path
+    // and its own comment admitted the exception path was uncovered: a throw out of
+    // drawDocumentRange -- or out of any allocation in here -- propagated past the restore
+    // and left the application showing the PEEK's document root, the peek target's
+    // currentFile, a 100% reading width and the print layout still in force. That is not a
+    // leak, it is a visibly wrong window, and it was the worse half of the two the comment
+    // named.
+    //
+    // NOT TESTED, AND SAID RATHER THAN IMPLIED, which is the mistake the old comment made:
+    // src/print.cpp appears once in CMakeLists.txt, in the application target, so no test
+    // binary compiles this function and there is no arm that fails if this guard is
+    // deleted. What replaces the test is a shape a reader can check, and the check has to
+    // be stated precisely because the body below DOES write all four -- borrowing them is
+    // the whole point. The property is that each saved value is written BACK exactly once,
+    // in this destructor, and no other statement in the function restores anything: there
+    // is no cleanup block to fall out of and no early return that has to remember. Making
+    // it testable costs a test target that links the whole app, which is larger than the
+    // thing being fixed.
+    struct PeekBorrowedState {
+        App& app;
+        qmd::ElementPtr savedRoot;
+        std::string savedFile;
+        int savedPct;
+        SavedView saved{};
+
+        explicit PeekBorrowedState(App& a)
+            : app(a), savedRoot(a.root), savedFile(a.currentFile),
+              savedPct(a.readingWidthPct) {
+            enterPrintLayout(app, saved);
+        }
+        ~PeekBorrowedState() {
+            app.root = savedRoot;
+            app.currentFile = savedFile;
+            app.readingWidthPct = savedPct;
+            app.peekFrameless = false;
+            leavePrintLayout(app, saved);
+        }
+        PeekBorrowedState(const PeekBorrowedState&) = delete;
+        PeekBorrowedState& operator=(const PeekBorrowedState&) = delete;
+    } borrowed(app);
+    const SavedView& saved = borrowed.saved;
     // The peek must look exactly like the screen: keep the palette, the
     // DPI scale, and the zoom instead of the print defaults; the reading
     // column stays full width inside the small panel
     app.theme = saved.theme;
     app.contentScale = saved.contentScale;
     app.zoomFactor = saved.zoomFactor;
-    int savedPct = app.readingWidthPct;
     app.readingWidthPct = 100;
     updateTextFormats(app);
     app.root = parsed.root;
@@ -1052,76 +1092,71 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
                           std::min(heightDips,
                                    app.contentHeight - topPad + dpi(app, 8.0f)));
 
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    ID2D1DeviceContext* dc = nullptr;
-    ID2D1Bitmap1* bitmap = nullptr;
+    // THE EXCLUSION THAT KEPT THIS BODY Direct2D-TERMINAL WAS PRICED RATHER THAN ARGUED,
+    // SO A MEASUREMENT COULD END IT -- which is what happened. include/render_api.h
+    // listed this site under
+    // "ID2D1DeviceContext::CreateBitmap with NULL pixels", noted that its shape is exactly
+    // tinta::rasterizeToImage's (draw offscreen, keep the result), and set the price:
+    // "the WIC software path plus two full-buffer copies per dwell (out to a DecodedImage
+    // vector, back up through CreateBitmap) on a panel that reaches roughly 520x460 DIPs
+    // at 2x", closing with "a measurement showing the copies are cheap at this size would
+    // settle it."
+    //
+    // MEASURED AT THAT EXACT SIZE, 1040x920 px, best of 7 warm runs with both copies
+    // inside the timing: 2.68 ms on Direct2D (the WIC software path itself), 4.19 ms on
+    // Qt, against a 25 ms budget written down before the instrument existed. The panel is
+    // drawn ONCE per dwell and cached until the peek disarms, and the same dwell already
+    // pays a file read, a parse and a full layoutAtPrintWidth above -- costs both the old
+    // body and this one share. So the trade the header refused is roughly ten times
+    // cheaper than the threshold, and refusing it further would have been an estimate
+    // outranking a reading.
+    //
+    // WHAT THIS DOES NOT MAKE TRUE, because the tempting sentence is "the last Direct2D
+    // rasteriser in the tree is gone" and it is false: this file still holds FOUR
+    // CreateBitmap-with-NULL-pixels sites, two target+staging pairs in
+    // rasterizePreviewPage and the page rasteriser below, and both build their own device
+    // context and read the drawing back with CPU_READ | CANNOT_DRAW. They are not this
+    // shape and this seam does not serve them -- it hands back a pixel vector, which is
+    // the copy they already make once and would then make twice. What left is ONE body:
+    // the only one of the five that drew offscreen and KEPT the result.
+    //
+    // THE 2x IS A TRANSFORM HERE, NOT A DPI, AND THAT IS THE ONE REAL DIFFERENCE FROM THE
+    // OLD BODY. The old code set 192 DPI on its own device context so 1 DIP became 2 px.
+    // The seam's offscreen target is built by the backend and neither arm offers a DPI to
+    // set: src/image_win32.cpp hardcodes its WIC render target at 96, and src/image_qt.cpp
+    // paints into a bare QImage where one coordinate unit is one pixel by construction. So
+    // the scale has to come from inside the callback, and a 2x scale transform is
+    // equivalent for drawing that is all in DIPs -- which everything below is. Probed
+    // on BOTH backends rather than assumed: a DIP rect of 0..10 covers device pixels
+    // 0..20, ink at px 15 and background at px 25. If that had failed, this port needed a
+    // DPI parameter on the seam and would not have shipped.
+    //
+    // The handle comes back at 192 DPI so GetSize() still reports DIPs, which is what the
+    // call sites and app.h's peek member have always assumed; src/render.cpp's SVG path is
+    // the precedent for that argument and render_api.h states it.
     std::shared_ptr<tinta::Bitmap> result;
-    if (device && SUCCEEDED(device->CreateDeviceContext(
-                      D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc))) {
-        D2D1_BITMAP_PROPERTIES1 props = D2D1::BitmapProperties1(
-            D2D1_BITMAP_OPTIONS_TARGET,
-            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM,
-                              D2D1_ALPHA_MODE_PREMULTIPLIED),
-            192.0f, 192.0f);
-        D2D1_SIZE_U px = D2D1::SizeU((UINT32)(widthDips * 2.0f),
-                                     (UINT32)(heightDips * 2.0f));
-        if (SUCCEEDED(dc->CreateBitmap(px, nullptr, 0, &props, &bitmap))) {
-            dc->SetTarget(bitmap);
-            dc->SetDpi(192.0f, 192.0f);  // 1 DIP = 2px: the 2x crispness
-            dc->BeginDraw();
-            dc->Clear(app.theme.background);
-            ID2D1SolidColorBrush* brush = nullptr;
-            dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
-            if (brush) {
-                // Borrowed wraps again. This context is at 192 DPI (the 2x link-peek
-                // crispness), set on dc before BeginDraw -- DPI is target state that the
-                // seam does not touch, so it applies to the wrapped drawing unchanged.
-                D2DRenderTarget seamTarget(dc);
-                D2DBrush seamBrush(brush);
-                drawDocumentRange(app, seamTarget, &seamBrush, topPad,
-                                  topPad + heightDips, 0.0f, 0.0f);
-                brush->Release();
-            }
-            if (SUCCEEDED(dc->EndDraw())) {
-                // Wrapped at the boundary, the way image_win32.cpp's
-                // decodeIconBytesToBitmap ends: native internals, seam-typed
-                // return. D2DOwnedBitmap takes the reference this function
-                // already held, so the handle's destructor is the ONLY Release
-                // of this bitmap -- the three hand-written ones at the call
-                // sites went when the App member became a handle.
-                //
-                // The clear on the next line is what makes the four NORMAL paths
-                // release exactly once: CreateBitmap failing leaves it null,
-                // EndDraw failing leaves it set for the cleanup below, and
-                // success hands it over and clears it so that cleanup skips it.
-                //
-                // THE EXCEPTION PATH IS NOT COVERED, AND THIS NOTE SAID IT WAS.
-                // It claimed "if make_shared throws, the cleanup below releases
-                // it" -- it does not: a throw here propagates straight past those
-                // three Release() calls, because nothing in this function is
-                // scope-guarded. That is pre-existing rather than introduced --
-                // drawDocumentRange above can throw too, and would also leak dc
-                // and device AND leave app.root, app.currentFile and the print
-                // layout unrestored, which is the worse half. make_shared only
-                // adds a bad_alloc to a list that already had entries. Fixing it
-                // properly means unique_ptr-with-deleter locals plus a scope guard
-                // for the app-state restore, which is a different change from a
-                // return-type port and is not smuggled in here. Recorded so the
-                // next reader does not have to re-derive that the guarantee above
-                // stops at the normal paths.
-                result = std::make_shared<D2DOwnedBitmap>(bitmap);
-                bitmap = nullptr;
-            }
+    if (app.renderTarget) {
+        const unsigned pxW = (unsigned)(widthDips * 2.0f);
+        const unsigned pxH = (unsigned)(heightDips * 2.0f);
+        tinta::DecodedImage raster = tinta::rasterizeToImage(
+            *app.renderTarget, pxW, pxH, app.theme.background,
+            [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+                if (!brush) return;
+                target.SetTransform(tinta::matrixScale(2.0f, 2.0f));
+                drawDocumentRange(app, target, brush, topPad, topPad + heightDips, 0.0f,
+                                  0.0f);
+                target.SetTransform(tinta::matrixIdentity());
+            });
+        if (raster.ok) {
+            // unique_ptr in, shared_ptr out: the seam hands back ownership and the
+            // conversion is the only place this function touches a lifetime. Nothing here
+            // is a raw pointer any more, so the three hand-written Release() calls the old
+            // body needed -- and the exception path they did not cover -- are gone by
+            // construction rather than by a cleanup block that has to be got right.
+            std::unique_ptr<tinta::Bitmap> handle = app.renderTarget->CreateBitmap(
+                pxW, pxH, raster.pixels.data(), pxW * 4, 192.0f);
+            result = std::move(handle);
         }
     }
-    if (bitmap) bitmap->Release();
-    if (dc) dc->Release();
-    if (device) device->Release();
-
-    app.root = savedRoot;
-    app.currentFile = savedFile;
-    app.readingWidthPct = savedPct;
-    leavePrintLayout(app, saved);
     return result;
 }

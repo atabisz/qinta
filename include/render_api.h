@@ -131,12 +131,17 @@
 //     below. That is a better outcome than the CreateBitmap precedent two entries
 //     down, which narrowed its exclusion after an ownership redesign; here no
 //     redesign was needed because the construction never escapes the backend.
-//     THE HONEST LIMIT, stated with it: that seam serves ONE caller. There are
-//     exactly two CreateWicBitmapRenderTarget sites in the tree and the other is
-//     src/image_win32.cpp itself, which must not route through a seam it implements.
-//     So its justification is one caller's portability, not deduplication -- unlike
-//     decodeIconBytesToBitmap, whose shape it copies. A seam's stated reason gets
-//     quoted back, and "it's shared" would be false here.
+//     THE HONEST LIMIT, AND IT HAS MOVED ONCE: this entry read "that seam serves
+//     ONE caller", meaning src/export_docx.cpp, and as of 2026-09-19 it serves TWO
+//     -- src/print.cpp's renderPeekBitmap routes through it, on the measurement
+//     recorded in the CreateBitmap entry below. The retired sentence is kept here
+//     because the COUNT was never the argument and the reasoning under it is
+//     unchanged: there are exactly two CreateWicBitmapRenderTarget sites in the tree
+//     and the other is src/image_win32.cpp itself, which must not route through a
+//     seam it implements. So the justification is still its callers' portability and
+//     NOT deduplication -- unlike decodeIconBytesToBitmap, whose shape it copies. Two
+//     callers does not make "it's shared" true either; a seam's stated reason gets
+//     quoted back, and that one would still be false.
 //   * Bitmap creation FROM A WIC SOURCE, and bitmap creation of a device-context
 //     RENDER TARGET. This entry used to exclude bitmap creation entirely, on the
 //     ground that "they hand back an OWNED object, and six App members hold the
@@ -154,35 +159,57 @@
 //         full-image memcpy to every local image -- a regression, which a
 //         portability seam is not the place to accept. See image_api.h's "WHAT IS
 //         NOT IN HERE".
-//       - ID2D1DeviceContext::CreateBitmap with NULL pixels, 5 sites, all in
+//       - ID2D1DeviceContext::CreateBitmap with NULL pixels, FOUR sites, all in
 //         src/print.cpp. These allocate an ID2D1Bitmap1 to draw INTO, which is
 //         device-lifetime work of the kind this whole list excludes, not an image
 //         handed to the drawing code.
-//         THE FIVE ARE NOT ONE CLASS, and the sentence that said they were has
-//         been corrected here rather than left, for the reason spelled out at the
-//         end of this entry. It read "a GPU target plus a CPU staging copy",
-//         which describes FOUR of them: :534/:535 and :870/:871 are two
-//         target+staging PAIRS, each allocating a second bitmap with
-//         CPU_READ | CANNOT_DRAW to read the drawing back. THE FIFTH, :1056, IS
-//         A SINGLETON -- renderPeekBitmap allocates one OPTIONS_TARGET bitmap,
-//         draws the peek panel into it at 192 DPI, and keeps it. No staging
-//         bitmap, no CPU readback.
-//         That matters because the singleton's shape is exactly
-//         tinta::rasterizeToImage's -- draw offscreen, keep the result -- and
-//         that seam's entry two bullets up records its honest limit as serving
-//         ONE caller. So the one site here that could discharge that limit is
-//         the one the old wording characterised wrongly.
-//         IT IS STILL EXCLUDED, AND NOW FOR A STATED PRICE RATHER THAN A WRONG
-//         REASON: routing it would trade GPU rasterisation for the WIC software
-//         path plus two full-buffer copies per dwell (out to a DecodedImage
-//         vector, back up through CreateBitmap) on a panel that reaches roughly
-//         520x460 DIPs at 2x. That is the same trade the CreateBitmapFromWicBitmap
-//         bullet above refuses for src/render.cpp, in the same words -- a
-//         regression a portability seam is not the place to accept. The
-//         difference from the old exclusion is that this one can be argued with:
-//         renderPeekBitmap already returns a shared_ptr<tinta::Bitmap>, so only
-//         its body is Direct2D-terminal, and a measurement showing the copies
-//         are cheap at this size would settle it.
+//         THERE WERE FIVE, AND THE FIFTH IS THE ONLY ONE THAT COULD EVER HAVE
+//         LEFT. This entry once said "a GPU target plus a CPU staging copy" of all
+//         five; that was corrected to "THE FIVE ARE NOT ONE CLASS", and the
+//         correction is what made the departure findable, so it is kept in its own
+//         terms: :548/:549 and :884/:885 are two target+staging PAIRS, each
+//         allocating a second bitmap with CPU_READ | CANNOT_DRAW to read the
+//         drawing back. They STAY -- a seam that draws offscreen and hands back a
+//         pixel vector is not what a printer readback wants, and routing them
+//         would add a third copy to the two they already make. THE FIFTH WAS
+//         renderPeekBitmap: one OPTIONS_TARGET bitmap at 192 DPI, the peek panel
+//         drawn into it, kept. No staging bitmap, no CPU readback -- which is
+//         exactly tinta::rasterizeToImage's shape.
+//         IT WAS EXCLUDED FOR A STATED PRICE, THE PRICE WAS MEASURED, AND IT IS
+//         PORTED -- 2026-09-19. The retired wording asked for precisely this and
+//         is quoted so the exchange is legible: "routing it would trade GPU
+//         rasterisation for the WIC software path plus two full-buffer copies per
+//         dwell (out to a DecodedImage vector, back up through CreateBitmap) on a
+//         panel that reaches roughly 520x460 DIPs at 2x ... a measurement showing
+//         the copies are cheap at this size would settle it."
+//         Measured at the size that entry itself named -- 520x460 DIPs at 2x =
+//         1040x920 px, 3,827,200 bytes a buffer -- best of 7 warm runs, BOTH
+//         copies inside the timing, over a wrapped text layout rather than a
+//         rectangle because software GLYPH rasterisation is the part that could
+//         plausibly blow a budget:
+//             Direct2D  2.47 ms raster + 0.21 ms CreateBitmap = 2.68 ms
+//             Qt        3.77 ms raster + 0.42 ms CreateBitmap = 4.19 ms
+//         against a budget of 25 ms fixed before the instrument existed -- a
+//         quarter of the ~100 ms at which a hover stops feeling instant, on a
+//         panel drawn ONCE per dwell and cached (the handle lives until the peek
+//         disarms; see App::linkPeekPanel in app.h). Roughly ten times under, so
+//         the exclusion's own falsifier fired.
+//         THE 2x IS NOW A TRANSFORM AND NOT A DPI, which is the one thing that did
+//         not survive the move unchanged. The native bitmap carried the scale in
+//         its own 192 DPI; src/image_win32.cpp builds its WIC target hardcoded at
+//         96, so the ported body scales with SetTransform(matrixScale(2,2)) inside
+//         the callback and puts the 192 on CreateBitmap below instead. Getting
+//         either half wrong is silent -- a peek at half size in the corner of a
+//         blank panel, or the right pixels at twice the intended DIP extent -- so
+//         both are asserted in tests/render_api_shared.cpp on both backends, with
+//         the unscaled draw as the control. That is the CLOSEST arm that exists
+//         and not a direct one: src/print.cpp appears exactly once in
+//         CMakeLists.txt, in the application target, so no test binary compiles
+//         renderPeekBitmap itself.
+//         WHAT THIS DOES NOT BUY: src/print.cpp is still not portable and still
+//         not in basis B's manifest -- ID2D1PrintControl, DEVMODE and the printer
+//         dialog stay. One Direct2D-terminal BODY and this seam's second caller is
+//         the whole of it.
 //     THE COUNT IN THE OLD ENTRY WAS WRONG, and wrong in the way a comment count
 //     usually is: it said "CreateBitmap 2" having grepped only src/render.cpp. The
 //     tree has THREE CPU-buffer sites -- the two in src/render.cpp and the print

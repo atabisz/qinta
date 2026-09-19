@@ -139,6 +139,13 @@ void unsetHandlesReadAsNull(App& app) {
 // revert would compile, link, run, and look correct on the only platform its author was
 // testing on.
 //
+// THE PEEK MEMBER NOW GUARDS MORE THAN IT DID, 2026-09-19: renderPeekBitmap's BODY has
+// crossed the seam too -- it draws through tinta::rasterizeToImage and takes the pixels
+// back through RenderTarget::CreateBitmap at 192 dpi -- so a native member here would
+// drag the device context, the OPTIONS_TARGET bitmap and the manual restore path back
+// with the return type, not just the three Release() calls. See the CreateBitmap entry in
+// render_api.h for the measurement that admitted it.
+//
 // Named for the three chrome members rather than the two icons since the link peek
 // joined: the peek is not an icon, and a function name that has to be read past is the
 // same defect as a stale count.

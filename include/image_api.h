@@ -282,12 +282,21 @@ std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void
 // That is worth writing down because an exclusion that quietly survives reads later like
 // one nobody thought about.
 //
-// WHAT IT SERVES, STATED HONESTLY: ONE CALLER. `decodeIconBytesToBitmap` above had two
-// call sites and deduplication was half its justification. This has one -- src/export_docx.cpp
-// -- because the tree's only other offscreen target is in src/image_win32.cpp, which is the
-// Windows image backend and must not route through a seam it implements. So the entire
-// justification here is that caller's portability, and NOT sharing. Said plainly because a
-// seam's stated reason gets quoted back, and "it's shared" would be false.
+// WHAT IT SERVES, STATED HONESTLY: TWO CALLERS, AND THAT SENTENCE READ "ONE CALLER" UNTIL
+// 2026-09-19. src/export_docx.cpp (three sites, diagrams and math boxes) and
+// src/print.cpp's renderPeekBitmap (the link-peek panel, ported once the copies were
+// measured -- render_api.h's CreateBitmap entry carries the numbers). The correction is
+// dated rather than just applied because the old count was load-bearing in an argument
+// two headers away.
+//
+// THE ARGUMENT DOES NOT CHANGE WITH THE COUNT, which is the point of restating it here:
+// `decodeIconBytesToBitmap` above had two call sites and deduplication was half its
+// justification. This still has none of that. The tree's only other offscreen target is
+// in src/image_win32.cpp, which is the Windows image backend and must not route through a
+// seam it implements, so both callers are here for PORTABILITY and neither is here to
+// share code with the other -- one rasterises a diagram into a docx part, the other draws
+// a hover panel at 2x. Said plainly because a seam's stated reason gets quoted back, and
+// "it's shared" would still be false at two.
 //
 // `draw` is called exactly once, between the backend's own begin and end, with a target
 // sized to the request and a black scratch brush bound to it -- the same

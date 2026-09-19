@@ -46,13 +46,18 @@ int printDebugPages(App& app, const std::wstring& outDir);
 //
 // Returns a SEAM HANDLE, and the ownership note that used to read "(caller
 // releases)" is gone with the raw pointer -- the handle releases itself. The
-// implementation is still Direct2D-terminal and still rasterises on the GPU;
-// only the return type crossed the seam. Routing the body through
-// tinta::rasterizeToImage would make this function portable outright and give
-// that seam the second caller its own comment asks for, at the cost of a
-// software rasteriser plus two full-buffer copies per dwell -- see the note on
-// the CreateBitmap exclusion in render_api.h, which is where that trade is
-// weighed rather than here.
+// BODY has now crossed too: it draws through tinta::rasterizeToImage and takes
+// the pixels back through RenderTarget::CreateBitmap at 192 dpi, so nothing in
+// it names Direct2D. This comment used to say that routing it "WOULD make this
+// function portable outright ... at the cost of a software rasteriser plus two
+// full-buffer copies per dwell"; the cost was measured at the real panel size
+// (2.68 ms Direct2D, 4.19 ms Qt, both copies included, against a 25 ms budget
+// fixed beforehand) and it is recorded beside the CreateBitmap exclusion in
+// render_api.h, which is still where that trade is weighed rather than here.
+//
+// PORTABLE BODY, NOT A PORTABLE FILE: the rest of src/print.cpp keeps
+// ID2D1PrintControl, DEVMODE and the printer dialog, so this function no longer
+// holds the file back but nothing else moved with it.
 std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
                                                 float widthDips, float& heightDips);
 

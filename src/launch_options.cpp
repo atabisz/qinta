@@ -123,4 +123,79 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
     return parseLaunchOptions(args, slashPolicy);
 }
 
+PlannedOutput plannedOutput(const LaunchOptions& options) {
+    // Dispatch order, taken from src/main_d2d.cpp: --dumpchrome, then --printpages, then the three
+    // exporters. That file returns from the first branch it enters, so the first match here is the
+    // only write that can happen, and reporting a later one would guard a file nobody touches.
+    if (!options.dumpChromePath.empty()) return {"--dumpchrome", options.dumpChromePath};
+    if (!options.printPagesDir.empty()) return {"--printpages", options.printPagesDir};
+    if (!options.exportHtmlPath.empty()) return {"--exporthtml", options.exportHtmlPath};
+    if (!options.exportDocxPath.empty()) return {"--exportdocx", options.exportDocxPath};
+    if (!options.exportPdfPath.empty()) return {"--exportpdf", options.exportPdfPath};
+    return {};
+}
+
+bool isDocumentPath(const std::string& path) {
+    // The extension set is this app's INPUT formats. It is a new authority in this tree -- nothing
+    // else enumerates them, because the open path takes whatever the file dialog hands it -- so it
+    // is spelled out here rather than derived from something that does not exist.
+    static const char* kDocumentExtensions[] = {".md", ".markdown", ".mkd", ".mdown"};
+
+    // Find the extension without <filesystem>: the last '.' AFTER the last separator, so a dot in
+    // a directory name ("build-win-split/v1.2/out") is not mistaken for an extension.
+    size_t lastSeparator = path.find_last_of("/\\");
+    size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    if (lastSeparator != std::string::npos && dot < lastSeparator) return false;
+
+    std::string extension = path.substr(dot);
+    for (char& c : extension) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+    }
+    for (const char* candidate : kDocumentExtensions) {
+        if (extension == candidate) return true;
+    }
+    return false;
+}
+
+OutputRefusal refuseOutput(const LaunchOptions& options, bool outputExists) {
+    const PlannedOutput planned = plannedOutput(options);
+    if (planned.flag.empty()) return OutputRefusal::None;
+
+    // ORDER MATTERS, and it is worst-understood-first. A command line carrying a typo tells us the
+    // least about what was meant, so it is refused before the more specific tests get a chance to
+    // report a reason that implies the rest of the line was read correctly.
+    if (!options.unknown.empty() || !options.missingValues.empty()) {
+        return OutputRefusal::CommandLineNotUnderstood;
+    }
+
+    // Byte comparison, not a canonicalised one. Resolving both sides would need the filesystem and
+    // would move this decision onto one host; the exact-match case is the one that actually occurs
+    // (a shell completing the same name twice), and a near-miss falls through to the test below,
+    // which catches it by extension anyway.
+    if (!options.inputFile.empty() && planned.path == options.inputFile) {
+        return OutputRefusal::SameAsInputDocument;
+    }
+
+    if (outputExists && isDocumentPath(planned.path)) {
+        return OutputRefusal::ExistingDocument;
+    }
+
+    return OutputRefusal::None;
+}
+
+const char* outputRefusalMessage(OutputRefusal refusal) {
+    switch (refusal) {
+        case OutputRefusal::CommandLineNotUnderstood:
+            return "the command line was not fully understood, and this option writes a file";
+        case OutputRefusal::SameAsInputDocument:
+            return "that is the document being opened";
+        case OutputRefusal::ExistingDocument:
+            return "a document already exists there, and this option names its OUTPUT";
+        case OutputRefusal::None:
+            break;
+    }
+    return "";
+}
+
 }  // namespace tinta

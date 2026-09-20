@@ -179,7 +179,14 @@ fi
 # The `settings` loop entry above matches settings.cpp.o only -- the object names
 # differ -- but check that too, because a grep that accidentally matched
 # settings_app.cpp.o would report a pass for the wrong file.
-for forbidden in main_d2d settings_app settings_win32; do
+# tab_ghost_win32.cpp is the newest member and the reason this loop is worth extending
+# rather than trusting the manifest's silence: an unlisted file that gets compiled shows
+# up as UNEXPECTED above, but only while the manifest comparison itself is working. This
+# names the file, so a Windows-only layered-window arm reaching a portable target is a
+# failure with the filename in it. Its portable half, src/tab_ghost.cpp, and its Qt arm,
+# src/tab_ghost_qt.cpp, are both ON the manifest -- so all three files are watched, in
+# opposite directions.
+for forbidden in main_d2d settings_app settings_win32 tab_ghost_win32; do
     if grep -qE "(^|[/ ])${forbidden}\.cpp\.o" "$BUILD_DIR.build.log"; then
         check 1 "src/${forbidden}.cpp stayed out of this build (it was compiled)"
         grep -oE "[^ ]*${forbidden}\.cpp\.o" "$BUILD_DIR.build.log" | head -1 | sed 's/^/       /'

@@ -25,7 +25,14 @@
 #
 #   ./build-win-split/Release/tinta.exe tests/fixtures/application-menu.md \
 #       --exportpdf build-win-split/pdfscratch/m1.pdf
-#   python3 scripts/pdfmask.py build-win-split/pdfscratch/m1.pdf
+#   python scripts/pdfmask.py build-win-split/pdfscratch/m1.pdf
+#
+# `python`, NOT `python3`, and that correction is worth the line it costs. On this Windows host
+# `python3` RESOLVES -- to the Microsoft Store's app-execution-alias shim, which prints an advert
+# for the Store and exits without running a byte of this file. So `command -v python3` succeeds,
+# the invocation fails, and the failure looks like an empty digest rather than a missing
+# interpreter. scripts/probe-output-guard.sh resolves the name by running `--version` rather than
+# by testing whether it resolves, for exactly that reason.
 #
 # That pair reads, 2026-09-21, from `2752603` plus the Qt arm:
 #   bytes=378862 dates_masked=2 pages=2 page_tree_nodes=1

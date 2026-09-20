@@ -1611,6 +1611,37 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
         std::fprintf(stderr, "tinta: option '%s' needs a value\n", flag.c_str());
     }
 
+    // AND NOW ACT ON WHAT THOSE TWO LOOPS JUST REPORTED, which is the whole of this guard. The
+    // loops above have printed since the seam landed; what they did next was fall through to the
+    // export dispatch ~340 lines down and write the file anyway. On 2026-09-20 that turned
+    // `tinta --lite --exportpdf README.md` into a 4.4 MB PDF where a tracked 2,357-line README had
+    // been, at exit 0, with the `--lite` typo as the only complaint on the channel. The facts
+    // needed to refuse were all in `options` at this point in the function.
+    //
+    // PLACED HERE, at the earliest point where `options` exists, rather than beside the dispatch:
+    // there is no window yet, no App, no document loaded, and nothing to unwind -- so the refusal
+    // is a print and a return. Down beside the writes it would sit after a full startup and would
+    // have to be repeated in five branches, which is five chances to add a sixth without it.
+    {
+        const tinta::PlannedOutput planned = tinta::plannedOutput(options);
+        if (!planned.flag.empty()) {
+            // regularFileExists is false for a directory, which is what --printpages wants: a
+            // folder is not a document, so that arm is guarded by the other two tests only.
+            const bool exists =
+                platform::regularFileExists(toWide(planned.path));
+            const tinta::OutputRefusal refusal = tinta::refuseOutput(options, exists);
+            if (refusal != tinta::OutputRefusal::None) {
+                std::fprintf(stderr, "tinta: refusing to write '%s' -- %s\n",
+                             planned.path.c_str(),
+                             tinta::outputRefusalMessage(refusal));
+                std::fprintf(stderr,
+                             "tinta: %s names the file to WRITE, not the file to read\n",
+                             planned.flag.c_str());
+                return 2;
+            }
+        }
+    }
+
     // Single instance: a plain file launch joins the existing window as a
     // new tab (Win11 Notepad model). --new/--cascade windows and the
     // openInTabs=false setting keep the one-window-per-document behavior.

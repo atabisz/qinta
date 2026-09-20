@@ -14,6 +14,7 @@
 #include "tableedit.h"
 #include "editor.h"
 #include "startpage.h"
+#include "tab_ghost_win32.h"
 #include "file_utils.h"
 #include "i18n.h"
 #include "input.h"
@@ -1382,131 +1383,21 @@ bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y) {
     return true;
 }
 
-// --- drag ghost: a layered popup card that follows the cursor while a
-// tab is pulled clear of the strip, so the detach reads as a motion
-// instead of a jump ---
+// The drag ghost -- the layered card that follows the cursor while a tab is
+// pulled clear of the strip -- is a seam now: its size, shape, placement and
+// detach threshold are in tab_ghost.h, and the layered window that draws it on
+// Windows is in tab_ghost_win32.cpp. What used to be here read App directly,
+// which is why it could only ever be exercised by running the app.
 
 namespace {
 
-const wchar_t* kGhostClass = L"TintaTabGhost";
-
-COLORREF toColorref(const tinta::Color& c) {
-    return RGB((BYTE)(c.r * 255.0f + 0.5f), (BYTE)(c.g * 255.0f + 0.5f),
-               (BYTE)(c.b * 255.0f + 0.5f));
-}
-
-void ghostDestroy(App& app) {
-    if (app.tabGhostWnd) {
-        DestroyWindow(app.tabGhostWnd);
-        app.tabGhostWnd = nullptr;
-    }
-}
-
-// Paints the tab card into a premultiplied ARGB surface and shows it via
-// UpdateLayeredWindow (GDI text writes alpha 0, so alpha is rebuilt from
-// rounded-rect membership afterwards)
-void ghostCreate(App& app, const std::wstring& title, int screenX,
-                 int screenY) {
-    static bool registered = false;
-    if (!registered) {
-        WNDCLASSEXW wc = {};
-        wc.cbSize = sizeof(wc);
-        wc.lpfnWndProc = DefWindowProcW;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.lpszClassName = kGhostClass;
-        RegisterClassExW(&wc);
-        registered = true;
-    }
-
-    int width = (int)dpi(app, 190.0f);
-    int height = (int)dpi(app, 34.0f);
-    float radius = dpi(app, 8.0f);
-
-    app.tabGhostWnd = CreateWindowExW(
-        WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW |
-            WS_EX_NOACTIVATE | WS_EX_TOPMOST,
-        kGhostClass, L"", WS_POPUP, screenX, screenY, width, height, nullptr,
-        nullptr, GetModuleHandleW(nullptr), nullptr);
-    if (!app.tabGhostWnd) return;
-
-    HDC screen = GetDC(nullptr);
-    HDC memory = CreateCompatibleDC(screen);
-    BITMAPINFO info = {};
-    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = width;
-    info.bmiHeader.biHeight = -height;  // top-down
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    void* bits = nullptr;
-    HBITMAP dib = CreateDIBSection(memory, &info, DIB_RGB_COLORS, &bits,
-                                   nullptr, 0);
-    if (dib && bits) {
-        HGDIOBJ oldBitmap = SelectObject(memory, dib);
-        memset(bits, 0, (size_t)width * height * 4);
-
-        // Card: strip-colored fill, subtle border
-        HRGN region = CreateRoundRectRgn(0, 0, width + 1, height + 1,
-                                         (int)(radius * 2), (int)(radius * 2));
-        HBRUSH fill = CreateSolidBrush(toColorref(tabStripBackground(app)));
-        FillRgn(memory, region, fill);
-        tinta::Color borderColor = app.theme.text;
-        HBRUSH border = CreateSolidBrush(toColorref(borderColor));
-        FrameRgn(memory, region, border, 1, 1);
-        DeleteObject(fill);
-        DeleteObject(border);
-        DeleteObject(region);
-
-        // Title
-        HFONT font = CreateFontW(-(int)dpi(app, 13.0f), 0, 0, 0, FW_NORMAL,
-                                 FALSE, FALSE, FALSE, DEFAULT_CHARSET,
-                                 OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-                                 CLEARTYPE_QUALITY, DEFAULT_PITCH,
-                                 L"Segoe UI");
-        HGDIOBJ oldFont = SelectObject(memory, font);
-        SetBkMode(memory, TRANSPARENT);
-        SetTextColor(memory, toColorref(app.theme.text));
-        RECT textRect = {(int)dpi(app, 12.0f), 0,
-                         width - (int)dpi(app, 10.0f), height};
-        DrawTextW(memory, title.c_str(), (int)title.size(), &textRect,
-                  DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS |
-                      DT_NOPREFIX);
-        SelectObject(memory, oldFont);
-        DeleteObject(font);
-
-        // Rebuild alpha: opaque inside the rounded card, clear outside
-        uint32_t* pixels = static_cast<uint32_t*>(bits);
-        float rr = radius;
-        for (int py = 0; py < height; py++) {
-            for (int px = 0; px < width; px++) {
-                float dx = 0.0f, dy = 0.0f;
-                if (px < rr && py < rr) { dx = rr - px; dy = rr - py; }
-                else if (px >= width - rr && py < rr) { dx = px - (width - 1 - rr); dy = rr - py; }
-                else if (px < rr && py >= height - rr) { dx = rr - px; dy = py - (height - 1 - rr); }
-                else if (px >= width - rr && py >= height - rr) { dx = px - (width - 1 - rr); dy = py - (height - 1 - rr); }
-                bool inside = dx * dx + dy * dy <= rr * rr;
-                uint32_t& p = pixels[(size_t)py * width + px];
-                p = inside ? (p | 0xFF000000u) : 0u;
-            }
-        }
-
-        POINT source = {0, 0};
-        POINT position = {screenX, screenY};
-        SIZE size = {width, height};
-        BLENDFUNCTION blend = {AC_SRC_OVER, 0, 235, AC_SRC_ALPHA};
-        UpdateLayeredWindow(app.tabGhostWnd, screen, &position, &size,
-                            memory, &source, 0, &blend, ULW_ALPHA);
-        SelectObject(memory, oldBitmap);
-        DeleteObject(dib);
-    }
-    DeleteDC(memory);
-    ReleaseDC(nullptr, screen);
-    ShowWindow(app.tabGhostWnd, SW_SHOWNOACTIVATE);
-}
-
-void ghostMoveTo(App& app, int screenX, int screenY) {
-    if (!app.tabGhostWnd) return;
-    SetWindowPos(app.tabGhostWnd, HWND_TOPMOST, screenX, screenY, 0, 0,
-                 SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
+// Resolves the card from the live theme. The seam takes three colours and a
+// scale rather than an App, so this function is the whole of what the ghost
+// needs to know about this file -- and the only part of the old ghost code that
+// could not move.
+tinta::TabGhostCard ghostCardFor(App& app) {
+    return tinta::tabGhostCard(app.contentScale, tabStripBackground(app),
+                               app.theme.text, app.theme.text);
 }
 
 // Close the dragged tab locally after it moved elsewhere
@@ -1552,29 +1443,26 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
 
     // Clear of the strip: the tab floats as a ghost card until release
     float stripH = chromeTopHeight(app);
-    bool outside = (float)y > stripH + dpi(app, 48.0f) ||
-                   (float)y < -dpi(app, 48.0f);
+    bool outside = tinta::tabGhostShouldDetach(app.contentScale, (float)y, stripH);
     if (outside && detachable) {
         POINT screen = {x, y};
         ClientToScreen(hwnd, &screen);
-        // Keep the cursor on the card even when the tab was wider than it
-        int grab = std::min((int)app.tabDragOffsetX,
-                            (int)dpi(app, 166.0f));
-        int ghostX = screen.x - std::max(grab, (int)dpi(app, 12.0f));
-        int ghostY = screen.y - (int)dpi(app, 17.0f);
+        tinta::TabGhostPlacement at = tinta::tabGhostPlacement(
+            app.contentScale, screen.x, screen.y, (int)app.tabDragOffsetX);
         if (!app.tabDragDetached) {
             app.tabDragDetached = true;
-            ghostCreate(app, app.tabs[index].title, ghostX, ghostY);
+            app.tabGhostWnd =
+                tinta::tabGhostCreate(ghostCardFor(app), app.tabs[index].title, at.x, at.y);
             requestRepaint(hwnd);
         } else {
-            ghostMoveTo(app, ghostX, ghostY);
+            tinta::tabGhostMove(app.tabGhostWnd, at.x, at.y);
         }
         return;
     }
     if (app.tabDragDetached) {
         // Back over the strip: the tab snaps home and reordering resumes
         app.tabDragDetached = false;
-        ghostDestroy(app);
+        tinta::tabGhostDestroy(app.tabGhostWnd);
         requestRepaint(hwnd);
     }
 
@@ -1601,7 +1489,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    ghostDestroy(app);
+    tinta::tabGhostDestroy(app.tabGhostWnd);
     releaseMouseIfCaptured(hwnd);
 
     if (detached && index < (int)app.tabs.size()) {
@@ -1706,7 +1594,7 @@ void tabDragCancel(App& app, HWND hwnd) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    ghostDestroy(app);
+    tinta::tabGhostDestroy(app.tabGhostWnd);
     releaseMouseIfCaptured(hwnd);
     requestRepaint(hwnd);
 }

@@ -1189,3 +1189,26 @@ startpage.cpp
 # Being listed here says this file COMPILES off Windows. It does not say it LINKS or RUNS:
 # export_as is reached from input.cpp, which has not ported.
 export_docx.cpp
+
+# --- The tab drag ghost seam --------------------------------------------------
+#
+# tab_ghost.cpp is the whole seam's shared half: the card's geometry at a scale, the
+# rounded-corner coverage predicate, the placement arithmetic and the detach band. It
+# is LINKED AND RUN off Windows, by tab_ghost_tests, and it names no platform type --
+# it takes a plain `float scale` rather than App&, which is the change that made the
+# Win32 arm testable at all.
+#
+# It is the narrow reading's opposite here: not "compiles", but compiles, links and
+# runs, with the shipped numbers asserted at scale 1.0 so a re-derivation cannot drift.
+tab_ghost.cpp
+
+# tab_ghost_qt.cpp is the Qt arm -- a frameless WA_TranslucentBackground widget plus
+# the QImage paint it and tab_ghost_qt_tests share. Listed for the same reason as
+# render_qt.cpp above: the Qt targets are opt-in, so this arm's ABSENCE would be
+# silent, and a listed-but-not-compiled file fails MISSING instead of passing quietly.
+#
+# Its Win32 counterpart, src/tab_ghost_win32.cpp, must NEVER appear here -- it calls
+# CreateWindowExW and UpdateLayeredWindow and is in the Windows-only ${SOURCES} target.
+# probe-portable-linux.sh asserts its absence by name, alongside main_d2d.cpp, rather
+# than relying on this manifest's silence about a file nobody listed.
+tab_ghost_qt.cpp

@@ -367,6 +367,133 @@ int main() {
               "would otherwise pass straight through");
     }
 
+    // --- THE OUTPUT GUARD: the run that ate a tracked README ------------------
+    //
+    // Not a hypothetical either, and this one already happened. On 2026-09-20,
+    // `tinta --lite --exportpdf README.md` from the repo root replaced a tracked 2,357-line
+    // README with a 4,427,206-byte placeholder PDF, at exit 0, with `unknown option '--lite'`
+    // as the only line on stderr. The first assertion below IS that command line.
+    //
+    // What makes it worth a block rather than a line is that the parser was never the problem:
+    // `--lite` went into `unknown` correctly, src/main_d2d.cpp printed it correctly, and then
+    // ran the export anyway. So every assertion here is about ACTING on information the parse
+    // already had, and `refuseOutput` takes the one fact it cannot know -- whether the path is
+    // on disk -- as a parameter, which is what keeps this whole block runnable on any host with
+    // no filesystem and no temp directory.
+    {
+        check(tinta::refuseOutput(parse({"--lite", "--exportpdf", "README.md"}), false) ==
+                  tinta::OutputRefusal::CommandLineNotUnderstood,
+              "OUTPUT GUARD: the exact command line that destroyed README.md on 2026-09-20 is "
+              "refused -- a typo anywhere on the line means the line was not understood, and an "
+              "option that WRITES A FILE must not run on a guess");
+
+        // COUNTER-CASE, and it is the one that proves the assertion above is about the typo
+        // rather than about --exportpdf. Same flag, same path, no typo, path not on disk.
+        check(tinta::refuseOutput(parse({"--exportpdf", "README.md"}), false) ==
+                  tinta::OutputRefusal::None,
+              "OUTPUT GUARD COUNTER-CASE: with the typo removed and nothing at that path, the "
+              "same export is allowed -- so the refusal above is the command line, not the flag");
+
+        // THE DISCRIMINATOR for the existence test: one call, two answers, and the ONLY thing
+        // that differs is the parameter. This is what separates "is a document" from "is a
+        // document that is actually there".
+        check(tinta::refuseOutput(parse({"--exportpdf", "README.md"}), true) ==
+                  tinta::OutputRefusal::ExistingDocument,
+              "OUTPUT GUARD: a clean command line still refuses when a markdown document "
+              "already exists at the output path");
+
+        check(tinta::refuseOutput(parse({"doc.md", "--exportpdf", "doc.md"}), false) ==
+                  tinta::OutputRefusal::SameAsInputDocument,
+              "OUTPUT GUARD: an output path equal to the document being opened is refused "
+              "without consulting the filesystem at all");
+        check(tinta::refuseOutput(parse({"doc.md", "--exportpdf", "doc.pdf"}), false) ==
+                  tinta::OutputRefusal::None,
+              "OUTPUT GUARD: and the ordinary shape -- read doc.md, write doc.pdf -- is allowed");
+
+        // THE FALSE-POSITIVE CONTROL, AND IT IS THE REASON THIS GUARD IS SHAPED THE WAY IT IS.
+        // The first design refused any write over an existing file, which is the standard CLI
+        // convention. It would have broken every byte-identity rig in this tree on its first
+        // run, because they all re-export to a fixed scratch path. The first path below is read
+        // verbatim out of scripts/pdfmask.py:27, existing, and it must be ALLOWED.
+        struct HarnessCase {
+            const char* flag;
+            const char* path;
+        };
+        const HarnessCase harness[] = {
+            {"--exportpdf", "build-win-split/pdfscratch/m1.pdf"},
+            {"--exporthtml", "build-win-split/out.html"},
+            {"--exportdocx", "build-win-split/out.docx"},
+            {"--dumpchrome", "build-win-split/chrome.txt"},
+            {"--printpages", "build-win-split/pages"},
+        };
+        int allowed = 0;
+        for (const HarnessCase& c : harness) {
+            if (tinta::refuseOutput(parse({c.flag, c.path}), true) ==
+                tinta::OutputRefusal::None) {
+                allowed++;
+            }
+        }
+        check(allowed == 5,
+              "OUTPUT GUARD CONTROL: all five real harness shapes are allowed even though the "
+              "path already exists -- a guard that refuses the rigs gets reverted, and then the "
+              "defect is back with the guard's name on it");
+
+        // .txt is in that list on purpose: it is a plausible --dumpchrome target, so it is
+        // deliberately NOT a document extension, and this asserts the decision rather than
+        // leaving it to the header's prose.
+        check(!tinta::isDocumentPath("chrome.txt") && tinta::isDocumentPath("README.md") &&
+                  tinta::isDocumentPath("a.MARKDOWN") && tinta::isDocumentPath("b.mkd") &&
+                  tinta::isDocumentPath("c.mdown"),
+              "OUTPUT GUARD: the document set is markdown only, case-insensitively, and .txt is "
+              "excluded because the chrome dump plausibly writes one");
+
+        // A dot in a DIRECTORY name is not an extension. Without this, an output path like
+        // build-win-split/v1.2/out would read its extension as ".2/out" and classify as
+        // whatever that compares to -- the kind of thing that works until a path changes.
+        check(!tinta::isDocumentPath("build/v1.2/out") &&
+                  !tinta::isDocumentPath("build.md/out") &&
+                  tinta::isDocumentPath("build.x/out.md"),
+              "OUTPUT GUARD: the extension is looked for after the last separator, so a dotted "
+              "directory name is not mistaken for an extension");
+
+        // plannedOutput reports the write that WOULD HAPPEN, which is the first branch
+        // src/main_d2d.cpp enters -- not the first flag on the line. Asserted because the two
+        // orders differ and guarding a file nobody writes would be a silent no-op.
+        const tinta::PlannedOutput both =
+            tinta::plannedOutput(parse({"--exportpdf", "p.pdf", "--dumpchrome", "c.txt"}));
+        check(both.flag == "--dumpchrome" && both.path == "c.txt",
+              "OUTPUT GUARD: with two destructive flags the DISPATCH order decides, and "
+              "--dumpchrome runs first in src/main_d2d.cpp regardless of command-line order");
+        check(tinta::plannedOutput(parse({"--light", "notes.md"})).flag.empty(),
+              "OUTPUT GUARD: an ordinary launch plans no write, so the guard cannot fire on it");
+
+        // A value-taking flag with NO value writes nothing, so there is nothing to guard -- the
+        // path is empty and src/main_d2d.cpp's branch never opens. It is still an unusable
+        // command line, and the missingValues report is what says so. Asserted so the None here
+        // reads as "nothing to refuse" rather than as a hole in the guard.
+        check(tinta::plannedOutput(parse({"--exportpdf"})).flag.empty() &&
+                  contains(parse({"--exportpdf"}).missingValues, "--exportpdf"),
+              "OUTPUT GUARD: --exportpdf with no value plans no write at all, and is already "
+              "reported through missingValues");
+        check(tinta::refuseOutput(parse({"--exporthtml", "out.html", "--exportpdf"}), false) ==
+                  tinta::OutputRefusal::CommandLineNotUnderstood,
+              "OUTPUT GUARD: but a valueless flag BESIDE a real export still refuses that "
+              "export -- the line was not understood, whichever half carried the mistake");
+
+        // Every refusal has to be able to say why. An empty message on a real refusal would
+        // print `refusing to write 'x' -- ` and tell the user nothing.
+        int messages = 0;
+        for (tinta::OutputRefusal r : {tinta::OutputRefusal::CommandLineNotUnderstood,
+                                       tinta::OutputRefusal::SameAsInputDocument,
+                                       tinta::OutputRefusal::ExistingDocument}) {
+            const char* m = tinta::outputRefusalMessage(r);
+            if (m != nullptr && m[0] != '\0') messages++;
+        }
+        check(messages == 3 &&
+                  tinta::outputRefusalMessage(tinta::OutputRefusal::None)[0] == '\0',
+              "OUTPUT GUARD: all three refusals carry a message and None carries none");
+    }
+
     std::printf("%s%d launch-option assertions run, %d failed\n",
                 failures == 0 ? "all " : "", checks, failures);
     return failures == 0 ? 0 : 1;

@@ -116,6 +116,69 @@ LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
 LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
                                  SlashPolicy slashPolicy = kNativeSlashPolicy);
 
+// THE DESTRUCTIVE HALF OF A LAUNCH, AND THE GUARD THE PARSER ALONE CANNOT GIVE IT.
+//
+// Five of the thirteen options WRITE A FILE AND EXIT: --printpages, --dumpchrome, --exporthtml,
+// --exportdocx, --exportpdf. Every one of them names its OUTPUT, and on a command line where the
+// input is also a path the two are indistinguishable by shape -- `--exportpdf README.md` reads
+// like it names the thing to convert. On 2026-09-20 that cost a tracked file: from the repo root,
+// `tinta --lite --exportpdf README.md` replaced a 2,357-line README with a 4,427,206-byte
+// placeholder PDF, at EXIT 0, and the single line on stderr was about the unrelated `--lite`
+// typo. It went unnoticed for about three hours, and the only detector in the tree turned out to
+// be scripts/check-readme-figures.sh reporting eighteen misses.
+//
+// THE PARSER ALREADY KNEW. `--lite` landed in `unknown` and src/main_d2d.cpp printed it and then
+// ran the export anyway -- so every fact needed to refuse was collected, reported to the user, and
+// discarded one statement later. Nothing had to be DETECTED to prevent this; something had to ACT
+// on what was already detected. That asymmetry is why the fix is this small.
+//
+// WHY NOT SIMPLY REFUSE TO OVERWRITE AN EXISTING FILE, which is the standard CLI convention and
+// was the first design. Because the byte-identity rigs that are this tree's primary falsifier all
+// re-export to a FIXED scratch path on every run -- scripts/pdfmask.py writes
+// build-win-split/pdfscratch/m1.pdf every single invocation, and the PDF, HTML, DOCX and
+// printpages harnesses do the same -- so refuse-on-existence breaks all of them the first time it
+// runs, and gets reverted inside a slice with the defect's name still on it. The class worth
+// guarding is not "overwrites something". It is "overwrites a DOCUMENT", and the signature of the
+// incident was never that README.md existed: it was that README.md is an INPUT FORMAT with an
+// output flag pointed at it. Re-exporting m1.pdf over m1.pdf is the harness working correctly.
+//
+// AND WHY THERE IS NO --force. An override would take the option set from thirteen names across
+// sixteen spellings to fourteen across seventeen, moving every figure README.md derives from that
+// census -- to buy an escape hatch from a rule narrow enough not to need one. The extension test
+// is the escape hatch: name your output with the extension of the thing you are writing.
+enum class OutputRefusal {
+    None,
+    CommandLineNotUnderstood,  // a typo or a valueless flag: do not write on a guess
+    SameAsInputDocument,       // the output path IS the document being read
+    ExistingDocument,          // the output path is a markdown document already on disk
+};
+
+// The destructive action this command line will perform, if any. Empty `flag` means the launch
+// writes nothing and no guard applies. When several are given the FIRST one src/main_d2d.cpp
+// would reach is reported, and the order here mirrors that dispatch chain rather than the parse
+// chain, because the dispatch order is what decides which write actually happens.
+struct PlannedOutput {
+    std::string flag;
+    std::string path;
+};
+
+PlannedOutput plannedOutput(const LaunchOptions& options);
+
+// Would writing this path destroy one of this app's own documents? Extension membership only, so
+// it is pure and needs no filesystem. `.txt` is deliberately NOT a member: it is a plausible
+// --dumpchrome target, and this app's documents are markdown, so including it would trade a real
+// false-positive risk for no additional catch.
+bool isDocumentPath(const std::string& path);
+
+// The whole decision. `outputExists` is the ONE fact the host has to supply -- everything else is
+// string logic over the parse result, which is what keeps this assertable with no filesystem and
+// no platform, on either host. A caller with nothing to write may pass false.
+OutputRefusal refuseOutput(const LaunchOptions& options, bool outputExists);
+
+// The reason, as a message tail. Present tense, no trailing punctuation, so a caller can compose
+// it into whatever sentence it prints.
+const char* outputRefusalMessage(OutputRefusal refusal);
+
 }  // namespace tinta
 
 #endif  // TINTA_LAUNCH_OPTIONS_H

@@ -403,6 +403,13 @@ set(SOURCES
     # were not two parsers that agree -- they were one parser and one file that had never been
     # told the options exist. Here so there is exactly one chain to edit.
     src/launch_options.cpp
+    # The drag ghost's convention -- card size, corner shape, placement relative to the cursor,
+    # detach threshold, opacity. Lifted out of src/tabs.cpp, where it was seven literals inside a
+    # layered-window function plus four more at its call site, none of them reachable by a test.
+    # src/tab_ghost_win32.cpp is the layered window itself, re-parameterised off a card instead of
+    # App&, which is what makes it something a test can create.
+    src/tab_ghost.cpp
+    src/tab_ghost_win32.cpp
     src/keymap.cpp
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
@@ -824,6 +831,14 @@ set(QINTA_APP_SOURCES
     # three targets link each, and a behaviour change has to satisfy all of them.
     src/launch_options.cpp
     src/window_placement.cpp
+    # The drag ghost's portable half, and the Qt arm that draws it. Same argument as the three
+    # files above: tab_ghost.cpp is already linked by `tinta` through ${SOURCES}, so this is the
+    # same code with a second consumer. tab_ghost_qt.cpp is Qt-only and therefore NOT in
+    # ${SOURCES}; it is the frameless translucent widget standing where UpdateLayeredWindow stands
+    # on the other arm, and it draws through tabGhostCovers rather than through a QPainterPath
+    # clip that would merely agree with it.
+    src/tab_ghost.cpp
+    src/tab_ghost_qt.cpp
     # The Qt arm's two launch steps -- Qt's screen list as a monitor list, and parsed options
     # plus loaded settings as a PlacementRequest. Qt-only, so it is here and NOT in ${SOURCES};
     # it exists at all so tests/qt_entry_tests.cpp can call the same two steps main() calls
@@ -978,6 +993,51 @@ if(BUILD_TESTING)
     )
     target_include_directories(launch_options_tests PRIVATE include)
     add_test(NAME launch_options COMMAND launch_options_tests)
+
+    # WHAT THE DRAG GHOST LOOKS LIKE, which until this slice nothing could ask. Same shape as the
+    # two targets above -- no Qt, no windows.h, no display -- because a card's width, its corner
+    # cut and its offset from the cursor are arithmetic over one float.
+    #
+    # The assertion worth naming is the corner symmetry. The shipped alpha rebuild has four
+    # branches, the left pair measuring from `radius` and the right pair from `width - 1 - radius`,
+    # and nothing anywhere asserted those describe the same curve. A one-pixel error in either
+    # right-hand branch produces a card with a heavier corner on one side, which looks like a font
+    # artefact and never gets filed.
+    add_executable(tab_ghost_tests
+        tests/tab_ghost_tests.cpp
+        src/tab_ghost.cpp
+    )
+    target_include_directories(tab_ghost_tests PRIVATE include)
+    add_test(NAME tab_ghost COMMAND tab_ghost_tests)
+
+    if(WIN32)
+        # THE WIN32 GHOST, CREATED WITH NO `App`, and that is the whole reason this target exists
+        # rather than a line in an ISA saying the arm was moved and looks fine.
+        #
+        # Before the seam, the layered window read app.contentScale, app.theme,
+        # tabStripBackground(app) and app.tabGhostWnd directly, so exercising it meant a real
+        # window, a theme, a loaded document and a message loop. Nobody was going to write that, so
+        # the honest status was "not reachable from a test". Handing the arm a TabGhostCard and two
+        # integers instead is what turned the deferral into a reading.
+        #
+        # It creates a real window, asks the OS what it got -- GetClassNameW, GetWindowLongW,
+        # GetWindowRect -- moves it, and destroys it. A window does briefly exist on the desktop at
+        # 100,100; it is WS_EX_NOACTIVATE, WS_EX_TRANSPARENT and WS_EX_TOOLWINDOW, so it cannot take
+        # focus, cannot take a click and never reaches the taskbar, and every arm destroys its
+        # window whether or not the assertions held.
+        #
+        # src/tab_ghost_win32.cpp is in ${SOURCES}, so the app already compiles it; this is what
+        # RUNS it.
+        add_executable(tab_ghost_win32_tests
+            tests/tab_ghost_win32_tests.cpp
+            src/tab_ghost.cpp
+            src/tab_ghost_win32.cpp
+        )
+        target_include_directories(tab_ghost_win32_tests PRIVATE include)
+        target_compile_definitions(tab_ghost_win32_tests PRIVATE UNICODE _UNICODE)
+        target_link_libraries(tab_ghost_win32_tests PRIVATE user32 gdi32)
+        add_test(NAME tab_ghost_win32 COMMAND tab_ghost_win32_tests)
+    endif()
 
     # The platform path seam, plus config_dir.cpp itself. config_dir.cpp is in
     # this target deliberately: it is the first file moved off app.h, and the
@@ -2718,6 +2778,42 @@ if(BUILD_TESTING)
             message(STATUS "Qt6 Widgets not found -- qt_entry test skipped")
         endif()
 
+        # THE QT DRAG GHOST, READ PIXEL BY PIXEL. The risk this target exists for is a Qt arm that
+        # compiles, links, shows something card-shaped, and draws a SUBTLY different card from the
+        # Windows one -- a soft corner instead of a hard one, the border colour where the fill
+        # belongs, or a surface that is transparent everywhere because the paint silently did
+        # nothing. None of that shows up in a build and all of it shows up here.
+        #
+        # Widgets rather than Core+Gui, because src/tab_ghost_qt.cpp defines TabGhostWidget. The
+        # test itself never constructs one -- it asserts over a plain QImage -- but the TU needs the
+        # library, and a partial Qt install should lose this one target and say so.
+        #
+        # Deliberately NOT linked against ${QINTA_APP_SOURCES}: two files and a QImage are the whole
+        # closure. That is the seam paying for itself twice -- the card is assertable without the
+        # application, which is the same property that made the Win32 arm testable.
+        if(Qt6Widgets_FOUND)
+            add_executable(tab_ghost_qt_tests
+                tests/tab_ghost_qt_tests.cpp
+                src/tab_ghost.cpp
+                src/tab_ghost_qt.cpp
+            )
+            target_include_directories(tab_ghost_qt_tests PRIVATE include)
+            target_link_libraries(tab_ghost_qt_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+            add_test(NAME tab_ghost_qt COMMAND tab_ghost_qt_tests)
+            # Dynamic CRT, same reason and same measurement as qt_text_tests and qt_entry_tests.
+            set_property(TARGET tab_ghost_qt_tests PROPERTY
+                MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+            # THIS ONE NEEDS A REAL FONT DATABASE -- it counts the pixels a title draws -- so the
+            # per-platform pin is load-bearing here, not boilerplate. Under `offscreen` on Windows
+            # the database is empty, the card comes back textless, and the failure would name the
+            # seam instead of the plugin. The test refuses with exit 2 rather than reporting a blank
+            # card as a broken arm.
+            set_tests_properties(tab_ghost_qt PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+        else()
+            message(STATUS "Qt6 Widgets not found -- tab_ghost_qt test skipped")
+        endif()
+
         # WINDOWS ONLY, AND MEASURED RATHER THAN ANTICIPATED. The first time these two
         # targets ran on Windows -- 2026-09-15, the day Qt 6.8.3 was installed here --
         # both FAILED under ctest while both PASSED when launched by hand with
@@ -2752,7 +2848,11 @@ if(BUILD_TESTING)
             # it is a dialog on somebody's desktop plus a red that looks like a broken seam.
             set(TINTA_QT_PATH_TESTS qt_text render_api pdf_export_qt)
             if(Qt6Widgets_FOUND)
-                list(APPEND TINTA_QT_PATH_TESTS qt_entry)
+                # tab_ghost_qt is here for the reason the paragraph above was written down TWICE.
+                # It is Widgets-gated like qt_entry, so it appends in the same place; leaving it out
+                # would have bought a third modal "Qt6Core.dll was not found" box and a red with no
+                # output, on a target whose whole job is to make a drawing claim legible.
+                list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt)
             endif()
             set_tests_properties(${TINTA_QT_PATH_TESTS} PROPERTIES
                 ENVIRONMENT_MODIFICATION

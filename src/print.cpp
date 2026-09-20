@@ -22,7 +22,23 @@
 #include <documenttarget.h>
 #include <shlwapi.h>
 #include <wincodec.h>
-#include <winspool.h>
+// <winspool.h> was here and had no caller: swept 2026-09-20, and of the THREE
+// dead includes that sweep confirmed it is the one that changes a DECISION
+// rather than a line count. (Three of five candidates: the screen proposed five
+// and the Windows build refused two of them, which is written up where those two
+// live.) This file does not talk to the print spooler API at all --
+// no OpenPrinter, no DeviceCapabilities, no DocumentProperties, no EnumPrinters
+// -- so anybody sizing the QPrinter port off "print.cpp includes winspool.h"
+// was sizing it off nothing. DEVMODEW and DEVNAMES below are real and come from
+// windows.h, not from here.
+//
+// WHAT THIS FILE'S WINDOWS SURFACE ACTUALLY IS, measured the same day rather
+// than inferred from the include list: ONE PrintDlgW (plus its PRINTDLGW), SIX
+// IPrintDocumentPackage* symbols (the XPS package target), FIVE WIC symbols,
+// and ONE SHCreateStreamOnFileEx. The census names commdlg.h as this file's
+// cause because it stops at the FIRST unresolvable header -- so the row has
+// never said anything about the four headers underneath it, and reading it as
+// "print.cpp needs a print dialog" understates the work by the whole XPS half.
 
 #include <algorithm>
 #include <cstring>

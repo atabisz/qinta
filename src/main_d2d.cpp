@@ -6,7 +6,10 @@
 
 #include <windowsx.h>
 #include <shellapi.h>
-#include <shlobj.h>
+// <shlobj.h> was here and had no caller: swept 2026-09-20 by the screen that
+// export_docx.cpp's three dead includes prompted. shellapi.h above it is live
+// (6 sites), which is the point -- a dead include sits beside a live one and
+// nothing distinguishes them but a grep for the symbols.
 
 #include <d3d11.h>
 

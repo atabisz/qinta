@@ -21,6 +21,13 @@
 #include "i18n.h"
 
 #include <windows.h>
+// shlobj.h IS LIVE, and it is here because a symbol-grep screen said it was not.
+// The 2026-09-20 dead-include sweep proposed deleting it; the Windows build
+// refused with three errors on ONE line -- SHChangeNotify, SHCNE_ASSOCCHANGED
+// and SHCNF_IDLIST at :152, the file-association notify. None of the three was
+// in the screen's pattern list, because a header's symbol surface is bigger than
+// any pattern anybody writes for it. The compile is the test; the grep is only a
+// way to pick which compiles to run.
 #include <shlobj.h>
 #include <shellapi.h>
 #include <appmodel.h>

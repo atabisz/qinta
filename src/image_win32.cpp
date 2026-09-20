@@ -9,7 +9,15 @@
 // the day anything upstream of here defines the macro. export_docx.cpp, which is where
 // those two calls come from, includes objbase.h for the same reason.
 #include <objbase.h>
-#include <urlmon.h>
+// <urlmon.h> was here and had no caller: swept 2026-09-20. It is the most
+// plausible-looking dead include in the tree -- this file decodes images, so a
+// header for fetching them off a URL reads as obviously needed, and that
+// plausibility is exactly what kept export_docx.cpp's three alive for a day.
+//
+// shlwapi.h, one line below it in the same block, LOOKED equally dead to the
+// same screen and is LIVE: the build refused with `SHCreateMemStream` not found.
+// So one block held one dead header and one false positive, the screen could not
+// tell them apart, and only the compiler could.
 #include <shlwapi.h>
 #include <wincodec.h>
 #include <d2d1.h>

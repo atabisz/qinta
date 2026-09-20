@@ -159,6 +159,29 @@ clipboard_qt.cpp
 # budget for exactly that reason.
 platform_process_qt.cpp
 
+# pdf_export_qt.cpp -- the non-Windows half of include/pdf_export.h, the SEVENTH seam and
+# the only one that writes a file format. LINKED AND RUN off Windows by pdf_export_qt_tests,
+# so this is the keyboard_qt.cpp case and not the render_qt.cpp case.
+#
+# WHAT IT CLAIMS IS UNUSUALLY STRONG FOR A NEW SEAM HALF, and the reason is that the test
+# came with it rather than after it. tests/pdf_export_shared.cpp holds ONE assertion set and
+# both arms run it -- the same arrangement tests/render_api_shared.cpp has for the drawing
+# seam -- and the readings it takes are off the BYTES ON DISK: the %PDF- magic, the page
+# count out of the file's own page objects, a drawn document being larger than the same
+# pages blank, and a page twice as wide in DIPs being twice as wide in the PDF. So a MISSING
+# reading from this line is not the only instrument watching the file; a WRONG one has a red
+# test behind it.
+#
+# Its counterpart src/pdf_export_win32.cpp must never appear here: it is <d2d1_1.h>,
+# <documenttarget.h> and an XPS print control, and it is the arm the cutover deletes.
+#
+# WHAT THE SHARED ASSERTIONS DELIBERATELY DO NOT CLAIM, because it would be a statement
+# about one producer rather than about the seam: that the two arms' BYTES match (different
+# PDF producers), what finish() answers on a zero-page document, what a zero or negative
+# page size does, and whether a file is left behind after a failed open. Each is named in
+# tests/pdf_export_shared.cpp as considered and rejected.
+pdf_export_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
 # TEN ENTRIES, and this count has been WRONG here before. It read "SEVEN" until

@@ -132,7 +132,13 @@ src_cpp_lines=$(bump "$raw_src_lines")
 denominator=$(bump "$raw_denominator")
 
 echo "=== derived from the tree, then looked for in $README ==="
-[ "$control" -eq 1 ] && echo "    (CONTROL RUN: every component is bumped by one; all $((0)) checks must MISS)"
+# The count is DELIBERATELY absent from this banner. It used to read `all $((0)) checks must
+# MISS`, printed before a single claim had run, so it always said zero and then ran eighteen --
+# a control arm whose own banner understated it by the whole suite. The honest count is the
+# `readme_figures_checked=` line at the end, which is printed after the claims rather than
+# before them, and `readme_figure_failures=` must EQUAL it on a control run.
+[ "$control" -eq 1 ] && echo "    (CONTROL RUN: every component is bumped by one; every check below must MISS,"
+[ "$control" -eq 1 ] && echo "     so a passing control is readme_figure_failures == readme_figures_checked)"
 echo
 
 echo "-- the bases table"

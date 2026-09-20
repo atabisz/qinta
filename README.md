@@ -1389,11 +1389,30 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 43,049 / 67,987 | **63.3%** |
-| B. `src/*.cpp` files compiling without Windows headers | 60 / 78 | 76.9% |
-| C. Files a running test links **off Windows** | 47 / 78 | 60.3% |
+| A. Source lines free of the Windows stack | 43,228 / 68,166 | **63.4%** |
+| B. `src/*.cpp` files compiling without Windows headers | 61 / 79 | 77.2% |
+| C. Files a running test links **off Windows** | 48 / 79 | 60.8% |
 | D. Test targets that *could* move, and do | 30 / 35 | 85.7% |
 | E. All test targets, run off Windows | 30 / 39 | 76.9% |
+
+**A, B and C ROSE ON THE SAME SLICE, WHICH IS RARE ENOUGH TO EXPLAIN.** The PDF seam got its second
+implementation — `src/pdf_export_qt.cpp`, 179 lines over `QPdfWriter` — and every one of those lines is on
+the portable manifest, so basis A's numerator and denominator rose by the *same* 179 and the share went up
+rather than down. That is the first slice in this table's history where the denominator rise was entirely
+numerator; every earlier rise paid for prose in a header, which can never be earned back. B gains the file
+itself. C gains it because `pdf_export_qt_tests` links and runs it off Windows — **all 18 assertions pass on
+Linux against Qt 6.4.2, reporting the same 3 pages and the same 612.00/1224.00 pt MediaBox as the Windows
+build**, on a 3,029-byte file where Windows writes 4,936. Same contract, different producer, which is the
+entire point of a seam having two arms.
+
+**D AND E ARE THE ONLY ROWS HERE THAT NOTHING DERIVES, AND THIS SLICE MOVED BOTH OF THEM.** A, B and C are
+computed by `scripts/probe-portable-linux.sh` and checked against this table; D and E are typed by hand and
+no script reads them, so they rot silently and they have. Measured this slice: `ctest` runs **45** tests on
+Windows and **35** off it, against a table saying 39 and 30 — and E's denominator was already wrong before
+this slice touched anything, because 39 was never 43. The numbers above are left as they stand rather than
+replaced with a guess: D and E count *targets*, `ctest` counts *tests*, one script produces two of the
+latter, and inventing a mapping between them in prose is how a hand-kept figure becomes a hand-kept figure
+that also looks derived. **What is owed is a derivation for these two rows, not a refresh of them.**
 | F. **Platforms running Tinta on the target stack** | 2 / 3 | **66.7%** |
 | G. Platforms where the Qt frontend builds, links, starts and paints | 2 / 3 | 66.7% |
 
@@ -1682,8 +1701,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 56,593 lines of the 67,987,
-**basis A's ceiling is 83.2%, not 100%**, and 61.5% should be read against that. **AND THE MOVE THAT
+can never enter the numerator. With `src/*.cpp` totalling 56,772 lines of the 68,166,
+**basis A's ceiling is 83.3%, not 100%**, and 63.4% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into
 `include/theme_data.h` and a net 4 into `src/themes.cpp` — so the numerator rose **4** against a

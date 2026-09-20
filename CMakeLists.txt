@@ -502,8 +502,23 @@ set(SOURCES
     # The Win32 arm of the PDF seam (include/pdf_export.h), named here directly rather
     # than through a PLATFORM_PDF_SOURCE variable like the four seams selected at the top
     # of this file. There is no second arm yet, and a variable with one value is a
-    # selection nobody makes -- when src/pdf_export_qt.cpp lands it becomes an if(WIN32)
-    # up there with the others, which is the same shape and one line of diff.
+    # selection nobody makes.
+    #
+    # THAT PARAGRAPH USED TO END WITH A PREDICTION AND THE PREDICTION WAS WRONG. It said
+    # that when src/pdf_export_qt.cpp landed this would become an `if(WIN32)` selection up
+    # there with the other four, "the same shape and one line of diff". src/pdf_export_qt.cpp
+    # has landed and that edit was never made, because it would compile the Qt arm in NO
+    # CONFIGURATION: ${SOURCES} feeds `tinta` and the five INPUT_TEST_SOURCES binaries, and
+    # every one of those six is a Windows target, so an `else()` branch here has no consumer
+    # to reach. The four seams at the top of the file are selected per-platform because their
+    # variables feed targets on both sides; this list does not, and the prediction read the
+    # SPELLING of those four rather than what they feed.
+    #
+    # Where the Qt arm actually goes: named directly on pdf_export_qt_tests, which is the
+    # only target that wants it today -- `qinta` builds from QINTA_APP_SOURCES and does not
+    # link src/print.cpp, so it needs no PDF seam implementation at all yet. When the cutover
+    # gives qinta the print path, the Qt arm joins QINTA_APP_SOURCES and this line is deleted
+    # along with the rest of the Direct2D stack. One list each, no selection anywhere.
     #
     # It sits in ${SOURCES} and therefore compiles into SIX targets: tinta plus the five
     # INPUT_TEST_SOURCES binaries. That is not a choice, it is where src/print.cpp already
@@ -2531,6 +2546,37 @@ if(BUILD_TESTING)
         set_tests_properties(render_api PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
 
+        # The PDF seam's Qt arm, and the same two-backend shape one seam up.
+        # tests/pdf_export_shared.cpp holds the assertions and is compiled into BOTH this
+        # target and pdf_export_win32_tests below, so neither arm can be made green on its
+        # own -- and every assertion reads the PDF's own BYTES, because the interesting
+        # failures of a PDF backend all return true.
+        #
+        # THIS TARGET IS WHY THE QT ARM IS NOT AN if(WIN32)/else() SELECTION. A seam file
+        # chosen by an else() is compiled only off Windows, so on the host that builds,
+        # tests and commits it would be compiled by no configuration at all -- which this
+        # tree has already paid for once. A target that builds HERE is what makes the arm
+        # exercised, and the selection can arrive later with the caller that needs it.
+        #
+        # Qt6::Gui is the whole link cost: QPdfWriter is in QtGui, not Qt6::PrintSupport,
+        # measured in this Qt's own include tree. src/text_qt.cpp travels with
+        # src/render_qt.cpp because QtRenderTarget's text methods name its types -- the
+        # same pairing render_api_tests carries, for the same link-time reason.
+        add_executable(pdf_export_qt_tests
+            tests/pdf_export_qt_tests.cpp
+            tests/pdf_export_shared.cpp
+            src/pdf_export_qt.cpp
+            src/render_qt.cpp
+            src/text_qt.cpp)
+        target_include_directories(pdf_export_qt_tests PRIVATE include)
+        target_link_libraries(pdf_export_qt_tests PRIVATE Qt6::Core Qt6::Gui)
+        add_test(NAME pdf_export_qt COMMAND pdf_export_qt_tests)
+        # Dynamic CRT, same reason and same measurement as the Qt targets above.
+        set_property(TARGET pdf_export_qt_tests PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+        set_tests_properties(pdf_export_qt PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+
         # --- The Qt entry point: the first test that paints a tinta WINDOW --------
         #
         # Every other drawing assertion in this file paints into a BITMAP. That is
@@ -2615,7 +2661,14 @@ if(BUILD_TESTING)
             # Built as a list because qt_entry only exists where Widgets was found, and
             # naming a test that does not exist is a configure error -- which would
             # delete the whole Qt block on a partial install rather than one target.
-            set(TINTA_QT_PATH_TESTS qt_text render_api)
+            # AND THE PARAGRAPH ABOVE WAS PAID FOR A SECOND TIME, 2026-09-20, by
+            # pdf_export_qt: the target was added to the Qt block and NOT to this list, and
+            # the reading it produced was `***Failed 330.49 sec` with not one line of output
+            # -- 330 seconds because the loader's "Qt6Core.dll was not found" box is MODAL
+            # and waits for a person. So this list is not a detail of the two tests above
+            # it; it is part of what adding a Qt test target means, and the cost of missing
+            # it is a dialog on somebody's desktop plus a red that looks like a broken seam.
+            set(TINTA_QT_PATH_TESTS qt_text render_api pdf_export_qt)
             if(Qt6Widgets_FOUND)
                 list(APPEND TINTA_QT_PATH_TESTS qt_entry)
             endif()
@@ -2710,6 +2763,40 @@ if(BUILD_TESTING)
         d2d1 dwrite windowscodecs ole32 shlwapi urlmon shell32)
     target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME render_d2d COMMAND render_d2d_tests)
+
+    # The Windows side of the PDF seam, running the SAME assertions as
+    # pdf_export_qt_tests via tests/pdf_export_shared.cpp. Same purpose as the target
+    # above it: include/pdf_export.h had one implementation, and one implementation is
+    # indirection rather than abstraction.
+    #
+    # WHAT THIS TARGET NEEDS THAT render_d2d_tests DOES NOT: a D3D11 device and a DXGI
+    # interface. beginPdfDocument recovers an ID2D1DeviceContext from its target and asks
+    # it for the device the print control is created on, and a render target from a plain
+    # ID2D1Factory has no device behind it -- so the harness builds the app's own stack
+    # (D3D11 -> ID2D1Device -> context) instead of the WIC-bitmap recipe. Nothing is drawn
+    # into that context; XpsPageEmitter makes a second one off the same device.
+    #
+    # Gated on TINTA_LEGACY_D2D like render_d2d_tests and for the identical reason: the
+    # SUBJECT is the backend being deleted. pdf_export_qt_tests runs these same assertions
+    # against the arm that survives, so what this target proves outlives it.
+    add_executable(pdf_export_win32_tests
+        tests/pdf_export_win32_tests.cpp
+        tests/pdf_export_shared.cpp
+        src/pdf_export_win32.cpp
+        src/render_d2d.cpp
+        src/text_d2d.cpp
+    )
+    target_include_directories(pdf_export_win32_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    # d3d11/dxgi are this target's own (the harness builds the device); d2d1 for the
+    # factory, windowscodecs and ole32 for the WIC factory and the print-document target
+    # factory the seam CoCreateInstances, shlwapi for SHCreateStreamOnFileEx, dwrite
+    # because src/text_d2d.cpp travels with src/render_d2d.cpp.
+    target_link_libraries(pdf_export_win32_tests PRIVATE
+        d2d1 d3d11 dxgi dwrite windowscodecs ole32 shlwapi)
+    target_compile_definitions(pdf_export_win32_tests PRIVATE UNICODE _UNICODE)
+    add_test(NAME pdf_export_win32 COMMAND pdf_export_win32_tests)
     endif()  # TINTA_LEGACY_D2D
     endif()  # WIN32
 

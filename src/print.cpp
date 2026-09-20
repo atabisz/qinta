@@ -9,19 +9,21 @@
 // value and so has always pulled render_d2d.h in transitively. drawDocumentRange now
 // takes a tinta::RenderTarget& and the three call sites construct D2DRenderTarget and
 // D2DBrush, so this file uses both headers directly and says so.
-#include "image_api.h"   // tinta::rasterizeToImage -- the link peek's offscreen raster
+// tinta::rasterizeToImage and tinta::encodePng: the link peek's offscreen raster and,
+// since the renderPages inversion, the --printpages page dump as well.
+#include "image_api.h"
 #include "render_api.h"
 #include "render_d2d.h"
 
 #include <filesystem>
 #include <fstream>
+#include <functional>    // PagePainter -- the callback renderPages hands each emitter
 #include <memory>
 #include <sstream>
 
 #include <commdlg.h>
 #include <documenttarget.h>
 #include <shlwapi.h>
-#include <wincodec.h>
 // <winspool.h> was here and had no caller: swept 2026-09-20, and of the THREE
 // dead includes that sweep confirmed it is the one that changes a DECISION
 // rather than a line count. (Three of five candidates: the screen proposed five
@@ -612,15 +614,39 @@ bool rasterizePreviewPage(App& app, int page) {
     return ok;
 }
 
-// Runs layout + pagination + per-page drawing. emitPage receives a closed
-// command list per page. Returns page count, or -1 on failure.
+// What renderPages below hands an emitter INSTEAD of a page: a callable that
+// paints one page's range into whatever target the emitter supplies.
+//
+// The type is `tinta::rasterizeToImage`'s `draw` parameter, spelled out here rather
+// than approximated, and that identity is not a coincidence to be admired later --
+// it is why printDebugPages can pass a painter straight through to the seam with no
+// adapter at all. If this alias and image_api.h ever disagree, the seam call stops
+// compiling, which is the cheapest possible guard on the agreement.
+using PagePainter = std::function<void(tinta::RenderTarget&, tinta::Brush*)>;
+
+// Runs layout + pagination and hands each page to emitPage as a PAINTER.
+// `emitPage(int index, const PagePainter& paint) -> bool` chooses the surface,
+// calls paint once, and reports success. Returns page count, or -1 on failure.
+//
+// THIS USED TO RECORD AN ID2D1CommandList PER PAGE AND HAND THAT OVER, AND THE
+// INVERSION IS WHY THE FILE READS DIFFERENTLY NOW. The indirection bought nothing
+// measurable: every command list was created, closed, emitted EXACTLY ONCE and
+// released inside one loop iteration, so "record, then replay" was record-once,
+// replay-once with a Direct2D type in the middle of the one function in this file
+// that is pure layout. Inverting it moves the command list down into the two XPS
+// emitters that genuinely need one (see XpsPageEmitter below), leaves this loop
+// naming no backend type at all, and costs nothing -- the drawing already went
+// through the seam, because drawDocumentRange has taken a tinta::RenderTarget&
+// since the print seam landed.
+//
+// What this function may touch is therefore narrow on purpose: App's layout state
+// and the page geometry. No device, no device context, no ID2D1 anything. The
+// app.deviceContext null-check that used to guard the top is gone with the device
+// it was guarding -- an emitter that needs one checks for itself, which is also
+// what makes this loop reusable from a Qt path that will never have one.
 template <typename EmitFn>
 int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
-    if (!app.deviceContext || !app.root) return -1;
-
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    if (!device) return -1;
+    if (!app.root) return -1;
 
     SavedView saved{};
     enterPrintLayout(app, saved);
@@ -629,51 +655,89 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
     std::vector<float> breaks = computePageBreaks(app, geo.contentH);
     breaks.push_back(app.contentHeight + 1.0f);  // final page sentinel
 
-    ID2D1DeviceContext* pageDc = nullptr;
-    device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &pageDc);
     int pages = 0;
-    bool ok = pageDc != nullptr;
-
+    bool ok = true;
     float yStart = 0.0f;
     for (size_t i = 0; ok && i < breaks.size(); i++) {
-        float yEnd = breaks[i];
-        ID2D1CommandList* commandList = nullptr;
-        if (FAILED(pageDc->CreateCommandList(&commandList)) || !commandList) {
-            ok = false;
-            break;
-        }
-        pageDc->SetTarget(commandList);
-        pageDc->BeginDraw();
-        pageDc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
-        ID2D1SolidColorBrush* brush = nullptr;
-        pageDc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
-        if (brush) {
-            // Borrowed wraps over the page context and its scratch brush; see the
-            // preview rasterizer above. Note what is being wrapped: pageDc's target is
-            // an ID2D1CommandList, so the drawing recorded through the seam here is
-            // replayed later by ID2D1PrintControl. The seam neither knows nor cares --
-            // it holds an ID2D1RenderTarget* and forwards.
-            D2DRenderTarget seamTarget(pageDc);
-            D2DBrush seamBrush(brush);
-            drawDocumentRange(app, seamTarget, &seamBrush, yStart, yEnd,
+        const float yEnd = breaks[i];
+        // By reference to app, by VALUE for the two bounds: the painter is called
+        // inside emitPage, which is inside this iteration, so a reference would be
+        // valid -- but yStart is reassigned at the bottom of the loop and an emitter
+        // that ever holds the painter past its call would then paint the wrong band
+        // silently. Copying two floats removes the question.
+        const PagePainter paint = [&app, yStart, yEnd](tinta::RenderTarget& target,
+                                                      tinta::Brush* brush) {
+            if (!brush) return;
+            drawDocumentRange(app, target, brush, yStart, yEnd,
                               kPageMarginDips, kPageMarginDips);
-            brush->Release();
-        }
-        ok = SUCCEEDED(pageDc->EndDraw()) && SUCCEEDED(commandList->Close());
-        if (ok) {
-            ok = emitPage(commandList, pages);
-            pages++;
-        }
-        commandList->Release();
-        pageDc->SetTarget(nullptr);
+        };
+        ok = emitPage(pages, paint);
+        pages++;
         yStart = yEnd;
     }
 
-    if (pageDc) pageDc->Release();
-    device->Release();
     leavePrintLayout(app, saved);
     return ok ? pages : -1;
 }
+
+// Records a painted page into an ID2D1CommandList and adds it to an
+// ID2D1PrintControl -- the XPS document package half of printing, needed by
+// printDocument and exportPdfFile and by nothing else.
+//
+// ALL OF THIS FILE'S REMAINING COMMAND-LIST CODE IS HERE, WHICH IS THE WHOLE OF
+// WHAT THE INVERSION ABOVE BOUGHT. It moved out of the page loop, where it sat in
+// front of every emitter including the one that only wanted pixels, and into the
+// two that actually address an XPS target. When printDocument moves to
+// QPrintDialog + QPrinter and exportPdfFile to QPdfWriter, this struct leaves with
+// them in one piece, and the pagination it used to be tangled with does not move.
+//
+// Note what is being wrapped in addPage: the device context's target is an
+// ID2D1CommandList, so the drawing the seam records here is replayed later by
+// ID2D1PrintControl. The seam neither knows nor cares -- it holds an
+// ID2D1RenderTarget* and forwards.
+struct XpsPageEmitter {
+    ID2D1DeviceContext* dc = nullptr;
+    ID2D1PrintControl* control = nullptr;
+
+    XpsPageEmitter(App& app, ID2D1PrintControl* printControl) : control(printControl) {
+        ID2D1Device* device = nullptr;
+        if (app.deviceContext) app.deviceContext->GetDevice(&device);
+        if (device) {
+            device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc);
+            device->Release();
+        }
+    }
+    ~XpsPageEmitter() {
+        if (dc) dc->Release();
+    }
+    XpsPageEmitter(const XpsPageEmitter&) = delete;
+    XpsPageEmitter& operator=(const XpsPageEmitter&) = delete;
+
+    bool addPage(const PageGeometry& geo, const PagePainter& paint) {
+        if (!dc || !control) return false;
+        ID2D1CommandList* commandList = nullptr;
+        if (FAILED(dc->CreateCommandList(&commandList)) || !commandList) return false;
+        dc->SetTarget(commandList);
+        dc->BeginDraw();
+        dc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
+        ID2D1SolidColorBrush* brush = nullptr;
+        dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
+        if (brush) {
+            D2DRenderTarget seamTarget(dc);
+            D2DBrush seamBrush(brush);
+            paint(seamTarget, &seamBrush);
+            brush->Release();
+        }
+        bool ok = SUCCEEDED(dc->EndDraw()) && SUCCEEDED(commandList->Close());
+        if (ok) {
+            ok = SUCCEEDED(control->AddPage(
+                commandList, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
+        }
+        commandList->Release();
+        dc->SetTarget(nullptr);
+        return ok;
+    }
+};
 
 } // namespace
 
@@ -756,9 +820,9 @@ bool printDocument(App& app) {
 
     bool ok = false;
     if (printControl) {
-        int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int) {
-            return SUCCEEDED(printControl->AddPage(
-                list, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
+        XpsPageEmitter emitter(app, printControl);
+        int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
+            return emitter.addPage(geo, paint);
         });
         ok = pages > 0 && SUCCEEDED(printControl->Close());
         printControl->Release();
@@ -876,84 +940,86 @@ void printPreviewConfirm(App& app, HWND hwnd) {
     printDocument(app);
 }
 
+// PORTABLE BODY, AND THE SECOND ONE IN THIS FILE AFTER renderPeekBitmap. Nothing
+// below names a Direct2D or WIC type: the page is painted through
+// tinta::rasterizeToImage, encoded through tinta::encodePng, and written with
+// std::ofstream. What made this possible is the renderPages inversion above -- the
+// old body had to accept a closed ID2D1CommandList and replay it, which is a
+// Direct2D operation no seam offers and none should.
+//
+// IT WAS EXCLUDED FOR A STATED REASON AND THE REASON DID NOT SURVIVE, so the
+// exchange is recorded here the way the peek's was. include/render_api.h listed
+// this site among four "CreateBitmap with NULL pixels" sites and said of the two
+// target+staging pairs: "They STAY -- a seam that draws offscreen and hands back a
+// pixel vector is not what a printer readback wants, and routing them would add a
+// third copy to the two they already make."
+//
+// The copy arithmetic is right and the conclusion does not follow HERE, because it
+// was reasoning about a printer readback and this is not one. Per page: the old
+// body drew into an OPTIONS_TARGET bitmap, CopyFromBitmap'd into a CPU_READ staging
+// bitmap, and let WIC read the mapped bits -- one full-buffer copy of ours. The new
+// one draws into a WIC target, copies out to a DecodedImage vector and again into
+// encodePng's source bitmap -- two. So it is one extra 3.5 MB copy per A4 page,
+// paid by a harness switch that runs from a test script and that no user is ever
+// waiting on. That is a different trade from the one the exclusion weighed.
+//
+// THE COUNT IS 1 -> 2 AND THAT IS ALL IT IS. A draft of this paragraph called the
+// first bitmap a GPU bitmap and claimed the new body removes a GPU->CPU copy
+// outright; see the software note below for why that was wrong. Both bodies copy
+// within CPU memory on this path, so the extra copy is the whole delta.
+//
+// THE OTHER PAIR (rasterizePreviewPage) STAYS, AND ITS REASON IS THE ONE THAT DOES
+// SURVIVE: that one re-rasterises on every page flip, paper change and orientation
+// toggle while the preview is open, and it needs the pixels in
+// app.printPreviewPixels to display rather than to encode. Same code shape, live
+// UI, and the exclusion's argument applies to it unweakened. The lesson is not "the
+// exclusion was wrong" -- it is that it covered two sites with one sentence, and
+// only one of them was a printer readback.
+//
+// SOFTWARE RASTERISATION IS A PROPERTY WORTH HAVING HERE, not merely a cost
+// tolerated -- but the version of this paragraph that shipped first got the reason
+// wrong, and the hashes are what caught it. It said "the old body rasterised on the
+// GPU, which makes this harness's output a function of the machine's driver." The
+// old body rasterised wherever app.useHardwareRT pointed, that member starts FALSE
+// (include/app.h), and src/main_d2d.cpp returns from the --printpages branch about
+// forty lines before it calls startGpuWarmup -- so this harness was ALREADY software
+// and 140 README pages plus a 3-page fixture came back byte-identical across the
+// port. Holding an ID2D1DeviceContext is not evidence of hardware rasterisation.
+//
+// The claim that survives is narrower and still worth the lines: CreateWicBitmapRenderTarget
+// is software UNCONDITIONALLY, where the old body inherited a flag that flips at
+// runtime. No hash moved because the harness never reached the hardware case -- but
+// a caller invoking this from a warm GUI would have, and now cannot. Several slices
+// in this tree use --printpages page hashes as their falsifier, and an instrument
+// whose readings depend on which GPU took them is a worse instrument.
 int printDebugPages(App& app, const std::wstring& outDir) {
+    if (!app.renderTarget) return -1;
     PageGeometry geo{794.0f, 1123.0f, 794.0f - kPageMarginDips * 2,
                      1123.0f - kPageMarginDips * 2};  // A4
+    const unsigned pw = (unsigned)geo.pageW, ph = (unsigned)geo.pageH;
 
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    if (!device) return -1;
-    ID2D1DeviceContext* rasterDc = nullptr;
-    device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &rasterDc);
-    device->Release();
-    if (!rasterDc) return -1;
+    const std::filesystem::path dir(outDir);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);  // already-exists is not an error
 
-    UINT pw = (UINT)geo.pageW, ph = (UINT)geo.pageH;
-    D2D1_BITMAP_PROPERTIES1 targetProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-    D2D1_BITMAP_PROPERTIES1 stagingProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    return renderPages(app, geo, [&](int index, const PagePainter& paint) {
+        // paint goes straight through: PagePainter IS rasterizeToImage's draw type,
+        // so there is no adapter lambda here and no place for one to drift.
+        // White rather than app.theme.background -- a printed page is white on every
+        // theme, which is what the old body's two Clear(1,1,1) calls also said.
+        const tinta::DecodedImage image = tinta::rasterizeToImage(
+            *app.renderTarget, pw, ph, tinta::colorF(1.0f, 1.0f, 1.0f), paint);
+        if (!image.ok) return false;
+        const std::string png = tinta::encodePng(image);
+        if (png.empty()) return false;
 
-    ID2D1Bitmap1* pageBitmap = nullptr;
-    ID2D1Bitmap1* staging = nullptr;
-    rasterDc->CreateBitmap(D2D1::SizeU(pw, ph), nullptr, 0, &targetProps, &pageBitmap);
-    rasterDc->CreateBitmap(D2D1::SizeU(pw, ph), nullptr, 0, &stagingProps, &staging);
-    if (!pageBitmap || !staging) {
-        if (pageBitmap) pageBitmap->Release();
-        if (staging) staging->Release();
-        rasterDc->Release();
-        return -1;
-    }
-
-    CreateDirectoryW(outDir.c_str(), nullptr);
-
-    int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int index) {
-        rasterDc->SetTarget(pageBitmap);
-        rasterDc->BeginDraw();
-        rasterDc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
-        rasterDc->DrawImage(list);
-        if (FAILED(rasterDc->EndDraw())) return false;
-
-        D2D1_POINT_2U zero{0, 0};
-        D2D1_RECT_U all{0, 0, pw, ph};
-        if (FAILED(staging->CopyFromBitmap(&zero, pageBitmap, &all))) return false;
-        D2D1_MAPPED_RECT mapped{};
-        if (FAILED(staging->Map(D2D1_MAP_OPTIONS_READ, &mapped))) return false;
-
-        bool written = false;
-        IWICBitmapEncoder* encoder = nullptr;
-        IWICStream* stream = nullptr;
-        IWICBitmapFrameEncode* frame = nullptr;
-        std::wstring path = outDir + L"\\page-" + std::to_wstring(index + 1) + L".png";
-        if (app.wicFactory &&
-            SUCCEEDED(app.wicFactory->CreateStream(&stream)) &&
-            SUCCEEDED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
-            SUCCEEDED(app.wicFactory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
-            SUCCEEDED(encoder->Initialize(stream, WICBitmapEncoderNoCache)) &&
-            SUCCEEDED(encoder->CreateNewFrame(&frame, nullptr)) &&
-            SUCCEEDED(frame->Initialize(nullptr))) {
-            frame->SetSize(pw, ph);
-            WICPixelFormatGUID fmt = GUID_WICPixelFormat32bppBGRA;
-            frame->SetPixelFormat(&fmt);
-            if (SUCCEEDED(frame->WritePixels(ph, mapped.pitch,
-                                             mapped.pitch * ph, mapped.bits)) &&
-                SUCCEEDED(frame->Commit()) && SUCCEEDED(encoder->Commit())) {
-                written = true;
-            }
-        }
-        if (frame) frame->Release();
-        if (encoder) encoder->Release();
-        if (stream) stream->Release();
-        staging->Unmap();
-        return written;
+        std::ofstream out(dir / (L"page-" + std::to_wstring(index + 1) + L".png"),
+                          std::ios::binary);
+        if (!out) return false;
+        out.write(png.data(), (std::streamsize)png.size());
+        out.close();  // closed and checked here: ~ofstream flushes and swallows
+        return out.good();
     });
-
-    staging->Release();
-    pageBitmap->Release();
-    rasterDc->Release();
-    return pages;
 }
 
 // --- Export as PDF (#export_as) ---
@@ -1017,9 +1083,9 @@ bool exportPdfFile(App& app, const std::wstring& path) {
 
     bool ok = false;
     if (printControl) {
-        int pages = renderPages(app, geo, [&](ID2D1CommandList* list, int) {
-            return SUCCEEDED(printControl->AddPage(
-                list, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
+        XpsPageEmitter emitter(app, printControl);
+        int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
+            return emitter.addPage(geo, paint);
         });
         ok = pages > 0 && SUCCEEDED(printControl->Close());
         printControl->Release();
@@ -1133,13 +1199,20 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // outranking a reading.
     //
     // WHAT THIS DOES NOT MAKE TRUE, because the tempting sentence is "the last Direct2D
-    // rasteriser in the tree is gone" and it is false: this file still holds FOUR
-    // CreateBitmap-with-NULL-pixels sites, two target+staging pairs in
-    // rasterizePreviewPage and the page rasteriser below, and both build their own device
-    // context and read the drawing back with CPU_READ | CANNOT_DRAW. They are not this
-    // shape and this seam does not serve them -- it hands back a pixel vector, which is
-    // the copy they already make once and would then make twice. What left is ONE body:
-    // the only one of the five that drew offscreen and KEPT the result.
+    // rasteriser in the tree is gone" and it is still false: this file holds TWO
+    // CreateBitmap-with-NULL-pixels sites, ONE target+staging pair, in
+    // rasterizePreviewPage above. It builds its own device context and reads the drawing
+    // back with CPU_READ | CANNOT_DRAW.
+    //
+    // IT SAID FOUR AND TWO PAIRS UNTIL 2026-09-20, and the other pair's departure is why
+    // the count moved: the page rasteriser below ALSO drew offscreen into a staging bitmap,
+    // and it is on the seam now. This paragraph's reason for excluding both -- "the seam
+    // hands back a pixel vector, which is the copy they already make once and would then
+    // make twice" -- was one sentence covering two sites, and it only ever described one of
+    // them. printDebugPages encodes its pixels to a file and nothing waits for it;
+    // rasterizePreviewPage re-rasterises on every page flip, paper change and orientation
+    // toggle with the preview open, and wants the pixels to DISPLAY. Same code shape, and
+    // only the second one is a live-UI readback. The full arithmetic is at printDebugPages.
     //
     // THE 2x IS A TRANSFORM HERE, NOT A DPI, AND THAT IS THE ONE REAL DIFFERENCE FROM THE
     // OLD BODY. The old code set 192 DPI on its own device context so 1 DIP became 2 px.

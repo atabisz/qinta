@@ -159,19 +159,42 @@
 //         full-image memcpy to every local image -- a regression, which a
 //         portability seam is not the place to accept. See image_api.h's "WHAT IS
 //         NOT IN HERE".
-//       - ID2D1DeviceContext::CreateBitmap with NULL pixels, FOUR sites, all in
-//         src/print.cpp. These allocate an ID2D1Bitmap1 to draw INTO, which is
-//         device-lifetime work of the kind this whole list excludes, not an image
-//         handed to the drawing code.
-//         THERE WERE FIVE, AND THE FIFTH IS THE ONLY ONE THAT COULD EVER HAVE
-//         LEFT. This entry once said "a GPU target plus a CPU staging copy" of all
-//         five; that was corrected to "THE FIVE ARE NOT ONE CLASS", and the
-//         correction is what made the departure findable, so it is kept in its own
-//         terms: :548/:549 and :884/:885 are two target+staging PAIRS, each
-//         allocating a second bitmap with CPU_READ | CANNOT_DRAW to read the
-//         drawing back. They STAY -- a seam that draws offscreen and hands back a
-//         pixel vector is not what a printer readback wants, and routing them
-//         would add a third copy to the two they already make. THE FIFTH WAS
+//       - ID2D1DeviceContext::CreateBitmap with NULL pixels, TWO sites, both in
+//         src/print.cpp's rasterizePreviewPage. These allocate an ID2D1Bitmap1 to
+//         draw INTO, which is device-lifetime work of the kind this whole list
+//         excludes, not an image handed to the drawing code.
+//         THERE WERE FIVE AND THIS ENTRY HAS NOW BEEN WRONG TWICE, IN THE SAME
+//         DIRECTION, ABOUT THE SAME SENTENCE. It first said "a GPU target plus a
+//         CPU staging copy" of all five; that was corrected to "THE FIVE ARE NOT
+//         ONE CLASS", which found the peek and is kept below in its own terms. The
+//         correction then left ONE SENTENCE covering the two remaining
+//         target+staging PAIRS: "They STAY -- a seam that draws offscreen and hands
+//         back a pixel vector is not what a printer readback wants, and routing
+//         them would add a third copy to the two they already make."
+//         THE COPY ARITHMETIC WAS RIGHT AND THE PAIRS WERE NOT ONE CLASS EITHER,
+//         which is the part a re-grouping is most likely to get wrong: having split
+//         five into four-plus-one, nobody asked whether the four were alike.
+//         printDebugPages -- the --printpages harness -- encodes its pixels to a
+//         file with nothing waiting on it, and is ON THE SEAM as of 2026-09-20; the
+//         WIC target is already CPU memory so the GPU->CPU copy disappears and the
+//         net cost is one extra full-buffer copy per page, on a switch run from a
+//         test script. rasterizePreviewPage re-rasterises on every page flip, paper
+//         change and orientation toggle with the preview open and wants the pixels
+//         in App::printPreviewPixels to DISPLAY. Same code shape; only the second
+//         is the live-UI readback the sentence described, and it stays on that
+//         reason unweakened. The arithmetic for both is at printDebugPages.
+//         SOFTWARE RASTERISATION IS A GAIN AT THAT SITE AND NOT A COST, unlike the
+//         peek below where it had to be priced: several slices in this tree use
+//         --printpages page hashes as their falsifier, and the new body is software
+//         unconditionally rather than at app.useHardwareRT's discretion, so the
+//         instrument cannot become a function of the driver for any caller.
+//         THIS SENTENCE SAID "AND THE OLD BODY RASTERISED ON THE GPU" UNTIL THE
+//         HASHES WERE READ, and that was wrong: useHardwareRT starts false and
+//         src/main_d2d.cpp returns from --printpages ~40 lines before it starts the
+//         GPU warm-up, so the harness path was ALREADY software and all 143 baseline
+//         pages came back byte-identical. Holding an ID2D1Device is not evidence of
+//         hardware rasterisation, which is the inference that produced the error.
+//         THE FIFTH WAS
 //         renderPeekBitmap: one OPTIONS_TARGET bitmap at 192 DPI, the peek panel
 //         drawn into it, kept. No staging bitmap, no CPU readback -- which is
 //         exactly tinta::rasterizeToImage's shape.
@@ -209,7 +232,9 @@
 //         WHAT THIS DOES NOT BUY: src/print.cpp is still not portable and still
 //         not in basis B's manifest -- ID2D1PrintControl, DEVMODE and the printer
 //         dialog stay. One Direct2D-terminal BODY and this seam's second caller is
-//         the whole of it.
+//         the whole of it. (printDebugPages made it TWO bodies and a third caller
+//         on 2026-09-20, and the sentence above still holds for the file: the
+//         printer dialog and the XPS package target are what keep it here.)
 //     THE COUNT IN THE OLD ENTRY WAS WRONG, and wrong in the way a comment count
 //     usually is: it said "CreateBitmap 2" having grepped only src/render.cpp. The
 //     tree has THREE CPU-buffer sites -- the two in src/render.cpp and the print

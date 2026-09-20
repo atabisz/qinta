@@ -36,8 +36,35 @@ inline constexpr int PRINT_PAPER_COUNT = 4;
 // Re-paginates the open preview for a new paper size / orientation
 void printPreviewSetFormat(App& app, int paper, bool landscape);
 
-// Debug/testing: renders each paginated page to <outDir>\page-N.png using
-// the same layout and pagination as printing. Returns the page count.
+// Debug/testing: renders each paginated page to <outDir>/page-N.png using
+// the same layout and pagination as printing. Returns the page count, or -1.
+//
+// PORTABLE BODY, like renderPeekBitmap below and for the same reason: it draws
+// through tinta::rasterizeToImage, encodes through tinta::encodePng and writes
+// with std::ofstream, so nothing in it names Direct2D or WIC. What unblocked it
+// was inverting src/print.cpp's page loop -- it used to be handed a closed
+// ID2D1CommandList to replay, which no seam offers and none should.
+//
+// PAGE HASHES SURVIVED THE PORT, MEASURED, and this paragraph said the opposite
+// before the measurement was taken. Several slices in this tree use these PNGs as
+// a byte-identity falsifier, so it matters: 140 README pages and a 3-page fixture
+// are byte-identical across the change (2026-09-20), which means a hash captured
+// before it IS comparable with one captured after. The draft comment predicted a
+// break, on the reasoning that the old body rasterised on the GPU and
+// tinta::rasterizeToImage is always software. The first half was wrong.
+// app.useHardwareRT (include/app.h) starts FALSE and only flips on
+// WM_APP_GPU_READY, and src/main_d2d.cpp runs this function and returns ~40 lines
+// before it even starts the GPU warm-up -- so on the harness path the old body's
+// ID2D1Device sat behind a SOFTWARE hwnd target as well. Having a device context
+// in hand says nothing about which rasteriser is under it.
+//
+// WHAT DID CHANGE is who decides: the old body inherited app.useHardwareRT, so a
+// caller reaching this from a warm GUI would have rasterised on the GPU, while
+// CreateWicBitmapRenderTarget is software unconditionally. The harness never was
+// that caller, so no hash moved -- but the output is now a function of the build
+// rather than the driver for ANY caller, which is what an instrument wants.
+// Separately: the path separator is written by std::filesystem rather than as a
+// literal backslash.
 int printDebugPages(App& app, const std::wstring& outDir);
 
 // Link peek: renders the top of another markdown file at the live theme

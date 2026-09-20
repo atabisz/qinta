@@ -282,21 +282,31 @@ std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void
 // That is worth writing down because an exclusion that quietly survives reads later like
 // one nobody thought about.
 //
-// WHAT IT SERVES, STATED HONESTLY: TWO CALLERS, AND THAT SENTENCE READ "ONE CALLER" UNTIL
-// 2026-09-19. src/export_docx.cpp (three sites, diagrams and math boxes) and
-// src/print.cpp's renderPeekBitmap (the link-peek panel, ported once the copies were
-// measured -- render_api.h's CreateBitmap entry carries the numbers). The correction is
-// dated rather than just applied because the old count was load-bearing in an argument
-// two headers away.
+// WHAT IT SERVES, STATED HONESTLY: THREE CALLERS, AND THAT SENTENCE READ "ONE" UNTIL
+// 2026-09-19 AND "TWO" UNTIL 2026-09-20. src/export_docx.cpp (three sites, diagrams and
+// math boxes), src/print.cpp's renderPeekBitmap (the link-peek panel, ported once the
+// copies were measured) and src/print.cpp's printDebugPages (the --printpages page dump,
+// ported once renderPages stopped handing out command lists). render_api.h's CreateBitmap
+// entry carries the numbers for both print sites. Each correction is DATED rather than
+// just applied, because the count was load-bearing in an argument two headers away and
+// a count that silently increments cannot be caught being stale.
 //
 // THE ARGUMENT DOES NOT CHANGE WITH THE COUNT, which is the point of restating it here:
 // `decodeIconBytesToBitmap` above had two call sites and deduplication was half its
 // justification. This still has none of that. The tree's only other offscreen target is
 // in src/image_win32.cpp, which is the Windows image backend and must not route through a
-// seam it implements, so both callers are here for PORTABILITY and neither is here to
-// share code with the other -- one rasterises a diagram into a docx part, the other draws
-// a hover panel at 2x. Said plainly because a seam's stated reason gets quoted back, and
-// "it's shared" would still be false at two.
+// seam it implements, so all three callers are here for PORTABILITY and none is here to
+// share code with the others -- one rasterises a diagram into a docx part, one draws a
+// hover panel at 2x, one paints a paginated A4 page for a test harness. Said plainly
+// because a seam's stated reason gets quoted back, and "it's shared" would still be false
+// at three.
+//
+// THE THIRD CALLER IS ALSO THE FIRST ONE THAT USES `draw` AS A VALUE IT WAS HANDED rather
+// than as a lambda written at the call site: src/print.cpp's renderPages builds a
+// PagePainter per page and printDebugPages passes it straight in, because PagePainter is
+// declared as exactly this parameter's type. That is worth naming here as something the
+// signature now supports on purpose -- if this parameter were ever narrowed to a template
+// or a raw function pointer, that pass-through is what would break.
 //
 // `draw` is called exactly once, between the backend's own begin and end, with a target
 // sized to the request and a black scratch brush bound to it -- the same

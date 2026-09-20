@@ -17,6 +17,12 @@ wchar_t pathSeparator() {
     return L'\\';
 }
 
+bool pathsEquivalent(const std::wstring& a, const std::wstring& b) {
+    // _wcsicmp, not _stricmp on the UTF-8 forms the callers used to hold. The header
+    // states the consequence: folding now reaches past ASCII, which is what NTFS does.
+    return _wcsicmp(a.c_str(), b.c_str()) == 0;
+}
+
 std::wstring environmentVariable(const std::wstring& name) {
     // Sized in two calls rather than into a fixed buffer, and this is the ONE
     // place in this file that deliberately does not preserve the behaviour it
@@ -178,6 +184,18 @@ void revealInFileManager(const std::wstring& path) {
     std::wstring params = L"/select,\"" + path + L"\"";
     ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
                   SW_SHOWNORMAL);
+}
+
+bool createEmptyFileExclusive(const std::wstring& path) {
+    // Byte-for-byte the CreateFileW call this moved out of input.cpp's new-note
+    // handler, including the zero share mode: the file is closed immediately, so
+    // sharing only governs the instant between create and close, and widening it
+    // would be a change with no caller asking for one.
+    HANDLE h = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    CloseHandle(h);
+    return true;
 }
 
 std::wstring userConfigDirectory(const std::wstring& appName) {

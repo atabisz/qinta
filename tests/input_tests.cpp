@@ -1,10 +1,12 @@
 #include "input.h"
 #include "settings.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include <system_error>
 
 namespace {
 int failures = 0;
@@ -114,6 +116,70 @@ int main() {
     applyKeymap(app, settings);
     stroke(app, VK_F3);
     check(app.confirmExitPending && !app.showHelp, "Help cannot bypass unsaved-changes confirmation");
+
+    // --- the file watch's 0-means-could-not-read contract -------------------
+    //
+    // platform::fileWriteTicks returns 0 both for a missing file and for one it
+    // could not read, and the watch loop must treat that as "no information" rather
+    // than as a timestamp. Getting it wrong is not a crash: a 0 stored into
+    // lastFileWriteTime compares unequal to the next real reading, so the app
+    // raises the unsaved-changes dialog over an external edit that never happened.
+    // That is the trap file_utils.cpp:40-45 names, and it is tested here rather
+    // than read off the source, because both halves of it are one-line guards.
+    {
+        app.showHelp = false;
+        app.confirmExitPending = false;
+        app.editMode = true;
+        app.editorDirty = true;   // the dirty branch is the only one that prompts
+        app.fileWatchEnabled = true;
+
+        // App starts with NO tabs and the watch loop iterates app.tabs, so without
+        // this the loop body never runs and both assertions below would pass for a
+        // reason that has nothing to do with the contract -- which is exactly the
+        // shape the positive control at the end of this block exists to catch.
+        if (app.tabs.empty()) app.tabs.emplace_back();
+        app.activeTab = 0;
+
+        const std::filesystem::path probe =
+            std::filesystem::temp_directory_path() / "tinta-watch-probe.md";
+        std::error_code ec;
+        std::filesystem::remove(probe, ec);
+        check(!std::filesystem::exists(probe),
+              "CONTROL: the watch probe file does not exist yet");
+
+        // A recognisable stored time. Nothing may overwrite it while the file
+        // cannot be read -- not even with a plausible-looking value.
+        const FILETIME sentinel{0x11223344u, 0x55667788u};
+        app.currentFile = probe.string();
+        app.lastFileWriteTime = sentinel;
+
+        handleFileWatchTimer(app, app.hwnd);
+        check(app.lastFileWriteTime.dwLowDateTime == sentinel.dwLowDateTime &&
+                  app.lastFileWriteTime.dwHighDateTime == sentinel.dwHighDateTime,
+              "an unreadable file leaves the stored write time ALONE, not zeroed");
+        check(!app.confirmExitPending,
+              "an unreadable file raises no external-edit prompt");
+
+        // POSITIVE CONTROL, and the test is worthless without it: an
+        // implementation that simply never prompted would pass both assertions
+        // above. So the same state with a file that DOES exist must prompt, and
+        // must store the reading it just took.
+        { std::ofstream out(probe, std::ios::binary); out << "# watched\n"; }
+        check(std::filesystem::exists(probe),
+              "CONTROL: the watch probe file was created");
+        app.lastFileWriteTime = FILETIME{0, 0};
+        handleFileWatchTimer(app, app.hwnd);
+        check(app.confirmExitPending,
+              "CONTROL: a real external change does raise the prompt");
+        check(app.lastFileWriteTime.dwLowDateTime != 0 ||
+                  app.lastFileWriteTime.dwHighDateTime != 0,
+              "CONTROL: a readable file's time IS stored");
+
+        app.confirmExitPending = false;
+        app.editMode = false;
+        app.editorDirty = false;
+        std::filesystem::remove(probe, ec);
+    }
 
     DestroyWindow(app.hwnd);
     app.hwnd = nullptr;

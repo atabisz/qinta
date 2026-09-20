@@ -57,6 +57,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <system_error>  // std::error_code, for the non-throwing <filesystem> overloads
 #include <algorithm>
 #include <chrono>
 
@@ -342,6 +343,49 @@ bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
 // The difference is that those four have working Qt halves and this one's would
 // start a process that ignores --cascade and --edit.
 
+// The folder browser's fallback starting point when no document is open.
+//
+// FOUR BYTE-IDENTICAL COPIES OF THIS STOOD IN THIS FILE, and they were compared
+// before being collapsed rather than after: same MAX_PATH buffer, same
+// `if (GetCurrentDirectoryW(MAX_PATH, cwd))` guard, same assignment, same silent
+// skip on failure, at four different indentation depths. They had NOT drifted, which
+// is the only reason collapsing them is a refactor and not a merge -- four copies
+// that HAD drifted would have made one of them a bug report instead.
+//
+// The error_code overload of current_path, never the throwing one, and that is
+// behaviour preservation rather than caution: GetCurrentDirectoryW reported failure by
+// returning zero, all four sites responded by leaving app.folderBrowserPath untouched,
+// and an error_code that is set does exactly the same here. The throwing overload would
+// have converted a silent fallback into an exception crossing four call sites that have
+// never had a handler.
+static void setFolderBrowserPathToCwd(App& app) {
+    std::error_code ec;
+    const std::filesystem::path cwd = std::filesystem::current_path(ec);
+    if (!ec) app.folderBrowserPath = cwd.wstring();
+}
+
+// "Something is there", file OR DIRECTORY, which is what
+// `GetFileAttributesW(p) != INVALID_FILE_ATTRIBUTES` meant at all four sites that
+// used it in this file.
+//
+// DELIBERATELY NOT platform::regularFileExists, and the four sites were decided one at
+// a time rather than swept, because that function is NARROWER and substituting it would
+// have been a silent behaviour change at every one of them. It answers "is this a
+// regular file", which platform_paths.h:28-30 says exists so that a FOLDER named
+// settings.ini cannot be mistaken for the opt-in file -- the opposite question from the
+// one asked here. Two of the four sites depend on the difference behaviourally rather
+// than theoretically: the folder-browser path box branches on FILE_ATTRIBUTE_DIRECTORY
+// immediately afterwards, and the themes.ini seeder treats a directory sitting at that
+// name as "already there, do not write" -- where regularFileExists would have had it
+// open an ofstream onto a directory, fail silently, and then hand the directory to the
+// shell. The other two (the stale-recent purge and the deleted-on-disk tab dots) do not
+// depend on it today, and they keep the wider test anyway so that all four sites mean
+// one thing.
+static bool pathExists(const std::wstring& path) {
+    std::error_code ec;
+    return std::filesystem::exists(std::filesystem::path(path), ec);
+}
+
 // N key / context menu: open the folder browser with the new-file naming
 // row already active
 static void startNewFileFlow(App& app, HWND hwnd) {
@@ -351,10 +395,7 @@ static void startNewFileFlow(App& app, HWND hwnd) {
         if (!app.currentFile.empty()) {
             app.folderBrowserPath = getDirectoryFromFile(app.currentFile);
         } else {
-            wchar_t cwd[MAX_PATH];
-            if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                app.folderBrowserPath = cwd;
-            }
+            setFolderBrowserPathToCwd(app);
         }
         populateFolderItems(app);
     }
@@ -421,12 +462,18 @@ static void commitFolderBrowserPath(App& app) {
         path = expanded;
     }
 
-    DWORD attrs = GetFileAttributesW(path.c_str());
-    if (attrs == INVALID_FILE_ATTRIBUTES) {
+    // ONE stat, two questions, which is what the DWORD of attributes was doing: status()
+    // is queried once and both exists() and is_directory() read the file_status it
+    // returned, rather than two separate filesystem round trips that could disagree if
+    // the path changed between them.
+    std::error_code attrEc;
+    const std::filesystem::file_status attrs =
+        std::filesystem::status(std::filesystem::path(path), attrEc);
+    if (attrEc || !std::filesystem::exists(attrs)) {
         app.folderBrowserInputError = true;
         return;
     }
-    if (attrs & FILE_ATTRIBUTE_DIRECTORY) {
+    if (std::filesystem::is_directory(attrs)) {
         // Strip a trailing separator (but keep drive roots like C:\)
         while (path.length() > 3 && (path.back() == L'\\' || path.back() == L'/')) {
             path.pop_back();
@@ -478,7 +525,17 @@ static void commitFolderBrowserNaming(App& app) {
     fullPath += name;
 
     if (isFolder) {
-        if (!CreateDirectoryW(fullPath.c_str(), nullptr)) {
+        // create_directory, not create_directories: the parent is the folder the user
+        // is looking at, so it exists by construction, and the recursive form would
+        // silently manufacture a tree if a typed name contained separators. The
+        // error_code overload keeps the "already exists" case reporting false through
+        // the same branch CreateDirectoryW used, without throwing. `dirEc` is not
+        // tested separately on purpose: create_directory returns false for a failure
+        // AND for an already-existing directory, which is exactly the pair
+        // CreateDirectoryW's FALSE collapsed, so the return alone reproduces it.
+        std::error_code dirEc;
+        if (!std::filesystem::create_directory(std::filesystem::path(fullPath),
+                                               dirEc)) {
             app.folderBrowserInputError = true;
             return;
         }
@@ -488,14 +545,16 @@ static void commitFolderBrowserNaming(App& app) {
         return;
     }
 
-    // CREATE_NEW fails if the file already exists instead of truncating it
-    HANDLE h = CreateFileW(fullPath.c_str(), GENERIC_WRITE, 0, nullptr,
-                           CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    // Exclusive: the seam fails rather than truncating if something is already
+    // there. This was a CreateFileW(CREATE_NEW) here, and it was NOT part of this
+    // slice's file-time cluster -- it surfaced from the residue grep that was meant
+    // only to confirm the two watch sites were clean, which is why the seam it needs
+    // is a create rather than a read. See platform_paths.h for why exists()-then-open
+    // is not the portable spelling of it.
+    if (!platform::createEmptyFileExclusive(fullPath)) {
         app.folderBrowserInputError = true;
         return;
     }
-    CloseHandle(h);
     // The new note opens in its own window, offset from this one, so the
     // document being read stays exactly where it is (#74)
     closeFolderBrowserInput(app);
@@ -586,7 +645,7 @@ static void openThemesIniFile() {
     size_t slash = p.find_last_of(L'\\');
     if (slash == std::wstring::npos) return;
     p = p.substr(0, slash + 1) + L"themes.ini";
-    if (GetFileAttributesW(p.c_str()) == INVALID_FILE_ATTRIBUTES) {
+    if (!pathExists(p)) {
         // Named, not inline -- most vexing parse; see openDocumentInViewer above.
         const std::filesystem::path themesPath(p);
         std::ofstream f(themesPath);
@@ -1620,10 +1679,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             if (!app.currentFile.empty()) {
                 app.folderBrowserPath = getDirectoryFromFile(app.currentFile);
             } else {
-                wchar_t cwd[MAX_PATH];
-                if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                    app.folderBrowserPath = cwd;
-                }
+                setFolderBrowserPathToCwd(app);
             }
             populateFolderItems(app);
             break;
@@ -2297,7 +2353,7 @@ static bool openFileRefTarget(App& app, HWND hwnd, const std::string& path) {
         platform::openInDefaultApplication(toWide(path));
         return false;
     }
-    if (_stricmp(app.currentFile.c_str(), path.c_str()) != 0) {
+    if (!platform::pathsEquivalent(toWide(app.currentFile), toWide(path))) {
         navRecordJump(app, app.currentFile, app.scrollY);
     }
     tabOpenPath(app, hwnd, path, true);
@@ -2323,10 +2379,10 @@ static void startPageInvoke(App& app, HWND hwnd, int id) {
             closeSearchIfOpen(app);
             app.showFolderBrowser = true;
             app.folderBrowserAnimation = 0;
-            wchar_t cwd[MAX_PATH];
-            if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                app.folderBrowserPath = cwd;
-            }
+            // The one of the four with no `if (!app.currentFile.empty())` branch above
+            // it: this site always starts at the working directory rather than falling
+            // back to it. The cwd block itself was identical to the other three.
+            setFolderBrowserPathToCwd(app);
             populateFolderItems(app);
         }
     } else if (id == 4) {
@@ -2339,13 +2395,15 @@ static void startPageInvoke(App& app, HWND hwnd, int id) {
         int index = id - 10;
         if (index < (int)app.startPageRecents.size()) {
             std::string path = app.startPageRecents[index].path;
-            if (GetFileAttributesW(toWide(path).c_str()) ==
-                INVALID_FILE_ATTRIBUTES) {
+            if (!pathExists(toWide(path))) {
                 // Vanished since it was recorded: drop the stale entry
                 Settings stored = loadSettings();
                 for (size_t i = 0; i < stored.recentFiles.size(); i++) {
-                    if (_stricmp(stored.recentFiles[i].path.c_str(),
-                                 path.c_str()) == 0) {
+                    // The site that decides the seam's shape: `path` has just been
+                    // found NOT to exist, which is why std::filesystem::equivalent
+                    // could not be used here (platform_paths.h says so at length).
+                    if (platform::pathsEquivalent(
+                            toWide(stored.recentFiles[i].path), toWide(path))) {
                         stored.recentFiles.erase(
                             stored.recentFiles.begin() + i);
                         break;
@@ -2403,12 +2461,12 @@ static void createRefAction(App& app, HWND hwnd, int action) {
 // only, an open tab is activated, anything else replaces the current
 // document; the scroll position rides the #77 deferred restore
 static bool navOpenEntry(App& app, HWND hwnd, const App::NavEntry& entry) {
-    if (_stricmp(app.currentFile.c_str(), entry.path.c_str()) != 0) {
+    if (!platform::pathsEquivalent(toWide(app.currentFile), toWide(entry.path))) {
         bool found = false;
         for (size_t i = 0; i < app.tabs.size(); i++) {
             const std::string& existing =
                 (int)i == app.activeTab ? app.currentFile : app.tabs[i].path;
-            if (_stricmp(existing.c_str(), entry.path.c_str()) == 0) {
+            if (platform::pathsEquivalent(toWide(existing), toWide(entry.path))) {
                 tabActivate(app, hwnd, (int)i);
                 found = true;
                 break;
@@ -3915,10 +3973,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                         if (!app.currentFile.empty()) {
                             app.folderBrowserPath = getDirectoryFromFile(app.currentFile);
                         } else {
-                            wchar_t cwd[MAX_PATH];
-                            if (GetCurrentDirectoryW(MAX_PATH, cwd)) {
-                                app.folderBrowserPath = cwd;
-                            }
+                            setFolderBrowserPathToCwd(app);
                         }
                         populateFolderItems(app);
                         if (app.browserFocusPath) {
@@ -4316,6 +4371,29 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     requestRepaint(hwnd);
 }
 
+// A FILETIME as the single 64-bit tick count it has always been. This is what
+// CompareFileTime compared -- it is documented as comparing the two members as one
+// unsigned 64-bit quantity -- and it is what platform::fileWriteTicks hands back, so
+// joining here is not a conversion between representations but a spelling of the one
+// the tree already has. tests/file_utils_tests.cpp:43 holds the same helper for the
+// same reason; this one is not shared with it because a test helper and a production
+// helper crossing a header is a worse coupling than eight duplicated characters.
+//
+// The mask is not defensive. dwLowDateTime is `unsigned long`, which is 4 bytes on
+// Windows and 8 off it, so the OR is only exact because every writer of these members
+// masks to 32 bits -- file_utils.cpp:50-53 does, and setFileWriteTicks below does.
+static unsigned long long fileTimeTicks(const FILETIME& ft) {
+    return ((unsigned long long)ft.dwHighDateTime << 32) |
+           (ft.dwLowDateTime & 0xFFFFFFFFULL);
+}
+
+// The inverse, splitting by shift exactly as file_utils.cpp does. Deliberately NOT
+// through a ULARGE_INTEGER, which win32_types.h does not stand in off Windows.
+static void setFileWriteTicks(FILETIME& ft, unsigned long long ticks) {
+    ft.dwLowDateTime = (unsigned long)(ticks & 0xFFFFFFFFULL);
+    ft.dwHighDateTime = (unsigned long)(ticks >> 32);
+}
+
 void handleFileWatchTimer(App& app, HWND hwnd) {
     // Refresh the deleted-on-disk flags driving the red-grey tab dots
     // (runs even when the active document is untitled or being edited)
@@ -4323,9 +4401,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
     for (auto& tab : app.tabs) {
         const std::string& path =
             (&tab == &app.tabs[app.activeTab]) ? app.currentFile : tab.path;
-        bool missing =
-            !path.empty() &&
-            GetFileAttributesW(toWide(path).c_str()) == INVALID_FILE_ATTRIBUTES;
+        bool missing = !path.empty() && !pathExists(toWide(path));
         if (missing != tab.fileMissing) {
             tab.fileMissing = missing;
             missingChanged = true;
@@ -4345,21 +4421,30 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
             const std::string& path =
                 isActive ? app.currentFile : app.tabs[i].path;
             if (!dirty || path.empty()) continue;
-            HANDLE fileHandle = CreateFileW(
-                toWide(path).c_str(), GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0,
-                nullptr);
-            if (fileHandle == INVALID_HANDLE_VALUE) continue;
-            FILETIME current{};
-            GetFileTime(fileHandle, nullptr, nullptr, &current);
-            CloseHandle(fileHandle);
+            // No handle at all now. This opened one purely to read a timestamp, and
+            // the FILE_SHARE_READ | FILE_SHARE_WRITE was there so that opening it did
+            // not lock the file against the external editor whose writes this loop is
+            // looking for -- a concern that dissolves rather than being preserved,
+            // because platform::fileWriteTicks does not open the file.
+            //
+            // 0 is "could not be read" and `continue` reproduces the old
+            // INVALID_HANDLE_VALUE skip exactly: a file that is missing or locked
+            // leaves the stored time ALONE rather than zeroing it. That is
+            // load-bearing and file_utils.cpp:40-45 states why -- this value is
+            // compared for inequality to decide the file changed underneath us, so a
+            // zero written on a transient failure reports an external edit that never
+            // happened and raises the unsaved-changes dialog over nothing.
+            const unsigned long long currentTicks =
+                platform::fileWriteTicks(toWide(path));
+            if (currentTicks == 0) continue;
             FILETIME& stored =
                 isActive ? app.lastFileWriteTime : app.tabs[i].lastWrite;
-            if (CompareFileTime(&current, &stored) != 0) {
-                stored = current;  // one prompt per external change
+            if (currentTicks != fileTimeTicks(stored)) {
+                // one prompt per external change
+                setFileWriteTicks(stored, currentTicks);
                 if (!isActive) {
                     tabActivate(app, hwnd, (int)i);
-                    app.lastFileWriteTime = current;
+                    setFileWriteTicks(app.lastFileWriteTime, currentTicks);
                 }
                 app.confirmExitPending = true;
                 app.confirmExitOpenedAt = std::chrono::steady_clock::now();
@@ -4372,14 +4457,14 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
     if (app.currentFile.empty() || !app.fileWatchEnabled || app.editMode) return;
 
     std::wstring widePath = toWide(app.currentFile);
-    HANDLE h = CreateFileW(widePath.c_str(), GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h != INVALID_HANDLE_VALUE) {
-        FILETIME ft;
-        GetFileTime(h, nullptr, nullptr, &ft);
-        CloseHandle(h);
-        if (CompareFileTime(&ft, &app.lastFileWriteTime) != 0) {
-            app.lastFileWriteTime = ft;
+    // The second of the two sites, same seam call and the same 0-means-skip contract as
+    // the loop above. The nesting reads differently only because the old spelling had to
+    // keep the handle alive across the read: `if (h != INVALID_HANDLE_VALUE)` wrapped
+    // everything including the reload, where the guard now exits early.
+    const unsigned long long ticks = platform::fileWriteTicks(widePath);
+    if (ticks != 0) {
+        if (ticks != fileTimeTicks(app.lastFileWriteTime)) {
+            setFileWriteTicks(app.lastFileWriteTime, ticks);
             // Reload file. Named path, not inline -- most vexing parse, as above.
             const std::filesystem::path reloadPath(widePath);
             std::ifstream file(reloadPath);

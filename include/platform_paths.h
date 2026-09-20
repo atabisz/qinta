@@ -64,6 +64,25 @@ constexpr unsigned long long kUnixEpochInFileTimeTicks = 116444736000000000ULL;
 // a real reading of a file this tree can open.
 unsigned long long fileWriteTicks(const std::wstring& path);
 
+// Create an empty file at `path`, FAILING if anything already exists there.
+// True on success.
+//
+// EXCLUSIVE IS THE ENTIRE CONTRACT, and it is a seam rather than two lines of
+// <fstream> because C++ has no portable exclusive create. `std::ofstream` on an
+// existing path TRUNCATES it, and the obvious repair -- ask `exists()` first, then
+// open -- reintroduces exactly the race the Win32 original was written to avoid:
+// the one caller is the folder browser's "new note" box, so the file being tested
+// is one whose name the user has just typed into a directory they are looking at,
+// and losing that race silently empties a document instead of reporting a
+// collision. Windows expresses this as `CREATE_NEW`, POSIX as `O_EXCL`, and Qt as
+// QIODevice::NewOnly, which is that flag; all three decide it inside the
+// filesystem, so no caller has to check first.
+//
+// The failure is not distinguished, deliberately: "already exists" and "could not
+// be created" reach the one caller as the same red input box, because neither is
+// something it can act on differently.
+bool createEmptyFileExclusive(const std::wstring& path);
+
 // Per-user configuration directory for `appName`, created if it does not exist:
 //   Windows  %APPDATA%\<appName>
 //   macOS    ~/Library/Application Support/<appName>
@@ -73,6 +92,33 @@ std::wstring userConfigDirectory(const std::wstring& appName);
 
 // L'\\' on Windows, L'/' everywhere else.
 wchar_t pathSeparator();
+
+// Do these two paths name the same document? Case-INSENSITIVE on Windows,
+// case-SENSITIVE everywhere else.
+//
+// CASE-INSENSITIVITY IS A PROPERTY OF A FILESYSTEM, NOT OF A STRING, and that is the
+// whole reason this is a seam rather than a helper. Five sites in input.cpp reached for
+// `_stricmp` on a path, which is correct on Windows and quietly wrong on Linux, where
+// `notes.md` and `Notes.md` are two different files and folding them would focus the
+// wrong tab or purge the wrong recent entry.
+//
+// DELIBERATELY LEXICAL, AND std::filesystem::equivalent IS REJECTED RATHER THAN MERELY
+// UNUSED. That is the standard answer to "same file" and it cannot be used here: it
+// requires BOTH operands to exist, because it compares the files the OS resolves them
+// to. One of the five callers sits under the comment "Vanished since it was recorded:
+// drop the stale entry" -- it is comparing against a path that is gone by construction,
+// so `equivalent` would report an error there and turn a stale-entry purge into a
+// silent no-op. Every caller here is asking about two SPELLINGS, not two inodes.
+//
+// The honest consequence of the Windows arm, since the sites it replaced compared UTF-8
+// BYTES with `_stricmp` and this compares wide characters: case folding now reaches past
+// ASCII, so two paths differing only in the case of a non-ASCII letter compare equal
+// where they used to compare different. That matches what NTFS itself does, so it is a
+// correction rather than a drift -- but it IS a change, and it is written down here
+// rather than discovered in a diff. CompareStringOrdinal is the stricter instrument and
+// is not used: it would matter if these comparisons were a security boundary, and what
+// they actually decide is which tab to focus.
+bool pathsEquivalent(const std::wstring& a, const std::wstring& b);
 
 // The value of environment variable `name`, or empty if it is not set.
 //

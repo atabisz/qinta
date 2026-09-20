@@ -456,6 +456,92 @@ int main(int argc, char** argv) {
 #endif
     std::cout << "preferred UI languages: " << tags.size() << '\n';
 
+    // --- pathsEquivalent ----------------------------------------------------
+    //
+    // Same source on both platforms and DIFFERENT expected answers, for the same
+    // reason isHiddenEntry's block below has them: the seam exists because the
+    // filesystems genuinely disagree, so a block that asserted one answer
+    // everywhere would be asserting that one of the two arms is wrong.
+    {
+        const fs::path lower = probeDir / L"equivalence.md";
+        { std::ofstream out(lower, std::ios::binary); out << "x"; }
+        check(fs::exists(lower),
+              "CONTROL: the pathsEquivalent probe file was actually created");
+
+        const std::wstring same = lower.wstring();
+        std::wstring upper = same;
+        const size_t leaf = upper.find_last_of(L"\\/");
+        upper.replace(leaf + 1, 1, 1, L'E');  // equivalence.md -> Equivalence.md
+
+        // Agreed on by both platforms, and it is the control: without this a broken
+        // arm that returned false for everything would still pass the case tests on
+        // Linux.
+        check(platform::pathsEquivalent(same, same),
+              "CONTROL: a path is equivalent to itself on any platform");
+        check(!platform::pathsEquivalent(same, (probeDir / L"other.md").wstring()),
+              "CONTROL: two different names are never equivalent");
+
+        // THE CASE THAT DECIDES IT. One spelling, one file on Windows, two files
+        // on Linux, and the seam has to say so.
+#ifdef _WIN32
+        check(platform::pathsEquivalent(same, upper),
+              "paths differing only in case are the SAME document on Windows");
+#else
+        check(!platform::pathsEquivalent(same, upper),
+              "paths differing only in case are DIFFERENT documents off Windows");
+#endif
+
+        // std::filesystem::equivalent IS REJECTED, AND THIS IS WHERE THAT IS
+        // PINNED RATHER THAN ASSERTED IN THE HEADER'S PROSE. The real caller sits
+        // under the comment "Vanished since it was recorded: drop the stale entry",
+        // so it compares against a path that is gone by construction. `equivalent`
+        // needs both operands to exist and would report an error here, turning a
+        // stale-entry purge into a silent no-op; QFileInfo::canonicalFilePath is the
+        // same trap wearing Qt's clothes, since it returns EMPTY for a missing path
+        // and two empties compare equal. A lexical answer is the only correct one.
+        const fs::path vanished = probeDir / L"vanished.md";
+        { std::ofstream out(vanished, std::ios::binary); out << "x"; }
+        const std::wstring recordedSpelling = vanished.wstring();
+        fs::remove(vanished, error);
+        check(!error && !fs::exists(vanished),
+              "CONTROL: the vanished probe file is really gone");
+        check(platform::pathsEquivalent(recordedSpelling, recordedSpelling),
+              "a path that no longer exists still equals its recorded spelling");
+        // And the falsifier for a canonicalize-based implementation: two DIFFERENT
+        // missing paths must not collapse onto each other.
+        check(!platform::pathsEquivalent(recordedSpelling,
+                                         (probeDir / L"also-gone.md").wstring()),
+              "two different missing paths are not equivalent to each other");
+    }
+
+    // --- createEmptyFileExclusive -------------------------------------------
+    //
+    // The seam's whole reason to exist is the SECOND call, so the test spends its
+    // assertions there. The failure mode of getting exclusivity wrong is not a
+    // wrong return value -- it is a document the user silently loses, because the
+    // portable-looking alternative (std::ofstream) truncates.
+    {
+        const fs::path fresh = probeDir / L"exclusive-new.md";
+        check(platform::createEmptyFileExclusive(fresh.wstring()),
+              "creating a file that does not exist succeeds");
+        check(fs::exists(fresh) && fs::file_size(fresh) == 0,
+              "the created file exists and is empty");
+
+        { std::ofstream out(fresh, std::ios::binary); out << "important"; }
+        check(fs::file_size(fresh) == 9, "CONTROL: the file now has contents to lose");
+
+        check(!platform::createEmptyFileExclusive(fresh.wstring()),
+              "creating a file that already exists FAILS rather than truncating");
+        check(fs::file_size(fresh) == 9,
+              "the existing file's contents survive the refused create");
+
+        // A directory occupies the name too, and it must refuse there as well --
+        // the one caller's other branch makes directories, so a name collision
+        // across the two kinds is reachable from the same input box.
+        check(!platform::createEmptyFileExclusive(probeDir.wstring()),
+              "a path occupied by a directory is refused");
+    }
+
     // --- isHiddenEntry ------------------------------------------------------
     //
     // The seam exists because the two platforms disagree about what "hidden"

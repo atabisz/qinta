@@ -4,6 +4,7 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QLocale>
 #include <QProcessEnvironment>
@@ -88,6 +89,40 @@ wchar_t pathSeparator() {
     return static_cast<wchar_t>(QDir::separator().unicode());
 }
 
+bool pathsEquivalent(const std::wstring& a, const std::wstring& b) {
+    // HOST-ADAPTIVE, NOT POSIX-ONLY, and pathSeparator() one function above is the
+    // precedent: this arm is the Qt frontend's paths backend and it BUILDS ON WINDOWS,
+    // so a flat `a == b` here would have given the Qt build case-sensitive path
+    // comparison on a case-insensitive filesystem -- two Windows binaries of the same
+    // application disagreeing about whether C:\A.md and c:\a.md are one document.
+    // The first draft of this function did exactly that.
+    //
+    // The branch is the same three-way shape this file already uses four times
+    // (:118, :245, :355), and the fold reaches past ASCII on both insensitive arms,
+    // matching _wcsicmp in platform_paths_win32.cpp.
+#if defined(_WIN32)
+    return QString::fromStdWString(a).compare(QString::fromStdWString(b),
+                                              Qt::CaseInsensitive) == 0;
+#elif defined(__APPLE__)
+    // APFS and HFS+ are case-INSENSITIVE by default -- case-preserving, which is a
+    // different property. APFS can be formatted case-sensitive, so this is the default
+    // rather than a guarantee; it is the right default because a Mac user who reformatted
+    // their boot volume that way is the rarer case than one who typed the wrong case.
+    return QString::fromStdWString(a).compare(QString::fromStdWString(b),
+                                              Qt::CaseInsensitive) == 0;
+#else
+    // Exact, and the plainness is the point: on a case-sensitive filesystem two
+    // spellings name the same document only if they are the same spelling.
+    //
+    // NOT QFileInfo::canonicalFilePath, which resolves symlinks and returns EMPTY for a
+    // path that does not exist -- the same trap std::filesystem::equivalent falls into
+    // and which platform_paths.h rejects it for, since one caller compares against a
+    // path that has vanished by construction. Two empty strings compare EQUAL, so that
+    // route would have made every pair of missing paths the same document.
+    return a == b;
+#endif
+}
+
 std::wstring executableDirectory() {
     // THE ONE FUNCTION QT CANNOT ANSWER HERE, and the reason is structural rather
     // than a gap in Qt: QCoreApplication::applicationDirPath() needs an instance,
@@ -166,6 +201,17 @@ bool regularFileExists(const std::wstring& path) {
     // isFile(), not exists(): portable mode depends on the distinction, and the
     // test has a control asserting a directory is not reported as a regular file.
     return QFileInfo(toQString(path)).isFile();
+}
+
+bool createEmptyFileExclusive(const std::wstring& path) {
+    // NewOnly is O_EXCL/CREATE_NEW expressed in Qt, so the exclusivity is decided
+    // inside the filesystem rather than by a preceding exists() test -- the race the
+    // header refuses. WriteOnly is ORed in because NewOnly alone opens nothing:
+    // it is a modifier on the mode, not a mode.
+    QFile file(toQString(path));
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return false;
+    file.close();
+    return true;
 }
 
 unsigned long long fileWriteTicks(const std::wstring& path) {

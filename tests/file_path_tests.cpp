@@ -58,9 +58,10 @@ void renderStrip(App& app) {
 }
 void rightClick(App& app, int x, int y) {
     closeTabMenu(app);
-    POINT point{x, y};
-    ClientToScreen(app.hwnd, &point);
-    handleContextMenu(app, app.hwnd, MAKELPARAM(point.x, point.y));
+    // This used to convert to screen space purely so the handler could convert
+    // it straight back; the handler takes client coordinates now, so the round
+    // trip is gone and the test says what it means.
+    handleContextMenu(app, app.hwnd, x, y, false);
 }
 void titleMenuCases(bool testClipboard) {
     // Render the actual caption into a hidden test window so these checks

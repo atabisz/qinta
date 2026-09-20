@@ -16,7 +16,7 @@ void check(bool value, const char* message) {
 // its layout-dependent WM_CHAR translated into the new editor/overlay.
 void stroke(App& app, unsigned vk, unsigned character = 0) {
     bool consumed = handleKeyDown(app, app.hwnd, vk);
-    if (!consumed && character) handleCharInput(app, app.hwnd, character);
+    if (!consumed && character) handleCharInput(app, app.hwnd, (wchar_t)character);
 }
 }
 

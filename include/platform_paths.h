@@ -168,6 +168,26 @@ void openInDefaultApplication(const std::wstring& path);
 // unifying it is a fix with its own test and its own slice.
 void openExternalUrl(const std::string& url);
 
+// Show `path` to the user inside their file manager -- "Reveal in Explorer" on
+// the document context menu. Fire and forget, like the two above.
+//
+// A THIRD ENTRY RATHER THAN A SECOND CALLER OF openInDefaultApplication, for the
+// same reason openExternalUrl is: that function OPENS the file, and this must
+// open its CONTAINING FOLDER with the file picked out. Handing a document path
+// to openInDefaultApplication here would launch the editor the user was trying
+// to locate the file for.
+//
+// THE TWO HALVES ARE NOT AT PARITY AND THIS IS WHERE THAT IS WRITTEN DOWN.
+// Win32 has `explorer.exe /select,<path>`, which selects the entry. There is no
+// cross-desktop equivalent -- freedesktop.org defines no "reveal" verb, and the
+// file managers that do support one disagree on how to ask -- so the Qt half
+// opens the containing DIRECTORY and selects nothing. The folder still comes up
+// and the user still finds the file, one step short of where Windows puts them.
+// Named here rather than left to be discovered, the way openExternalUrl's ANSI
+// mangling is: a divergence a seam carries is only acceptable while it is
+// legible at the seam.
+void revealInFileManager(const std::wstring& path);
+
 // Do these two paths name the same file, by the platform's own case rule?
 //
 // This is a seam and not a helper because the answer differs by platform and

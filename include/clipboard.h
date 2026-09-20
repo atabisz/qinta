@@ -18,10 +18,18 @@
 // (export_docx.cpp:233 locks unrelated global memory). Counting the grep would have
 // over-reported the work by one and put a non-clipboard site in a clipboard seam.
 //
+// EVERY ADDRESS IN THE TABLE BELOW IS HISTORY, AS OF 2026-09-20, and is deliberately
+// not refreshed. The table is the PRE-ROUTING census: those seven sites no longer hold
+// the calls it describes -- they hold the seam calls that replaced them -- so a fresher
+// number would not point at anything the table claims. Read the first column as "the
+// file that used to do this", and grep the seam's own name to find where it does it now.
+// Distinguish this from a rotted LIVE citation, which is a defect and is fixed by
+// naming the function; a dated census is a reading, and a reading is allowed to age.
+//
 //   site                             kind         on failure      line endings
 //   annotations.cpp:361              read text    empty string    CRLF -> LF only
 //   editor.cpp:572                   read text    empty string    CR -> LF, eat LF
-//   input.cpp:3538                   read text    empty string    CR/LF/TAB -> space
+//   input.cpp handleKeyDown          read text    empty string    CR/LF/TAB -> space
 //   editor.cpp:558                   write text   silent void     --
 //   utils.cpp:160                    write text   returns bool    --
 //   export_docx.cpp:1464             write IMAGE  --              --
@@ -70,7 +78,7 @@
 //                        SURVIVES, and reaches the note buffer as a carriage return.
 //   editor.cpp:572       maps every CR to LF and swallows an immediately following
 //                        LF. A lone CR becomes a newline. Strictly more thorough.
-//   input.cpp:3538       maps CR, LF and TAB each to one space. Not a normalization
+//   input.cpp            maps CR, LF and TAB each to one space. Not a normalization
 //                        at all -- a flattening, for a single-line input field.
 //
 // So the seam returns the text RAW and the three transformations are the inline
@@ -311,19 +319,27 @@ inline std::wstring normalizeNewlines(const std::wstring& text) {
     return out;
 }
 
-// input.cpp:3538's rule, used at input.cpp:4172 and editor.cpp:2286 as well: CR, LF
+// input.cpp's rule -- applied in handleKeyDown's Ctrl+V branch, again in
+// handleCharInput's, and in editor.cpp as well: CR, LF
 // and TAB each become ONE space. Character-for-character, so CRLF becomes two spaces
 // -- see the header note on why that is preserved rather than tidied.
 //
 // THIS ADDRESS WAS `:351` FOR SEVERAL SPANS AND POINTED AT A DELETED FUNCTION, which
 // is a citation failure with a decision in it rather than an arithmetic fix. `:351`
-// was `clipboardLine`'s definition; input.cpp:356 tombstones its removal and pins
+// was `clipboardLine`'s definition; the tombstone above input.cpp's
+// `closeFolderBrowserInput` records its removal and pins
 // `:351` as the historical address, so a sweep can reasonably argue the number is
 // FROZEN and correct as history. It is not, here: these three sites name a RULE and
 // the places that apply it, both of which are live, so freezing the number would have
 // left three comments pointing at `closeFolderBrowserInput` -- an unrelated function
 // that moved in underneath them. The test is what the sentence PROMISES the reader
 // will be at the line, not whether the line once held the thing.
+//
+// AND THE FRESHER NUMBER DID NOT SURVIVE EITHER. `:3538` and `:4172` were themselves
+// corrections, and one slice of edits ABOVE them in a 4,400-line file put them out by
+// 28. The addresses are now FUNCTION NAMES throughout this header for that reason: the
+// claim is about which handler pastes into a single-line field, and a handler name is
+// both what the claim means and the thing that cannot drift.
 inline std::wstring flattenToSingleLine(std::wstring text) {
     for (wchar_t& ch : text) {
         if (ch == L'\r' || ch == L'\n' || ch == L'\t') ch = L' ';

@@ -22,13 +22,18 @@
 // WHAT THE CENSUS FOUND, AND WHY IT SHAPED THE SIGNATURE
 //
 // Five sites, measured 2026-09-15 by SHAPE rather than by name, because five
-// occurrences of OPENFILENAMEW are not five copies of the same call:
+// occurrences of OPENFILENAMEW are not five copies of the same call.
+//
+// THE ADDRESSES BELOW ARE HISTORY AS OF 2026-09-20, not live pointers, for the same
+// reason clipboard.h's census table says so at more length: this is the PRE-ROUTING
+// population and those lines now hold the seam call rather than the raw one. A dated
+// census may age; a live citation may not.
 //
 //   site                     kind  filters  initial name  defExt   reads index
 //   editor.cpp:1048          Save  3 static  --           L"md"    no
 //   editor.cpp:1079          Open  3 static  --           --       no
 //   export_html.cpp:1468     Save  3 static  doc stem     --       YES
-//   input.cpp:680            Open  2 static  --           --       no
+//   input.cpp SET_LOCATE_PANDOC  Open  2 static  --       --       no
 //   pandoc.cpp:205           Save  1 DYNAMIC doc stem+ext  dynamic  no
 //
 // The two columns on the right are the whole reason this header is not a
@@ -50,7 +55,8 @@
 // not improve it. Two flags differ across the five sites and each is a real
 // difference in what the dialog does:
 //
-//   OFN_NOCHANGEDIR   3 of 5 (editor x2, export_html). Absent at input.cpp:680 and
+//   OFN_NOCHANGEDIR   3 of 5 (editor x2, export_html). Absent at SET_LOCATE_PANDOC
+//                     and
 //                     pandoc.cpp:205, which therefore DO let the process's current
 //                     directory follow the user's browsing. Unifying that would
 //                     change where a later relative path resolves.
@@ -164,7 +170,7 @@ std::optional<FileDialogResult> requestSavePath(const FileDialogRequest& request
 //
 // The double NUL at the end is what the four literal filters in the tree got from a
 // string literal's own implicit terminator, which is why none of them wrote it out.
-// input.cpp:680 DID write it, so its buffer ends in three NULs; Windows stops at the
+// input.cpp's SET_LOCATE_PANDOC DID write it, so its buffer ends in three NULs; Windows stops at the
 // second, so producing two here is the same input.
 inline std::wstring buildWin32FilterBuffer(const std::vector<FileFilter>& filters) {
     if (filters.empty()) return std::wstring();

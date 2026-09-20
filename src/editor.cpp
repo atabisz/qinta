@@ -1624,8 +1624,16 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // What is actually missing is not this call: it is a Qt-side parser for
                 // the command-line flags the relaunch passes, which main_qt.cpp has no
                 // equivalent of. That is one piece of work serving THREE callers --
-                // this one, input.cpp:3640, and tabs.cpp:1639 -- so it belongs in its
-                // own slice, not smuggled into an editor port.
+                // this one, input.cpp's commitFolderBrowserNaming, and tabs.cpp's
+                // tabDragEnd -- so it belongs in its own slice, not smuggled into an
+                // editor port.
+                //
+                // CITED BY FUNCTION, NOT BY LINE, because the line form of this
+                // sentence was wrong twice over: `input.cpp:3640` had drifted, and
+                // then the function it pointed at LEFT input.cpp altogether --
+                // launchDocumentWindow is src/quicknote_win32.cpp now, beside
+                // launchQuickNoteWindow and for the same reason. What remains in
+                // input.cpp is the guarded CALL, which is what this sentence means.
                 if (shift) {
 #ifdef _WIN32
                     launchQuickNoteWindow();

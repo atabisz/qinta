@@ -137,7 +137,7 @@ void testNormalizeNewlines() {
        "idempotent -- so pre-normalized input is indistinguishable");
 }
 
-// --- input.cpp:3538's rule: CR, LF and TAB each -> ONE space -------------------
+// --- input.cpp's paste-into-single-line rule: CR, LF and TAB each -> ONE space -------------------
 void testFlattenToSingleLine() {
     std::cout << "-- flattenToSingleLine (input.cpp's and editor.cpp:2286's rule)\n";
     using platform::flattenToSingleLine;

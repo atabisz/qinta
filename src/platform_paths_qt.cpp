@@ -314,6 +314,19 @@ void openExternalUrl(const std::string& url) {
                                                     (int)url.size())));
 }
 
+void revealInFileManager(const std::wstring& path) {
+    // The third Qt Gui call in this file, and the only seam here whose two halves
+    // do DIFFERENT amounts of work -- see the header. This opens the containing
+    // directory; it does not select the entry, because no portable way to ask for
+    // that exists.
+    //
+    // QFileInfo::absolutePath, not a manual search for the last separator: the
+    // input may be relative, and absolutePath resolves against the working
+    // directory rather than returning something the file manager cannot open.
+    QFileInfo info(toQString(path));
+    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+}
+
 bool documentPathsEqual(const std::string& a, const std::string& b) {
     // NO QT CALL HERE ON PURPOSE. Qt has no per-platform path-identity rule, and
     // the two obvious substitutes both change behaviour: QString::compare with

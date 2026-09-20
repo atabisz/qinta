@@ -1,22 +1,63 @@
 #ifndef TINTA_INPUT_H
 #define TINTA_INPUT_H
 
+#include <vector>
+
 #include "app.h"
 // Real windows.h here, stand-ins for its value types off Windows. This header
-// names HWND/WPARAM/LPARAM by value and nothing else from Win32 -- no COM
-// interfaces, no API calls -- so that swap is the whole of its port cost.
+// names HWND by value and nothing else from Win32 -- no COM interfaces, no API
+// calls, and since the entry points below stopped taking message parameters,
+// no WPARAM or LPARAM either -- so that swap is the whole of its port cost.
 #include "win32_types.h"
 
-void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam);
-void handleMouseHWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam);
-void handleMouseMove(App& app, HWND hwnd, LPARAM lParam);
-void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam);
-void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam);
+// These nine took WPARAM/LPARAM until 2026-09-20 and now take the data they
+// actually use. The decoding did not disappear; it moved UP, into
+// src/main_d2d.cpp's window procedure, which is the only thing here that has
+// a message to decode and is the file the Qt cutover deletes. A Qt event
+// handler can therefore call all nine with no Win32 anywhere in the path.
+//
+// Why it was worth doing: the re-extraction was 59 GET_*_LPARAM uses across
+// four of these handlers -- 27 GET_X_LPARAM, 27 GET_Y_LPARAM, 5
+// GET_WHEEL_DELTA_WPARAM, on 55 lines, four of which carry two. The figure read 55
+// here and in src/input.cpp until 2026-09-20, because 55 is also what g++ reports:
+// it names an undeclared identifier once per FUNCTION, not once per use. Three
+// different quantities, two of them 55. Anything asserting a count of uses says 59.
+// That include is what made <windowsx.h> a FATAL include for
+// the Linux portability census, and the census cannot see a dependency carried
+// by a parameter TYPE at all -- so the file read "errors 0" while being the
+// least portable one in the tree. Coordinates are CLIENT-space pixels.
+
+// wheelDelta is in notches, already divided by WHEEL_DELTA: +1.0 is one click
+// away from the user. Fractional values are what high-resolution wheels send.
+void handleMouseWheel(App& app, HWND hwnd, float wheelDelta);
+void handleMouseHWheel(App& app, HWND hwnd, float wheelDelta);
+void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY);
+// Neither of these two reads a button or modifier state off the message: they
+// ask GetKeyState and app state directly, so the WPARAM they used to take was
+// already unused before it was removed.
+void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY);
+void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY);
 // True consumes this keystroke's character translation as well (#195).
-bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam);
-void handleContextMenu(App& app, HWND hwnd, LPARAM lParam);
-void handleCharInput(App& app, HWND hwnd, WPARAM wParam);
-void handleDropFiles(App& app, HWND hwnd, WPARAM wParam);
+bool handleKeyDown(App& app, HWND hwnd, unsigned key);
+// fromKeyboard is the menu key rather than a right-click, which Win32 signals
+// as a (-1, -1) position; the caller tests for that and does the screen-to-
+// client conversion, so mouseX/mouseY here are ALWAYS client-space and are
+// ignored entirely when fromKeyboard is true (the menu opens centred).
+void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
+                       bool fromKeyboard);
+// NOT ONLY TYPED TEXT. `character` also carries SHORTCUT ROUTING: under the vim
+// key profile the punctuation bindings are matched on the character rather than
+// the virtual key, so '?' reaching here is what opens Help, and a full-width
+// colon is what enters the editor. Measured by a plant that corrupted this one
+// parameter -- it broke two keymap assertions alongside the five text ones, which
+// is the difference between "this argument is the text" and "this argument is the
+// keystroke's layout-resolved meaning". A caller that filters it to printables
+// would silently disable those bindings.
+void handleCharInput(App& app, HWND hwnd, wchar_t character);
+// Unfiltered: every dropped path arrives and this decides which ones it
+// supports. The caller owns the HDROP and its DragFinish.
+void handleDropFiles(App& app, HWND hwnd,
+                     const std::vector<std::wstring>& paths);
 // Load a document into the viewer, saving the outgoing reading position
 // and restoring the incoming one (shared with tabs.cpp)
 bool openDocumentInViewer(App& app, const std::wstring& fullPath);

@@ -171,6 +171,15 @@ void openExternalUrl(const std::string& url) {
     ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
+void revealInFileManager(const std::wstring& path) {
+    // Byte-identical to the CTX_REVEAL body this replaced, including the quoting:
+    // /select, takes ONE argument and a document path routinely contains spaces,
+    // so the quotes are load-bearing rather than defensive.
+    std::wstring params = L"/select,\"" + path + L"\"";
+    ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
+                  SW_SHOWNORMAL);
+}
+
 std::wstring userConfigDirectory(const std::wstring& appName) {
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {

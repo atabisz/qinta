@@ -145,7 +145,7 @@ int main() {
               "filter index 3 (1-based) is the PDF row that export_html.cpp expects");
     }
 
-    // --- input.cpp:680, SET_LOCATE_PANDOC -------------------------------------
+    // --- input.cpp's SET_LOCATE_PANDOC -------------------------------------
     //
     // The one site whose first PATTERN is a bare file name rather than a wildcard,
     // and the ONE OF THE FIVE THAT WROTE ITS OWN TERMINATOR: its literal ended

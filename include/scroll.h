@@ -27,11 +27,21 @@
 //      is correct and it is also surprising, so it is asserted rather than described.
 //
 // THE NUMBERS ARE COPIED, NOT CHOSEN, and the sites are named so a reviewer can check
-// them: src/input.cpp:888 (wheel, 60), :3964 and :3985 (arrows, 50), :3286 (page,
-// height * 0.8), :3998 (Home), :4004 (End, after ensureLayoutComplete). The horizontal
-// step is 60 as well, from :881 and :3972.
+// them, BY `case` LABEL RATHER THAN BY LINE: src/input.cpp's handleMouseWheel document
+// branch (wheel, 60); in handleKeyDown, `case VK_DOWN`/`case 'J'` and
+// `case VK_UP`/`case 'K'` (arrows, 50), `case VK_NEXT`/`case VK_SPACE` (page,
+// height * 0.8), `case VK_HOME`, and `case VK_END` (after ensureLayoutComplete). The
+// horizontal step is 60 as well, from handleMouseWheel's Shift branch and
+// `case VK_LEFT`/`case VK_RIGHT`.
 //
-// WHAT IS DELIBERATELY NOT HERE. Ctrl+wheel zoom, which input.cpp:878 routes to
+// THE LINE NUMBERS THAT STOOD HERE ARE GONE ON PURPOSE, not refreshed. They read :888,
+// :3964, :3985, :3286, :3998, :4004, :881 and :3972, and every one of them was wrong by
+// 2026-09-20 -- not because the scroll code moved, but because input.cpp changed ABOVE
+// them. That is the third of the three ways a line citation rots, it is the one no
+// amount of care at the citing site prevents, and the fix is to cite the thing the
+// claim is about: a `case` label is greppable and does not drift.
+//
+// WHAT IS DELIBERATELY NOT HERE. Ctrl+wheel zoom, which handleMouseWheel routes to
 // applyZoomDelta -- zoom rescales the scroll position to keep content anchored and
 // lives in the same file as the rest of the zoom state, so lifting one branch of it
 // would split a coupled thing. Smooth scrolling is also absent: the Windows code sets
@@ -43,7 +53,8 @@
 //
 // ONE DELIBERATE DIVERGENCE FROM src/input.cpp, ASSERTED RATHER THAN FOOTNOTED.
 // input.cpp's arrow-key sites clamp the HORIZONTAL offset at zero only -- `targetScrollX
-// += dpi(60)` at :3978 has no upper bound -- and rely on src/paint_document.cpp:73 to
+// += dpi(60)` in `case VK_RIGHT` has no upper bound -- and relies on
+// src/paint_document.cpp to
 // clamp `scrollX` at paint time. The visible pixels are therefore right on both stacks,
 // but on Windows `targetScrollX` keeps growing past the end of the content, so after
 // holding Right at the right-hand edge the first several Lefts do nothing. Here the
@@ -57,7 +68,7 @@ namespace tinta {
 
 // Clamp both axes into range and mirror the targets onto the live values. Every
 // function below ends with this, and the Windows sites all end with the same two
-// lines open-coded -- see src/input.cpp:4014-4015 and :890-891.
+// lines open-coded -- see src/input.cpp's arrow-key cases and handleMouseWheel.
 //
 // Public because a caller that sets app.targetScrollY itself still needs the clamp,
 // and because a test can assert it in isolation.
@@ -84,7 +95,7 @@ void scrollDocumentByPage(App& app, int direction);
 void scrollDocumentToTop(App& app);
 
 // Calls ensureLayoutComplete first, because jump-to-bottom needs the FINAL content
-// height and layout is incremental -- src/input.cpp:4002 does the same, with the same
+// height and layout is incremental -- input.cpp's `case VK_END` does the same, with the same
 // comment, and it is the only scroll target that cannot be computed from what is
 // already laid out.
 void scrollDocumentToBottom(App& app);

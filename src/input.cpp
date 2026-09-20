@@ -29,8 +29,30 @@
 // remove from a header two files away without a single error here.
 #include "win32_api.h"
 
-#include <windowsx.h>
-#include <shellapi.h>
+// INT_MIN, for themeChooserHitAt's "nothing" sentinel below. NOT a consequence of
+// this pass -- that sentinel is older than the port, and it compiled here only
+// because MSVC's <windows.h> happens to pull the C limits in. The census could not
+// SEE the gap while this file was fatal on <windowsx.h>: a stopped read reports
+// `errors 0`, so it hides ordinary portability defects exactly as well as it hides
+// Win32 ones. Clearing a fatal include is therefore a discovery step, and this is
+// what it discovered.
+#include <climits>
+
+// <windowsx.h> AND <shellapi.h> ARE BOTH GONE, and they had to go together.
+//
+// They sat on these two adjacent lines, and each was a FATAL include for
+// scripts/census-nonportable-linux.sh -- g++ stops at the first header it cannot
+// find, so removing either one alone left the census printing
+// `fatal <the other one>, errors 0` and moved the reading by nothing. That is why
+// the entry-point signature change and the ShellExecuteW routing are one slice
+// and not two: the row this file has shown for the whole port is not a small
+// number, it is NO number, and only both halves together make it print one.
+//
+// windowsx.h was 59 GET_*_LPARAM uses -- see include/input.h on why this read 55 for
+// a day, and why 55 is a true number about something else -- re-extracting coordinates inside handlers
+// that now take them; shellapi.h was five ShellExecuteW calls, four of which are
+// platform_paths.h seam calls above, plus the HDROP enumeration that moved into
+// the message pump. Nothing was stubbed or reimplemented to get here.
 #include <cwctype>
 #include <filesystem>
 #include <fstream>
@@ -305,15 +327,13 @@ bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
     return true;
 }
 
-// Spawns a second Tinta window, offset from this one, showing the given
-// document in edit mode (#74: creating a note no longer replaces the
-// document you were reading)
-static void launchDocumentWindow(const std::wstring& fullPath) {
-    wchar_t exePath[MAX_PATH];
-    if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return;
-    std::wstring params = L"--cascade --edit \"" + fullPath + L"\"";
-    ShellExecuteW(nullptr, L"open", exePath, params.c_str(), nullptr, SW_SHOWNORMAL);
-}
+// launchDocumentWindow HAS LEFT THIS FILE. It is src/quicknote_win32.cpp now,
+// declared under _WIN32 in include/utils.h, because it is a THIRD instance of
+// the deferral that file argues at length -- a self-relaunch passing flags only
+// WinMain parses. It is not here because of ShellExecuteW; the other four
+// ShellExecuteW calls in this file DID become seam calls in the same slice.
+// The difference is that those four have working Qt halves and this one's would
+// start a process that ignores --cascade and --edit.
 
 // N key / context menu: open the folder browser with the new-file naming
 // row already active
@@ -354,7 +374,7 @@ static void closeFolderBrowserInput(App& app) {
 }
 
 // clipboardLine IS GONE, replaced at all THREE call sites by the seam's own spelling:
-// two here (:3538 and :4172) and one in editor.cpp. The census that scoped this seam
+// two here (handleKeyDown's Ctrl+V and handleCharInput's) and one in editor.cpp. The census that scoped this seam
 // said TWO, and the reason it said two is worth keeping: the grep that produced it
 // filtered out `^src/input.cpp:35` to drop its now-HISTORICAL definition at :351, and
 // that pattern also swallows every line from 3500 to 3599 -- where one of the calls
@@ -474,7 +494,15 @@ static void commitFolderBrowserNaming(App& app) {
     closeFolderBrowserInput(app);
     app.showFolderBrowser = false;
     app.folderBrowserAnimation = 0;
+    // GUARDED, AND THE GUARD IS THE ANSWER AT THE SITE, exactly as the
+    // launchQuickNoteWindow guard in editor.cpp answers it for Ctrl+Shift+N (cited by
+    // name, not line: that block moved twice in one day): off Windows, creating a note
+    // from the folder browser makes the FILE and opens no window for it, because
+    // the relaunch has no Qt half. The file exists and is findable; what is
+    // missing is visible rather than silently substituted with a wrong window.
+#ifdef _WIN32
     launchDocumentWindow(fullPath);
+#endif
     if (app.hwnd) requestRepaint(app.hwnd);
 }
 
@@ -555,8 +583,7 @@ static void openThemesIniFile() {
         std::ofstream f(p);
         f << "; Custom themes: [theme] sections, RRGGBB colors.\n";
     }
-    ShellExecuteW(nullptr, L"open", configFilePathForShell(p).c_str(),
-                  nullptr, nullptr, SW_SHOWNORMAL);
+    platform::openInDefaultApplication(configFilePathForShell(p));
 }
 
 // editCurrent seeds the editor with the active theme's name so saving
@@ -734,8 +761,8 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             break;
         case SET_TOC_RIGHT: app.tocOnLeft = false; break;
         case SET_OPEN_INI:
-            ShellExecuteW(nullptr, L"open", configFilePathForShell(getSettingsPath()).c_str(),
-                          nullptr, nullptr, SW_SHOWNORMAL);
+            platform::openInDefaultApplication(
+                configFilePathForShell(getSettingsPath()));
             break;
         case SET_OPEN_THEMES_INI:
             openThemesIniFile();
@@ -747,10 +774,10 @@ static void settingsAction(App& app, HWND hwnd, int action) {
     requestRepaint(hwnd);
 }
 
-void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
+void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
     // Lightbox: the wheel zooms the image
     if (app.showLightbox) {
-        float delta = (float)GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        float delta = wheelDelta;
         float factor = delta > 0 ? 1.15f : 1.0f / 1.15f;
         app.lightboxZoom =
             std::max(0.2f, std::min(app.lightboxZoom * factor, 10.0f));
@@ -767,7 +794,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Theme editor: wheel scrolls the font list
     if (app.showThemeEditor) {
-        float delta = (float)GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        float delta = wheelDelta;
         const tinta::RectF& list = app.themeEditorFontListRect;
         if (app.mouseX >= list.left && app.mouseX <= list.right &&
             app.mouseY >= list.top && app.mouseY <= list.bottom) {
@@ -783,8 +810,12 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Print preview: the wheel flips pages
     if (app.showPrintPreview) {
-        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        printPreviewSetPage(app, app.printPreviewPage + (delta < 0 ? 1 : -1));
+        // Only the direction matters here, and dividing by a positive
+        // constant preserves it, so the notch form answers this as the raw
+        // delta did -- including a sub-notch scroll, which is positive in
+        // both forms and rounds to zero in neither.
+        printPreviewSetPage(app,
+                            app.printPreviewPage + (wheelDelta < 0 ? 1 : -1));
         return;
     }
     if (app.showContextMenu) {
@@ -794,7 +825,7 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     }
     if (app.showTabMenu) closeTabMenu(app);
     bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    float delta = (float)GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+    float delta = wheelDelta;
 
     // Help overlay scroll
     if (app.showHelp) {
@@ -894,9 +925,9 @@ void handleMouseWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     requestRepaint(hwnd);
 }
 
-void handleMouseHWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
+void handleMouseHWheel(App& app, HWND hwnd, float wheelDelta) {
     // Horizontal scroll
-    float delta = (float)GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA * dpi(app, 60.0f);
+    float delta = wheelDelta * dpi(app, 60.0f);
     app.targetScrollX += delta;
 
     float maxScrollX = std::max(
@@ -907,10 +938,10 @@ void handleMouseHWheel(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     requestRepaint(hwnd);
 }
 
-void handleMouseMove(App& app, HWND hwnd, LPARAM lParam) {
-    bool mouseMoved = app.mouseX != GET_X_LPARAM(lParam) || app.mouseY != GET_Y_LPARAM(lParam);
-    app.mouseX = GET_X_LPARAM(lParam);
-    app.mouseY = GET_Y_LPARAM(lParam);
+void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
+    bool mouseMoved = app.mouseX != mouseX || app.mouseY != mouseY;
+    app.mouseX = mouseX;
+    app.mouseY = mouseY;
 
     bool iconHover = appMenuButtonAt(app, (float)app.mouseX, (float)app.mouseY);
     if (iconHover != app.appMenuHover) {
@@ -1592,11 +1623,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             break;
         case CTX_REVEAL: {
             std::wstring fullPath = absoluteFilePath(app.currentFile);
-            if (!fullPath.empty()) {
-                std::wstring params = L"/select,\"" + fullPath + L"\"";
-                ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(),
-                              nullptr, SW_SHOWNORMAL);
-            }
+            if (!fullPath.empty()) platform::revealInFileManager(fullPath);
             break;
         }
         case CTX_THEME:
@@ -1617,29 +1644,29 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
     }
 }
 
-void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
+void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
+                       bool fromKeyboard) {
     // App panels own both mouse buttons in either reading or editing mode.
     if (app.showSettings || app.showHelp || app.showThemeChooser ||
         app.showThemeEditor || app.showShortcutEditor || app.showPrintPreview ||
         app.confirmExitPending || app.createRefPending || app.showLightbox) return;
     closeContextMenu(app);
-    POINT pt = { GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
-    bool fromKeyboard = pt.x == -1 && pt.y == -1;
     if (fromKeyboard) {
-        // Keyboard menu key: open near the viewport center
-        pt.x = app.width / 2;
-        pt.y = app.height / 2;
-    } else {
-        ScreenToClient(hwnd, &pt);
+        // Keyboard menu key: open near the viewport center. The caller
+        // recognised the menu key -- Win32 spells it as a (-1, -1) position --
+        // and did the screen-to-client conversion for a real right-click, so
+        // both arms arrive here in client space exactly as they used to.
+        mouseX = app.width / 2;
+        mouseY = app.height / 2;
     }
 
     // A right-click on a tab opens the tab menu (works in edit mode and
     // above panels too — the strip stays interactive there)
     if (!fromKeyboard && !app.showPrintPreview && !app.confirmExitPending &&
-        (float)pt.y < chromeTopHeight(app)) {
-        int index = tabContextMenuIndexAt(app, (float)pt.x, (float)pt.y);
+        (float)mouseY < chromeTopHeight(app)) {
+        int index = tabContextMenuIndexAt(app, (float)mouseX, (float)mouseY);
         if (index >= 0) {
-            openTabMenu(app, index, (float)pt.x, (float)pt.y);
+            openTabMenu(app, index, (float)mouseX, (float)mouseY);
             requestRepaint(hwnd);
         }
         return;  // strip right-clicks never reach the document menu
@@ -1648,9 +1675,9 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
     // Raw editor insert menu (design t9): the right-click moves the
     // caret and the INSERT entries drop their markdown there
     if (app.editMode && !app.confirmExitPending &&
-        !fromKeyboard && (float)pt.x >= editRailWidth(app) &&
-        (float)pt.x < editorPaneWidth(app)) {
-        openEditCtxMenu(app, hwnd, (float)pt.x, (float)pt.y);
+        !fromKeyboard && (float)mouseX >= editRailWidth(app) &&
+        (float)mouseX < editorPaneWidth(app)) {
+        openEditCtxMenu(app, hwnd, (float)mouseX, (float)mouseY);
         requestRepaint(hwnd);
         return;
     }
@@ -1668,8 +1695,8 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
     // panel itself there is no document to act on.
     if (app.showToc || app.showFolderBrowser) {
         float docLeft = documentViewportX(app);
-        bool overDocument = (float)pt.x >= docLeft &&
-                            (float)pt.x < docLeft + documentViewportWidth(app);
+        bool overDocument = (float)mouseX >= docLeft &&
+                            (float)mouseX < docLeft + documentViewportWidth(app);
         if (!overDocument) return;
         if (app.showToc && !app.tocPinned) {
             app.showToc = false;
@@ -1682,7 +1709,7 @@ void handleContextMenu(App& app, HWND hwnd, LPARAM lParam) {
             closeFolderBrowserInput(app);
         }
     }
-    openContextMenu(app, (float)pt.x, (float)pt.y);
+    openContextMenu(app, (float)mouseX, (float)mouseY);
     requestRepaint(hwnd);
 }
 
@@ -1712,8 +1739,8 @@ static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
     requestRepaint(hwnd);
 }
 
-void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
-    if (appMenuButtonAt(app, (float)GET_X_LPARAM(lParam), (float)GET_Y_LPARAM(lParam))) {
+void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
+    if (appMenuButtonAt(app, (float)mouseX, (float)mouseY)) {
         toggleApplicationMenu(app, hwnd);
         app.swallowNextMouseUp = true;
         return;
@@ -1721,8 +1748,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Context menu: a click lands on an item or dismisses the menu; either
     // way the click is consumed
     if (app.showContextMenu) {
-        int clickX = GET_X_LPARAM(lParam);
-        int clickY = GET_Y_LPARAM(lParam);
+        int clickX = mouseX;
+        int clickY = mouseY;
         int item = contextMenuItemAt(app, (float)clickX, (float)clickY);
         closeContextMenu(app);
         app.swallowNextMouseUp = true;
@@ -1736,8 +1763,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Title-bar tab strip and its switcher sit above every overlay
     {
-        int mx = GET_X_LPARAM(lParam);
-        int my = GET_Y_LPARAM(lParam);
+        int mx = mouseX;
+        int my = mouseY;
         // Tab context menu: a click lands on an item or dismisses it
         if (tabMenuMouseDown(app, hwnd, mx, my)) return;
         if (app.showTabSwitcher) {
@@ -1761,8 +1788,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Signal chips ride above everything: presses on a chip, the bell,
     // or the open tray act; any other press parks the draining chips
     {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         if (signalMouseDown(app, hwnd, mx, my)) {
             app.swallowNextMouseUp = true;
             return;
@@ -1772,8 +1799,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Lightbox: press on the image arms a pan, elsewhere closes
     if (app.showLightbox) {
-        int mx = GET_X_LPARAM(lParam);
-        int my = GET_Y_LPARAM(lParam);
+        int mx = mouseX;
+        int my = mouseY;
         tinta::RectF img = lightboxImageRect(app);
         if ((float)mx >= img.left && (float)mx <= img.right &&
             (float)my >= img.top && (float)my <= img.bottom) {
@@ -1801,8 +1828,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Settings: sliders drag from the press; everything else acts on release
     if (app.showSettings) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         for (const auto& hit : app.settingsHits) {
             if ((hit.second == SET_SLIDER_READING || hit.second == SET_SLIDER_ZEN) &&
                 mx >= hit.first.left && mx <= hit.first.right &&
@@ -1820,8 +1847,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Annotation editor is modal: buttons act, outside dismisses (#126)
     if (app.annotEditorOpen && !app.editMode) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         app.swallowNextMouseUp = true;
         int btn = annotationEditorButtonAt(app, mx, my);
         if (btn == 1) {
@@ -1841,8 +1868,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     if (app.showHelp) {
         float maxScroll = std::max(0.0f, app.helpContentHeight - app.helpVisibleHeight);
         if (maxScroll > 0) {
-            int clickX = GET_X_LPARAM(lParam);
-            int clickY = GET_Y_LPARAM(lParam);
+            int clickX = mouseX;
+            int clickY = mouseY;
             // Scrollbar hit area: right edge of panel
             float panelWidth = std::min(dpi(app, 520.0f), app.width - dpi(app, 40.0f));
             float panelRight = (app.width + panelWidth) / 2;
@@ -1877,8 +1904,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Edit mode: route to editor or preview
     if (app.editMode) {
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
+        int x = mouseX;
+        int y = mouseY;
         // Find & replace bar: clicks focus a field or press a button (#121)
         if (app.showSearch && app.searchReplaceMode) {
             for (const auto& hit : app.searchReplaceHits) {
@@ -1934,8 +1961,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // copies every annotation for an agent (#126)
     if (!app.editMode && !app.showThemeChooser && !app.showHelp &&
         !app.confirmExitPending && !app.annotations.empty()) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         bool underSearchBar =
             app.showSearch && my < chromeTopHeight(app) + dpi(app, 70.0f);
         if (!underSearchBar) {
@@ -1970,8 +1997,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Folder search: the bar's toggle button and result-panel clicks
     if (app.showSearch && !app.editMode) {
-        float clickX = (float)GET_X_LPARAM(lParam);
-        float clickY = (float)GET_Y_LPARAM(lParam);
+        float clickX = (float)mouseX;
+        float clickY = (float)mouseY;
         if (folderSearchToggleAt(app, clickX, clickY)) {
             app.folderSearchEnabled = !app.folderSearchEnabled;
             if (!app.folderSearchEnabled) {
@@ -2060,8 +2087,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     }
 
     app.mouseDown = true;
-    app.mouseX = GET_X_LPARAM(lParam);
-    app.mouseY = GET_Y_LPARAM(lParam);
+    app.mouseX = mouseX;
+    app.mouseY = mouseY;
     captureMouse(hwnd);
     float previewOffsetX = documentViewportX(app);
     float docX = (app.mouseX - previewOffsetX) + app.scrollX;
@@ -2127,8 +2154,8 @@ void handleMouseDown(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
         // reaches this window.
         if (startPageActive(app)) {
             releaseMouseIfCaptured(hwnd);
-            int hit = startPageHitAt(app, (float)GET_X_LPARAM(lParam),
-                                     (float)GET_Y_LPARAM(lParam));
+            int hit = startPageHitAt(app, (float)mouseX,
+                                     (float)mouseY);
             app.swallowNextMouseUp = true;
             if (hit) startPageInvoke(app, hwnd, hit);
             return;
@@ -2254,8 +2281,11 @@ static void navRecordJump(App& app, const std::string& fromPath,
 // true when the target opened inside Tinta.
 static bool openFileRefTarget(App& app, HWND hwnd, const std::string& path) {
     if (!qmd::fileRefIsMarkdown(path)) {
-        ShellExecuteW(hwnd, L"open", toWide(path).c_str(), nullptr,
-                      nullptr, SW_SHOWNORMAL);
+        // The hwnd this passed as ShellExecuteW's owner window is dropped: it
+        // only parented the error dialog Windows shows when nothing is
+        // registered, and the seam is fire-and-forget by contract on both
+        // platforms. The window it would have parented is the one being replaced.
+        platform::openInDefaultApplication(toWide(path));
         return false;
     }
     if (_stricmp(app.currentFile.c_str(), path.c_str()) != 0) {
@@ -2589,10 +2619,10 @@ static void toggleFitBlock(App& app, HWND hwnd, unsigned key) {
     requestRepaint(hwnd);
 }
 
-void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
+void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
     // A tab drag ends on release (its press already consumed the click)
     if (app.tabDragIndex >= 0) {
-        tabDragEnd(app, hwnd, GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        tabDragEnd(app, hwnd, mouseX, mouseY);
     }
     // The press captured the mouse (selection drags need it); the release
     // must let go no matter which branch handles it. A branch that
@@ -2619,8 +2649,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Create-missing-reference dialog: buttons act, clicks elsewhere
     // cancel (unlike unsaved-changes, nothing is at stake)
     if (app.createRefPending) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         for (const auto& hit : app.createRefHits) {
             if (mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
@@ -2635,8 +2665,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Unsaved-changes dialog: resolve its buttons; clicks elsewhere keep
     // the dialog up (it is modal, and dismissal must be deliberate)
     if (app.editMode && app.confirmExitPending) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         for (const auto& hit : app.confirmExitHits) {
             if (mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
@@ -2649,8 +2679,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Shortcut editor clicks: arm a row for capture, reset, or close
     if (app.showShortcutEditor) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         for (const auto& hit : app.shortcutHits) {
             if (mx < hit.first.left || mx > hit.first.right ||
                 my < hit.first.top || my > hit.first.bottom) continue;
@@ -2678,8 +2708,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Theme editor clicks
     if (app.showThemeEditor) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         for (const auto& hit : app.themeEditorHits) {
             if (mx < hit.first.left || mx > hit.first.right ||
                 my < hit.first.top || my > hit.first.bottom) continue;
@@ -2759,8 +2789,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
             releaseMouse();
             return;
         }
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         // Reverse: later-drawn controls (the language popup) sit on top
         for (auto it = app.settingsHits.rbegin(); it != app.settingsHits.rend(); ++it) {
             if (mx >= it->first.left && mx <= it->first.right &&
@@ -2779,8 +2809,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Print preview: buttons and format chips
     if (app.showPrintPreview) {
-        float mx = (float)GET_X_LPARAM(lParam);
-        float my = (float)GET_Y_LPARAM(lParam);
+        float mx = (float)mouseX;
+        float my = (float)mouseY;
         auto hit = [&](const tinta::RectF& r) {
             return mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom;
         };
@@ -2817,8 +2847,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Theme chooser click handling
     if (app.showThemeChooser) {
-        float clickX = (float)GET_X_LPARAM(lParam);
-        float clickY = (float)GET_Y_LPARAM(lParam);
+        float clickX = (float)mouseX;
+        float clickY = (float)mouseY;
         int hit = themeChooserHitAt(app, clickX, clickY);
 
         auto restorePreview = [&]() {
@@ -2880,8 +2910,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
     // Edit mode: route to editor
     if (app.editMode && (app.draggingSeparator || app.editorSelecting ||
                          app.editorScrollbarDragging)) {
-        int x = GET_X_LPARAM(lParam);
-        int y = GET_Y_LPARAM(lParam);
+        int x = mouseX;
+        int y = mouseY;
         handleEditorMouseUp(app, hwnd, x, y);
         return;
     }
@@ -2902,8 +2932,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // TOC click handling
     if (app.showToc) {
-        int clickX = GET_X_LPARAM(lParam);
-        int clickY = GET_Y_LPARAM(lParam);
+        int clickX = mouseX;
+        int clickY = mouseY;
 
         float panelWidth = tocPanelWidth(app);
         float panelX = tocPanelX(app, panelWidth);
@@ -2959,8 +2989,8 @@ void handleMouseUp(App& app, HWND hwnd, WPARAM wParam, LPARAM lParam) {
 
     // Folder browser click handling
     if (app.showFolderBrowser) {
-        int clickX = GET_X_LPARAM(lParam);
-        int clickY = GET_Y_LPARAM(lParam);
+        int clickX = mouseX;
+        int clickY = mouseY;
 
         // Calculate panel bounds (must match render code)
         float panelWidth = folderBrowserPanelWidth(app);
@@ -3282,15 +3312,15 @@ static void toggleZenMode(App& app, HWND hwnd) {
     requestRepaint(hwnd);
 }
 
-bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
+bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
     float pageSize = app.height * 0.8f;
     float maxScroll = std::max(0.0f, app.contentHeight - app.height);
     bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
 
     // Lightbox: dismiss keys close it, everything else is swallowed
     if (app.showLightbox) {
-        if (wParam == VK_ESCAPE || wParam == VK_RETURN ||
-            wParam == VK_SPACE) {
+        if (vk == VK_ESCAPE || vk == VK_RETURN ||
+            vk == VK_SPACE) {
             closeLightbox(app);
             requestRepaint(hwnd);
         }
@@ -3299,18 +3329,18 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
 
     // Annotation note editor owns the keyboard while open (#126)
     if (app.annotEditorOpen && !app.editMode) {
-        annotationEditorKeyDown(app, hwnd, wParam, ctrl);
+        annotationEditorKeyDown(app, hwnd, vk, ctrl);
         requestRepaint(hwnd);
         return false;
     }
 
     // Create-missing-reference dialog owns the keyboard while open
     if (app.createRefPending) {
-        if (wParam == 'Y' || wParam == VK_RETURN) {
+        if (vk == 'Y' || vk == VK_RETURN) {
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
                                     std::chrono::milliseconds(150);
             createRefAction(app, hwnd, 1);
-        } else if (wParam == 'N' || wParam == VK_ESCAPE) {
+        } else if (vk == 'N' || vk == VK_ESCAPE) {
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
                                     std::chrono::milliseconds(150);
             createRefAction(app, hwnd, 2);
@@ -3320,7 +3350,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
 
     // Print preview captures the whole keyboard while open
     if (app.showPrintPreview) {
-        switch (wParam) {
+        switch (vk) {
             case VK_ESCAPE:
                 closePrintPreview(app, hwnd);
                 break;
@@ -3347,16 +3377,16 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     }
 
     if (!app.confirmExitPending && app.showContextMenu) {
-        if (wParam == VK_ESCAPE || wParam == VK_F10) {
+        if (vk == VK_ESCAPE || vk == VK_F10) {
             closeContextMenu(app);
-        } else if (wParam == VK_DOWN || wParam == VK_UP ||
-                   wParam == VK_HOME || wParam == VK_END) {
-            int current = (wParam == VK_HOME || wParam == VK_END)
+        } else if (vk == VK_DOWN || vk == VK_UP ||
+                   vk == VK_HOME || vk == VK_END) {
+            int current = (vk == VK_HOME || vk == VK_END)
                               ? -1 : app.hoveredContextMenuItem;
             app.contextMenuKeyboard = true;
             app.hoveredContextMenuItem = nextContextMenuItem(
-                app, current, (wParam == VK_UP || wParam == VK_END) ? -1 : 1);
-        } else if (wParam == VK_RETURN || wParam == VK_SPACE) {
+                app, current, (vk == VK_UP || vk == VK_END) ? -1 : 1);
+        } else if (vk == VK_RETURN || vk == VK_SPACE) {
             int item = app.hoveredContextMenuItem;
             closeContextMenu(app);
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
@@ -3369,7 +3399,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // Shortcut editor: an armed row captures the next key; Esc cancels
     // the capture, then closes back to settings
     if (app.showShortcutEditor) {
-        if (wParam == VK_ESCAPE) {
+        if (vk == VK_ESCAPE) {
             if (app.shortcutEditorRow >= 0) {
                 app.shortcutEditorRow = -1;
             } else {
@@ -3379,11 +3409,11 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             }
         } else if (app.shortcutEditorRow >= 0) {
             unsigned key = 0;
-            if (wParam == VK_TAB || wParam == VK_SPACE ||
-                (wParam >= VK_F1 && wParam <= VK_F12) ||
-                (wParam >= 'A' && wParam <= 'Z') ||
-                (wParam >= '0' && wParam <= '9')) {
-                key = (unsigned)wParam;
+            if (vk == VK_TAB || vk == VK_SPACE ||
+                (vk >= VK_F1 && vk <= VK_F12) ||
+                (vk >= 'A' && vk <= 'Z') ||
+                (vk >= '0' && vk <= '9')) {
+                key = (unsigned)vk;
             }
             if (key) shortcutAssign(app, {(unsigned)key, false});
         }
@@ -3392,12 +3422,12 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     }
     // Theme editor: Esc returns to settings; text arrives via WM_CHAR
     if (app.showThemeEditor) {
-        if (wParam == VK_ESCAPE) closeThemeEditor(app, true);
+        if (vk == VK_ESCAPE) closeThemeEditor(app, true);
         return false;
     }
     // Settings overlay captures the keyboard while open
     if (app.showSettings) {
-        if (wParam == VK_ESCAPE || (ctrl && wParam == VK_OEM_COMMA)) {
+        if (vk == VK_ESCAPE || (ctrl && vk == VK_OEM_COMMA)) {
             app.showSettings = false;
             app.settingsAnimation = 0;
             requestRepaint(hwnd);
@@ -3406,9 +3436,9 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     }
 
     if (app.showHelp || app.showThemeChooser) {
-        if (wParam == VK_ESCAPE ||
-            (!ctrl && app.showHelp && keyBindingMatches(app.keymap[KA_HELP], (unsigned)wParam, false)) ||
-            (!ctrl && app.showThemeChooser && keyBindingMatches(app.keymap[KA_THEME], (unsigned)wParam, false))) {
+        if (vk == VK_ESCAPE ||
+            (!ctrl && app.showHelp && keyBindingMatches(app.keymap[KA_HELP], (unsigned)vk, false)) ||
+            (!ctrl && app.showThemeChooser && keyBindingMatches(app.keymap[KA_THEME], (unsigned)vk, false))) {
             if (app.themeChooserPreviewBase >= 0) {
                 applyTheme(app, app.themeChooserPreviewBase);
                 app.themeChooserPreviewBase = -1;
@@ -3419,9 +3449,9 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             return true;
         } else if (app.showHelp) {
             float step = dpi(app, 60.0f);
-            if (wParam == VK_NEXT || wParam == VK_PRIOR) step = app.helpVisibleHeight;
-            if (wParam == VK_DOWN || wParam == VK_NEXT) app.helpScroll += step;
-            if (wParam == VK_UP || wParam == VK_PRIOR) app.helpScroll -= step;
+            if (vk == VK_NEXT || vk == VK_PRIOR) step = app.helpVisibleHeight;
+            if (vk == VK_DOWN || vk == VK_NEXT) app.helpScroll += step;
+            if (vk == VK_UP || vk == VK_PRIOR) app.helpScroll -= step;
             app.helpScroll = std::max(0.0f, std::min(app.helpScroll,
                 app.helpContentHeight - app.helpVisibleHeight));
         }
@@ -3429,15 +3459,15 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         return false;  // punctuation Help bindings still need WM_CHAR
     }
     if (appMenuAvailable(app)) {
-        if (wParam == VK_F10) {
+        if (vk == VK_F10) {
             toggleApplicationMenu(app, hwnd, true);
             return false;
         }
-        if (ctrl && wParam == 'O') {
+        if (ctrl && vk == 'O') {
             openFileDialog(app, hwnd);
             return false;
         }
-        if (ctrl && wParam == VK_OEM_COMMA) {
+        if (ctrl && vk == VK_OEM_COMMA) {
             closeSearchIfOpen(app);
             app.showSettings = true;
             app.settingsAnimation = 0;
@@ -3453,47 +3483,47 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         !(app.showFolderBrowser &&
           (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
         bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        if (wParam == VK_TAB) {
+        if (vk == VK_TAB) {
             tabCycle(app, hwnd, shift ? -1 : 1);
             return false;
         }
-        if (wParam == 'W' && !app.editMode) {
+        if (vk == 'W' && !app.editMode) {
             // In edit mode Ctrl+W keeps its documented word-wrap toggle
             tabCloseIndex(app, hwnd, app.activeTab);
             return false;
         }
-        if (wParam == VK_F4) {
+        if (vk == VK_F4) {
             // Ctrl+F4 closes the tab in BOTH modes - the reachable close
             // while editing, where Ctrl+W means word wrap (#181)
             tabCloseIndex(app, hwnd, app.activeTab);
             return false;
         }
-        if (wParam == 'T') {
+        if (vk == 'T') {
             // New tab = the start page (browser-style new-tab page); its
             // Open/Browse/recents land in this tab. The old open-into-a-
             // new-tab browser flow lives on as Ctrl+click in the browser.
             tabOpenStartPage(app, hwnd);
             return false;
         }
-        if (wParam >= '1' && wParam <= '9' && app.tabs.size() > 1) {
-            int index = (int)(wParam - '1');
+        if (vk >= '1' && vk <= '9' && app.tabs.size() > 1) {
+            int index = (int)(vk - '1');
             if (index < (int)app.tabs.size()) tabActivate(app, hwnd, index);
             return false;
         }
     }
-    if (app.showTabSwitcher && wParam == VK_ESCAPE) {
+    if (app.showTabSwitcher && vk == VK_ESCAPE) {
         app.showTabSwitcher = false;
         requestRepaint(hwnd);
         return false;
     }
     // Esc aborts a tab drag in flight (ghost vanishes, tab snaps home)
-    if (app.tabDragIndex >= 0 && wParam == VK_ESCAPE) {
+    if (app.tabDragIndex >= 0 && vk == VK_ESCAPE) {
         tabDragCancel(app, hwnd);
         return false;
     }
     // An open tab menu takes Esc before anything else (edit mode too —
     // the strip stays interactive while editing)
-    if (app.showTabMenu && wParam == VK_ESCAPE) {
+    if (app.showTabMenu && vk == VK_ESCAPE) {
         closeTabMenu(app);
         requestRepaint(hwnd);
         return false;
@@ -3502,8 +3532,8 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // Function-key Help remains available while editing. Printable custom
     // bindings stay with the text editor, as do Tab and Space.
     if (app.editMode && !app.confirmExitPending && !ctrl &&
-        wParam >= VK_F1 && wParam <= VK_F12 &&
-        keyBindingMatches(app.keymap[KA_HELP], (unsigned)wParam, false)) {
+        vk >= VK_F1 && vk <= VK_F12 &&
+        keyBindingMatches(app.keymap[KA_HELP], (unsigned)vk, false)) {
         app.showHelp = true;
         app.helpAnimation = 0;
         requestRepaint(hwnd);
@@ -3513,8 +3543,8 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // Edit mode: Ctrl+C with preview pane selection should copy from preview
     if (app.editMode) {
         // An open table cell editor owns the keyboard (#148)
-        if (tableEditKeyDown(app, hwnd, wParam)) return false;
-        if (ctrl && wParam == 'C' && app.hasSelection &&
+        if (tableEditKeyDown(app, hwnd, vk)) return false;
+        if (ctrl && vk == 'C' && app.hasSelection &&
             app.selAnchor != app.selFocus) {
             std::wstring selected = selectionTextForRange(
                 app, std::min(app.selAnchor, app.selFocus),
@@ -3526,7 +3556,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             requestRepaint(hwnd);
             return false;
         }
-        handleEditorKeyDown(app, hwnd, wParam);
+        handleEditorKeyDown(app, hwnd, vk);
         return false;
     }
 
@@ -3534,7 +3564,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     // (printable characters arrive separately via WM_CHAR)
     if (app.showFolderBrowser &&
         (app.folderBrowserEditingPath || app.folderBrowserNaming != 0)) {
-        if (ctrl && wParam == 'V') {
+        if (ctrl && vk == 'V') {
             std::wstring pasted = platform::flattenToSingleLine(platform::clipboardText());
             if (!pasted.empty()) {
                 if (app.folderBrowserInputSelectAll) {
@@ -3545,10 +3575,10 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 app.folderBrowserInputError = false;
                 resetCursorBlink(app);
             }
-        } else if (ctrl && wParam == 'A') {
+        } else if (ctrl && vk == 'A') {
             if (!app.folderBrowserInput.empty()) app.folderBrowserInputSelectAll = true;
         } else if (!ctrl) {
-            switch (wParam) {
+            switch (vk) {
                 case VK_ESCAPE:
                     closeFolderBrowserInput(app);
                     break;
@@ -3574,7 +3604,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
 
     // Handle search-specific keys when search is active
     if (app.showSearch && app.searchActive) {
-        switch (wParam) {
+        switch (vk) {
             case VK_ESCAPE:
                 // Close search
                 app.showSearch = false;
@@ -3611,7 +3641,7 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     }
 
     if (ctrl) {
-        switch (wParam) {
+        switch (vk) {
             case 'P':
                 // Print preview (edit mode handles its own Ctrl+P in the
                 // editor path)
@@ -3736,12 +3766,12 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         // Backspace edits, Enter jumps to the first match. A pinned panel
         // hands the keyboard back to the document (#156).
         if (app.showToc && !app.editMode && !app.tocPinned) {
-            if (wParam == VK_BACK) {
+            if (vk == VK_BACK) {
                 if (!app.tocFilter.empty()) app.tocFilter.pop_back();
                 requestRepaint(hwnd);
                 return false;
             }
-            if (wParam == VK_RETURN) {
+            if (vk == VK_RETURN) {
                 std::wstring needle = toLower(app.tocFilter);
                 for (size_t i = 0; i < app.headings.size(); i++) {
                     const auto& heading = app.headings[i];
@@ -3761,8 +3791,8 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 requestRepaint(hwnd);
                 return false;
             }
-            if ((wParam >= 'A' && wParam <= 'Z') ||
-                (wParam >= '0' && wParam <= '9') || wParam == VK_SPACE) {
+            if ((vk >= 'A' && vk <= 'Z') ||
+                (vk >= '0' && vk <= '9') || vk == VK_SPACE) {
                 return false;  // swallowed here; WM_CHAR feeds the filter
             }
         }
@@ -3772,29 +3802,29 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         // document in place (elsewhere it opens the naming-row flow).
         // B and ? keep their keymapped meanings, which the page reuses.
         if (startPageActive(app)) {
-            if (ctrl && wParam == 'O') {
+            if (ctrl && vk == 'O') {
                 startPageInvoke(app, hwnd, 1);
                 return false;
             }
-            if (!ctrl && keyBindingMatches(app.keymap[KA_NEWFILE], (unsigned)wParam, false)) {
+            if (!ctrl && keyBindingMatches(app.keymap[KA_NEWFILE], (unsigned)vk, false)) {
                 startPageInvoke(app, hwnd, 2);
                 return false;
             }
-            if (!ctrl && wParam >= '1' && wParam <= '5' &&
-                (int)(wParam - '1') < (int)app.startPageRecents.size()) {
-                startPageInvoke(app, hwnd, 10 + (int)(wParam - '1'));
+            if (!ctrl && vk >= '1' && vk <= '5' &&
+                (int)(vk - '1') < (int)app.startPageRecents.size()) {
+                startPageInvoke(app, hwnd, 10 + (int)(vk - '1'));
                 return false;
             }
         }
 
-        wParam = translateActionKey(app.keymap, (unsigned)wParam, false);
-        switch (wParam) {
+        vk = translateActionKey(app.keymap, (unsigned)vk, false);
+        switch (vk) {
             case ':':
             case '?':
                 if (!app.showSearch &&
                     (!app.showFolderBrowser || app.browserPinned) &&
                     (!app.showToc || app.tocPinned)) {
-                    if (wParam == ':') enterEditMode(app);
+                    if (vk == ':') enterEditMode(app);
                     else {
                         app.showHelp = true;
                         app.helpAnimation = 0;
@@ -4017,14 +4047,14 @@ bool handleKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     return false;
 }
 
-void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
+void handleCharInput(App& app, HWND hwnd, wchar_t character) {
     // The Enter that confirmed the create-reference dialog must not leak
     // a newline into the editor it just opened
     if (std::chrono::steady_clock::now() < app.swallowCharsUntil) return;
 
     // Annotation note editor takes all typing (#126)
     if (app.annotEditorOpen && !app.editMode) {
-        annotationEditorChar(app, wParam);
+        annotationEditorChar(app, character);
         requestRepaint(hwnd);
         return;
     }
@@ -4035,7 +4065,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
     // Shortcut editor: punctuation bindings arrive here (their virtual
     // keys are layout-dependent); letters/digits were taken on keydown
     if (app.showShortcutEditor) {
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = (wchar_t)character;
         if (app.shortcutEditorRow >= 0 && ch > 32 && ch < 127 &&
             !iswalnum(ch)) {
             shortcutAssign(app, {(unsigned)ch, true});
@@ -4046,7 +4076,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
 
     // Theme editor: route typing into the focused field
     if (app.showThemeEditor) {
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = (wchar_t)character;
         int f = app.themeEditorField;
         if (f == 6) {  // name
             if (ch == 8) {
@@ -4072,7 +4102,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
 
     if (app.showContextMenu || app.showSettings || app.showThemeChooser) return;
     if (app.showHelp) {
-        if (translateActionKey(app.keymap, (unsigned)wParam, true) == '?') {
+        if (translateActionKey(app.keymap, (unsigned)character, true) == '?') {
             app.showHelp = false;
             app.helpAnimation = 0;
             requestRepaint(hwnd);
@@ -4083,15 +4113,15 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
     // Edit mode: ':' enters edit mode, otherwise route to editor
     if (app.editMode) {
         // An open table cell editor takes the typing (#148)
-        if (tableEditChar(app, (wchar_t)wParam)) return;
-        handleEditorCharInput(app, hwnd, wParam);
+        if (tableEditChar(app, (wchar_t)character)) return;
+        handleEditorCharInput(app, hwnd, character);
         return;
     }
 
     // TOC filter: typing narrows the heading list (a pinned panel leaves
     // the keyboard with the document, #156)
     if (app.showToc && !app.showSearch && !app.tocPinned) {
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = (wchar_t)character;
         if (ch >= 0x20 && ch != 127) {
             app.tocFilter += ch;
             app.tocScroll = 0;
@@ -4108,7 +4138,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
         (!app.showToc || app.tocPinned) && !app.showThemeChooser) {
         // Chinese IME full-width forms count as their ASCII keys, so the
         // shortcuts work without switching input modes (#85)
-        WPARAM key = wParam;
+        wchar_t key = character;
         if (key == 0xFF1A) key = L':';  // ：
         if (key == 0xFF1F) key = L'?';  // ？
         wchar_t ch = (wchar_t)translateActionKey(app.keymap, (unsigned)key, true);
@@ -4146,7 +4176,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             app.folderInputJustOpened = false;
             return;
         }
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = (wchar_t)character;
         if (ch >= 32 && ch != 127) {
             if (app.folderBrowserInputSelectAll) {
                 app.folderBrowserInput.clear();
@@ -4166,7 +4196,7 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
             app.searchJustOpened = false;
             return;
         }
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = (wchar_t)character;
         // Ctrl+V arrives here as the SYN control character (#121)
         if (ch == 0x16) {
             std::wstring pasted = platform::flattenToSingleLine(platform::clipboardText());
@@ -4196,26 +4226,23 @@ void handleCharInput(App& app, HWND hwnd, WPARAM wParam) {
     }
 }
 
-void handleDropFiles(App& app, HWND hwnd, WPARAM wParam) {
+void handleDropFiles(App& app, HWND hwnd,
+                     const std::vector<std::wstring>& paths) {
     // Dropped files open into tabs (the first one activates); a single
-    // drop on a single-document window is where the tab strip first appears
-    HDROP hDrop = (HDROP)wParam;
-    UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+    // drop on a single-document window is where the tab strip first appears.
+    //
+    // The caller enumerated the drop and owns its handle, so the DragQueryFileW
+    // loop and the DragFinish that used to live here are its business now. The
+    // filtering is still this function's: an unsupported path is skipped, and
+    // skipping every path is the same no-repaint outcome as an empty drop.
     bool activated = false;
-    for (UINT i = 0; i < count; i++) {
-        wchar_t wpath[MAX_PATH];
-        if (!DragQueryFileW(hDrop, i, wpath, MAX_PATH) ||
-            !isSupportedDropPath(wpath)) {
-            continue;
-        }
-        // wpath is a NUL-terminated MAX_PATH buffer from DragQueryFileW, so the
-        // wstring conversion stops at the terminator as the -1 form did.
-        std::string filepath = platform::toUtf8(wpath);
+    for (const std::wstring& path : paths) {
+        if (!isSupportedDropPath(path)) continue;
+        std::string filepath = platform::toUtf8(path);
         tabOpenPath(app, hwnd, filepath, !activated);
         activated = true;
     }
     if (activated) requestRepaint(hwnd);
-    DragFinish(hDrop);
 }
 
 void handleLinkPeekTimer(App& app, HWND hwnd) {

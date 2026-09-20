@@ -755,7 +755,8 @@ int main(int argc, char** argv) {
     std::printf("scroll_after_one_notch=%.2f expected=%.2f\n", app.scrollY, wheelStep);
     check(sameScroll(app.scrollY, wheelStep),
           "one wheel notch DOWN moves the document by 60 device-independent pixels, which is "
-          "src/input.cpp:888's number reached through Qt's eighths-of-a-degree units");
+          "src/input.cpp handleMouseWheel's number reached through Qt's eighths-of-a-degree "
+          "units");
     check(sameScroll(app.targetScrollY, app.scrollY),
           "and the target and the live offset agree, because the smooth-scroll animation the "
           "two members imply is not switched on in either stack");
@@ -801,12 +802,13 @@ int main(int argc, char** argv) {
     sendKey(window, Qt::Key_Down);
     check(sameScroll(app.scrollY, lineStep),
           "the Down arrow steps 50 device-independent pixels -- a DIFFERENT number from the "
-          "wheel's 60, from src/input.cpp:3985");
+          "wheel's 60, from handleKeyDown's VK_DOWN case");
     sendKey(window, Qt::Key_Up);
     check(sameScroll(app.scrollY, 0.0f), "and the Up arrow steps back by the same amount");
     sendKey(window, Qt::Key_J);
     check(sameScroll(app.scrollY, lineStep),
-          "J scrolls down like the Down arrow -- the vi bindings are src/input.cpp:3983's, not "
+          "J scrolls down like the Down arrow -- the vi bindings share handleKeyDown's "
+          "arrow cases, not "
           "an addition made in the port");
     sendKey(window, Qt::Key_K);
     check(sameScroll(app.scrollY, 0.0f), "and K scrolls up");
@@ -816,7 +818,7 @@ int main(int argc, char** argv) {
           "Page Down moves 80% of the WINDOW height, so a page is a screenful and not a step");
     sendKey(window, Qt::Key_Space);
     check(sameScroll(app.scrollY, std::min(2.0f * pageStep, maxScrollY)),
-          "Space is a second Page Down, which is src/input.cpp:3992's binding");
+          "Space is a second Page Down, which is handleKeyDown's VK_SPACE binding");
     sendKey(window, Qt::Key_PageUp);
     check(sameScroll(app.scrollY, std::min(2.0f * pageStep, maxScrollY) - pageStep),
           "and Page Up moves one page back");
@@ -828,7 +830,7 @@ int main(int argc, char** argv) {
     check(sameScroll(app.scrollY, 0.0f), "and Home comes back to the top");
 
     // THE HORIZONTAL AXIS, AND THE ONE PLACE THIS PORT DELIBERATELY DOES NOT COPY WINDOWS.
-    // src/input.cpp:3978 does `targetScrollX += dpi(60)` with no upper clamp and leaves
+    // src/input.cpp's VK_RIGHT case does `targetScrollX += dpi(60)` with no upper clamp and leaves
     // src/paint_document.cpp to clamp the visible offset, so on Windows targetScrollX grows
     // past the end of the content and several Lefts do nothing afterwards. src/scroll.cpp
     // clamps both axes at every site. The tall fixture wraps to the window, so the maximum
@@ -859,13 +861,14 @@ int main(int argc, char** argv) {
     sendWheel(window, -1.0f, Qt::ControlModifier);
     check(sameScroll(app.scrollY, 0.0f),
           "CONTROL: Ctrl+wheel does not scroll either. It is ZOOM on Windows "
-          "(src/input.cpp:878) and unimplemented here, and doing nothing is the honest "
+          "(src/input.cpp handleMouseWheel's Ctrl branch) and unimplemented here, and doing "
+          "nothing is the honest "
           "behaviour -- scrolling would be the wrong gesture rather than a missing one");
 
     sendWheel(window, -1.0f, Qt::ShiftModifier);
     check(sameScroll(app.scrollY, 0.0f),
           "Shift+wheel does not scroll VERTICALLY: it is the horizontal gesture, from "
-          "src/input.cpp:881");
+          "src/input.cpp handleMouseWheel's Shift branch");
     check(sameScroll(app.scrollX, std::min(60.0f * scale, maxScrollX)),
           "it moves the horizontal offset instead -- zero here, because the content wraps to "
           "the window, which is the same clamp the Right arrow hit above");

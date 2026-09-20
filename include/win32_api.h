@@ -142,7 +142,8 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // casts carry: three of those four sites hand OWNERSHIP of a `new` allocation to
 // the handler, so a pretend success leaks it and silently drops the work.
 //
-// Those three sites -- main_d2d.cpp:1187, render.cpp:2433, search.cpp:122 (line
+// Those three sites -- main_d2d.cpp's WM_APP_UPDATE_CHECK post from the update-check
+// thread, render.cpp:2433, search.cpp:122 (line
 // numbers re-measured 2026-09-15; the previous three had drifted and pointed at a
 // bare brace, a SizeU() argument and an rfind() -- the ROUTING added and removed no
 // lines, so they had been stale for some spans already) -- are
@@ -150,7 +151,8 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // because Windows can refuse a post when a queue is full or a window is gone. That
 // correspondence is measured, not assumed, and it is what makes false the right
 // answer: the existing error path does precisely the correct thing off Windows,
-// with no new code and no leak. (The fourth cast, input.cpp:701, passes a string
+// with no new code and no leak. (The fourth cast, input.cpp's WM_SETTINGCHANGE post in
+// the settings-command switch, passes a string
 // literal and owns nothing, so it neither checks nor needs to.)
 //
 // The general lesson worth keeping: when a call already has a documented failure
@@ -280,9 +282,19 @@ inline void setCursorShape(CursorShape shape) {
 // paragraph.
 //
 // THAT RE-MEASUREMENT HAS NOW BEEN DONE, for input.cpp and tabs.cpp, AND IT FOUND
-// ONE SITE THE PARAGRAPH ABOVE DOES NOT COVER. input.cpp survives it intact: all 5
-// of its SetCapture calls are inside handleMouseDown (src/input.cpp:1715-2590) and
-// all 7 of its ReleaseCapture calls inside handleMouseUp (:2592-3260). tabs.cpp
+// ONE SITE THE PARAGRAPH ABOVE DOES NOT COVER. input.cpp survives it intact, but
+// NOT in the shape this sentence first claimed, and the correction is the useful
+// part: all 5 of its captureMouse calls are inside handleMouseDown, and of its 7
+// releases SIX are inside handleMouseUp -- the seventh is inside handleMouseDown,
+// on the start-page branch, where the press lets go of its own capture up front
+// because the Open action runs a modal picker whose mouse-up never reaches this
+// window. That is still inside a press/release bracket, so Qt's implicit grab is
+// satisfied and the conclusion holds; the arithmetic in the original sentence did
+// not. THE LINE NUMBERS THAT USED TO STAND HERE ARE DELIBERATELY GONE rather than
+// updated: they read `:1715-2590` and `:2592-3260` and were wrong by ~30 lines
+// because input.cpp grew above them, and a span citation for a function body rots
+// every time anything earlier in the file changes. The function NAMES are what the
+// claim is actually about, they are greppable, and they do not drift. tabs.cpp
 // does NOT. Its capture is in tabStripMouseDown and its two releases are in
 // tabDragEnd and tabDragCancel; tabDragEnd is reached from handleMouseUp and is
 // bracketed, but tabDragCancel is reached from handleKeyDown on VK_ESCAPE and from

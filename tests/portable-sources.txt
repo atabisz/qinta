@@ -520,7 +520,8 @@ drafts.cpp
 # fall through to the tabOpenQuickNote branch beside it -- that would give the user a new TAB
 # where they asked for a new WINDOW, which is a wrong picture rather than a visible gap. What
 # is missing is a Qt-side parser for the flags the relaunch passes, one piece of work serving
-# three callers (here, input.cpp:3640, tabs.cpp:1639), so it is its own slice.
+# three callers (here, input.cpp's commitFolderBrowserNaming, tabs.cpp's tabDragEnd),
+# so it is its own slice.
 editor.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside

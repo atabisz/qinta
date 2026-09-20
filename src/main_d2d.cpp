@@ -927,7 +927,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
                 ScreenToClient(hwnd, &pt);
                 if (tabContextMenuIndexAt(*app, (float)pt.x, (float)pt.y) >= 0) {
-                    handleContextMenu(*app, hwnd, lParam);
+                    // pt is already client-space from the ScreenToClient above,
+                    // which is what the handler wants now -- it used to be
+                    // handed the raw screen lParam and convert it a second time.
+                    handleContextMenu(*app, hwnd, pt.x, pt.y, false);
                     return 0;
                 }
                 HMENU menu = GetSystemMenu(hwnd, FALSE);
@@ -1062,24 +1065,50 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
 
+        // The five mouse handlers, WM_KEYDOWN, WM_CHAR, WM_DROPFILES and
+        // WM_CONTEXTMENU below take DATA, not message parameters -- decoding a
+        // message is this function's job, because this function is the only
+        // thing in the app that has one. That keeps <windowsx.h> here, where it
+        // belongs and where the Qt cutover deletes it, instead of in
+        // src/input.cpp where it was the fatal include blocking the port.
         case WM_MOUSEWHEEL:
-            if (app) handleMouseWheel(*app, hwnd, wParam, lParam);
+            if (app) {
+                handleMouseWheel(*app, hwnd,
+                                 (float)GET_WHEEL_DELTA_WPARAM(wParam) /
+                                     WHEEL_DELTA);
+            }
             return 0;
 
         case WM_MOUSEHWHEEL:
-            if (app) handleMouseHWheel(*app, hwnd, wParam, lParam);
+            if (app) {
+                handleMouseHWheel(*app, hwnd,
+                                  (float)GET_WHEEL_DELTA_WPARAM(wParam) /
+                                      WHEEL_DELTA);
+            }
             return 0;
 
         case WM_MOUSEMOVE:
-            if (app) handleMouseMove(*app, hwnd, lParam);
+            if (app) {
+                handleMouseMove(*app, hwnd, GET_X_LPARAM(lParam),
+                                GET_Y_LPARAM(lParam));
+            }
             return 0;
 
         case WM_LBUTTONDOWN:
-            if (app) handleMouseDown(*app, hwnd, wParam, lParam);
+            // wParam carries the button and modifier state; neither handler
+            // ever read it -- they ask GetKeyState and app state instead -- so
+            // it is dropped here rather than passed on unused.
+            if (app) {
+                handleMouseDown(*app, hwnd, GET_X_LPARAM(lParam),
+                                GET_Y_LPARAM(lParam));
+            }
             return 0;
 
         case WM_LBUTTONUP:
-            if (app) handleMouseUp(*app, hwnd, wParam, lParam);
+            if (app) {
+                handleMouseUp(*app, hwnd, GET_X_LPARAM(lParam),
+                              GET_Y_LPARAM(lParam));
+            }
             return 0;
 
         case WM_ENTERSIZEMOVE:
@@ -1122,7 +1151,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_KEYDOWN:
-            if (app) return handleKeyDown(*app, hwnd, wParam) ? 1 : 0;
+            if (app) return handleKeyDown(*app, hwnd, (unsigned)wParam) ? 1 : 0;
             return 0;
 
         case WM_XBUTTONUP:
@@ -1138,7 +1167,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_SYSKEYDOWN:
             if (app && wParam == VK_F10) {
-                handleKeyDown(*app, hwnd, wParam);
+                handleKeyDown(*app, hwnd, (unsigned)wParam);
                 return 0;
             }
             // Alt+Left / Alt+Right mirror the mouse side buttons
@@ -1151,7 +1180,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_CHAR:
-            if (app) handleCharInput(*app, hwnd, wParam);
+            if (app) handleCharInput(*app, hwnd, (wchar_t)wParam);
             return 0;
 
         case WM_IME_STARTCOMPOSITION:
@@ -1162,7 +1191,26 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
 
         case WM_DROPFILES:
-            if (app) handleDropFiles(*app, hwnd, wParam);
+            if (app) {
+                // Enumerate the drop here and hand over plain paths: the
+                // handler decides which ones it supports, and this owns the
+                // handle, so DragFinish runs whatever the handler does --
+                // including throwing every path away.
+                HDROP hDrop = (HDROP)wParam;
+                UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+                std::vector<std::wstring> paths;
+                paths.reserve(count);
+                for (UINT i = 0; i < count; i++) {
+                    wchar_t wpath[MAX_PATH];
+                    // A NUL-terminated MAX_PATH buffer, so the wstring stops at
+                    // the terminator exactly as the -1 form did.
+                    if (DragQueryFileW(hDrop, i, wpath, MAX_PATH)) {
+                        paths.emplace_back(wpath);
+                    }
+                }
+                DragFinish(hDrop);
+                handleDropFiles(*app, hwnd, paths);
+            }
             return 0;
 
         case WM_TIMER:
@@ -1222,7 +1270,16 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_CONTEXTMENU:
-            if (app) handleContextMenu(*app, hwnd, lParam);
+            if (app) {
+                // Win32 spells "this came from the menu key, not a click" as a
+                // (-1, -1) screen position, and the handler used to test for
+                // that itself. Both halves of the decode are here now, so the
+                // handler receives client coordinates in every case.
+                POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                bool fromKeyboard = pt.x == -1 && pt.y == -1;
+                if (!fromKeyboard) ScreenToClient(hwnd, &pt);
+                handleContextMenu(*app, hwnd, pt.x, pt.y, fromKeyboard);
+            }
             return 0;
 
         case WM_APP_FOLDER_SEARCH:

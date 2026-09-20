@@ -28,7 +28,8 @@
 //     both platforms. What replaced it -- "what is missing is four lines here that read
 //     argv[1] and put the parse result in app.root" -- was an estimate I never checked,
 //     and checking it is what killed it: the load logic on the Windows side is two
-//     lambdas INSIDE WinMain (src/main_d2d.cpp:1765 and :1777), so there was no
+//     lambdas INSIDE WinMain (src/main_d2d.cpp's `loadDocumentContent` and
+//     `loadFile`), so there was no
 //     function to call, and the second of them opens its stream with the MSVC wide-path
 //     ifstream extension that does not compile off Windows at all. The real cost was a
 //     new portable function, loadDocumentFromPath in src/file_utils.cpp, and the four

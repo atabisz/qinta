@@ -34,8 +34,13 @@ void updateWindowTitle(App& app);
 // caller compile and then fail at link time, or worse, tempt a no-op half. Off
 // Windows the name does not exist, so a new caller there is a compile error at the
 // site that wants it, which is where the question actually needs answering.
+//
+// launchDocumentWindow is the SAME DEFERRAL and shares the guard: it relaunches
+// with `--cascade --edit "<path>"`, so it is the third of the three sites that one
+// Qt-side parser plus Qt-side window state would unblock together.
 #ifdef _WIN32
 void launchQuickNoteWindow();
+void launchDocumentWindow(const std::wstring& fullPath);
 #endif
 // openUrl IS GONE. Its ShellExecuteA body is platform::openExternalUrl in
 // include/platform_paths.h, with both halves already written; handleLinkClick below

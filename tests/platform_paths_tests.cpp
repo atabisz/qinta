@@ -691,6 +691,109 @@ int main(int argc, char** argv) {
     check(!configFilePathForShell(optIn.wstring()).empty(),
           "an existing file resolves to a non-empty shell path");
 
+    // --- expandEnvironmentPlaceholders --------------------------------------
+    //
+    // The placeholder SYNTAX is per-platform by contract (%VAR% on Windows, $VAR and
+    // ${VAR} elsewhere), so the spelling is #ifdef'd and every assertion about behaviour
+    // is shared. That split is the point: a test that only checked "something expanded"
+    // would pass against a seam that honoured the wrong platform's syntax.
+    //
+    // The variable is SET BY THE TEST rather than borrowed from the environment. Reading
+    // %APPDATA% or $HOME would make the expected value a property of the machine, and the
+    // 400-character case below cannot be arranged that way at all.
+    {
+        const std::wstring value = L"probe-value";
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"TINTA_EXPAND_PROBE", value.c_str());
+        const std::wstring bare = L"%TINTA_EXPAND_PROBE%";
+        const std::wstring missing = L"%TINTA_NO_SUCH_VAR_HERE%";
+#else
+        setenv("TINTA_EXPAND_PROBE", "probe-value", 1);
+        const std::wstring bare = L"$TINTA_EXPAND_PROBE";
+        const std::wstring missing = L"$TINTA_NO_SUCH_VAR_HERE";
+#endif
+        check(platform::expandEnvironmentPlaceholders(bare) == value,
+              "a set variable expands to its value");
+        check(platform::expandEnvironmentPlaceholders(bare + L"/notes.md") ==
+                  value + L"/notes.md",
+              "expansion keeps the rest of the path, which is how the caller uses it");
+        check(platform::expandEnvironmentPlaceholders(L"plain/path.md") == L"plain/path.md",
+              "CONTROL: a path with no placeholder comes back unchanged");
+
+        // ISC-8. Literal, NOT empty. Expanding an unset variable away would turn
+        // "$NOSUCHVAR/notes" into "/notes" -- a path that may well exist, so the folder
+        // browser would open the wrong directory and look like it had worked.
+        check(platform::expandEnvironmentPlaceholders(missing) == missing,
+              "an UNSET variable is left literal, so the caller's path fails to resolve");
+
+#ifndef _WIN32
+        check(platform::expandEnvironmentPlaceholders(L"${TINTA_EXPAND_PROBE}/n.md") ==
+                  value + L"/n.md",
+              "the braced form expands and consumes its closing brace");
+        check(platform::expandEnvironmentPlaceholders(L"${TINTA_EXPAND_PROBE}") == value,
+              "the braced form at end of string needs no trailing character");
+        check(platform::expandEnvironmentPlaceholders(L"${TINTA_EXPAND_PROBE") ==
+                  L"${TINTA_EXPAND_PROBE",
+              "an UNTERMINATED brace is literal text, not an error -- the user is typing");
+        check(platform::expandEnvironmentPlaceholders(L"/tmp/cost$5.md") == L"/tmp/cost$5.md",
+              "a $ before a digit is a literal $, per the shell's own name rule");
+        check(platform::expandEnvironmentPlaceholders(L"/tmp/a$/b.md") == L"/tmp/a$/b.md",
+              "a $ before a separator is a literal $");
+        check(platform::expandEnvironmentPlaceholders(L"/tmp/trailing$") == L"/tmp/trailing$",
+              "a $ at end of string is a literal $ and does not read past the end");
+#endif
+
+        // ISC-7, AND THE ONLY ASSERTION HERE THAT THE REPLACED CODE WOULD FAIL. It read
+        // ExpandEnvironmentStringsW into wchar_t[MAX_PATH] and tested the result > 0 --
+        // but that API returns the REQUIRED SIZE when the buffer is too small, which is
+        // also positive, and leaves the buffer undefined. So this case used to assign from
+        // unterminated memory. 400 + 8 is 408, comfortably past 260.
+        const std::wstring longValue(400, L'x');
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"TINTA_EXPAND_PROBE", longValue.c_str());
+#else
+        setenv("TINTA_EXPAND_PROBE", std::string(400, 'x').c_str(), 1);
+#endif
+        const std::wstring expandedLong =
+            platform::expandEnvironmentPlaceholders(bare + L"/deep.md");
+        check(expandedLong == longValue + L"/deep.md",
+              "an expansion PAST MAX_PATH round-trips intact, buffer and all");
+        check(expandedLong.size() == 408,
+              "CONTROL: the long expansion really is longer than the old 260 buffer");
+
+        // SET-TO-EMPTY EXPANDS TO NOTHING ON BOTH PLATFORMS, and the assertion is SHARED
+        // rather than #ifdef'd because the two arms genuinely agree here -- which is only
+        // known because this test was first written the other way round and FAILED.
+        //
+        // The refuted belief was that an empty-but-present variable is unrepresentable on
+        // Windows. It is not: SetEnvironmentVariableW deletes only when lpValue is NULL.
+        // "an empty value deletes the variable" is cmd.exe's `set X=` convention, and the
+        // API does not share it -- so %VAR% on an empty variable expands to nothing, which
+        // is exactly what the Qt arm's contains()/value() pair produces off Windows.
+        //
+        // This is therefore the assertion that earns contains() over value() in the Qt
+        // backend: set-to-empty and unset must come out DIFFERENT, and they do -- empty
+        // here, literal in the check below.
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"TINTA_EXPAND_PROBE", L"");
+#else
+        setenv("TINTA_EXPAND_PROBE", "", 1);
+#endif
+        check(platform::expandEnvironmentPlaceholders(bare).empty(),
+              "a variable SET TO EMPTY expands to nothing -- unlike an unset one");
+
+        // nullptr, not L"", now that the difference is established: this is the call that
+        // actually removes the variable, and the assertion below would pass either way if
+        // the two were confused, since an empty expansion is not the literal placeholder.
+#ifdef _WIN32
+        SetEnvironmentVariableW(L"TINTA_EXPAND_PROBE", nullptr);
+#else
+        unsetenv("TINTA_EXPAND_PROBE");
+#endif
+        check(platform::expandEnvironmentPlaceholders(bare) == bare,
+              "CONTROL: once removed, the placeholder is literal again");
+    }
+
     // --- cleanup ------------------------------------------------------------
     fs::remove_all(fs::path(configDir), error);
     check(!error, "test config directory is removed");

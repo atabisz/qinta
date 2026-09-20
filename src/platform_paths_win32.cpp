@@ -198,6 +198,39 @@ bool createEmptyFileExclusive(const std::wstring& path) {
     return true;
 }
 
+std::wstring expandEnvironmentPlaceholders(const std::wstring& path) {
+    // STILL ExpandEnvironmentStringsW, deliberately: it is the platform's own expander,
+    // so `%%` collapsing and leaving an unset `%VAR%` literal stay exactly as they were.
+    // Reimplementing that over a variables map would have been a behaviour change on the
+    // platform that actually ships today, in a box users type into.
+    //
+    // What changes is the BUFFER, and the two-call shape is the whole point of the seam.
+    // The first call passes a null buffer and a zero size, which makes the return value
+    // the required length in wide characters INCLUDING the terminator -- that is the
+    // documented way to ask, not a trick. The second call fills a buffer of exactly that
+    // length. The old single call with a MAX_PATH buffer could not distinguish "expanded
+    // into 40 characters" from "would need 400", because both are positive.
+    const DWORD needed = ExpandEnvironmentStringsW(path.c_str(), nullptr, 0);
+    if (needed == 0) return path;  // the API failed; the caller gets what it gave us
+
+    // The string IS the buffer -- `data()` is non-const from C++17 and this tree is
+    // -std=gnu++17, so this needs no <vector> and no manual delete.
+    std::wstring buffer(needed, L'\0');
+    const DWORD written = ExpandEnvironmentStringsW(path.c_str(), buffer.data(), needed);
+
+    // `written` must be within the buffer to be a success. A value LARGER than `needed`
+    // means the environment changed between the two calls and the result was truncated --
+    // a race, rare, and the only honest answer is the unexpanded input rather than a
+    // half-expanded path the caller would then try to open.
+    if (written == 0 || written > needed) return path;
+
+    // written counts the terminator, so the string proper is one shorter. Resizing by that
+    // count rather than trimming at the first NUL is what keeps this independent of
+    // whether the API terminated the buffer at all.
+    buffer.resize(written - 1);
+    return buffer;
+}
+
 std::wstring userConfigDirectory(const std::wstring& appName) {
     wchar_t appDataPath[MAX_PATH];
     if (FAILED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {

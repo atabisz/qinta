@@ -214,6 +214,104 @@ bool createEmptyFileExclusive(const std::wstring& path) {
     return true;
 }
 
+std::wstring expandEnvironmentPlaceholders(const std::wstring& path) {
+#ifdef _WIN32
+    // The Windows arm is ExpandEnvironmentStringsW, in the same two-call shape
+    // platform_paths_win32.cpp uses, and the duplication is deliberate AND temporary:
+    // this file is the one that file COLLAPSES INTO (CMakeLists.txt:74-83). The Windows
+    // behaviour therefore has to survive the collapse byte for byte, and reimplementing
+    // %VAR% over QProcessEnvironment here would make the cutover a behaviour change in a
+    // box users type paths into -- the one thing a cutover must not be. When the win32
+    // file goes, this becomes the only copy rather than a second one.
+    const DWORD needed = ExpandEnvironmentStringsW(path.c_str(), nullptr, 0);
+    if (needed == 0) return path;
+    std::wstring buffer(needed, L'\0');
+    const DWORD written = ExpandEnvironmentStringsW(path.c_str(), buffer.data(), needed);
+    if (written == 0 || written > needed) return path;
+    buffer.resize(written - 1);
+    return buffer;
+#else
+    // `$VAR` and `${VAR}` -- what a shell and a file manager on this platform teach a user
+    // to type. Hand-written because Qt has no expand-in-place API at all:
+    // QProcessEnvironment answers "what is VAR", never "expand this string", so there is
+    // nothing to delegate to.
+    //
+    // ASCII name rules rather than iswalpha/iswalnum, on purpose. Environment variable
+    // names are ASCII by convention everywhere this runs, and the isw* family is
+    // LOCALE-DEPENDENT: under a locale that classifies more letters, a path containing a
+    // non-ASCII character after a literal '$' would start being read as a variable name on
+    // one machine and not another. A portability seam whose parsing depends on LC_CTYPE is
+    // not portable.
+    const auto isNameStart = [](wchar_t c) {
+        return (c >= L'A' && c <= L'Z') || (c >= L'a' && c <= L'z') || c == L'_';
+    };
+    const auto isNameChar = [&isNameStart](wchar_t c) {
+        return isNameStart(c) || (c >= L'0' && c <= L'9');
+    };
+
+    const QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    std::wstring out;
+    out.reserve(path.size());
+
+    for (size_t i = 0; i < path.size();) {
+        if (path[i] != L'$') {
+            out += path[i++];
+            continue;
+        }
+
+        // The braced and bare forms differ in BOTH where the name starts and where to
+        // resume afterwards, so both are resolved here together rather than in two
+        // branches that could drift apart about the resume point -- an off-by-one there
+        // duplicates or eats a path separator, which is silent and looks like a typo in
+        // the user's input.
+        const bool braced = (i + 1 < path.size() && path[i + 1] == L'{');
+        const size_t nameStart = i + (braced ? 2 : 1);
+        size_t nameEnd = nameStart;
+        if (braced) {
+            while (nameEnd < path.size() && path[nameEnd] != L'}') ++nameEnd;
+        } else if (nameEnd < path.size() && isNameStart(path[nameEnd])) {
+            ++nameEnd;
+            while (nameEnd < path.size() && isNameChar(path[nameEnd])) ++nameEnd;
+        }
+
+        // An unterminated `${`, and a `$` before a digit or a separator or end-of-string,
+        // are LITERAL TEXT rather than errors. This runs on a path the user just typed, so
+        // a half-finished `${` must come back as `${` and not disappear.
+        const bool terminated = !braced || nameEnd < path.size();
+        if (nameEnd == nameStart || !terminated) {
+            out += path[i++];
+            continue;
+        }
+
+        const std::wstring name(path, nameStart, nameEnd - nameStart);
+        const size_t resume = nameEnd + (braced ? 1 : 0);
+
+        // contains() RATHER THAN value(), and this is the one place this arm must NOT
+        // inherit environmentVariable()'s collapse above. That seam folds absent and
+        // set-to-empty together deliberately, because its caller cannot act on the
+        // difference. Here they DIFFER, and the reason is entirely about the UNSET case:
+        // the header's contract is that an unset variable stays LITERAL, and value()
+        // alone cannot express that -- it would expand every unset variable to empty and
+        // browse to a directory the user did not name.
+        //
+        // The set-to-empty case then MATCHES Windows, and that is measured rather than
+        // assumed: an empty-but-present variable IS representable in a Win32 environment
+        // block (SetEnvironmentVariableW deletes only on a NULL value -- "empty deletes"
+        // is cmd.exe's `set X=` convention, not the API's), and ExpandEnvironmentStringsW
+        // expands it to nothing. So both arms yield empty for set-to-empty and literal for
+        // unset, which is one shared assertion in tests/platform_paths_tests.cpp.
+        const QString key = toQString(name);
+        if (env.contains(key)) {
+            out += toWide(env.value(key));
+        } else {
+            out.append(path, i, resume - i);  // the placeholder, verbatim
+        }
+        i = resume;
+    }
+    return out;
+#endif
+}
+
 unsigned long long fileWriteTicks(const std::wstring& path) {
     const QFileInfo info(toQString(path));
     const QDateTime modified = info.lastModified();

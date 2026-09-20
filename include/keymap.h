@@ -57,6 +57,29 @@
 // them would compile, would pass any test that only checks a code is DEFINED, and would
 // scroll the editor the wrong way. Same argument the VK_LEFT/VK_RIGHT swap experiment
 // below records.
+//
+// THREE MORE ON 2026-09-20, from src/input.cpp, which is the file this block was always
+// going to end at: VK_F4 (0x73, Ctrl+F4 closes the tab, :3562), VK_F10 (0x79, closes the
+// context menu, :3447 and :3529) and VK_OEM_COMMA (0xBC, Ctrl+, opens settings, :3497,
+// :3537, :3806). Six sites, three codes.
+//
+// Two things about this batch are worth pointing at, both of them shapes that mislead a
+// reader rather than the compiler.
+//
+// VK_F10 has a SECOND user, src/main_d2d.cpp:1169 -- and that site is not why it is here.
+// main_d2d.cpp is Windows-only by construction and takes the <windows.h> arm below, so it
+// has never needed a fallback and never will. A reader who greps VK_F10, finds two sites
+// and concludes the Direct2D file justified the admission would have the rule backwards:
+// the code is admitted because a file DESTINED TO BE PORTABLE names it. Windows-only sites
+// are invisible to this block on purpose.
+//
+// VK_OEM_COMMA is 0xBC and sits three below the VK_OEM_2 (0xBF) already here, in a range
+// whose names say nothing about which key they are: 0xBA OEM_1, 0xBB OEM_PLUS, 0xBC
+// OEM_COMMA, 0xBD OEM_MINUS, 0xBE OEM_PERIOD, 0xBF OEM_2. Picking 0xBE would compile,
+// would satisfy any test that only checks the macro exists, and would open Settings on
+// Ctrl+. instead of Ctrl+, -- the exact failure the VK_PRIOR/VK_NEXT note above describes,
+// in a range that offers four more chances to make it. The literal static_assert is what
+// catches that, on the Windows arm, against the SDK.
 #ifdef _WIN32
 #include <windows.h>
 #else
@@ -78,8 +101,11 @@
 #define VK_DELETE 0x2E
 #define VK_F1 0x70
 #define VK_F2 0x71
+#define VK_F4 0x73
+#define VK_F10 0x79
 #define VK_F11 0x7A
 #define VK_F12 0x7B
+#define VK_OEM_COMMA 0xBC
 #define VK_OEM_2 0xBF
 #endif
 static_assert(VK_BACK == 0x08, "VK_BACK must match the Windows virtual-key code");
@@ -100,8 +126,13 @@ static_assert(VK_DOWN == 0x28, "VK_DOWN must match the Windows virtual-key code"
 static_assert(VK_DELETE == 0x2E, "VK_DELETE must match the Windows virtual-key code");
 static_assert(VK_F1 == 0x70, "VK_F1 must match the Windows virtual-key code");
 static_assert(VK_F2 == 0x71, "VK_F2 must match the Windows virtual-key code");
+static_assert(VK_F4 == 0x73, "VK_F4 must match the Windows virtual-key code");
+static_assert(VK_F10 == 0x79, "VK_F10 must match the Windows virtual-key code");
 static_assert(VK_F11 == 0x7A, "VK_F11 must match the Windows virtual-key code");
 static_assert(VK_F12 == 0x7B, "VK_F12 must match the Windows virtual-key code");
+static_assert(VK_OEM_COMMA == 0xBC,
+              "VK_OEM_COMMA (the , key) must match the Windows virtual-key code -- NOT "
+              "0xBE, which is VK_OEM_PERIOD and would bind Ctrl+. instead");
 static_assert(VK_OEM_2 == 0xBF, "VK_OEM_2 must match the Windows virtual-key code");
 // F1..F12 are contiguous, which keymap.cpp relies on for its F-key arithmetic
 static_assert(VK_F12 - VK_F1 == 11, "F-key codes must stay contiguous");

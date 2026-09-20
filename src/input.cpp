@@ -1,5 +1,6 @@
 #include "input.h"
 #include "clipboard.h"
+#include "keyboard.h"
 #include "platform_paths.h"
 #include "annotations.h"
 #include "drafts.h"
@@ -54,6 +55,7 @@
 // platform_paths.h seam calls above, plus the HDROP enumeration that moved into
 // the message pump. Nothing was stubbed or reimplemented to get here.
 #include <cwctype>
+#include <cwchar>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -457,10 +459,15 @@ static void commitFolderBrowserPath(App& app) {
         closeFolderBrowserInput(app);
         return;
     }
-    wchar_t expanded[MAX_PATH];
-    if (ExpandEnvironmentStringsW(path.c_str(), expanded, MAX_PATH) > 0) {
-        path = expanded;
-    }
+    // The seam, not ExpandEnvironmentStringsW into a MAX_PATH buffer, and the buffer is
+    // the reason rather than the portability: that API returns the REQUIRED SIZE when the
+    // buffer is too small -- positive, so the old `> 0` success test passed -- and leaves
+    // the buffer undefined. Any expansion over 260 wide characters was assigning from
+    // unterminated memory. A seam returning std::wstring cannot express that, so the fix
+    // is structural rather than a widened buffer. See platform_paths.h for why an unset
+    // variable comes back LITERAL instead of empty: this path is about to be browsed to,
+    // and `$NOSUCHVAR/notes` expanded to `/notes` could well exist.
+    path = platform::expandEnvironmentPlaceholders(path);
 
     // ONE stat, two questions, which is what the DWORD of attributes was doing: status()
     // is queried once and both exists() and is_directory() read the file_status it
@@ -590,11 +597,60 @@ static void applyZoomDelta(App& app, float delta) {
 
 // --- Theme editor helpers ---
 
+// One colour component as the byte "%02X" will print.
+//
+// CONSTEXPR SO THE ASSERTS BELOW CAN BE THE TEST, and that is the whole reason it is a
+// named function rather than a lambda inside colorToHexW. Its only caller is static, and
+// so is the caller's caller, and the chain reaches a public entry point only through
+// settings/theme-chooser PIXEL HIT-TESTING -- so there is no way to drive it from
+// tests/input_tests.cpp without the headless pointer harness this tree does not have. The
+// options were a runtime test that re-implements the clamp (which cannot fail on a plant in
+// the real thing -- memory/a-reproduction-is-not-an-instrument) or compile-time asserts
+// against the real function. These are the second, they run on BOTH platforms on every
+// build, and a plant in the body fires them.
+static constexpr int colorChannelByte(float v) {
+    const float scaled = v * 255.0f + 0.5f;
+    if (scaled <= 0.0f) return 0;
+    if (scaled >= 255.0f) return 255;
+    return (int)scaled;
+}
+
+// The first four pin the CLAMP -- the behaviour that is new -- and the last three pin
+// IDENTITY with the truncating cast this replaced, which is the claim that matters, since
+// the clamp is only safe if it changes nothing a caller can actually reach. Theme slots are
+// filled from hexColor()/Color::fromHex, which divide a byte by 255.0f, so the reachable
+// domain is exactly [0,1] and these are its ends and a middle.
+static_assert(colorChannelByte(2.0f) == 255, "a component above 1.0f must clamp, not wrap");
+static_assert(colorChannelByte(-1.0f) == 0, "a negative component must clamp to 0");
+static_assert(colorChannelByte(1.0f) == 255, "1.0f is FF -- v*255+0.5 is 255.5, not 256");
+static_assert(colorChannelByte(0.0f) == 0, "0.0f is 00");
+static_assert(colorChannelByte(128.0f / 255.0f) == 128, "a mid byte round-trips exactly");
+static_assert(colorChannelByte(254.0f / 255.0f) == 254,
+              "the byte below the clamp arm still comes from the cast, not from 255");
+static_assert(colorChannelByte(1.0f / 255.0f) == 1, "the lowest non-zero byte survives");
+
 static std::wstring colorToHexW(const tinta::Color& c) {
+    // std::swprintf with an EXPLICIT SIZE is the portable spelling of swprintf_s; the
+    // Microsoft version deduces the bound from the array, the standard one is told it, and
+    // for a fixed local buffer that is the whole difference.
+    //
+    // Where they genuinely differ is OVERFLOW -- swprintf_s invokes the invalid-parameter
+    // handler, std::swprintf returns negative and leaves the buffer indeterminate -- and
+    // that divergence is closed here by making overflow UNREACHABLE rather than by
+    // choosing between the two behaviours. A component above 1.0f casts to more than 255,
+    // "%02X" then prints three digits per channel, and 9 digits plus a terminator does not
+    // fit in 8. Clamping removes the branch instead of picking a way to fail in it.
+    //
+    // The clamp is bit-identical to the cast it replaces for every value a caller can
+    // actually produce. Theme slots are filled from hexColor()/Color::fromHex, which divide
+    // a byte by 255.0f, so r/g/b land in [0,1]; over that domain v*255+0.5 lands in
+    // [0.5, 255.5], the >= 255.0f arm only catches [255.0, 255.5] where the truncating cast
+    // also yields 255, and the <= 0.0f arm is unreachable. What the clamp adds is a defined
+    // answer for the values tinta::Color's plain float constructor permits and nothing in
+    // this tree currently passes -- which is the kind of "cannot happen" that rots quietly.
     wchar_t buf[8];
-    swprintf_s(buf, L"%02X%02X%02X",
-               (int)(c.r * 255.0f + 0.5f), (int)(c.g * 255.0f + 0.5f),
-               (int)(c.b * 255.0f + 0.5f));
+    std::swprintf(buf, 8, L"%02X%02X%02X", colorChannelByte(c.r),
+                  colorChannelByte(c.g), colorChannelByte(c.b));
     return buf;
 }
 
@@ -892,7 +948,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
         app.hoveredContextMenuItem = -1;
     }
     if (app.showTabMenu) closeTabMenu(app);
-    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool ctrl = platform::isCtrlDown();
     float delta = wheelDelta;
 
     // Help overlay scroll
@@ -975,7 +1031,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
     if (ctrl) {
         // Zoom in/out — scale scroll position to keep content anchored
         applyZoomDelta(app, delta);
-    } else if ((GetKeyState(VK_SHIFT) & 0x8000) != 0) {
+    } else if (platform::isShiftDown()) {
         // Shift+wheel: horizontal scroll (wheel up = left), same as tilt wheels
         app.targetScrollX -= delta * dpi(app, 60.0f);
         float maxScrollX = std::max(
@@ -2277,7 +2333,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.selecting = true;
                 app.hasSelection = true;
             }
-        } else if ((GetKeyState(VK_SHIFT) & 0x8000) && app.hasSelection) {
+        } else if (platform::isShiftDown() && app.hasSelection) {
             // Shift+click: keep the anchor, move the focus (Typora-style
             // extension; the drag can keep adjusting it)
             app.selectionMode = App::SelectionMode::Normal;
@@ -3184,7 +3240,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                     // file is highlighted, and the browser closes on a
                     // document click, B, or Esc. A Ctrl+click (or a pending
                     // Ctrl+T / + intent) opens into a new tab instead.
-                    bool ctrlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    bool ctrlHeld = platform::isCtrlDown();
                     if (app.tabNewTabIntent || ctrlHeld) {
                         app.tabNewTabIntent = false;
                         tabOpenPath(app, hwnd, toUtf8(fullPath), true);
@@ -3382,7 +3438,7 @@ static void toggleZenMode(App& app, HWND hwnd) {
 bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
     float pageSize = app.height * 0.8f;
     float maxScroll = std::max(0.0f, app.contentHeight - app.height);
-    bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool ctrl = platform::isCtrlDown();
 
     // Lightbox: dismiss keys close it, everything else is swallowed
     if (app.showLightbox) {
@@ -3549,7 +3605,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
     if (ctrl && !app.confirmExitPending &&
         !(app.showFolderBrowser &&
           (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
-        bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        bool shift = platform::isShiftDown();
         if (vk == VK_TAB) {
             tabCycle(app, hwnd, shift ? -1 : 1);
             return false;
@@ -3718,7 +3774,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 // Ctrl+Shift+S: save the viewed file under a new name and
                 // continue there (#121); plain Ctrl+S stays a no-op in the
                 // viewer — there is nothing edited to save
-                if (GetKeyState(VK_SHIFT) & 0x8000) {
+                if (platform::isShiftDown()) {
                     saveFileAs(app, hwnd);
                 }
                 break;
@@ -3746,7 +3802,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 // (the launcher or an empty tab is taken over in place, a
                 // document gets a fresh note tab); Ctrl+Shift+N spawns a
                 // separate window
-                if (GetKeyState(VK_SHIFT) & 0x8000) {
+                if (platform::isShiftDown()) {
                     launchQuickNoteWindow();
                 } else if (app.currentFile.empty()) {
                     // The keystroke's WM_CHAR must not type into the

@@ -83,6 +83,39 @@ unsigned long long fileWriteTicks(const std::wstring& path);
 // something it can act on differently.
 bool createEmptyFileExclusive(const std::wstring& path);
 
+// Expand the RUNNING PLATFORM's environment-variable placeholders in a path the user
+// typed. Returns the expanded string; returns `path` unchanged when there is nothing to
+// expand.
+//
+// THE SYNTAX IS PER-PLATFORM AND THAT IS THE CONTRACT, not a gap: `%VAR%` on Windows,
+// `$VAR` and `${VAR}` elsewhere. This seam deliberately does NOT accept both spellings
+// everywhere. The one caller is the folder browser's path box, and what a user types
+// there is whatever their shell and file manager taught them -- so accepting `%HOME%` on
+// Linux would be inventing a syntax no other program on that machine honours, and
+// accepting `$APPDATA` on Windows would collide with a legal filename character.
+//
+// IT RETURNS A STRING BECAUSE THE FIXED BUFFER WAS A BUG, and that is the substantive
+// reason this is a seam rather than a one-line call. The code it replaces read:
+//
+//     wchar_t expanded[MAX_PATH];
+//     if (ExpandEnvironmentStringsW(path.c_str(), expanded, MAX_PATH) > 0)
+//         path = expanded;
+//
+// ExpandEnvironmentStringsW returns THE REQUIRED SIZE when the buffer is too small -- a
+// positive number, so the `> 0` test passes -- and leaves the buffer's contents
+// UNDEFINED. An expansion longer than 260 wide characters therefore assigned from an
+// unterminated buffer. Every caller of an expander wants the result, not a size class, so
+// the seam takes the size question away rather than documenting it.
+//
+// AN UNSET VARIABLE IS LEFT LITERAL ON BOTH PLATFORMS, and that choice is load-bearing
+// enough to be part of the contract rather than an implementation detail. It is what
+// ExpandEnvironmentStringsW already does, so Windows behaviour is unchanged; the reason to
+// match it off Windows rather than expand to empty is that the caller browses to whatever
+// comes back. Expanding `$NOSUCHVAR/notes` to `/notes` yields a path that may well EXIST,
+// so the folder browser would open the wrong directory and look like it worked. Left
+// literal, the path does not exist, and the caller shows the red input box it already has.
+std::wstring expandEnvironmentPlaceholders(const std::wstring& path);
+
 // Per-user configuration directory for `appName`, created if it does not exist:
 //   Windows  %APPDATA%\<appName>
 //   macOS    ~/Library/Application Support/<appName>

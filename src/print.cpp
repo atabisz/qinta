@@ -15,9 +15,23 @@
 #include "render_api.h"
 #include "render_d2d.h"
 
+// The PDF seam. exportPdfFile below is now a page-geometry decision and one call into
+// it, and the SHCreateStreamOnFileEx / IPrintDocumentPackageTarget / CreatePrintControl
+// half of what it used to be lives in src/pdf_export_win32.cpp. tinta::PagePainter also
+// comes from here -- see the alias below.
+#include "pdf_export.h"
+// Windows-only, internal, and shared with exactly one other file: the command-list
+// recording both printDocument (below) and the PDF backend do. It used to be a struct in
+// this file's anonymous namespace; it is a header because a second consumer appeared and
+// a copy was the alternative.
+#include "xps_page_emitter.h"
+
 #include <filesystem>
 #include <fstream>
-#include <functional>    // PagePainter -- the callback renderPages hands each emitter
+// <functional> is named here and not left to arrive through pdf_export.h, which is where
+// the PagePainter alias now lives: this file's own std::function use is the alias below,
+// and a file that would not compile if a header stopped including something should say so.
+#include <functional>
 #include <memory>
 #include <sstream>
 
@@ -37,10 +51,19 @@
 // WHAT THIS FILE'S WINDOWS SURFACE ACTUALLY IS, measured the same day rather
 // than inferred from the include list: ONE PrintDlgW (plus its PRINTDLGW), SIX
 // IPrintDocumentPackage* symbols (the XPS package target), FIVE WIC symbols,
-// and ONE SHCreateStreamOnFileEx. The census names commdlg.h as this file's
-// cause because it stops at the FIRST unresolvable header -- so the row has
-// never said anything about the four headers underneath it, and reading it as
-// "print.cpp needs a print dialog" understates the work by the whole XPS half.
+// and ONE SHCreateStreamOnFileEx -- and after the PDF seam landed, the
+// SHCreateStreamOnFileEx and the six IPrintDocumentPackage* symbols are in
+// src/pdf_export_win32.cpp, not here.
+//
+// THE CENSUS NAMES d2d1.h AS THIS FILE'S CAUSE, and it used to say commdlg.h.
+// Nothing about the Windows surface moved to cause that: the row's counts are
+// unchanged (exit 1, fatal 1, errors 0, template-instantiation tail), and what
+// changed is which header the census reaches first -- xps_page_emitter.h's
+// <d2d1.h> now sits above this file's own <commdlg.h> below. The census stops
+// at the FIRST unresolvable header, so the row has never said anything about
+// the headers underneath it, whichever one is on top. Reading it as "print.cpp
+// needs a print dialog" understated the work by the whole XPS half; d2d1.h
+// understates it less, which is an accident of include order and not a result.
 
 #include <algorithm>
 #include <cstring>
@@ -617,12 +640,18 @@ bool rasterizePreviewPage(App& app, int page) {
 // What renderPages below hands an emitter INSTEAD of a page: a callable that
 // paints one page's range into whatever target the emitter supplies.
 //
-// The type is `tinta::rasterizeToImage`'s `draw` parameter, spelled out here rather
-// than approximated, and that identity is not a coincidence to be admired later --
-// it is why printDebugPages can pass a painter straight through to the seam with no
-// adapter at all. If this alias and image_api.h ever disagree, the seam call stops
-// compiling, which is the cheapest possible guard on the agreement.
-using PagePainter = std::function<void(tinta::RenderTarget&, tinta::Brush*)>;
+// The type is `tinta::rasterizeToImage`'s `draw` parameter, spelled out rather than
+// approximated, and that identity is not a coincidence to be admired later -- it is why
+// printDebugPages can pass a painter straight through to the seam with no adapter at
+// all. If this alias and image_api.h ever disagree, the seam call stops compiling, which
+// is the cheapest possible guard on the agreement.
+//
+// THE SPELLING MOVED TO include/pdf_export.h AND THIS IS NOW AN ALIAS OF AN ALIAS,
+// deliberately. A third consumer appeared -- the PDF seam takes this exact callback --
+// and three independent `std::function<void(RenderTarget&, Brush*)>` spellings would
+// have made the "stops compiling" guard above depend on nobody having fixed up two of
+// them. The local name stays because the sites in this file use it unqualified.
+using PagePainter = tinta::PagePainter;
 
 // Runs layout + pagination and hands each page to emitPage as a PAINTER.
 // `emitPage(int index, const PagePainter& paint) -> bool` chooses the surface,
@@ -680,64 +709,22 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
     return ok ? pages : -1;
 }
 
-// Records a painted page into an ID2D1CommandList and adds it to an
-// ID2D1PrintControl -- the XPS document package half of printing, needed by
-// printDocument and exportPdfFile and by nothing else.
+// XpsPageEmitter WAS DEFINED HERE, and it is now src/xps_page_emitter.h, included at the
+// top of this file. Nothing about it changed except two parameters: it takes the device
+// context directly instead of an App&, and a page SIZE instead of the print.cpp-local
+// PageGeometry. Both changes exist so the header can stay out of app.h.
 //
-// ALL OF THIS FILE'S REMAINING COMMAND-LIST CODE IS HERE, WHICH IS THE WHOLE OF
-// WHAT THE INVERSION ABOVE BOUGHT. It moved out of the page loop, where it sat in
-// front of every emitter including the one that only wanted pixels, and into the
-// two that actually address an XPS target. When printDocument moves to
-// QPrintDialog + QPrinter and exportPdfFile to QPdfWriter, this struct leaves with
-// them in one piece, and the pagination it used to be tangled with does not move.
+// WHAT MOVED IT: exportPdfFile stopped being its second consumer and the PDF backend
+// became one instead. The struct is still reached from exactly two places, but they are
+// now in two translation units, and "one definition, two consumers" is the whole reason
+// it is a header rather than a copy -- the duplication the renderPages inversion was
+// written to avoid would otherwise have arrived one slice later by a different route.
 //
-// Note what is being wrapped in addPage: the device context's target is an
-// ID2D1CommandList, so the drawing the seam records here is replayed later by
-// ID2D1PrintControl. The seam neither knows nor cares -- it holds an
-// ID2D1RenderTarget* and forwards.
-struct XpsPageEmitter {
-    ID2D1DeviceContext* dc = nullptr;
-    ID2D1PrintControl* control = nullptr;
-
-    XpsPageEmitter(App& app, ID2D1PrintControl* printControl) : control(printControl) {
-        ID2D1Device* device = nullptr;
-        if (app.deviceContext) app.deviceContext->GetDevice(&device);
-        if (device) {
-            device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc);
-            device->Release();
-        }
-    }
-    ~XpsPageEmitter() {
-        if (dc) dc->Release();
-    }
-    XpsPageEmitter(const XpsPageEmitter&) = delete;
-    XpsPageEmitter& operator=(const XpsPageEmitter&) = delete;
-
-    bool addPage(const PageGeometry& geo, const PagePainter& paint) {
-        if (!dc || !control) return false;
-        ID2D1CommandList* commandList = nullptr;
-        if (FAILED(dc->CreateCommandList(&commandList)) || !commandList) return false;
-        dc->SetTarget(commandList);
-        dc->BeginDraw();
-        dc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
-        ID2D1SolidColorBrush* brush = nullptr;
-        dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
-        if (brush) {
-            D2DRenderTarget seamTarget(dc);
-            D2DBrush seamBrush(brush);
-            paint(seamTarget, &seamBrush);
-            brush->Release();
-        }
-        bool ok = SUCCEEDED(dc->EndDraw()) && SUCCEEDED(commandList->Close());
-        if (ok) {
-            ok = SUCCEEDED(control->AddPage(
-                commandList, tinta::sizeF(geo.pageW, geo.pageH), nullptr));
-        }
-        commandList->Release();
-        dc->SetTarget(nullptr);
-        return ok;
-    }
-};
+// ALL OF THIS FILE'S COMMAND-LIST CODE LEFT WITH IT, WHICH IS MORE THAN THE INVERSION
+// BOUGHT ON ITS OWN. The inversion moved the command list out of the page loop and into
+// the two emitters that address an XPS target; this slice moved it out of the file. What
+// is left here that names Direct2D is printDocument's printer plumbing and the peek
+// bitmap, and printDocument is slice 1c.
 
 } // namespace
 
@@ -820,9 +807,9 @@ bool printDocument(App& app) {
 
     bool ok = false;
     if (printControl) {
-        XpsPageEmitter emitter(app, printControl);
+        XpsPageEmitter emitter(app.deviceContext, printControl);
         int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
-            return emitter.addPage(geo, paint);
+            return emitter.addPage(geo.pageW, geo.pageH, paint);
         });
         ok = pages > 0 && SUCCEEDED(printControl->Close());
         printControl->Release();
@@ -1024,13 +1011,23 @@ int printDebugPages(App& app, const std::wstring& outDir) {
 
 // --- Export as PDF (#export_as) ---
 //
-// The print pipeline already produces vector pages with driver-side font
-// embedding; routing the same job to the Microsoft Print to PDF driver
-// with the job output redirected into a file stream yields the PDF at the
-// chosen path with no dialog. Pages use the last print-preview paper
-// choice, or the locale default before any preview ran.
+// Pages use the last print-preview paper choice, or the locale default before any
+// preview ran. Everything after that geometry decision is the seam's: how a PDF gets
+// written is include/pdf_export.h's question, and on this platform the answer is still
+// the print pipeline aimed at a file stream (src/pdf_export_win32.cpp says how and why).
+//
+// THE SIGNATURE DOES NOT MOVE, AND THAT IS A CONSTRAINT RATHER THAN A PREFERENCE.
+// tests/export_html_tests.cpp links its own stub definition of this function, so a
+// changed signature would break that target at LINK time -- an unresolved symbol far
+// from here -- instead of at the call site.
 bool exportPdfFile(App& app, const std::wstring& path) {
-    if (!app.root || !app.deviceContext) return false;
+    // app.renderTarget joins the guard because the seam is handed it and would otherwise
+    // be dereferenced null. app.deviceContext stays even though this function no longer
+    // names it: the Windows backend recovers the same context by QueryInterface on the
+    // same native, so a null here still means no device and still means no PDF -- and
+    // dropping the check would have relaxed the guard on a platform assumption rather
+    // than on a platform type.
+    if (!app.root || !app.renderTarget || !app.deviceContext) return false;
     if (app.editMode) {
         editorReparse(app);  // include unsaved edits, like the preview
     }
@@ -1047,53 +1044,20 @@ bool exportPdfFile(App& app, const std::wstring& path) {
         geo = defaultPageGeometry();
     }
 
-    IStream* fileStream = nullptr;
-    if (FAILED(SHCreateStreamOnFileEx(
-            path.c_str(), STGM_CREATE | STGM_WRITE | STGM_SHARE_EXCLUSIVE,
-            FILE_ATTRIBUTE_NORMAL, TRUE, nullptr, &fileStream))) {
-        return false;
-    }
+    // The document title is the print JOB name on this platform and would be the PDF
+    // /Title on a QPdfWriter arm -- the same string either way, which is why it is a seam
+    // parameter and not something the backend invents.
+    std::unique_ptr<tinta::PdfPageSink> pdf = tinta::beginPdfDocument(
+        *app.renderTarget, path, L"Tinta - " + toWide(app.currentFile));
+    if (!pdf) return false;
 
-    IPrintDocumentPackageTargetFactory* factory = nullptr;
-    if (FAILED(CoCreateInstance(
-            __uuidof(PrintDocumentPackageTargetFactory), nullptr,
-            CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) {
-        fileStream->Release();
-        return false;
-    }
-    std::wstring jobName = L"Tinta - " + toWide(app.currentFile);
-    IPrintDocumentPackageTarget* target = nullptr;
-    HRESULT hr = factory->CreateDocumentPackageTargetForPrintJob(
-        L"Microsoft Print to PDF", jobName.c_str(), fileStream, nullptr,
-        &target);
-    factory->Release();
-    if (FAILED(hr) || !target) {
-        fileStream->Release();
-        return false;
-    }
-
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    ID2D1PrintControl* printControl = nullptr;
-    if (device) {
-        device->CreatePrintControl(app.wicFactory, target, nullptr,
-                                   &printControl);
-        device->Release();
-    }
-
-    bool ok = false;
-    if (printControl) {
-        XpsPageEmitter emitter(app, printControl);
-        int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
-            return emitter.addPage(geo, paint);
-        });
-        ok = pages > 0 && SUCCEEDED(printControl->Close());
-        printControl->Release();
-    }
-    target->Release();
-    fileStream->Commit(STGC_DEFAULT);
-    fileStream->Release();
-    return ok;
+    int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
+        return pdf->addPage(geo.pageW, geo.pageH, paint);
+    });
+    // Short-circuited on purpose: a document with no pages is not finished, which is what
+    // `pages > 0 && SUCCEEDED(printControl->Close())` said inline. The sink's destructor
+    // still commits the stream, so the failure mode is the same unreadable file it was.
+    return pages > 0 && pdf->finish();
 }
 
 // Link peek: renders the top of another markdown file at the live theme
@@ -1105,8 +1069,12 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // which needs a live tinta::RenderTarget only to reach that backend's own factories.
     if (!app.renderTarget || !app.root) return nullptr;
     // Named, not inline -- most vexing parse. C58's last site in a portable-destined
-    // file; this one is behind a FATAL commdlg.h in the census, so it was classified
+    // file; this one is behind a FATAL include in the census, so it was classified
     // from renderPeekBitmap's own `const std::wstring& path` rather than from g++.
+    // WHICH header is fatal is not worth writing down and this comment used to say
+    // commdlg.h: the seam includes put <d2d1.h> above it and the census names only
+    // the first one it cannot resolve. What survives either way is that the census
+    // never reads this function at all, so nothing in here was g++-derived.
     const std::filesystem::path peekPath(path);
     std::ifstream file(peekPath);
     if (!file) return nullptr;

@@ -499,6 +499,17 @@ set(SOURCES
     src/document.cpp
     src/inline_style.cpp
     src/print.cpp
+    # The Win32 arm of the PDF seam (include/pdf_export.h), named here directly rather
+    # than through a PLATFORM_PDF_SOURCE variable like the four seams selected at the top
+    # of this file. There is no second arm yet, and a variable with one value is a
+    # selection nobody makes -- when src/pdf_export_qt.cpp lands it becomes an if(WIN32)
+    # up there with the others, which is the same shape and one line of diff.
+    #
+    # It sits in ${SOURCES} and therefore compiles into SIX targets: tinta plus the five
+    # INPUT_TEST_SOURCES binaries. That is not a choice, it is where src/print.cpp already
+    # is -- print.cpp calls the seam, so the definition has to reach every target that
+    # links print.cpp or they fail at link time rather than at compile time.
+    src/pdf_export_win32.cpp
     src/i18n.cpp
     src/i18n_app.cpp
     src/selection.cpp

@@ -207,8 +207,12 @@ void populateFolderItems(App& app) {
 // WHY THE TRACKED FIGURES COULD NOT HAVE BEEN RIGHT: 9 of those 14 sat behind a FATAL
 // include, so a figure read off compiler output was structurally unable to see them.
 // input.cpp was itself a fatal census row until 2026-09-20 (5 sites), export_docx.cpp was
-// fatal on objbase.h (3) until later the same day, and print.cpp on commdlg.h (1) still
-// is. The export_docx.cpp clause is worth reading twice: that file was NEVER genuinely
+// fatal on objbase.h (3) until later the same day, and print.cpp (1) still is -- on
+// d2d1.h, where this sentence said commdlg.h until the PDF seam put <d2d1.h> above
+// print.cpp's own <commdlg.h>. The census names only the first header it cannot resolve,
+// so the name in a sentence like this one is the perishable part and the fatality is not:
+// print.cpp's row still reads exit 1, fatal 1, errors 0, and the 1 site is still invisible
+// to g++. The export_docx.cpp clause is worth reading twice: that file was NEVER genuinely
 // behind objbase.h -- the header was dead, three lines of text with no caller, and
 // deleting it made the file compile off Windows unchanged. So this paragraph's point
 // stands and gets sharper. A figure read off compiler output could not see those 3 sites,

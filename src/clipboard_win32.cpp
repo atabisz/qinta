@@ -32,7 +32,26 @@
 // had then, an IWICBitmap. It is expressed in tinta::DecodedImage now, which is a
 // std::vector<uint8_t> and a pair of dimensions, so the drag it feared is gone. What is
 // left in export_docx.cpp is the DOCX half: the OPC package, the relationships, and the
-// XML. That file still cannot compile off Windows, for objbase.h and not for this.
+// XML.
+//
+// AND THE SENTENCE THAT USED TO END THAT PARAGRAPH WAS FALSE WHEN THIS SLICE WROTE IT.
+// It read: "That file still cannot compile off Windows, for objbase.h and not for this."
+// The first clause was wrong and the second was the reason it went unchecked -- pointing
+// at a DIFFERENT file's dependency is what made it feel like a measurement. On 2026-09-20
+// the three Windows headers were deleted from export_docx.cpp and it compiled clean off
+// Windows at the first attempt, because moving the CF_BITMAP read down here -- the very
+// change this paragraph is announcing -- took away its last COM caller. The DOCX half
+// never needed objbase.h at all: the zip and the WordprocessingML are written by hand
+// through <fstream> and std::string.
+//
+// The shape is worth more than the fact. This paragraph is an AMENDMENT, written by
+// somebody who had just caught the two paragraphs above it being stale, said so, and
+// kept them as history -- and who then added a fresh claim about the file next door
+// without running the one command that would have tested it. The same slice wrote the
+// same false sentence into CMakeLists.txt (where it was flagged "RIGHT") and into
+// include/clipboard.h (where it was "SURVIVES AS WRITTEN"). Three sites, three
+// confidence markers, one unmeasured claim, and they cited each other. Being in the
+// middle of a correction is when a neighbouring sentence is least likely to be checked.
 //
 // THE READ IS GDI AND THAT IS THE POINT OF THE SLICE. The old path went
 // CF_BITMAP -> IWICBitmap -> IWICBitmapEncoder -> a PNG in an HGLOBAL, and it needed the
@@ -162,7 +181,10 @@ bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngB
     // source backwards. DecodedImage is top-down; a positive biHeight means bottom-up.
     // The alternative -- a negative biHeight and a straight memcpy -- is legal in the
     // BITMAPINFOHEADER spec but is not what the clipboard's consumers expect, and the
-    // original code at src/export_docx.cpp:1524 built it this way.
+    // original code in export_docx.cpp's CF_DIB writer built it this way. (Addressless on
+    // purpose: that code is HERE now, so a line number in that file points at whatever
+    // happens to occupy the line today -- and on 2026-09-20 an edit that changed no code
+    // there at all moved every line past 32 by 22.)
     HGLOBAL dib = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + image.pixels.size());
     if (!dib) return false;
     if (BYTE* out = (BYTE*)GlobalLock(dib)) {
@@ -223,8 +245,8 @@ bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngB
 tinta::DecodedImage clipboardImage() {
     tinta::DecodedImage image;
     // The availability question first, through this file's own answer to it rather than
-    // a second IsClipboardFormatAvailable call -- src/export_docx.cpp:1584 used to ask
-    // it raw there, which is what put that site on the census in the first place.
+    // a second IsClipboardFormatAvailable call -- export_docx.cpp's image-paste path used
+    // to ask it raw there, which is what put that site on the census in the first place.
     if (!clipboardHasImage()) return image;
     if (!openClipboardRetrying()) return image;
 

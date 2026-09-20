@@ -664,10 +664,24 @@ DecodedImage rasterizeToImage(RenderTarget& target, unsigned width, unsigned hei
     DecodedImage out;
     // EndDraw's HRESULT is checked BEFORE the pixels are read, and the ordering is CARRIED
     // FROM THE ORIGINAL rather than fixed in passing -- all three raster sites in
-    // export_docx.cpp (:553, :582, :1474) already read `if (FAILED(rt.target->EndDraw()))
-    // return false;` ahead of touching the bitmap. This comment first claimed two of them
-    // had it backwards; checking the source refuted that, and the note stays as a reminder
-    // that "the old code got this wrong" is a claim about the old code and needs reading it.
+    // export_docx.cpp read `if (FAILED(rt.target->EndDraw())) return false;` ahead of
+    // touching the bitmap. This comment first claimed two of them had it backwards;
+    // checking the source refuted that, and the note stays as a reminder that "the old
+    // code got this wrong" is a claim about the old code and needs reading it.
+    //
+    // THAT SENTENCE IS NOW ENTIRELY HISTORY AND ITS THREE ADDRESSES ARE DROPPED. The
+    // raster sites moved onto this seam when it was built, so as of 2026-09-20
+    // `grep -c EndDraw src/export_docx.cpp` returns 0 -- the code being described is the
+    // code in THIS function, and the "original" it was carried from no longer exists to
+    // point at. The addresses had rotted anyway: :553, :582 and :1474 named a comment, a
+    // comment and an ofstream respectively, and they were already wrong before an edit on
+    // 2026-09-20 moved them again.
+    //
+    // Which makes this the third comment in this tree to record a correction and then
+    // leave the correction's own leftovers unmeasured -- here the prose was re-checked
+    // against the source, exactly as it says, and the three line numbers in the same
+    // sentence were not. A citation is not covered by having verified the claim it
+    // decorates.
     // Failing here returns the empty result the header promises, not a blank image.
     if (SUCCEEDED(endHr)) {
         if (!copyOutPixels(bitmap, width, height, out)) out = DecodedImage();

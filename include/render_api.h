@@ -422,10 +422,22 @@ public:
 // stale in one commit, silently, because no test reads a filename in a comment.
 // Measured: 111 DrawLine call sites in src/ with comments stripped and the two backend
 // definitions excluded -- so THAT figure reproduces exactly -- and the 5-argument form
-// is at exactly THREE, one per file: src/export_docx.cpp:419, src/paint_document.cpp:218
-// and src/print.cpp:316. print.cpp's is the one this seam newly carries; it used to be a
-// native ID2D1RenderTarget::DrawLine and now binds here with no edit, which is the
-// defaulting claim above being exercised rather than asserted.
+// is at exactly THREE, one per file: the connector-with-arrow path in export_docx.cpp,
+// the same path in paint_document.cpp, and print.cpp's connector case. print.cpp's is
+// the one this seam newly carries; it used to be a native ID2D1RenderTarget::DrawLine
+// and now binds here with no edit, which is the defaulting claim above being exercised
+// rather than asserted.
+//
+// RE-MEASURED 2026-09-20, AND THE COUNT HELD WHILE ALL THREE ADDRESSES HAD ROTTED. This
+// sentence used to name src/export_docx.cpp:419, src/paint_document.cpp:218 and
+// src/print.cpp:316. Every one was wrong: :419 was a 4-argument arrowhead, :218 was an
+// ensureDashedStrokeStyle call, and :316 was a comment line. The real sites are the
+// first DrawLine in each file's connector case, and each file does have exactly one --
+// so "111" and "exactly THREE, one per file" both reproduce, which is the whole point.
+// The addresses are dropped rather than refreshed: they are decoration on a claim that
+// is a COUNT, they had each rotted by a different amount in a different direction, and
+// refreshing them just resets a timer. A quantity that a later reader can re-derive
+// outlives a pointer that only the writer could check.
 class RenderTarget {
 public:
     virtual ~RenderTarget() = default;

@@ -248,15 +248,26 @@ claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines sr
 # deriving from pandoc.cpp would have reported the remaining Windows work in exports and
 # printing going UP by 47 lines on the slice that finished the file -- the same inversion
 # the utils.cpp row records, where a proxy for remaining work grows at the moment the work
-# goes away. The label is a claim here too: this is now export_docx.cpp and print.cpp, two
-# files, and the row's own prose says which.
+# goes away. The label is a claim here too.
+# export_docx.cpp IS NOW DELIBERATELY ABSENT AS WELL, the EIGHTH file to exercise the rule
+# the export_html.cpp note below states, and the only one so far that left the to-do set
+# without anyone porting it. Its 1,545 lines already compiled off Windows; three unused
+# includes -- <objbase.h>, <ole2.h>, <wincodec.h>, left behind by the 2026-09-19 clipboard
+# slice -- made the census stop at the first line and report `fatal 1, errors 0`. Removing
+# them took the file to exit 0 and onto tests/portable-sources.txt.
+# SO THIS ROW IS DOWN TO print.cpp ALONE AND ITS FIGURE HAS NO SECOND TERM. Worth noting
+# against the pandoc.cpp inversion above: this is the opposite direction and the same
+# lesson. There the proxy grew when the work went away; here the proxy was never measuring
+# work at all -- 1,545 lines sat in a "remaining Windows work" figure while being portable
+# C++, because the row derives from `wc -l` of a file the to-do TABLE listed, and nothing
+# rechecked whether the table was right.
 # export_html.cpp is DELIBERATELY absent from this row: it left the to-do set when it
 # reached 0 errors and joined tests/portable-sources.txt, so deriving the row from it
 # would keep asserting a README figure that must no longer include it. This row is
 # hand-maintained against the to-do TABLE, which the manifest does not drive -- so it
 # is the one row that can rot silently in the *other* direction, by keeping a file the
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
-claim "exports and printing"  "| $(c "$(lines src/export_docx.cpp)") + $(c "$(lines src/print.cpp)") |"
+claim "exports and printing"  "| $(c "$(lines src/print.cpp)") |"
 claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") |"
 # drafts.cpp is now DELIBERATELY absent from the row above as well, the SEVENTH file to
 # exercise the rule -- and it is the reading that settles the direction question, because the

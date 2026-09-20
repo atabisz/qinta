@@ -1022,11 +1022,19 @@ scrollbar.cpp
 # QtAppWindow::documentPainted(). That predicate exists because both branches draw dark
 # text on the theme background, so a pixel test with no way to tell them apart would
 # report the PLACEHOLDER as a rendered document.
-# That list is measured too: 23 of the 24 src/ files outside
-# this manifest fail a syntax-only non-Windows compile, on 12 distinct first causes.
-# README.md carries it. src/settings_app.cpp is the 24th -- it compiles off Windows
-# already, and the probe asserts it is NOT built, which is now a deliberate exclusion
+# That list is measured too, and RE-MEASURED 2026-09-20 rather than trusted: 16 of the 17
+# src/ files outside this manifest fail a syntax-only non-Windows compile, on 9 distinct
+# first causes. README.md carries it. src/settings_app.cpp is the 17th -- it compiles off
+# Windows already, and the probe asserts it is NOT built, which is a deliberate exclusion
 # rather than a Windows dependency.
+#
+# THE FIGURE THIS REPLACES WAS "23 OF THE 24 ... ON 12 DISTINCT FIRST CAUSES", and it had
+# been wrong for longer than one slice: 77 src/*.cpp minus 60 manifest entries is 17, and
+# it read 18 before export_docx.cpp joined below, so the "24" never matched the census this
+# sentence describes. Two counts drift here for different reasons and only one of them is
+# obvious -- entries are ADDED to this manifest, which anyone editing it notices, and files
+# are added to src/, which nobody editing this line does. Derive both sides or state
+# neither.
 qt_init.cpp
 qt_window.cpp
 main_qt.cpp
@@ -1070,3 +1078,27 @@ overlays.cpp
 # It needed one, because all ~19 text sites funnel through three file-local helpers --
 # CMakeLists.txt's entry for this file has the reasoning.
 startpage.cpp
+
+# export_docx.cpp. THE ONLY ENTRY IN THIS MANIFEST THAT COST NO PORT AT ALL -- 1,545 lines
+# that already compiled off Windows and were being reported as non-portable by three unused
+# includes. <objbase.h>, <ole2.h> and <wincodec.h> had no remaining caller after the
+# 2026-09-19 clipboard slice moved the CF_BITMAP read behind platform::clipboardImage, and
+# the census stops at the first unresolvable header, so this file reported `fatal 1,
+# errors 0` -- the reading that looks like finished work and means the opposite.
+#
+# SO THE THING WORTH KEEPING IS NOT THE LINE COUNT, IT IS THAT NOBODY HAD TO PORT ANYTHING.
+# Three comments -- here, in the file, and in CMakeLists.txt -- all asserted a live Windows
+# dependency, each consistent with the others, and the census AGREED with all three for a
+# reason that had nothing to do with whether they were true. An instrument that stops early
+# does not report "I did not read this"; it reports a number, and the number was 0.
+#
+# THE DISCRIMINATING CONTROL IS THE ONE THIS MANIFEST ASKS FOR TWICE ABOVE, and it was run
+# for the same reason: a clean first read is a warning, not a result. Before the edit this
+# same file under this same rig read `exit 1, fatal 1, errors 0`, first cause objbase.h; so
+# the subject was demonstrably being reached. After it, a plant of one undeclared name in
+# one function was predicted at exactly 1 error (g++ reports an undeclared name once per
+# function), read back as exactly 1, then restored and verified byte-exact by sha256.
+#
+# Being listed here says this file COMPILES off Windows. It does not say it LINKS or RUNS:
+# export_as is reached from input.cpp, which has not ported.
+export_docx.cpp

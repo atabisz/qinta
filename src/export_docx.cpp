@@ -7,8 +7,12 @@
 #include "export.h"
 
 // For platform::setClipboardImage and platform::clipboardImage. The clipboard half of
-// this file is now two calls into a seam with a Qt implementation behind it; what stays
-// Windows-only here is the DOCX half, for objbase.h and not for the clipboard.
+// this file is now two calls into a seam with a Qt implementation behind it, and NOTHING
+// here is Windows-only any more. The clause that used to end this comment -- "what stays
+// Windows-only here is the DOCX half, for objbase.h and not for the clipboard" -- named a
+// dependency the DOCX half never had: the zip and the WordprocessingML are written by
+// hand through <fstream> and std::string, with no COM, no GUID and no WIC anywhere in
+// them. See the block below the includes for what that cost.
 #include "clipboard.h"
 #include "editor.h"
 #include "image_api.h"
@@ -24,15 +28,25 @@
 #include "render.h"
 #include "utils.h"
 
-// Still Windows headers, and the narrowness is the point. What survives in this file is
-// the CLIPBOARD half -- CF_DIB, the registered L"PNG" format, the CF_BITMAP handle read
-// and the WIC decode they feed -- which include/clipboard.h:131-136 deliberately left
-// outside that seam because moving it would drag WIC types through a header that has
-// none. The RASTERISATION half is gone, onto tinta::rasterizeToImage.
-#include <objbase.h>
-#include <ole2.h>
-#include <wincodec.h>
-
+// THREE WINDOWS HEADERS STOOD HERE AND NOTHING IN THIS FILE USED THEM ANY MORE, which
+// is recorded rather than quietly deleted because the stale comment is the interesting
+// part. It read: "Still Windows headers, and the narrowness is the point. What survives
+// in this file is the CLIPBOARD half -- CF_DIB, the registered L"PNG" format, the
+// CF_BITMAP handle read and the WIC decode they feed -- which include/clipboard.h
+// deliberately left outside that seam because moving it would drag WIC types through a
+// header that has none."
+//
+// Every clause of that was true when written and none of it was true by the time it was
+// read. The image half DID move into the seam -- clipboard.h declares clipboardHasImage,
+// setClipboardImage and clipboardImage, the last returning a tinta::DecodedImage through
+// a forward declaration precisely so the header still names no WIC type. What was left
+// behind was <objbase.h>, <ole2.h> and <wincodec.h> with no remaining caller, plus a
+// comment asserting a dependency that had already been ported out from under it.
+//
+// THE COST WAS NOT THE THREE LINES, IT WAS THE MEASUREMENT THEY BLOCKED. The census
+// (scripts/census-nonportable-linux.sh) stops at the first unresolvable header, so this
+// file reported `fatal 1, errors 0` -- indistinguishable at a glance from a file with no
+// work left, and in fact a file that had never been read at all.
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -185,10 +199,18 @@ std::string hexOver(tinta::Color c, tinta::Color background) {
 }
 
 bool readBinaryFile(const std::wstring& path, std::string& out) {
-    // fs::path, not the bare wstring: claim C58. This file is FATAL on objbase.h in the
-    // Linux census, so g++ cannot reach these three sites to report them -- they were
-    // classified from the signature and verified through a stubbed read, not from a
-    // census row. A class that is invisible to the instrument is still present.
+    // fs::path, not the bare wstring: claim C58. This used to end "This file is FATAL on
+    // objbase.h in the Linux census, so g++ cannot reach these three sites to report them
+    // -- they were classified from the signature and verified through a stubbed read, not
+    // from a census row. A class that is invisible to the instrument is still present."
+    //
+    // THE WORKAROUND WAS RIGHT AND IS NOW UNNECESSARY, which is the happier way for a note
+    // like this to expire: the objbase.h that stopped the read was a dead include, so as of
+    // 2026-09-20 the census compiles this whole file and these three sites are covered by a
+    // row rather than by a stub. The reasoning it records is kept because it is the same
+    // reasoning that would have found the dead include a slice earlier -- somebody who
+    // stubs a header to read past it is one question away from asking whether the header is
+    // needed at all, and that question was not asked.
     std::ifstream in(std::filesystem::path(path), std::ios::binary);
     if (!in) return false;
     std::ostringstream ss;

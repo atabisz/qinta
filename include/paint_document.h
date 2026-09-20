@@ -53,8 +53,15 @@
 // This is a real inconsistency and it is deliberately not fixed here -- widening it is a
 // behaviour change for each pane that wants its own decision, not a side effect of deleting a
 // duplicate branch. Two places to start if it is taken up: src/editor.cpp's five sites, and
-// src/export_docx.cpp:556, a second exporter that omits the flag exactly as src/print.cpp
-// does but carries no comment saying the omission is on purpose.
+// the sole DrawTextLayout in src/export_docx.cpp -- a second exporter that omits the flag
+// exactly as src/print.cpp does but carries no comment saying the omission is on purpose.
+//
+// The line number that used to sit in that sentence is dropped rather than refreshed. It
+// said :556, the call is at :561 today, and it was at :539 when the sentence was written
+// -- so it was never right, and it has since been moved again by an edit that changed no
+// code in that file at all (2026-09-20, three dead includes deleted). One symbol grep
+// finds the call and cannot go stale; "the sole DrawTextLayout" is also a checkable claim
+// where a number is not, because if a second one appears the phrase stops resolving.
 
 struct App;
 

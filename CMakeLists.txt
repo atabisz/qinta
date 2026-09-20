@@ -200,12 +200,27 @@ endif()
 # GetDIBits replaced an IWICBitmap, which is how a 52-line WIC encoder left
 # src/export_docx.cpp.
 #
-# RIGHT: that file still cannot compile off Windows, and nothing here claims otherwise.
-# objbase.h and the OPC package are why, and they are untouched. What changed is that the
-# clipboard is no longer one of the reasons.
+# THE "RIGHT" CLAUSE WAS ALSO WRONG, and it is worth reading why before trusting the next
+# comment of this shape. It read: "RIGHT: that file still cannot compile off Windows, and
+# nothing here claims otherwise. objbase.h and the OPC package are why, and they are
+# untouched. What changed is that the clipboard is no longer one of the reasons."
 #
-# So a build off Windows now gets both halves of the clipboard, which is still just a
-# statement of what exists rather than a claim about src/export_docx.cpp.
+# It was false the moment it was written, BY THE SLICE THAT WROTE IT. Moving the CF_BITMAP
+# read behind the seam removed the file's last COM caller, so the objbase.h it named as the
+# reason had become an unused include in the same commit. The OPC half never needed COM at
+# all -- the zip and the WordprocessingML are hand-written through <fstream> and
+# std::string. Measured 2026-09-20: with the three dead includes gone,
+# src/export_docx.cpp censuses exit 0, fatal 0, errors 0, and it is on
+# tests/portable-sources.txt so CONTROL 5 keeps it that way.
+#
+# The lesson is narrow and reusable: this comment correctly identified one of its
+# predecessor's two clauses as wrong, then carried the other one forward UNMEASURED because
+# it looked untouched. A clause surviving a correction is not thereby verified -- and the
+# remaining reason a file is non-portable is exactly the claim a port is most likely to
+# have just invalidated.
+#
+# So a build off Windows now gets both halves of the clipboard, and src/export_docx.cpp is
+# no longer a Windows-only file at all.
 if(WIN32)
     set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_win32.cpp)
     set(PLATFORM_CLIPBOARD_LIBS "")
@@ -384,10 +399,18 @@ set(SOURCES
     ${PLATFORM_KEYBOARD_SOURCE}
     ${PLATFORM_IMAGE_SOURCE}
     ${PLATFORM_FILE_DIALOG_SOURCE}
-    # The clipboard seam. On Windows this resolves to src/clipboard_win32.cpp, which
-    # holds the ONLY remaining raw clipboard calls in the tree outside the image half
-    # in src/export_docx.cpp -- src/utils.cpp's copyToClipboard, src/input.cpp's
-    # clipboardLine and src/editor.cpp's two file-local helpers are all gone.
+    # The clipboard seam. On Windows this resolves to src/clipboard_win32.cpp, which holds
+    # the ONLY remaining raw clipboard calls in the tree, with NO exception -- the clause
+    # that used to end "outside the image half in src/export_docx.cpp" is gone, because
+    # that file's two sites are platform::setClipboardImage and platform::clipboardImage
+    # and nothing else. src/utils.cpp's copyToClipboard, src/input.cpp's clipboardLine and
+    # src/editor.cpp's two file-local helpers were already gone.
+    #
+    # Measured 2026-09-20 by grepping for the five Win32 entry points and then discarding
+    # every COMMENT hit: five files still NAME them (annotations.cpp, editor.cpp,
+    # export_docx.cpp, clipboard.h, export.h) and none of the five CALLS them. A seam this
+    # narrow is asserted with a name grep at everyone's peril -- the comments explaining
+    # the port outnumber the calls that remain.
     ${PLATFORM_CLIPBOARD_SOURCE}
     # The process seam. src/pandoc.cpp is its only caller in the app and there is no
     # second one planned -- the mermaid and math paths render in-process.
@@ -1321,6 +1344,28 @@ if(BUILD_TESTING)
         src/annotations.cpp
         src/editrail.cpp
         src/tableedit.cpp
+        # src/export_docx.cpp -- COMPILE-ONLY, and it is here for a reason no other entry
+        # in this list shares: NOBODY PORTED IT. Its 1,545 lines already compiled off
+        # Windows. What kept it out of this target was three includes -- <objbase.h>,
+        # <ole2.h>, <wincodec.h> -- left with no caller when the 2026-09-19 clipboard slice
+        # moved the CF_BITMAP read behind platform::clipboardImage, and the census stops at
+        # the first unresolvable header, so the file reported `fatal 1, errors 0`: the
+        # reading that is indistinguishable from finished work and means the file was never
+        # read at all. Deleting the three lines took it to exit 0, fatal 0, errors 0.
+        #
+        # COMPILE-ONLY rather than in QINTA_APP_SOURCES, on the same rule as
+        # src/annotations.cpp above: the closure, not the compile. exportAsDocx is reached
+        # from src/input.cpp, which is windows.h-fatal, so this file cannot LINK into qinta
+        # off Windows. Adding it to the app target would trade a green build for a manifest
+        # entry, and the manifest is not a wish list.
+        #
+        # THE CONTROL IS RECORDED BECAUSE A CLEAN FIRST READ IS A WARNING IN THIS TREE, NOT
+        # A RESULT. Under the same rig, before the edit, this file read `exit 1, fatal 1,
+        # errors 0` with objbase.h as its first cause -- so the subject was demonstrably
+        # being reached. After it, one undeclared name planted in one function was predicted
+        # at exactly 1 error (g++ reports an undeclared name once per function), read back
+        # as exactly 1, then restored and verified byte-exact by sha256.
+        src/export_docx.cpp
         # src/text_utils_app.cpp -- one function, measureText's seam overload, split out
         # of the windows.h-fatal src/utils.cpp because a linker reading of qinta's
         # closure found it was the ONLY symbol render.cpp needed from that file.

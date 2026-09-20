@@ -14,9 +14,16 @@
 // WHAT THE CENSUS FOUND, AND WHY IT SHAPED THE SIGNATURE
 //
 // Seven sites, measured 2026-09-17 by SHAPE rather than by name, because a grep for
-// GlobalLock finds eight and one of them is not a clipboard call at all
-// (export_docx.cpp:233 locks unrelated global memory). Counting the grep would have
+// GlobalLock found eight and one of them was not a clipboard call at all
+// (export_docx.cpp locked unrelated global memory). Counting the grep would have
 // over-reported the work by one and put a non-clipboard site in a clipboard seam.
+//
+// THAT GREP NO LONGER REPRODUCES, and the sentence is kept in the past tense rather than
+// refreshed, because the reason it was worth writing survives its own numbers. As of
+// 2026-09-20 `grep -rn GlobalLock src/` returns 7 across clipboard_win32.cpp,
+// image_win32.cpp and print.cpp, and NONE in export_docx.cpp -- the site it warned about
+// is gone along with the rest of that file's Win32 surface. A name census being wrong by
+// one is the point; which one it was wrong about is not.
 //
 // EVERY ADDRESS IN THE TABLE BELOW IS HISTORY, AS OF 2026-09-20, and is deliberately
 // not refreshed. The table is the PRE-ROUTING census: those seven sites no longer hold
@@ -54,10 +61,23 @@
 //      Windows CF_BITMAP READ is the one genuine rewrite, and it is the rewrite that
 //      pays for the slice: WIC out, GDI GetDIBits in, which is how IWICBitmap left
 //      src/export_docx.cpp.
-//   2. "would widen this seam without unblocking anything" -- SURVIVES AS WRITTEN and
-//      is still true. src/export_docx.cpp dies on objbase.h before and after. This seam
-//      did not unblock that file and does not claim to; what it unblocked is WIC's
-//      presence in that file's clipboard path.
+//   2. "would widen this seam without unblocking anything" -- FALSE, AND IT WAS THE CLAIM
+//      THIS FILE WAS MOST CONFIDENT ABOUT. It was written here as "SURVIVES AS WRITTEN
+//      and is still true. src/export_docx.cpp dies on objbase.h before and after. This
+//      seam did not unblock that file and does not claim to; what it unblocked is WIC's
+//      presence in that file's clipboard path." Measured 2026-09-20: this seam unblocked
+//      src/export_docx.cpp COMPLETELY. Taking the CF_BITMAP read removed that file's last
+//      COM caller, which left <objbase.h>, <ole2.h> and <wincodec.h> as dead includes --
+//      so it did not "die on objbase.h before and after", it died on a header it no longer
+//      needed, for one day, while three comments explained why that was expected.
+//      The file is on tests/portable-sources.txt and censuses exit 0, fatal 0, errors 0.
+//
+//      WHY THE WRONG ANSWER WAS THE CONFIDENT ONE IS THE REUSABLE PART. The claim was
+//      checked against the census, the census agreed, and the census agreed because it
+//      stops at the first unresolvable header -- so the instrument's answer was a fact
+//      about the include line and was read as a fact about the file. A seam cannot know
+//      it was the last caller of a header; only recompiling without the header can, and
+//      nothing in this tree did that until somebody asked why the row was fatal.
 //   3. The third claim is at clipboardImage() below, because it is about the DATA and
 //      not about the census: "moving it would drag ID2D1/WIC types through a header that
 //      has none." That premise is the one that expired, and it expired because
@@ -261,8 +281,11 @@ bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngB
 // SO THE WIC DECODE DID NOT MOVE HERE; IT WAS DELETED. src/export_docx.cpp's
 // clipboardBitmapToPng -- CreateBitmapFromHBITMAP, an IWICBitmapEncoder and
 // GetHGlobalFromStream, 52 lines -- is gone, and src/clipboard_win32.cpp reads the
-// bitmap with GDI's GetDIBits instead. export_docx.cpp:251 predicted exactly this and
-// called it "a different slice against a recorded decision", which is what this is.
+// bitmap with GDI's GetDIBits instead. export_docx.cpp predicted exactly this and called
+// it "a different slice against a recorded decision", which is what this is. (The line
+// number that used to sit in this sentence is dropped rather than refreshed -- it had
+// already rotted once, and the quoted phrase locates the comment under grep without
+// depending on where it sits in a file that keeps growing.)
 //
 // ALPHA IS FORCED TO 255 AND THE REASON IS A SILENT FAILURE THE OLD CODE NAMED. A
 // CF_BITMAP has no alpha channel, so the bytes GetDIBits returns have an alpha byte that

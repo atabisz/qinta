@@ -19,25 +19,45 @@
 // Ctrl+N spawns a second Tinta on an untitled quick note by re-launching this very
 // executable with two flags. That is a genuinely Windows-shaped operation right now,
 // and NOT because ShellExecuteW has no counterpart -- QProcess::startDetached is the
-// obvious one. It is because of the ARGUMENT: `--cascade --new` is parsed only in
-// WinMain's argument loop in src/main_d2d.cpp -- grep the flag strings, do not trust
-// a line number, for the reason this file spends four paragraphs on below -- and
-// src/main_qt.cpp accepts a file
-// argument and nothing else. Its own header comment says so. So a Qt half written
-// today would start a process that ignores both flags and opens a plain empty window
-// in the wrong position -- a silent success, which is the failure this tree keeps
-// cataloguing. Deferring it is the honest option and this file is the deferral.
+// obvious one. It is because of the ARGUMENT.
 //
-// THE SENTENCE THAT STOOD HERE UNDERSTATED ITS OWN BLOCKER, and the correction is the
-// only thing a later slice needs from this paragraph. It read: "The unblocking work is
-// a command-line parser on the Qt side, not a process seam." A parser is necessary and
-// it is nowhere near sufficient, because THERE IS NOTHING FOR THE PARSED FLAGS TO
-// REACH. src/main_qt.cpp is 111 lines which by its own header have "no menus, no tabs,
-// no input" and no settings load; `--cascade` and `--pos` want window placement,
-// `--new` wants the new-window-vs-new-tab decision, and `--tabbed` wants a tab bar.
-// None of that state exists on the Qt side yet, so a parser written today would parse
-// flags nothing can honour -- which is the SAME silent success the paragraph above
-// rejects, moved one step earlier and made harder to see.
+// THE PARSING HALF OF THAT ARGUMENT IS DONE, 2026-09-21, and the two paragraphs that
+// stood here are corrected rather than deleted because the CONCLUSION survives and only
+// its reason moved. They said `--cascade --new` "is parsed only in WinMain's argument
+// loop in src/main_d2d.cpp" and that src/main_qt.cpp "accepts a file argument and
+// nothing else". Both are now false. There is ONE parse -- src/launch_options.cpp,
+// called by WinMain and by main_qt with the same thirteen options -- and the Qt arm
+// HONOURS `--cascade` against a real window, with a test that puts two windows exactly
+// kCascadeStep apart and reads the coordinates back off the widgets.
+//
+// What has NOT changed is that Ctrl+N cannot be ported, and the reason is now one flag
+// rather than two: `--new` is REFUSED BY NAME on the Qt arm -- "quick notes need the
+// window manager (src/input.cpp)" -- because the new-window-vs-new-tab decision and the
+// single-instance handoff live in src/input.cpp and have no Qt counterpart. So a Qt half
+// written today would start a process that opens a correctly cascaded window and then
+// declines, out loud, to make it a quick note. That is no longer a SILENT success, which
+// was the sharpest argument this file used to carry; it is a loud refusal, which is
+// better, and it is still not the feature. Deferring it remains the honest option and
+// this file is the deferral.
+//
+// THE SENTENCE THAT STOOD HERE UNDERSTATED ITS OWN BLOCKER, and then its own correction
+// was half refuted in turn -- so the record is three layers deep and all three are kept,
+// because the middle layer is the one that was right for the wrong span. Layer one read:
+// "The unblocking work is a command-line parser on the Qt side, not a process seam."
+// Layer two answered that a parser is necessary and nowhere near sufficient, because
+// THERE IS NOTHING FOR THE PARSED FLAGS TO REACH -- main_qt.cpp had no menus, no tabs, no
+// input and no settings load, so `--cascade` and `--pos` had no window placement to want,
+// `--new` had no new-window decision, `--tabbed` had no tab bar.
+//
+// LAYER THREE, 2026-09-21: that was true of FOUR FLAGS and is now true of TWO. `--cascade`
+// and `--pos` reach real window state on the Qt arm and are tested against read-back
+// geometry; `--light` does too. `--new` and `--tabbed` still reach nothing, and they are
+// refused by name rather than accepted. So the shape of the claim held -- a parser alone
+// would have been a silent success -- and its scope was wrong by half, which is exactly
+// the failure mode this tree records as "the residue of a correction is least
+// trustworthy": the clause a correction carries forward is the part nobody re-measures.
+// The flags this file's own two sites pass are `--cascade --new` and `--cascade --edit`,
+// so in both cases the FIRST flag is now honoured and the SECOND is the blocker.
 //
 // The real chain is parser -> Qt window/tab/placement state -> process seam, and the
 // MIDDLE link is the expensive one: src/input.cpp, where that state lives, is 4,394

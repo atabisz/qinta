@@ -343,7 +343,13 @@ bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
 // WinMain parses. It is not here because of ShellExecuteW; the other four
 // ShellExecuteW calls in this file DID become seam calls in the same slice.
 // The difference is that those four have working Qt halves and this one's would
-// start a process that ignores --cascade and --edit.
+// start a process that opens a cascaded window and then refuses --edit by name.
+//
+// THAT SENTENCE READ "ignores --cascade and --edit" until 2026-09-21 and both halves
+// were wrong by then. `--cascade` is honoured on the Qt arm against a real window, and
+// `--edit` is not ignored -- it is refused out loud, "the editor needs input
+// (src/input.cpp)", which points back at this file. The deferral stands and its reason
+// is now one flag instead of two; src/quicknote_win32.cpp argues it at length.
 
 // The folder browser's fallback starting point when no document is open.
 //

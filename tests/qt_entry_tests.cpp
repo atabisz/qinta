@@ -125,6 +125,11 @@
 // compiles that function with its portable arm live.
 #include "paint_document.h"
 #include "qt_init.h"
+// Run 19's whole point: the four functions src/main_qt.cpp calls to place and colour its
+// window, reached from here so the test drives the SAME code rather than a copy of it. This
+// header also pulls launch_options.h, settings_data.h and window_placement.h, which is why
+// run 19 adds one include and not four.
+#include "qt_launch.h"
 #include "qt_window.h"
 #include "text_api.h"
 // The chrome formats' own header, and the reason this file needs it now is the port: the
@@ -133,6 +138,10 @@
 // wrappers, which is why every existing assertion below compiles unchanged.
 #include "text_formats.h"
 #include "theme_data.h"
+// ISC-17's Win32 half, in its own TU so <windows.h>'s macro set never reaches this file. Compiled
+// into this target only (CMakeLists.txt), and it compiles to two stubs off Windows so run 20's call
+// sites need no guard of their own beyond the one assertion that IS platform-specific.
+#include "win32_monitor_dump.h"
 
 namespace {
 
@@ -1650,6 +1659,350 @@ int main(int argc, char** argv) {
     // Left empty for the same reason every other run cleans up after itself: the next
     // assertion in this file should not depend on a state this one created.
     app.dashedStrokeStyle.reset();
+
+    // ---- RUN 19: WHERE THE WINDOW GOES, AND WHAT COLOUR IT IS -------------------------
+    //
+    // The launch options reach a real QtAppWindow, or they do not. Everything the slice
+    // measured before this point was the PARSE -- 37 assertions in
+    // tests/launch_options_tests.cpp that `--pos 1920 -300` yields hasPos/posX/posY -- and a
+    // parse that is right about its fields says nothing about whether a window moved. Those
+    // are two claims and only the second one is the feature.
+    //
+    // THE CHAIN UNDER TEST IS THE REAL ONE, every link:
+    //   tinta::parseLaunchOptions -> tinta::placementRequestFrom -> tinta::choosePlacement
+    //   -> tinta::applyPlacement -> QWidget's own geometry
+    // Not one of those is re-implemented here. src/main_qt.cpp calls the same four in the same
+    // order, and the only thing left uncovered in main() is which arguments it passes them --
+    // which is why applyPlacement and applyLightMode were pulled out of it at all. A test
+    // holding its own `resize(); if (!sentinel) move();` could not fail on a defect planted in
+    // main()'s copy, and this tree has paid for that shape before.
+    //
+    // WHY NO ORDINARY show(). On Windows this target runs with QT_QPA_PLATFORM=windows -- the
+    // REAL platform, not offscreen (CMakeLists.txt sets it that way deliberately) -- so a bare
+    // show() would flash three windows onto the desktop of whoever ran ctest.
+    // Qt::WA_DontShowOnScreen creates and lays out the widget through the same code path and
+    // never maps it. That has a LIMIT and it is stated rather than implied: what is asserted
+    // below is that applyPlacement reached the widget's own geometry, NOT that a window manager
+    // honoured the coordinate. The second claim needs a visible window and a screen capture,
+    // and it is not made here.
+    {
+        const std::vector<tinta::MonitorArea> screens = tinta::monitorsFromQt();
+        std::printf("qt_screens=%d\n", static_cast<int>(screens.size()));
+        check(!screens.empty(),
+              "PRECONDITION: Qt reported at least one screen, so choosePlacement below is "
+              "clamping against a real work area rather than taking its no-monitors branch");
+
+        // ---- ISC-10: --pos X Y moves the window -----------------------------------
+        //
+        // --pos is the arm that CANNOT be clamped -- src/window_placement.cpp returns it
+        // outright, deliberately, because a dropped tab's coordinate came from a live cursor.
+        // So the expected geometry here is the literal argument, and that is the one case in
+        // this run where a hardcoded number is the right assertion rather than a fragile one.
+        const tinta::LaunchOptions posOptions =
+            tinta::parseLaunchOptions({"--pos", "260", "140", "doc.md"});
+        Settings posSaved;  // savedX/savedY keep the sentinel, so ONLY --pos can produce a
+                            // position here -- if the plumbing dropped the flag the window
+                            // would not be moved at all rather than moved to the wrong place.
+        posSaved.windowWidth = 500;
+        posSaved.windowHeight = 320;
+
+        const tinta::PlacementRequest posRequest = tinta::placementRequestFrom(posOptions, posSaved);
+        // The field-copy assertion, and it is the one a swapped posX/posY dies on. 260 and 140
+        // are deliberately UNEQUAL and deliberately not a round pair: with 100/100 a transposed
+        // copy is invisible.
+        check(posRequest.hasPos && posRequest.posX == 260 && posRequest.posY == 140,
+              "placementRequestFrom carried --pos across as hasPos/posX=260/posY=140 -- the nine "
+              "field copies, on the axis where a transposition still compiles and still runs");
+        check(posRequest.savedX == kWindowPositionUseDefault &&
+                  posRequest.savedWidth == 500 && posRequest.savedHeight == 320,
+              "and it carried Settings' four geometry fields, sentinel included and unresolved");
+
+        const tinta::WindowRect posRect = choosePlacement(posRequest, screens);
+        std::printf("pos_rect=%d,%d %dx%d\n", posRect.x, posRect.y, posRect.width, posRect.height);
+
+        QtAppWindow posWindow(app);
+        posWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        tinta::applyPlacement(posWindow, posRect);
+        posWindow.show();
+        // pos() and not geometry().topLeft(): move() sets the FRAME position and pos() is the
+        // frame's, so on a platform that decorates windows the two differ by the frame margin
+        // and only one of them is the counterpart of the call under test. Both are printed,
+        // because a divergence between them is worth seeing rather than hiding behind a pass.
+        std::printf("pos_window pos=%d,%d geom=%d,%d %dx%d\n", posWindow.pos().x(),
+                    posWindow.pos().y(), posWindow.geometry().x(), posWindow.geometry().y(),
+                    posWindow.geometry().width(), posWindow.geometry().height());
+        check(posWindow.pos().x() == 260 && posWindow.pos().y() == 140,
+              "ISC-10: `--pos 260 140` put the WINDOW at 260,140 -- read off the widget after "
+              "show(), not off the parse");
+        check(posWindow.width() == 500 && posWindow.height() == 320,
+              "and the size came from Settings rather than from a hardcoded default, so the "
+              "1000x700 that used to live in main() is really gone");
+
+        // CONTROL: the same window, the same Settings, no --pos. Without this the assertion
+        // above cannot distinguish "the flag moved it" from "it happened to land there" -- and
+        // with savedX at the sentinel the honest answer is that applyPlacement must not call
+        // move() AT ALL, which is the sentinel branch nothing else in the tree exercises.
+        const tinta::WindowRect plainRect = choosePlacement(
+            tinta::placementRequestFrom(tinta::parseLaunchOptions({"doc.md"}), posSaved), screens);
+        check(plainRect.x == kWindowPositionUseDefault && plainRect.y == kWindowPositionUseDefault,
+              "CONTROL: with no --pos and nothing saved, choosePlacement returns the sentinel "
+              "rather than inventing a coordinate");
+        QtAppWindow plainWindow(app);
+        plainWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        tinta::applyPlacement(plainWindow, plainRect);
+        plainWindow.show();
+        std::printf("plain_window pos=%d,%d %dx%d\n", plainWindow.pos().x(), plainWindow.pos().y(),
+                    plainWindow.width(), plainWindow.height());
+        check(plainWindow.pos().x() != 260 || plainWindow.pos().y() != 140,
+              "CONTROL: and that window is NOT at 260,140, so the reading above measures the "
+              "flag and not the default");
+        check(plainWindow.width() == 500 && plainWindow.height() == 320,
+              "CONTROL: the sentinel suppressed move() and NOT resize() -- the size is still "
+              "applied, which is the half of applyPlacement that runs unconditionally");
+
+        // ---- ISC-11: --cascade steps by exactly kCascadeStep ------------------------
+        //
+        // Two runs differing by one flag, and the difference must be kCascadeStep in BOTH axes.
+        // Asserted against the constant rather than against 40: a literal here would keep
+        // passing if src/window_placement.cpp changed the step, which is the one change this
+        // assertion exists to notice.
+        //
+        // The saved position is derived from Qt's OWN first work area rather than hardcoded,
+        // because a saved rectangle off every display takes choosePlacement's nearest-monitor
+        // clamp instead of the cascade path, and this host's displays start at negative Y. The
+        // margin precondition is asserted, not assumed: near the right or bottom edge the clamp
+        // would EAT the 40 and the failure would read as a broken step.
+        const tinta::WindowRect& work = screens[0].work;
+        std::printf("work0=%d,%d %dx%d cascade_step=%d\n", work.x, work.y, work.width, work.height,
+                    tinta::kCascadeStep);
+        Settings cascadeSaved;
+        cascadeSaved.windowWidth = 400;
+        cascadeSaved.windowHeight = 300;
+        cascadeSaved.windowX = work.x + 10;
+        cascadeSaved.windowY = work.y + 10;
+        check(work.width >= 400 + 10 + tinta::kCascadeStep &&
+                  work.height >= 300 + 10 + tinta::kCascadeStep,
+              "PRECONDITION: the first work area has room for the stepped window, so a clamp "
+              "cannot eat the step and be misread as a missing one");
+
+        const tinta::WindowRect noCascade = choosePlacement(
+            tinta::placementRequestFrom(tinta::parseLaunchOptions({"doc.md"}), cascadeSaved),
+            screens);
+        const tinta::WindowRect cascaded = choosePlacement(
+            tinta::placementRequestFrom(tinta::parseLaunchOptions({"--cascade", "doc.md"}),
+                                        cascadeSaved),
+            screens);
+        // THE CONTROL COMES FIRST here, because it is a precondition for the subtraction below
+        // meaning anything: if the no-flag run were already offset from the saved position, a
+        // difference of 40 could be two clamps rather than one step.
+        check(noCascade.x == cascadeSaved.windowX && noCascade.y == cascadeSaved.windowY,
+              "CONTROL: the no-flag run sits exactly on the saved position and is not already "
+              "offset, so a difference below is the cascade and not a clamp");
+
+        QtAppWindow noCascadeWindow(app);
+        noCascadeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        tinta::applyPlacement(noCascadeWindow, noCascade);
+        noCascadeWindow.show();
+        QtAppWindow cascadeWindow(app);
+        cascadeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        tinta::applyPlacement(cascadeWindow, cascaded);
+        cascadeWindow.show();
+        const int dx = cascadeWindow.pos().x() - noCascadeWindow.pos().x();
+        const int dy = cascadeWindow.pos().y() - noCascadeWindow.pos().y();
+        std::printf("cascade_windows no=%d,%d yes=%d,%d delta=%d,%d\n", noCascadeWindow.pos().x(),
+                    noCascadeWindow.pos().y(), cascadeWindow.pos().x(), cascadeWindow.pos().y(), dx,
+                    dy);
+        check(dx == tinta::kCascadeStep && dy == tinta::kCascadeStep,
+              "ISC-11: two WINDOWS differing only by --cascade sit exactly kCascadeStep apart in "
+              "both axes -- so a spawned window cannot land on top of the one that spawned it");
+        check(dx == dy,
+              "and the step is the same in both axes, which is what a one-axis edit to the "
+              "cascade block would break while still passing a single-axis assertion");
+
+        // ---- ISC-12: --light changes the pixels ------------------------------------
+        //
+        // The claim is not "currentThemeIndex became 0" -- that is a field, and a field nothing
+        // paints with is not a feature. The claim is that the window DRAWS differently, so this
+        // grabs the same widget twice across the one call and compares a corner pixel.
+        const int savedThemeIndex = app.currentThemeIndex;
+        const D2DTheme savedThemeValue = app.theme;
+        const bool savedDarkMode = app.darkMode;
+
+        // A DARK BASELINE, found by asking the theme table rather than by naming an index. With
+        // app.theme already light the comparison below would be vacuous and would still read
+        // green, and which slot is dark is exactly the sort of thing a reordered table changes.
+        int darkIndex = -1;
+        for (int i = 0; i < THEME_COUNT; i++) {
+            if (themeAt(i).isDark) {
+                darkIndex = i;
+                break;
+            }
+        }
+        std::printf("dark_index=%d light_index=%d theme_count=%d\n", darkIndex,
+                    kLightModeThemeIndex, THEME_COUNT);
+        check(darkIndex >= 0 && darkIndex != kLightModeThemeIndex,
+              "PRECONDITION: the theme table holds a dark theme that is NOT the --light slot, so "
+              "the two grabs below can actually differ");
+
+        app.currentThemeIndex = darkIndex;
+        app.theme = themeAt(darkIndex);
+        app.darkMode = app.theme.isDark;
+        const tinta::Color darkBackground = app.theme.background;
+
+        QtAppWindow themeWindow(app);
+        themeWindow.resize(200, 150);
+        const QImage darkGrab = grabWindow(themeWindow);
+
+        // CONTROL FIRST, again deliberately: two grabs at the SAME setting must be identical.
+        // Without it, "the images differ" could be grab noise -- and this tree has a window
+        // capture that hashes differently on an identical build, so the worry is measured
+        // rather than theoretical.
+        const QImage darkGrabAgain = grabWindow(themeWindow);
+        check(darkGrab == darkGrabAgain,
+              "CONTROL: two grabs of the same window at the same theme are pixel-identical, so a "
+              "difference below is the theme and not capture noise");
+
+        tinta::applyLightMode(app);
+        std::printf("after_light index=%d darkMode=%d bg=%d,%d,%d (was %d,%d,%d)\n",
+                    app.currentThemeIndex, app.darkMode ? 1 : 0, expect8(app.theme.background.r),
+                    expect8(app.theme.background.g), expect8(app.theme.background.b),
+                    expect8(darkBackground.r), expect8(darkBackground.g),
+                    expect8(darkBackground.b));
+        check(app.currentThemeIndex == kLightModeThemeIndex && !app.darkMode,
+              "applyLightMode moved the index AND darkMode together -- the pair that has to "
+              "agree, because darkMode is read off the theme rather than assumed");
+
+        const QImage lightGrab = grabWindow(themeWindow);
+        check(lightGrab != darkGrab,
+              "ISC-12: the same window PAINTS DIFFERENTLY after --light, which is the claim -- a "
+              "changed field that reached no pixel would pass the assertion above and fail here");
+        check(pixelIs(lightGrab, 2, 2, app.theme.background, 2),
+              "and the corner pixel carries the LIGHT theme's background specifically, so the "
+              "difference is the theme this flag names rather than any repaint");
+        check(!pixelIs(lightGrab, 2, 2, darkBackground, 2),
+              "and it no longer carries the dark one, which is what separates 'switched' from "
+              "'drew both' in a window that clears before it draws");
+
+        // Restored because the file's convention is that every run ends in the state it found,
+        // and because the cleanup below is read against the theme the earlier runs used.
+        app.currentThemeIndex = savedThemeIndex;
+        app.theme = savedThemeValue;
+        app.darkMode = savedDarkMode;
+
+        // ---- ISC-17: DO THE TWO ENUMERATIONS DESCRIBE THE SAME DISPLAYS? -------------
+        //
+        // Everything the placement suite proves, it proves about a monitor list handed to it as
+        // DATA. That is the right design and it is also a blind spot the size of the whole
+        // feature: swap the list for a different description of the same desktop and every
+        // assertion stays green while every window lands somewhere else. src/main_d2d.cpp places
+        // windows over EnumDisplayMonitors/GetMonitorInfoW; the Qt arm places them over
+        // QScreen::geometry()/availableGeometry(); nothing in the tree had ever compared the two.
+        //
+        // THE ANSWER IS CONDITIONAL AND THE CONDITION IS PRINTED. Win32 reports PHYSICAL pixels
+        // to a per-monitor-aware process; Qt 6 reports QScreen::geometry() in LOGICAL pixels,
+        // physical over devicePixelRatio. So equality is only available where every ratio is 1,
+        // and an equality read without that is an equality that expires when somebody scales a
+        // display. Every ratio is therefore printed, and the equality assertion below is GATED on
+        // them -- where a ratio is not 1 the run states the scaling instead of asserting equality,
+        // which is the criterion's own "or the disagreement is stated" branch.
+        const std::vector<tinta::MonitorArea> win32Screens = tinta::monitorsFromWin32();
+        bool everyRatioIsOne = true;
+        const QList<QScreen*> qtScreens = QGuiApplication::screens();
+        for (const QScreen* s : qtScreens) {
+            if (s == nullptr) continue;
+            std::printf("  qt  dpr=%.4f geom=%d,%d %dx%d work=%d,%d %dx%d\n", s->devicePixelRatio(),
+                        s->geometry().x(), s->geometry().y(), s->geometry().width(),
+                        s->geometry().height(), s->availableGeometry().x(),
+                        s->availableGeometry().y(), s->availableGeometry().width(),
+                        s->availableGeometry().height());
+            if (s->devicePixelRatio() != 1.0) everyRatioIsOne = false;
+        }
+        for (const tinta::MonitorArea& m : win32Screens) {
+            std::printf("  w32 bounds=%d,%d %dx%d work=%d,%d %dx%d\n", m.bounds.x, m.bounds.y,
+                        m.bounds.width, m.bounds.height, m.work.x, m.work.y, m.work.width,
+                        m.work.height);
+        }
+        // Printed AFTER the per-screen lines so the ratios it summarises are on screen above it,
+        // and printed unconditionally so the DPI condition is in the log of every run rather than
+        // only of the runs where it bites.
+        std::printf("dpi_awareness=%s win32_monitors=%d qt_monitors=%d every_dpr_is_1=%d\n",
+                    tinta::processDpiAwareness(), static_cast<int>(win32Screens.size()),
+                    static_cast<int>(screens.size()), everyRatioIsOne ? 1 : 0);
+
+#ifdef _WIN32
+        // THE COUNT IS COMPARABLE WHATEVER THE SCALING IS -- a display is a display at any ratio,
+        // and this is the half of the criterion no DPI caveat touches. It is also the half that
+        // would catch the enumeration this tree could plausibly get wrong: QGuiApplication::screens()
+        // omitting a display Win32 lists, or listing a virtual one Win32 does not.
+        check(win32Screens.size() == screens.size(),
+              "ISC-17: Win32 and Qt agree on HOW MANY displays this host has -- the one comparison "
+              "that is valid at any scaling factor");
+
+        if (everyRatioIsOne && win32Screens.size() == screens.size()) {
+            // Order is NOT assumed to match: EnumDisplayMonitors' order and
+            // QGuiApplication::screens()' order are both unspecified, so a positional comparison
+            // would report a disagreement that is really a permutation. Each Win32 rectangle is
+            // required to have SOME Qt counterpart, which is the claim that actually matters --
+            // that the two describe the same set of rectangles.
+            int matchedBounds = 0;
+            int matchedWork = 0;
+            for (const tinta::MonitorArea& w : win32Screens) {
+                for (const tinta::MonitorArea& q : screens) {
+                    if (w.bounds.x == q.bounds.x && w.bounds.y == q.bounds.y &&
+                        w.bounds.width == q.bounds.width && w.bounds.height == q.bounds.height) {
+                        matchedBounds++;
+                        if (w.work.x == q.work.x && w.work.y == q.work.y &&
+                            w.work.width == q.work.width && w.work.height == q.work.height) {
+                            matchedWork++;
+                        }
+                        break;
+                    }
+                }
+            }
+            // THE ORDER DIFFERS ON THIS HOST, AND THAT IS REPORTED RATHER THAN ASSERTED.
+            // Measured 2026-09-21: Qt leads with the primary at 0,0 and Win32 leads with the side
+            // monitor at 3441,-498, so a positional comparison would have reported two
+            // disagreements that are really one permutation -- which is why the loop above matches
+            // as a SET. Neither order is documented, so asserting "they differ" would over-fit
+            // this desktop and asserting "they agree" would be false here; the honest instrument
+            // prints the number and leaves it.
+            //
+            // IT IS NOT COSMETIC. choosePlacement's tie-break for a window equidistant from two
+            // displays IS enumeration order (ISC-4's 18 residual ties, all at 1x1), so where a tie
+            // occurs the two arms can resolve it to different monitors. That is a stated limit of
+            // the port, not a defect either arm has.
+            int positionalMatches = 0;
+            for (size_t i = 0; i < win32Screens.size() && i < screens.size(); i++) {
+                if (win32Screens[i].bounds.x == screens[i].bounds.x &&
+                    win32Screens[i].bounds.y == screens[i].bounds.y) {
+                    positionalMatches++;
+                }
+            }
+            std::printf("matched_bounds=%d matched_work=%d positional=%d of %d\n", matchedBounds,
+                        matchedWork, positionalMatches, static_cast<int>(win32Screens.size()));
+            check(matchedBounds == static_cast<int>(win32Screens.size()),
+                  "ISC-17: every Win32 monitor RECTANGLE has a Qt counterpart with identical "
+                  "bounds -- so the port did not quietly change which rectangles a window is "
+                  "hit-tested against");
+            check(matchedWork == static_cast<int>(win32Screens.size()),
+                  "ISC-17: and identical WORK areas too, which is the rectangle a saved window is "
+                  "CLAMPED into -- the two-rectangles-per-monitor pair, both halves");
+        } else {
+            // Not a skip dressed as a pass: the criterion's other branch, and it prints the
+            // reason. A host with a scaled display cannot make this comparison as integers, and
+            // saying so is the honest reading -- what it means for the port is that Settings'
+            // saved geometry was written by a PHYSICAL-pixel process and would be read by a
+            // LOGICAL-pixel one, which is a real defect this test cannot see on this host.
+            std::printf("ISC-17 STATED RATHER THAN ASSERTED: everyRatioIsOne=%d -- Win32 physical "
+                        "pixels and Qt logical pixels are not integer-comparable here\n",
+                        everyRatioIsOne ? 1 : 0);
+        }
+#else
+        check(win32Screens.empty(),
+              "ISC-17 is a WINDOWS-ONLY differential: off Windows there is no second enumeration, "
+              "and monitorsFromWin32() correctly reports none rather than inventing one");
+#endif
+    }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that
     // made them out of App. Cleared here for the same reason

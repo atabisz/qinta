@@ -27,6 +27,10 @@
 // The chrome falsifier's one entry point, behind --dumpchrome below.
 #include "chrome_dump.h"
 #include "text_formats.h"
+// The placement decision, which used to be thirty-five lines of this file.
+#include "window_placement.h"
+// The option chain, which used to be thirty-six more.
+#include "launch_options.h"
 #include "utils.h"
 #include "syntax.h"
 #include "search.h"
@@ -1542,45 +1546,70 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     int posX = 0, posY = 0;       // --pos: spawn position (tab drag-out)
     bool hasPos = false;
 
+    // THE OPTION CHAIN THAT STOOD HERE IS NOW include/launch_options.h, and this is the whole
+    // of what is left on the Windows side: widen to UTF-8, parse, assign. The chain was 36
+    // lines and src/main_qt.cpp had no equivalent at all -- not a second parser that agreed,
+    // but one parser and one file that had never been told the options existed, which is why
+    // `tinta --light a.md` on the Qt arm opened nothing and complained about a missing file
+    // called "--light".
+    //
+    // CommandLineToArgvW STAYS, and for the same reason EnumDisplayMonitors stays below:
+    // splitting one command-line string into argv by the Win32 quoting rule is genuinely
+    // platform work. What moved is the DECISION about what the resulting tokens mean.
+    //
+    // THE UTF-8 ROUND TRIP IS NOT NEW. The document path already made this exact trip --
+    // platform::toUtf8 on the way in here and toWide again a few lines below, where the
+    // single-instance handoff needs a wide path -- so widening the other four path options
+    // alongside it adds no conversion the shipping path did not already perform.
     int argc;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-    for (int i = 1; i < argc; i++) {
-        std::wstring arg = argv[i];
-        if (arg == L"-l" || arg == L"--light") {
-            lightMode = true;
-        } else if (arg == L"-s" || arg == L"--stats") {
-            app.showStats = true;
-        } else if (arg == L"/register" || arg == L"--register") {
-            forceRegister = true;
-        } else if (arg == L"--cascade") {
-            cascadeWindow = true;
-        } else if (arg == L"--tabbed") {
-            // Drag-out satellites keep the tab row even with one tab
-            app.forceTabStrip = true;
-        } else if (arg == L"--edit") {
-            startInEditMode = true;
-        } else if (arg == L"--new") {
-            quickNote = true;
-        } else if (arg == L"--printpages" && i + 1 < argc) {
-            printPagesDir = argv[++i];
-        } else if (arg == L"--dumpchrome" && i + 1 < argc) {
-            dumpChromePath = argv[++i];
-        } else if (arg == L"--exporthtml" && i + 1 < argc) {
-            exportHtmlPath = argv[++i];
-        } else if (arg == L"--exportdocx" && i + 1 < argc) {
-            exportDocxPath = argv[++i];
-        } else if (arg == L"--exportpdf" && i + 1 < argc) {
-            exportPdfPath = argv[++i];
-        } else if (arg == L"--pos" && i + 2 < argc) {
-            // Drag-out spawn: place the new window at the drop point
-            posX = _wtoi(argv[++i]);
-            posY = _wtoi(argv[++i]);
-            hasPos = true;
-        } else if (arg[0] != L'-' && arg[0] != L'/') {
-            inputFile = platform::toUtf8(arg);
-        }
+    std::vector<std::string> launchArgs;
+    if (argc > 1) {
+        launchArgs.reserve(static_cast<size_t>(argc - 1));
+        for (int i = 1; i < argc; i++) launchArgs.push_back(platform::toUtf8(argv[i]));
     }
     LocalFree(argv);
+
+    const tinta::LaunchOptions options = tinta::parseLaunchOptions(launchArgs);
+    inputFile = options.inputFile;
+    lightMode = options.lightMode;
+    app.showStats = options.showStats;
+    forceRegister = options.forceRegister;
+    cascadeWindow = options.cascade;
+    app.forceTabStrip = options.forceTabStrip;  // drag-out satellites keep the tab row
+    startInEditMode = options.startInEditMode;
+    quickNote = options.quickNote;
+    if (!options.printPagesDir.empty()) printPagesDir = toWide(options.printPagesDir);
+    if (!options.dumpChromePath.empty()) dumpChromePath = toWide(options.dumpChromePath);
+    if (!options.exportHtmlPath.empty()) exportHtmlPath = toWide(options.exportHtmlPath);
+    if (!options.exportDocxPath.empty()) exportDocxPath = toWide(options.exportDocxPath);
+    if (!options.exportPdfPath.empty()) exportPdfPath = toWide(options.exportPdfPath);
+    hasPos = options.hasPos;
+    posX = options.posX;
+    posY = options.posY;
+
+    // A BAD FLAG IS SAID OUT LOUD, and this comment used to say the opposite. What stood here
+    // claimed both vectors were unreportable because "this target is built with the WIN32 flag
+    // so it runs on the GUI subsystem and has no stderr to write to". That confuses NO CONSOLE
+    // with NO STDERR. A GUI-subsystem process is not given a console, but it inherits whatever
+    // standard handles its parent passes, so a redirect works normally. Measured rather than
+    // argued, on the sibling target, which is built WIN32 for the same reason: running
+    // `qinta.exe C:/definitely/not/a/file.md 2> err` captured its 50-byte "cannot open"
+    // message, and the same run against a real path captured 0 bytes -- so the channel exists
+    // and it is the message that varies, not the plumbing.
+    //
+    // So writing here costs nothing and is silent in the case that motivated the old comment:
+    // double-clicked from Explorer there is no handle, the write goes nowhere, and no window
+    // appears to nag about a typo. Redirected from a shell or a test, it is readable. That is
+    // strictly better than recording a typo in a vector nobody prints. A MESSAGE BOX would
+    // still be worse than silence -- that half of the old reasoning survives, and it is the
+    // half that was actually about judgement rather than about plumbing.
+    for (const std::string& flag : options.unknown) {
+        std::fprintf(stderr, "tinta: unknown option '%s'\n", flag.c_str());
+    }
+    for (const std::string& flag : options.missingValues) {
+        std::fprintf(stderr, "tinta: option '%s' needs a value\n", flag.c_str());
+    }
 
     // Single instance: a plain file launch joins the existing window as a
     // new tab (Win11 Notepad model). --new/--cascade windows and the
@@ -1630,9 +1659,14 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     askAndRegisterFileAssociation(savedSettings);
 
     if (lightMode) {
-        app.currentThemeIndex = 0;  // Paper (first light theme)
-        app.theme = THEMES[0];
-        app.darkMode = false;
+        // The index is kLightModeThemeIndex rather than a literal 0 because src/main_qt.cpp
+        // now makes the same selection, and "light means slot 0" typed in two files is the
+        // drift. darkMode is read OFF the theme instead of hardcoded false for the same
+        // reason: the old `= false` was correct only as long as slot 0 stays light, which is
+        // precisely the thing the constant exists to let somebody change.
+        app.currentThemeIndex = kLightModeThemeIndex;
+        app.theme = themeAt(kLightModeThemeIndex);
+        app.darkMode = app.theme.isDark;
     }
 
     // Create window with saved position/size
@@ -1649,43 +1683,59 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     wc.lpszClassName = L"Tinta";
     RegisterClassExW(&wc);
 
-    // Validate the saved window position against the monitors that exist
-    // NOW — a position saved on a since-disconnected screen (docked laptop,
-    // unplugged external monitor) would otherwise restore off-screen (#25)
-    int windowX = savedSettings.windowX;
-    int windowY = savedSettings.windowY;
-    if (windowX != CW_USEDEFAULT && windowY != CW_USEDEFAULT) {
-        RECT saved = { windowX, windowY,
-                       windowX + savedSettings.windowWidth,
-                       windowY + savedSettings.windowHeight };
-        HMONITOR monitor = MonitorFromRect(&saved, MONITOR_DEFAULTTONULL);
-        if (!monitor) {
-            // Fully off every live monitor: clamp into the nearest one
-            monitor = MonitorFromRect(&saved, MONITOR_DEFAULTTONEAREST);
+    // WHERE THE WINDOW GOES IS DECIDED IN src/window_placement.cpp, NOT HERE, and the split
+    // is between ENUMERATING the displays -- genuinely platform work, below -- and CHOOSING
+    // among them, which is arithmetic over rectangles and now has a test. What used to sit
+    // here was thirty-five lines doing both: the #25 clamp (a position saved on a
+    // since-disconnected screen would otherwise restore off-screen), the --pos override and
+    // the --cascade step, none of it reachable by anything because it was inside WinMain.
+    //
+    // MonitorFromRect SURVIVES, and its survival is the point of the boundary: it answers
+    // "which monitor" and only the OS can. What it is no longer allowed to do is decide.
+    std::vector<tinta::MonitorArea> monitors;
+    EnumDisplayMonitors(
+        nullptr, nullptr,
+        [](HMONITOR monitor, HDC, LPRECT, LPARAM out) -> BOOL {
             MONITORINFO mi = { sizeof(mi) };
-            if (monitor && GetMonitorInfoW(monitor, &mi)) {
-                const RECT& wa = mi.rcWork;
-                int width = std::min<int>(savedSettings.windowWidth, wa.right - wa.left);
-                int height = std::min<int>(savedSettings.windowHeight, wa.bottom - wa.top);
-                windowX = std::max<int>(wa.left, std::min<int>(windowX, wa.right - width));
-                windowY = std::max<int>(wa.top, std::min<int>(windowY, wa.bottom - height));
-            } else {
-                windowX = CW_USEDEFAULT;
-                windowY = CW_USEDEFAULT;
+            if (GetMonitorInfoW(monitor, &mi)) {
+                tinta::MonitorArea area;
+                area.bounds = { mi.rcMonitor.left, mi.rcMonitor.top,
+                                mi.rcMonitor.right - mi.rcMonitor.left,
+                                mi.rcMonitor.bottom - mi.rcMonitor.top };
+                area.work = { mi.rcWork.left, mi.rcWork.top,
+                              mi.rcWork.right - mi.rcWork.left,
+                              mi.rcWork.bottom - mi.rcWork.top };
+                reinterpret_cast<std::vector<tinta::MonitorArea>*>(out)->push_back(area);
             }
-        }
-    }
+            return TRUE;
+        },
+        reinterpret_cast<LPARAM>(&monitors));
 
-    // A window spawned for a newly created document steps down-right from
-    // the saved position so it does not cover the window that spawned it
-    if (hasPos) {
-        // Tab drag-out: appear under the drop point
-        windowX = posX;
-        windowY = posY;
-    } else if (cascadeWindow && windowX != CW_USEDEFAULT && windowY != CW_USEDEFAULT) {
-        windowX += 40;
-        windowY += 40;
-    }
+    tinta::PlacementRequest placement;
+    placement.savedX = savedSettings.windowX;
+    placement.savedY = savedSettings.windowY;
+    placement.savedWidth = savedSettings.windowWidth;
+    placement.savedHeight = savedSettings.windowHeight;
+    placement.cascade = cascadeWindow;
+    placement.hasPos = hasPos;
+    placement.posX = posX;
+    placement.posY = posY;
+
+    const tinta::WindowRect chosen = tinta::choosePlacement(placement, monitors);
+    // kWindowPositionUseDefault IS CW_USEDEFAULT -- app.h static_asserts it, which is what
+    // lets the sentinel cross the seam as a plain int and arrive here as the macro again.
+    const int windowX = chosen.x;
+    const int windowY = chosen.y;
+
+    // chosen.width/height ARE DISCARDED HERE, DELIBERATELY, AND IT PRESERVES A BUG.
+    // CreateWindowExW below is passed savedSettings.windowWidth/windowHeight, which is what
+    // shipped: the old code computed a shrunk size, used it to clamp the POSITION, and then
+    // created the window at the full saved size anyway -- so a window clamped into a smaller
+    // monitor comes back on-screen at the top-left and still overhangs the bottom-right.
+    // That is a real defect and it is NOT fixed in this commit, because this commit's claim
+    // is that placement behaviour is UNCHANGED; fixing it here would make that claim
+    // unfalsifiable by burying a behaviour change inside a refactor. The seam now returns the
+    // right size, so the fix is a two-line follow-up with a test already in place for it.
 
     // Only the primary window persists and restores the tab session;
     // deliberate offshoots (new-note windows, drag-outs) are satellites

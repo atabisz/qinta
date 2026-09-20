@@ -29,15 +29,21 @@ void updateWindowTitle(App& app);
 // Ctrl+N: spawns a second Tinta window on an untitled quick note.
 //
 // GUARDED, AND THE GUARD IS THE POINT. Defined in src/quicknote_win32.cpp, which
-// explains at length why there is no off-Windows half yet -- the flags it passes
-// have no parser in main_qt.cpp. Declaring it unconditionally would let a portable
+// explains at length why there is no off-Windows half yet -- one of the two flags it
+// passes cannot be honoured there. Declaring it unconditionally would let a portable
 // caller compile and then fail at link time, or worse, tempt a no-op half. Off
 // Windows the name does not exist, so a new caller there is a compile error at the
 // site that wants it, which is where the question actually needs answering.
 //
+// "the flags it passes have no parser in main_qt.cpp" stood here until 2026-09-21 and
+// is now false: src/launch_options.cpp is one parse called by both entry points, and
+// `--cascade` is honoured on the Qt arm. `--new` is refused by name, which is the
+// remaining blocker and a better one.
+//
 // launchDocumentWindow is the SAME DEFERRAL and shares the guard: it relaunches
-// with `--cascade --edit "<path>"`, so it is the third of the three sites that one
-// Qt-side parser plus Qt-side window state would unblock together.
+// with `--cascade --edit "<path>"`, so it is the third of the three sites that
+// Qt-side window and tab state would unblock together -- the parser half of that
+// sentence is delivered.
 #ifdef _WIN32
 void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);

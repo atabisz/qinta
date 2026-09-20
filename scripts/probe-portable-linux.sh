@@ -504,6 +504,23 @@ if [ -x "$BUILD_DIR/qinta" ] && command -v timeout > /dev/null 2>&1; then
         check 0 "CONTROL: a document that exists produces no 'cannot open', so the 124 above is a LOADED document and not a silent fallback"
     fi
 
+    # THE ASSERTION THAT WAS MISSING, AND ITS ABSENCE LET A DEFECT SHIP GREEN.
+    #
+    # The check above tests for the ABSENCE of a failure message, and there are two ways to
+    # produce that absence: load the document successfully, or never attempt the load at all.
+    # The second happened. src/launch_options.cpp classified `/tmp/...` as a flag on every
+    # platform -- the Windows `/register` convention lifted into portable code -- so the
+    # fixture path landed in `unknown`, no load was attempted, no 'cannot open' was printed,
+    # and this block reported two passes while the window came up EMPTY.
+    #
+    # An absence-assertion needs a second, positive witness or it cannot tell success from
+    # not-trying. This is that witness: the path was not merely un-failed, it was not REFUSED.
+    if grep -q 'unknown option' "$BUILD_DIR.qtlaunch.log"; then
+        check 1 "CONTROL: an existing document is not classified as an UNKNOWN OPTION ($(grep -m1 'unknown option' "$BUILD_DIR.qtlaunch.log") -- the load was never attempted, which is why the 'cannot open' check above passed)"
+    else
+        check 0 "CONTROL: an existing document reaches the load path rather than the unknown-option list, so the absence of 'cannot open' above means LOADED and not NOT-TRIED"
+    fi
+
     QT_QPA_PLATFORM=offscreen timeout 3 "$BUILD_DIR/qinta" "$qt_fixture.nope" \
         > "$BUILD_DIR.qtmissing.log" 2>&1
     qt_missing_rc=$?
@@ -517,6 +534,16 @@ if [ -x "$BUILD_DIR/qinta" ] && command -v timeout > /dev/null 2>&1; then
         check 0 "and says so on stderr -- the one branch of main() no unit test can reach"
     else
         check 1 "and says so on stderr (no 'cannot open' line in $BUILD_DIR.qtmissing.log)"
+    fi
+    # The same discrimination on the missing-path arm, for a different reason: here BOTH
+    # messages are refusals, so a reader could accept either as the pass. They are not
+    # interchangeable. 'cannot open' means the parse resolved the argument to a document and
+    # the OPEN failed; 'unknown option' means the parse never accepted it as a document at all.
+    # Only the first is the branch this arm claims to cover.
+    if grep -q 'unknown option' "$BUILD_DIR.qtmissing.log"; then
+        check 1 "and it is the OPEN that failed, not the parse ($(grep -m1 'unknown option' "$BUILD_DIR.qtmissing.log") -- a refusal from the wrong layer, so this arm covers the argument classifier and not main()'s load branch)"
+    else
+        check 0 "and it is the OPEN that failed rather than the parse, so the message comes from main()'s load branch and not the unknown-option list"
     fi
 
     rm -f "$qt_fixture"

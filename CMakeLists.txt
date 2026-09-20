@@ -393,6 +393,16 @@ set(SOURCES
     # settings.cpp through the test targets below, never through this list.
     src/settings_app.cpp
     src/settings_win32.cpp
+    # The window-placement decision, lifted out of WinMain so something can call it. Listed
+    # here rather than only in its test target because BOTH arms consume it: WinMain hands it
+    # the rectangles MonitorFromRect/GetMonitorInfoW produced, and src/main_qt.cpp hands it
+    # the ones QScreen produced. One decision, two enumerations.
+    src/window_placement.cpp
+    # The launch-option parse, for the same reason and with a sharper one: WinMain parses
+    # thirteen named options inline and src/main_qt.cpp parses NONE of them, so the two arms
+    # were not two parsers that agree -- they were one parser and one file that had never been
+    # told the options exist. Here so there is exactly one chain to edit.
+    src/launch_options.cpp
     src/keymap.cpp
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
@@ -800,6 +810,38 @@ set(QINTA_APP_SOURCES
     # rows.
     src/file_utils.cpp
     src/document.cpp
+    # THE LAUNCH SEQUENCE'S THREE FILES, and the LINKER added these too -- the paragraph
+    # above turns out to describe a repeating shape rather than one incident. src/main_qt.cpp
+    # now parses the command line, loads the four geometry fields, and decides where the
+    # window goes, so it needs all three, and all three came back as `unresolved external`
+    # in one link rather than from reading the includes.
+    #
+    # Worth noting WHICH three, because it is the argument for the seams existing: every one
+    # of them is already linked by the `tinta` target through ${SOURCES}. They are not new
+    # code with a new consumer, they are the SAME code with a second consumer, which is the
+    # thing that was impossible while the logic sat inside WinMain. window_placement.cpp is
+    # listed by the placement test target as well, and launch_options.cpp by its own -- so
+    # three targets link each, and a behaviour change has to satisfy all of them.
+    src/launch_options.cpp
+    src/window_placement.cpp
+    # The Qt arm's two launch steps -- Qt's screen list as a monitor list, and parsed options
+    # plus loaded settings as a PlacementRequest. Qt-only, so it is here and NOT in ${SOURCES};
+    # it exists at all so tests/qt_entry_tests.cpp can call the same two steps main() calls
+    # instead of a copy of them.
+    src/qt_launch.cpp
+    # settings.cpp for loadSettings() alone. Four fields are read off the result; the other
+    # twenty-six reach Windows-only consumers and are deliberately not applied, which
+    # src/main_qt.cpp's header comment states at the site rather than leaving to inference.
+    src/settings.cpp
+    # And keymap.cpp, which the linker demanded on the NEXT attempt: loadSettings() restores
+    # key bindings through keyProfileIndexById/keyIniName whether or not this entry point
+    # cares about key bindings, because a settings loader reads the whole file. THREE
+    # successive links to reach the closure of one call, which is the same lesson the
+    # file_utils/document paragraph above records -- so it is now recorded twice on purpose:
+    # "it compiles off Windows" and "it is already in ${SOURCES}" both say nothing about what
+    # a new consumer drags onto a DIFFERENT link line, and the only reliable instrument is
+    # the link itself.
+    src/keymap.cpp
     # The scroll policy, and the file dialog Ctrl+O opens. src/scroll.cpp is portable and
     # links off Windows; it holds the numbers src/input.cpp holds, in the one place both
     # stacks can reach, so the Qt window carries the translation from a QWheelEvent and
@@ -903,6 +945,39 @@ if(BUILD_TESTING)
     add_executable(geometry_tests tests/geometry_tests.cpp)
     target_include_directories(geometry_tests PRIVATE include)
     add_test(NAME geometry COMMAND geometry_tests)
+
+    # WHERE A WINDOW APPEARS, WHICH UNTIL NOW NOTHING COULD ASK. The decision lived in
+    # thirty-five lines inside WinMain -- validate the saved rect against the monitors that
+    # exist now, clamp it into the nearest work area if it is off all of them (issue #25),
+    # then let --pos override or --cascade offset. No test in this tree can call WinMain, so
+    # the #25 fix has been correct-by-inspection since it shipped.
+    #
+    # src/window_placement.cpp is in ${SOURCES}, so the six Windows targets already compile
+    # it; this target is what RUNS it, on either platform. Two libraries' worth of nothing:
+    # it needs no Qt, no windows.h and no display, because the function's only inputs are
+    # the rectangles it is handed.
+    add_executable(window_placement_tests
+        tests/window_placement_tests.cpp
+        src/window_placement.cpp
+    )
+    target_include_directories(window_placement_tests PRIVATE include)
+    add_test(NAME window_placement COMMAND window_placement_tests)
+
+    # WHAT A LAUNCH WAS ASKED FOR, which the two arms disagreed about by omission. Same shape
+    # as the target above and same absence of dependencies -- no Qt, no windows.h, no display,
+    # because argv is a vector of strings on every platform there is.
+    #
+    # The case this target exists for is a defect rather than a regression risk: as shipped,
+    # src/main_qt.cpp treats argv[1] as a document path, so `tinta --light a.md` opens nothing
+    # and reports that it cannot find a file called "--light". The census at the bottom of the
+    # test is the other half -- it walks every option spelling WinMain accepts and fails if the
+    # shared parse does not know one, so a fourteenth option added to one arm is caught here.
+    add_executable(launch_options_tests
+        tests/launch_options_tests.cpp
+        src/launch_options.cpp
+    )
+    target_include_directories(launch_options_tests PRIVATE include)
+    add_test(NAME launch_options COMMAND launch_options_tests)
 
     # The platform path seam, plus config_dir.cpp itself. config_dir.cpp is in
     # this target deliberately: it is the first file moved off app.h, and the
@@ -2608,6 +2683,13 @@ if(BUILD_TESTING)
         if(Qt6Widgets_FOUND)
             add_executable(qt_entry_tests
                 tests/qt_entry_tests.cpp
+                # ISC-17's Win32 half: EnumDisplayMonitors/GetMonitorInfoW, the enumeration
+                # src/main_d2d.cpp places windows over, so run 20 can compare it against
+                # tinta::monitorsFromQt(). Its own TU because <windows.h>'s macro set is hostile
+                # to anything included after it and qt_entry_tests.cpp is 2,000 lines of Qt. It
+                # is in NO other target and NOT in ${QINTA_APP_SOURCES}: it is a test instrument,
+                # and compiling it into the app would ship a second monitor enumeration.
+                tests/win32_monitor_dump.cpp
                 ${QINTA_APP_SOURCES}
             )
             target_include_directories(qt_entry_tests PRIVATE

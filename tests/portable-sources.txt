@@ -348,21 +348,29 @@ text_formats_app.cpp
 #     unbuildable off Windows for one function nothing but the Direct2D initialiser used.
 #   * launchQuickNoteWindow -- moved to src/quicknote_win32.cpp, which must never appear
 #     here. This is what needed shellapi.h. There is no Qt half and that is deliberate:
-#     it re-launches the executable with `--cascade --new`, and src/main_qt.cpp parses a
-#     file argument and nothing else, so a Qt half would open a plain window in the wrong
-#     place and report success.
+#     it re-launches the executable with `--cascade --new`, and `--new` cannot be honoured
+#     on the Qt arm, so a Qt half would open a window and decline to make it a quick note.
 #
-#     THAT FRAMES THE BLOCKER AS PARSING AND IT IS NOT, corrected here 2026-09-19 in the
-#     same pass as the comment it was copied from (src/quicknote_win32.cpp). A parser is
-#     necessary and nowhere near sufficient: src/main_qt.cpp has no menus, no tabs, no
-#     input and no settings load, so there is no window, tab or placement state for
-#     `--cascade`, `--new`, `--tabbed` or `--pos` to reach. A parser written today would
-#     parse flags nothing can honour. The chain is parser -> Qt window/tab/placement
-#     state -> process seam, and the middle link is src/input.cpp, 4,361 lines, fatal on
-#     windowsx.h -- and notably scoring ZERO under the README's native-mention pattern,
-#     so it is a windowing port and not a Direct2D one. Read the full argument at the
-#     comment in src/quicknote_win32.cpp; this copy exists because the claim was here too
-#     and a correction remembered in one place is a correction half made.
+#     THIS BLOCK HAS NOW BEEN CORRECTED TWICE AND THE SECOND CORRECTION REFUTES PART OF THE
+#     FIRST. 2026-09-19 it read "src/main_qt.cpp parses a file argument and nothing else, so
+#     a Qt half would open a plain window in the wrong place and report success", and the
+#     first correction answered that framing the blocker as PARSING understated it, because
+#     there was no window, tab or placement state for `--cascade`, `--new`, `--tabbed` or
+#     `--pos` to reach. 2026-09-21: the parsing half is delivered -- src/launch_options.cpp
+#     is ONE parse called by both entry points -- and the reaching half was right about two
+#     of those four flags, not all four. `--cascade` and `--pos` now reach real Qt window
+#     state and are tested against read-back geometry. `--new` and `--tabbed` still reach
+#     nothing and are refused BY NAME instead of accepted, so the silent success this block
+#     kept warning about is the one thing that can no longer happen here.
+#
+#     What still stands: the chain is parser -> Qt window/tab/placement state -> process
+#     seam, and the middle link is src/input.cpp, now 4,394 lines reading `fatal 0,
+#     errors 98` rather than fatal on windowsx.h -- and still scoring ZERO under the
+#     README's native-mention pattern, so it is a windowing port and not a Direct2D one.
+#     Read the full argument at the comment in src/quicknote_win32.cpp; this copy exists
+#     because the claim was here too and a correction remembered in one place is a
+#     correction half made -- which is why this file is being corrected a second time
+#     rather than left at a wording that was accurate for two days.
 #   * the rest -- two binary searches over layout buckets, a title string, a link click, a
 #     path canonicalisation -- which never needed Windows and is what is on this line.
 #
@@ -1045,22 +1053,78 @@ scrollbar.cpp
 # QtAppWindow::documentPainted(). That predicate exists because both branches draw dark
 # text on the theme background, so a pixel test with no way to tell them apart would
 # report the PLACEHOLDER as a rendered document.
-# That list is measured too, and RE-MEASURED 2026-09-20 rather than trusted: 16 of the 17
-# src/ files outside this manifest fail a syntax-only non-Windows compile, on 9 distinct
-# first causes. README.md carries it. src/settings_app.cpp is the 17th -- it compiles off
-# Windows already, and the probe asserts it is NOT built, which is a deliberate exclusion
-# rather than a Windows dependency.
+# That list is measured too, and RE-MEASURED 2026-09-21 rather than trusted: 17 of the 18
+# src/ files outside this manifest fail a syntax-only non-Windows compile, on 10 distinct
+# first causes -- 7 on windows.h, 2 on d2d1.h, and one each on windowsx.h, shellapi.h,
+# objbase.h, dwrite.h, commdlg.h, an undeclared WM_SETTINGCHANGE, and the two deliberate
+# `#error` backstops in text_d2d.cpp and render_d2d.cpp. src/settings_app.cpp is the 18th
+# -- it compiles off Windows already, and the probe asserts it is NOT built, which is a
+# deliberate exclusion rather than a Windows dependency.
 #
-# THE FIGURE THIS REPLACES WAS "23 OF THE 24 ... ON 12 DISTINCT FIRST CAUSES", and it had
-# been wrong for longer than one slice: 77 src/*.cpp minus 60 manifest entries is 17, and
-# it read 18 before export_docx.cpp joined below, so the "24" never matched the census this
-# sentence describes. Two counts drift here for different reasons and only one of them is
-# obvious -- entries are ADDED to this manifest, which anyone editing it notices, and files
-# are added to src/, which nobody editing this line does. Derive both sides or state
-# neither.
+# THIS SENTENCE HAS NOW BEEN WRONG TWICE AND THE SECOND TIME IT DRIFTED THE OTHER WAY.
+# It read "23 OF THE 24 ... ON 12 DISTINCT FIRST CAUSES" and was over by seven: 77
+# src/*.cpp minus 60 manifest entries is 17, and it read 18 before export_docx.cpp joined
+# below, so the "24" never matched the census it describes. Corrected to "16 of the 17 on
+# 9" on 2026-09-20, which was right that day and under by one within the same week --
+# src/chrome_dump_d2d.cpp arrived in src/ and nothing here noticed, which is precisely the
+# asymmetry the next sentence names. Two counts drift here for different reasons and only
+# one of them is obvious -- entries are ADDED to this manifest, which anyone editing it
+# notices, and files are added to src/, which nobody editing this line does. Derive both
+# sides or state neither.
+#
+# "README.md carries it" ALSO STOOD HERE AND IS FALSE: `rg` finds no census figure in
+# README.md at all. That clause was a doc-path claim nobody probed -- the figure gate
+# derives its own numbers from line counts and has never published this census -- so
+# deleting it removes a reader's reason to trust a second copy that does not exist.
+# Both sides above are derived by:
+#   ls src/*.cpp | wc -l
+#   grep -c '^[a-z_0-9]*\.cpp$' tests/portable-sources.txt
+#   ./scripts/census-nonportable-linux.sh   (reads `clean: N   fails: N` and the cause list)
 qt_init.cpp
 qt_window.cpp
 main_qt.cpp
+
+# --- The launch CONVENTION: three files neither arm owns -----------------------
+#
+# A FOURTH KIND OF ENTRY, and the distinction is the reason these three are not folded
+# into the section above. Those files are the Qt frontend. These are shared BY BOTH
+# ARMS -- WinMain in src/main_d2d.cpp calls every one of them -- so they are not a
+# portability repair and not part of what replaces the Direct2D entry point either.
+# They are the shape include/win32_command_line.h named: an algorithm over values,
+# which is neither a type that can be stood in for nor a call that cannot be.
+#
+# launch_options.cpp is the ONE parse. It reads thirteen options in sixteen spellings,
+# and both entry points call it, which is its whole point -- two if/else chains that
+# agree today are two that disagree later. It replaced a loop inside WinMain that
+# promoted an unrecognised flag to a FILENAME and then dropped the real filename, so
+# `tinta --light notes.md` opened nothing; tests/launch_options_tests.cpp opens with
+# that case. LINKED AND RUN off Windows.
+#
+# window_placement.cpp is the placement DECISION -- validate a saved rectangle against
+# the monitors that exist now, clamp it into the nearest work area if it is fully
+# off-screen, then let --pos override absolutely or --cascade offset it. It was ~35
+# lines inside WinMain, which is why the #25 clamp had been correct-by-inspection for
+# its whole life and why extracting it FOUND A SHIPPED DEFECT: the shrunk size was
+# computed, used to clamp the position, and then thrown away. window_placement_tests
+# runs it off Windows, including a saved window on a monitor that no longer exists.
+#
+# qt_launch.cpp is the Qt arm's half of the same convention: the screen list Qt
+# reports, and the two apply functions main_qt.cpp calls to place and colour its
+# window. Those two are here rather than inside main() for a reason this tree has paid
+# for before -- a test holding its own copy of `resize(); if (not sentinel) move();`
+# cannot fail on a defect planted in main()'s copy. tests/qt_entry_tests.cpp calls the
+# same functions main_qt.cpp does.
+#
+# Its Win32 counterpart has no file: monitor ENUMERATION stays platform work and lives
+# in src/main_d2d.cpp, because MonitorFromRect and QScreen::availableGeometry are
+# genuinely different calls returning the same kind of value. Only the DECISION moved.
+# tests/win32_monitor_dump.cpp is the test instrument that compares the two
+# enumerations and must never appear here: it is a TEST file, in one target, and it is
+# not in ${QINTA_APP_SOURCES} -- compiling it into the app would ship a second monitor
+# enumeration, which is the defect it exists to detect.
+launch_options.cpp
+window_placement.cpp
+qt_launch.cpp
 
 # overlays.cpp. THE LARGEST FILE IN THIS MANIFEST -- 4,140 lines, ahead of render.cpp --
 # and it is here for the narrowest of the three readings this manifest can carry. Being

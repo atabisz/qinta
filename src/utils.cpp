@@ -14,9 +14,11 @@
 //
 //   1. measureText(IDWriteTextFormat*) -- a DirectWrite function whose only four
 //      callers are in d2d_init.cpp. Moved there. It is why this file needed dwrite.h.
-//   2. launchQuickNoteWindow -- a self-relaunch passing flags only WinMain parses.
-//      Moved to src/quicknote_win32.cpp, which explains why its Qt half is deferred
-//      rather than written. It is why this file needed shellapi.h.
+//   2. launchQuickNoteWindow -- a self-relaunch passing one flag the Qt arm honours and
+//      one it refuses by name. Moved to src/quicknote_win32.cpp, which explains why its
+//      Qt half is deferred rather than written. It is why this file needed shellapi.h.
+//      ("flags only WinMain parses" stood here until 2026-09-21; there is one shared
+//      parse now, src/launch_options.cpp, and the blocker is `--new`, not the parsing.)
 //   3. Everything below, which never needed either: two binary searches over layout
 //      buckets, a title string, a link click, and a path canonicalisation.
 //

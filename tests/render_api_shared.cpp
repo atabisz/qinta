@@ -2321,11 +2321,18 @@ int runRenderApiAssertions(RenderHarness& h) {
         // target, and a transform reaching one does not prove it reaches the other. The
         // composition is what the port rests on, so the composition is what is asserted.
         //
-        // And `src/print.cpp` cannot be reached from any test: it appears exactly once in
-        // CMakeLists.txt, in the application target, so no test binary compiles
-        // `renderPeekBitmap` itself. This is the closest arm that exists -- the same two
-        // seam calls in the same order with the same arguments -- and the gap is stated
-        // rather than implied.
+        // And `renderPeekBitmap` itself is not reached from any test. THE REASON GIVEN HERE
+        // WAS WRONG UNTIL 2026-09-20: it read "`src/print.cpp` cannot be reached from any
+        // test: it appears exactly once in CMakeLists.txt, in the application target, so no
+        // test binary compiles `renderPeekBitmap` itself." SIX targets compile that file --
+        // it is in `set(SOURCES)`, re-used as `INPUT_TEST_SOURCES` minus `src/main_d2d.cpp`
+        // alone, so `input_tests`, `file_path_tests`, `code_block_layout_tests`,
+        // `blockquote_layout_tests` and `theme_tests` all link it alongside the app. What is
+        // true is that none of them CALLS it, and that THIS file's two targets
+        // (`render_api_tests`, `render_d2d_tests`) are not among the six, so the assertion
+        // below genuinely cannot reach the real body. Compiled is not covered. This is still
+        // the closest arm that exists -- the same two seam calls in the same order with the
+        // same arguments -- and the gap is stated rather than implied.
         {
             constexpr uint32_t kPeekW = 64, kPeekH = 64;
             constexpr float kDip = 10.0f;  // a DIP rect 0..10 must cover px 0..20 at 2x

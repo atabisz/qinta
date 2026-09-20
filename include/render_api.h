@@ -225,10 +225,17 @@
 //         either half wrong is silent -- a peek at half size in the corner of a
 //         blank panel, or the right pixels at twice the intended DIP extent -- so
 //         both are asserted in tests/render_api_shared.cpp on both backends, with
-//         the unscaled draw as the control. That is the CLOSEST arm that exists
-//         and not a direct one: src/print.cpp appears exactly once in
-//         CMakeLists.txt, in the application target, so no test binary compiles
-//         renderPeekBitmap itself.
+//         the unscaled draw as the control. That is the CLOSEST arm that exists and
+//         not a direct one -- but the reason written here was wrong until 2026-09-20.
+//         It read: "src/print.cpp appears exactly once in CMakeLists.txt, in the
+//         application target, so no test binary compiles renderPeekBitmap itself."
+//         SIX targets compile that file: it is in set(SOURCES), and CMakeLists re-uses
+//         SOURCES as INPUT_TEST_SOURCES minus src/main_d2d.cpp alone, so five test
+//         binaries carry it besides the app. What makes this arm indirect is not the
+//         build but the coverage -- none of those six calls renderPeekBitmap, and the
+//         two targets holding these assertions do not compile the file at all.
+//         Compiled is not covered, and a count of a file's appearances in CMakeLists'
+//         TEXT says nothing about how many TARGETS consume it.
 //         WHAT THIS DOES NOT BUY: src/print.cpp is still not portable and still
 //         not in basis B's manifest -- ID2D1PrintControl, DEVMODE and the printer
 //         dialog stay. One Direct2D-terminal BODY and this seam's second caller is

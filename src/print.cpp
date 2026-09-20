@@ -1125,9 +1125,19 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // named.
     //
     // NOT TESTED, AND SAID RATHER THAN IMPLIED, which is the mistake the old comment made:
-    // src/print.cpp appears once in CMakeLists.txt, in the application target, so no test
-    // binary compiles this function and there is no arm that fails if this guard is
-    // deleted. What replaces the test is a shape a reader can check, and the check has to
+    // there is no arm that fails if this guard is deleted. THE REASON GIVEN HERE WAS WRONG
+    // UNTIL 2026-09-20 and it was wrong about the build, not about the coverage. It read:
+    // "src/print.cpp appears once in CMakeLists.txt, in the application target, so no test
+    // binary compiles this function". SIX targets compile this file. It sits in
+    // set(SOURCES), which CMakeLists.txt re-uses as INPUT_TEST_SOURCES minus src/main_d2d.cpp
+    // alone -- so the tinta app plus input_tests, file_path_tests, code_block_layout_tests,
+    // blockquote_layout_tests and theme_tests all compile and LINK it, and a compile error in
+    // here reds five test binaries as well as the app. What survives is the narrower claim,
+    // which is the one the paragraph below actually needs: none of those six CALLS this
+    // function, and the two targets that do hold the seam's assertions
+    // (render_api_tests, render_d2d_tests) do not compile this file at all. Compiled is not
+    // covered, and "appears once in CMakeLists" was a claim about the TEXT read as a claim
+    // about the TARGETS. What replaces the test is a shape a reader can check, and the check has to
     // be stated precisely because the body below DOES write all four -- borrowing them is
     // the whole point. The property is that each saved value is written BACK exactly once,
     // in this destructor, and no other statement in the function restores anything: there

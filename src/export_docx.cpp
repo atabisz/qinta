@@ -37,6 +37,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
 #include <map>
 #include <memory>
@@ -184,7 +185,11 @@ std::string hexOver(tinta::Color c, tinta::Color background) {
 }
 
 bool readBinaryFile(const std::wstring& path, std::string& out) {
-    std::ifstream in(path, std::ios::binary);
+    // fs::path, not the bare wstring: claim C58. This file is FATAL on objbase.h in the
+    // Linux census, so g++ cannot reach these three sites to report them -- they were
+    // classified from the signature and verified through a stubbed read, not from a
+    // census row. A class that is invisible to the instrument is still present.
+    std::ifstream in(std::filesystem::path(path), std::ios::binary);
     if (!in) return false;
     std::ostringstream ss;
     ss << in.rdbuf();
@@ -1466,7 +1471,7 @@ bool exportDocxFile(App& app, const std::wstring& path) {
     }
     std::string package = zip.finish();
 
-    std::ofstream out(path, std::ios::binary);
+    std::ofstream out(std::filesystem::path(path), std::ios::binary);
     if (!out) return false;
     out.write(package.data(), package.size());
     return out.good();
@@ -1533,7 +1538,7 @@ bool clipboardImageToPngFile(const std::wstring& path) {
     if (!image.ok) return false;
     std::string png = tinta::encodePng(image);
     if (png.empty()) return false;
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::ofstream out(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
     if (!out) return false;
     out.write(png.data(), (std::streamsize)png.size());
     return out.good();

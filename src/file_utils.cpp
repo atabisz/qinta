@@ -189,12 +189,38 @@ void populateFolderItems(App& app) {
 //     std::wstring widePath = toWide(path);
 //     std::ifstream file(widePath);          // <-- MSVC extension, no POSIX spelling
 //
-// Constructing a stream directly from a std::wstring is a Microsoft extension; it is
-// one of the twenty sites C58 still owns and it does not compile off Windows. Going
-// through std::filesystem::path first is STANDARD C++17 and portable, and it keeps the
-// wide path all the way to the OS on Windows, so non-ASCII filenames still open --
-// which is the property the extension was there for and the reason the sites cannot
-// simply be narrowed to std::string. Every remaining C58 site can take this shape.
+// Constructing a stream directly from a std::wstring is a Microsoft extension; it does
+// not compile off Windows. Going through std::filesystem::path first is STANDARD C++17
+// and portable, and it keeps the wide path all the way to the OS on Windows, so
+// non-ASCII filenames still open -- which is the property the extension was there for
+// and the reason the sites cannot simply be narrowed to std::string. Every remaining C58
+// site can take this shape.
+//
+// THE FIGURE THAT STOOD HERE -- "one of the twenty sites C58 still owns" -- WAS NEVER A
+// COUNT OF SITES, and this is C58's derived population, taken 2026-09-20. The tree
+// carried "twenty" in three places and "22" in two, and BOTH UNDERSTATED, which is the
+// dangerous direction: a low number reads as nearly-finished work. Classifying every
+// stream construction under src/ and include/ outside the Qt backends by its argument
+// type gives 33 constructions = 19 already portable (16 through fs::path, 3 taking a
+// narrow string or a path already) + 14 live C58.
+//
+// WHY THE TRACKED FIGURES COULD NOT HAVE BEEN RIGHT: 9 of those 14 sat behind a FATAL
+// include, so a figure read off compiler output was structurally unable to see them.
+// input.cpp was itself a fatal census row until 2026-09-20 (5 sites), export_docx.cpp is
+// fatal on objbase.h (3) and print.cpp on commdlg.h (1). Hence the rule this derivation
+// follows: THE SOURCE IS THE DENOMINATOR AND THE COMPILER IS THE CROSS-CHECK, never the
+// reverse. Measured, not feared -- one site in pandoc.cpp was masked even in a file g++
+// could read, because an unrelated error on its path variable's own declaration
+// suppressed the diagnostic on its use.
+//
+// C58 IS NOW CLOSED IN EVERY FILE DESTINED TO BE PORTABLE. The 11 live sites in
+// input.cpp, pandoc.cpp, export_docx.cpp and print.cpp were fixed on 2026-09-20. THREE
+// REMAIN, each for a stated reason rather than because nobody counted it: main_d2d.cpp's
+// loadFile above, which the Qt cutover deletes; image_win32.cpp's, paired with
+// image_qt.cpp through CMake's PLATFORM_IMAGE_SOURCE so it is never compiled off
+// Windows, and documented as per-backend at the site; and chrome_dump_d2d.cpp's, which
+// goes with the D2D backend. Re-derive rather than quote: the classification is a grep
+// for stream constructions plus a read of each argument's declared type.
 //
 // ANNOTATIONS ARE STILL DELIBERATELY NOT PARSED HERE, and the paragraph that used to
 // sit here PREDICTED THE WRONG TRIGGER, so it is corrected in place rather than

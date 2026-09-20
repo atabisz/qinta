@@ -739,7 +739,17 @@ mermaid_uml.cpp
 # src/text_utils.cpp so that an off-Windows link did not have to resolve it out of
 # the largest Windows-only file in the tree. The remaining 4 compile errors were
 # one cause: two wide-path fstream constructions, an MSVC extension libstdc++
-# rejects, which are 2 of the 22 sites tracked as C58.
+# rejects, which are 2 of the sites tracked as C58.
+#
+# THAT SENTENCE READ "2 of the 22 sites tracked as C58" UNTIL 2026-09-20, and 22 was not
+# a count of sites -- it was a count of the sites an instrument could SEE. Derived that
+# day: 33 stream constructions under src/ and include/ outside the Qt backends, 19
+# already portable, 14 live C58, of which 9 sat behind a fatal include and so could never
+# have appeared in a compiler-derived figure. The 11 in portable-destined files were
+# fixed the same day; the 3 left are in main_d2d.cpp, image_win32.cpp and
+# chrome_dump_d2d.cpp, which the cutover deletes or which are per-backend by design.
+# The full derivation, including why the compiler is the cross-check and not the
+# denominator, is in src/file_utils.cpp above loadDocumentFromPath.
 #
 # WHAT IS NOT COVERED, stated here rather than left to a green run. Six symbols
 # are STUBBED in the test because their definitions are still Windows-only:

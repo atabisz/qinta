@@ -47,6 +47,7 @@
 // CreateThread, GetTempPathW, GetCurrentProcessId, DeleteFileW, swprintf_s and
 // _countof. That is a PROCESS seam, not a paths one, and it is the next slice.
 
+#include <filesystem>
 #include <fstream>
 #include <string>
 
@@ -226,12 +227,19 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
         std::string md = app.editMode ? toUtf8Str(app.editorText)
                                       : std::string();
         if (md.empty() && !app.currentFile.empty()) {
-            std::ifstream in(toWideStr(app.currentFile),
+            std::ifstream in(std::filesystem::path(toWideStr(app.currentFile)),
                              std::ios::binary);
             md.assign(std::istreambuf_iterator<char>(in),
                       std::istreambuf_iterator<char>());
         }
-        std::ofstream outFile(tempFile, std::ios::binary);
+        // THIS SITE WAS INVISIBLE TO THE COMPILER, and the reason is worth keeping.
+        // MAX_PATH does not exist off Windows, so the `wchar_t tempFile[MAX_PATH]`
+        // declaration above is itself an error, tempFile never gets a usable type, and
+        // g++ emits NOTHING for this construction -- an unrelated error masks the C58
+        // diagnostic on its use. Measured: supplying -DMAX_PATH=260 and changing nothing
+        // else moved this file's C58 site list from :230 alone to :230 and here. A
+        // wchar_t array is no more portable than a wstring; only fs::path is.
+        std::ofstream outFile(std::filesystem::path(tempFile), std::ios::binary);
         if (!outFile) return;
         outFile.write(md.data(), (std::streamsize)md.size());
     }

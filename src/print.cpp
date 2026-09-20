@@ -13,6 +13,7 @@
 #include "render_api.h"
 #include "render_d2d.h"
 
+#include <filesystem>
 #include <fstream>
 #include <memory>
 #include <sstream>
@@ -1021,7 +1022,11 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // app.renderTarget rather than app.deviceContext now: the raster goes through the seam,
     // which needs a live tinta::RenderTarget only to reach that backend's own factories.
     if (!app.renderTarget || !app.root) return nullptr;
-    std::ifstream file(path);
+    // Named, not inline -- most vexing parse. C58's last site in a portable-destined
+    // file; this one is behind a FATAL commdlg.h in the census, so it was classified
+    // from renderPeekBitmap's own `const std::wstring& path` rather than from g++.
+    const std::filesystem::path peekPath(path);
+    std::ifstream file(peekPath);
     if (!file) return nullptr;
     std::stringstream buffer;
     buffer << file.rdbuf();

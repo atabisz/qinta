@@ -269,7 +269,14 @@ void handleSelectScrollTimer(App& app, HWND hwnd) {
 // Loads a document into the viewer and resets per-document state.
 // Shared by the folder browser's item clicks, path input, and new-file flow.
 bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
-    std::ifstream file(fullPath);
+    // Named on its own line rather than wrapped inline, because
+    // `std::ifstream file(std::filesystem::path(fullPath))` is C++'s most vexing parse --
+    // it declares a FUNCTION taking a path, and the `if (!file)` below would then test a
+    // function pointer and never fire. Same shape as writeSettingsIni in settings.cpp.
+    // The bare wstring this replaces is claim C58: an MSVC extension libstdc++ has no
+    // constructor for, and it was this file's FIRST census cause at 98 errors.
+    const std::filesystem::path docPath(fullPath);
+    std::ifstream file(docPath);
     if (!file) return false;
     std::stringstream buffer;
     buffer << file.rdbuf();
@@ -580,7 +587,9 @@ static void openThemesIniFile() {
     if (slash == std::wstring::npos) return;
     p = p.substr(0, slash + 1) + L"themes.ini";
     if (GetFileAttributesW(p.c_str()) == INVALID_FILE_ATTRIBUTES) {
-        std::ofstream f(p);
+        // Named, not inline -- most vexing parse; see openDocumentInViewer above.
+        const std::filesystem::path themesPath(p);
+        std::ofstream f(themesPath);
         f << "; Custom themes: [theme] sections, RRGGBB colors.\n";
     }
     platform::openInDefaultApplication(configFilePathForShell(p));
@@ -2461,7 +2470,7 @@ static const App::TaskRect* taskRectAt(const App& app) {
 static void toggleTaskOnDisk(App& app, HWND hwnd, size_t markOffset, bool wasChecked) {
     if (app.currentFile.empty()) return;
     std::wstring widePath = toWide(app.currentFile);
-    std::ifstream in(widePath, std::ios::binary);
+    std::ifstream in(std::filesystem::path(widePath), std::ios::binary);
     if (!in) return;
     std::string disk((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     in.close();
@@ -2481,7 +2490,7 @@ static void toggleTaskOnDisk(App& app, HWND hwnd, size_t markOffset, bool wasChe
     }
     disk[diskPos] = checked ? ' ' : 'x';
 
-    std::ofstream out(widePath, std::ios::binary | std::ios::trunc);
+    std::ofstream out(std::filesystem::path(widePath), std::ios::binary | std::ios::trunc);
     if (!out) return;
     out.write(disk.data(), (std::streamsize)disk.size());
     out.close();
@@ -4371,8 +4380,9 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
         CloseHandle(h);
         if (CompareFileTime(&ft, &app.lastFileWriteTime) != 0) {
             app.lastFileWriteTime = ft;
-            // Reload file
-            std::ifstream file(widePath);
+            // Reload file. Named path, not inline -- most vexing parse, as above.
+            const std::filesystem::path reloadPath(widePath);
+            std::ifstream file(reloadPath);
             if (file) {
                 std::stringstream buffer;
                 buffer << file.rdbuf();

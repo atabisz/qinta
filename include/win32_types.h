@@ -63,7 +63,9 @@
 // here anyway because a census of the SOURCE finds 9 uses of it, in files that
 // currently die at a missing header before the compiler ever reaches them. Nothing
 // else was added: DWORD, INT32, UINT8, UINT16 and UINT64 appear in NO error on any
-// file, so declaring them would be a claim with nothing behind it.
+// file, so declaring them would be a claim with nothing behind it. (DWORD: SPENT
+// 2026-09-20, corrected two paragraphs down. INT32, UINT8, UINT16 and UINT64 still
+// hold.)
 //
 // UINT was on that list and is CORRECTED IN PLACE rather than removed, because the
 // sentence went stale in the interesting direction: UINT later showed up in two
@@ -73,6 +75,28 @@
 // the two struct members `unsigned`, matching tinta::DecodedImage, which is where
 // their values come from. A type appearing in an error is necessary for admitting it
 // here and not sufficient.
+//
+// DWORD was on that list too, and it is CORRECTED IN PLACE on the same rule and for a
+// sharper reason. The sentence above said DWORD appears in no error on any file; on
+// 2026-09-20 it was `src/pandoc.cpp`'s FIRST reported cause, and the reason it had been
+// invisible is that pandoc.cpp used to die at <shlobj.h> before the compiler read a
+// single line of it. **DWORD WAS STILL NOT ADDED.** `unsigned long` covers it
+// completely, so it fails the standard-already-covers-it bar exactly as UINT did -- but
+// the decisive argument is what its one appearance WAS. It was the return type of
+// `DWORD WINAPI pandocWorker(LPVOID param)`, a Win32 thread callback, and the
+// process-seam slice DELETED that signature: threading is standard C++ and the worker is
+// an ordinary `void(PandocJob*)` now. Standing in for DWORD would have let a Win32
+// callback shape keep compiling off Windows, which is the "it looked like it worked"
+// failure this file's other rule exists to prevent.
+//
+// AND THERE IS A SECOND-ORDER COST TO ADMITTING A TYPE HERE THAT THIS HEADER HAD NOT
+// WRITTEN DOWN: a stand-in makes a declaration PARSE, and a declaration that parses
+// stops masking the diagnostics on its own body. Measured on pandoc.cpp -- supplying
+// only its five declaration types through -include, changing nothing else, took the
+// census from 12 errors on 9 lines to 19 on 16, surfacing nine Win32 names the census
+// had never named. So a type admitted here can make a file's census reading GROW, and
+// that growth is a better measurement rather than a regression. The reading to distrust
+// is the small one.
 //
 // Deliberately NOT here, and this is the load-bearing omission: HRESULT, SUCCEEDED,
 // FAILED and S_OK. Supplying them was measured too, and it buys 9 errors out of 359

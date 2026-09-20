@@ -214,6 +214,30 @@ else()
     set(PLATFORM_CLIPBOARD_LIBS Qt6::Core Qt6::Gui)
 endif()
 
+# The PROCESS seam -- the sixth -- added 2026-09-20 for src/pandoc.cpp, which was the
+# last file in the census whose Win32 surface was a set of CALLS rather than a fatal
+# include. include/platform_process.h states why this is a seam at all rather than an
+# entry in win32_api.h: a member of THAT header is a no-op or an honest failure off
+# Windows ("NOTHING HERE PRETENDS TO WORK", win32_api.h:17), and a pandoc export has to
+# genuinely run on Linux. win32_types.h is no home either -- it refuses functions.
+#
+# THE QT ARM NEEDS Qt6::Core AND NOTHING MORE, which is worth stating because every
+# other seam here needed Gui or Widgets as well. QProcess and QCoreApplication are both
+# Core classes, so the one seam that spawns a program is the cheapest of the six to link
+# -- there is no GUI in running a child process.
+#
+# The Windows arm names no library for the same reason ${PLATFORM_CLIPBOARD_LIBS} is
+# empty: CreateProcessW, WaitForSingleObject, TerminateProcess, GetExitCodeProcess and
+# GetCurrentProcessId are all kernel32, which every Windows link gets by default. The
+# variable exists anyway so a target can list it unconditionally.
+if(WIN32)
+    set(PLATFORM_PROCESS_SOURCE src/platform_process_win32.cpp)
+    set(PLATFORM_PROCESS_LIBS "")
+else()
+    set(PLATFORM_PROCESS_SOURCE src/platform_process_qt.cpp)
+    set(PLATFORM_PROCESS_LIBS Qt6::Core)
+endif()
+
 # The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
 # on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
 # DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
@@ -365,6 +389,9 @@ set(SOURCES
     # in src/export_docx.cpp -- src/utils.cpp's copyToClipboard, src/input.cpp's
     # clipboardLine and src/editor.cpp's two file-local helpers are all gone.
     ${PLATFORM_CLIPBOARD_SOURCE}
+    # The process seam. src/pandoc.cpp is its only caller in the app and there is no
+    # second one planned -- the mermaid and math paths render in-process.
+    ${PLATFORM_PROCESS_SOURCE}
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
@@ -1591,6 +1618,26 @@ if(BUILD_TESTING)
         # HWND parameter -- portable already, since win32_types.h forward-declares the
         # handle type. What is not linkable is the icon arm's Win32/WIC calls.
         src/startpage.cpp
+        # src/pandoc.cpp -- COMPILE-ONLY, for the same class of reason as
+        # src/annotations.cpp at the top of this list and NOT because anything in it is
+        # still Windows-shaped. The process seam (include/platform_process.h) took its
+        # last Win32 call on 2026-09-20, so a non-Windows compiler now reads the whole
+        # file including pandocWorker's body, which it never could before: that function
+        # was declared `DWORD WINAPI pandocWorker(LPVOID)` and failed at its signature,
+        # so g++ reported nothing whatever about the eleven calls inside it.
+        #
+        # WHAT KEEPS IT OUT OF ${QINTA_APP_SOURCES} is a link closure and one honest gap.
+        # pandocExportFlow calls editorReparse in src/editor.cpp, which is
+        # windows.h/imm.h-fatal, so the file cannot link into qinta at all yet. And even
+        # once it could, the worker's last act is postWindowMessage(hwnd,
+        # WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
+        # include/win32_api.h's stated design -- the conversion would run and finish and
+        # the UI would never be told. Delivering that needs the Qt window-message seam,
+        # which is its own slice and is where the HWND in PandocJob goes.
+        #
+        # So the claim this line makes is exactly the one tests/portable-sources.txt
+        # makes and no more: a non-Windows compiler accepts the file every build.
+        src/pandoc.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.
@@ -2141,6 +2188,48 @@ if(BUILD_TESTING)
     add_test(NAME clipboard_control COMMAND clipboard_tests --control)
     if(NOT WIN32)
         set_tests_properties(clipboard clipboard_control PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endif()
+
+    # include/platform_process.h + include/win32_command_line.h -- the process seam.
+    #
+    # THIS TARGET IS ITS OWN FIXTURE. Every other seam test here either asserts the pure
+    # part of a header or round-trips through a system service; this one needs a CHILD
+    # PROCESS, and the only executable guaranteed to exist wherever ctest runs is the
+    # test binary itself. So it re-runs itself with --dump-args / --child-exit /
+    # --child-sleep, which is why there is no fixture program beside it and why the
+    # argument-survival check is the same on both platforms.
+    #
+    # UNLIKE file_dialog_tests, THE BACKEND IS NOT HERE MERELY TO BE COMPILED. It is
+    # called, and its two failure modes -- a refused launch and an overrun -- are each
+    # provoked deliberately rather than reasoned about, because those are the two the
+    # caller in src/pandoc.cpp distinguishes and the two a stub would silently collapse.
+    #
+    # shell32 ON WINDOWS ONLY, and it is the TEST's dependency rather than the seam's:
+    # ${PLATFORM_PROCESS_LIBS} is empty on Windows because the seam is all kernel32. The
+    # test adds CommandLineToArgvW so the quoter is checked against the OS's own parser
+    # instead of a second copy of the same rule -- which would agree with a shared
+    # misreading and prove nothing.
+    add_executable(process_tests
+        tests/process_tests.cpp
+        ${PLATFORM_PROCESS_SOURCE}
+    )
+    target_include_directories(process_tests PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+    )
+    if(WIN32)
+        target_link_libraries(process_tests PRIVATE ${PLATFORM_PROCESS_LIBS} shell32)
+        target_compile_definitions(process_tests PRIVATE UNICODE _UNICODE)
+    else()
+        target_link_libraries(process_tests PRIVATE ${PLATFORM_PROCESS_LIBS})
+    endif()
+    add_test(NAME process COMMAND process_tests)
+    add_test(NAME process_control COMMAND process_tests --control)
+    if(NOT WIN32)
+        # QCoreApplication, not QGuiApplication -- but the variable is set anyway for the
+        # reason file_dialog gives: nothing here constructs an application object, so it
+        # would very likely survive without it, and "very likely" is not a reading.
+        set_tests_properties(process process_control PROPERTIES
             ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
     endif()
 

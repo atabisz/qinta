@@ -139,11 +139,38 @@ file_dialog_qt.cpp
 # plugin, which is the scope of that reading and not a statement about xcb or wayland.
 clipboard_qt.cpp
 
+# platform_process_qt.cpp -- the non-Windows half of include/platform_process.h, the sixth
+# seam and the only one that spawns a program. LINKED AND RUN off Windows by process_tests,
+# which does considerably more than compile it: it re-runs the TEST BINARY ITSELF as a
+# child and has the child write its own argv to a file, so the argument-survival property
+# is checked through the real operating system rather than through a second copy of my
+# quoting rule. It also provokes both failure modes deliberately -- a missing executable
+# (launched=false) and a child that outlives its budget (timedOut=true, terminated).
+#
+# Its counterpart src/platform_process_win32.cpp must never appear here; it includes
+# <windows.h>. This is the file that one collapses into when the Direct2D backend goes,
+# because QProcess is correct on Windows too -- the same relationship the paths seam has,
+# and the reason neither is named _posix.
+#
+# THE ONE ASYMMETRY THE TWO ARMS CANNOT HIDE, measured rather than reasoned about: the Qt
+# arm spends the caller's timeout TWICE in the worst case, once in waitForStarted and once
+# in waitForFinished, where the Win32 arm has a single WaitForSingleObject. The timeout
+# assertion in process_tests is written against the CHILD'S sleep and not against the
+# budget for exactly that reason.
+platform_process_qt.cpp
+
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
-# SEVEN ENTRIES. The last three all arrived 2026-09-17, in that order and in the same
-# afternoon, and they are the three at the end of this section: utils.cpp, then signals.cpp,
-# then drafts.cpp. utils.cpp is the first line in the whole manifest that was earned by
+# TEN ENTRIES, and this count has been WRONG here before. It read "SEVEN" until
+# 2026-09-20 while the section held nine, so it was a figure nothing checked, quoted for
+# three slices, and the tree has a name for that shape: a total whose decomposition is
+# licensed to rot. Recount by reading the file rather than by trusting this sentence --
+# `awk '/^# --- Compiled off Windows/,/^# --- In-document search/' tests/portable-sources.txt
+# | grep -c '^[a-z_0-9]*\.cpp$'` -- and if it disagrees with the word above, the word is
+# what is wrong.
+#
+# THREE OF THEM ARRIVED ON 2026-09-17, in that order and in the same afternoon:
+# utils.cpp, then signals.cpp, then drafts.cpp. utils.cpp is the first line in the whole manifest that was earned by
 # SPLITTING a file rather than by porting one -- two functions left src/utils.cpp and nothing
 # that remained had to be rewritten. Its blocker was one symbol in one file, named below, and
 # it was predicted before it was measured. signals.cpp is the file that held that symbol.
@@ -523,6 +550,30 @@ drafts.cpp
 # three callers (here, input.cpp's commitFolderBrowserNaming, tabs.cpp's tabDragEnd),
 # so it is its own slice.
 editor.cpp
+
+# pandoc.cpp -- the TENTH, 2026-09-20, and the last file in the census whose Win32 surface
+# was a set of CALLS rather than a fatal include. It now compiles off Windows because
+# include/platform_process.h took the spawn: CreateProcessW, WaitForSingleObject,
+# GetExitCodeProcess, TerminateProcess, two CloseHandles, CREATE_NO_WINDOW, STARTUPINFOW
+# and PROCESS_INFORMATION are all behind the seam, CreateThread became std::thread,
+# GetTempPathW/GetCurrentProcessId/DeleteFileW/swprintf_s/_countof/MAX_PATH became
+# <filesystem> plus platform::currentProcessId, and the hand-built command line became an
+# argument list.
+#
+# THIS LINE IS WORTH READING AS A WARNING ABOUT THE CENSUS, not just as an arrival. The
+# row for this file said 12 errors and the file had 20 code sites, because
+# `DWORD WINAPI pandocWorker(LPVOID param)` failed at its own signature and g++ therefore
+# reported NOTHING about the body -- eleven Win32 calls invisible to the instrument that
+# had been sizing the port. Measured: 12 errors on 9 lines, and 19 on 16 with only the
+# five declaration types supplied. Every other row in that census is a floor too.
+#
+# COMPILE-ONLY, and TWO things make that precise rather than one. The link closure:
+# pandocExportFlow calls editorReparse in editor.cpp above, which cannot link off Windows.
+# And the honest gap even after that closes: the worker's last act is
+# postWindowMessage(hwnd, WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
+# win32_api.h's design, so an off-Windows conversion would run, finish, and never tell the
+# UI. Reaching zero census errors is a COMPILE claim about this file and nothing more.
+pandoc.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside
 # paint_document.cpp. The note that used to sit here ended "COMPILE-ONLY, and this is the

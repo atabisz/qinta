@@ -38,18 +38,40 @@
 // lean set, and the green build is the evidence for that rather than this sentence.
 //
 // Off Windows the same chain supplies only the stand-in value types, so removing
-// shlobj.h does NOT make this file portable -- it changes how it fails. It was the
+// shlobj.h did NOT make this file portable -- it changed how it failed. It was the
 // one row in scripts/census-nonportable-linux.sh whose first cause was shlobj.h,
 // which meant the census stopped at line 16 and could report nothing else about it.
-// The remaining Win32 surface is real and is all in the export flow: MAX_PATH,
-// DWORD, HANDLE, STARTUPINFOW, PROCESS_INFORMATION, CreateProcessW,
-// WaitForSingleObject, GetExitCodeProcess, TerminateProcess, CloseHandle,
-// CreateThread, GetTempPathW, GetCurrentProcessId, DeleteFileW, swprintf_s and
-// _countof. That is a PROCESS seam, not a paths one, and it is the next slice.
+// The Win32 surface that removal then exposed -- MAX_PATH, DWORD, HANDLE,
+// STARTUPINFOW, PROCESS_INFORMATION, CreateProcessW, WaitForSingleObject,
+// GetExitCodeProcess, TerminateProcess, CloseHandle, CreateThread, GetTempPathW,
+// GetCurrentProcessId, DeleteFileW, swprintf_s and _countof -- is gone as of the
+// process-seam slice. platform_process.h runs the child, std::thread replaces
+// CreateThread, std::filesystem owns the temp file, and the only Win32 spelling left
+// in this file is the HWND the completion message is posted to.
+//
+// AN UNRELATED ERROR ON A DECLARATION MASKS THE DIAGNOSTIC ON ITS USE, AND THAT IS
+// WHY THE CENSUS UNDERSTATED THIS FILE. The rule fires at FUNCTION scope, not only at
+// file scope: `DWORD WINAPI pandocWorker(LPVOID param)` failed at its own signature,
+// so g++ reported nothing whatever about its body -- STARTUPINFOW,
+// PROCESS_INFORMATION, CreateProcessW, WaitForSingleObject, GetExitCodeProcess,
+// TerminateProcess, both CloseHandles and a DeleteFileW were all invisible to the
+// instrument that had been sizing this port. Measured before the port: the census saw
+// 12 errors on 9 lines, and supplying only the five declaration types through
+// -include, changing nothing else, gave 19 errors on 16 lines. It happened one line
+// at a time too -- `HANDLE thread` hid the CreateThread in its own initialiser, and
+// `wchar_t tempFile[MAX_PATH]` hid an ofstream construction from the C58 wide-path
+// sweep. So an error count is a FLOOR on a file's Win32 surface and never a
+// measurement of it: the source is the denominator and the compiler is the
+// cross-check.
+
+#include "platform_process.h"
 
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
+#include <thread>
+#include <vector>
 
 namespace {
 
@@ -89,34 +111,39 @@ std::wstring docStem(const App& app) {
 
 struct PandocJob {
     HWND hwnd = nullptr;
-    std::wstring cmdLine;   // full command line, exe quoted first
-    std::wstring tempFile;  // deleted when the run finishes
+    std::wstring exe;
+    // AN ARGUMENT LIST, NOT A COMMAND LINE. The quoting is the Windows arm's business
+    // (platform_process.h:55-70 says why, win32_command_line.h implements it), so what
+    // crosses to the worker is the vector the caller meant rather than one string it
+    // had to escape by hand.
+    std::vector<std::wstring> args;
+    std::filesystem::path tempFile;  // deleted when the run finishes
 };
 
-DWORD WINAPI pandocWorker(LPVOID param) {
-    PandocJob* job = static_cast<PandocJob*>(param);
-    STARTUPINFOW si{};
-    si.cb = sizeof(si);
-    PROCESS_INFORMATION pi{};
-    std::wstring cmd = job->cmdLine;  // CreateProcess needs it writable
-    bool ok = false;
-    if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE,
-                       CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi)) {
-        // Big documents convert in seconds; two minutes is a hang
-        if (WaitForSingleObject(pi.hProcess, 120000) == WAIT_OBJECT_0) {
-            DWORD code = 1;
-            GetExitCodeProcess(pi.hProcess, &code);
-            ok = (code == 0);
-        } else {
-            TerminateProcess(pi.hProcess, 1);
-        }
-        CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+// Not a Win32 thread callback any more, so it has an ordinary C++ signature and
+// returns nothing: std::thread carries the argument with its own type and nothing here
+// ever read a thread exit code. What it DOES is unchanged -- run pandoc on a
+// two-minute budget, delete the staged input, tell the window.
+void pandocWorker(PandocJob* job) {
+    // Big documents convert in seconds; two minutes is a hang
+    const platform::ProcessResult run =
+        platform::runProcessAndWait(job->exe, job->args, 120000);
+
+    // Three ways to fail and one way to succeed, and the code this replaced drew the
+    // line in the same three places: CreateProcessW returning false left ok false, a
+    // wait that did not reach WAIT_OBJECT_0 was terminated and left ok false, and only
+    // GetExitCodeProcess reporting 0 set it.
+    const bool ok = run.launched && !run.timedOut && run.exitCode == 0;
+
+    if (!job->tempFile.empty()) {
+        // Ignored for the reason the DeleteFileW here also ignored its return: the
+        // conversion's outcome is already decided and a leftover temp file is not worth
+        // changing the answer the user sees.
+        std::error_code ignored;
+        std::filesystem::remove(job->tempFile, ignored);
     }
-    if (!job->tempFile.empty()) DeleteFileW(job->tempFile.c_str());
     postWindowMessage(job->hwnd, WM_APP_PANDOC_DONE, ok ? 1 : 0, 0);
     delete job;
-    return 0;
 }
 
 }  // namespace
@@ -212,17 +239,23 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
     const std::wstring& out = picked->path;
 
     // Stage the input on the UI thread: our HTML export (diagrams and
-    // math as SVG) for rich targets, the raw buffer for LaTeX
-    wchar_t tempDir[MAX_PATH]{};
-    GetTempPathW(MAX_PATH, tempDir);
-    wchar_t tempFile[MAX_PATH]{};
-    swprintf_s(tempFile, _countof(tempFile), L"%stinta-pandoc-%lu%s",
-               tempDir, GetCurrentProcessId(),
-               f.htmlBridge ? L".html" : L".md");
+    // math as SVG) for rich targets, the raw buffer for LaTeX.
+    //
+    // The error_code overload of temp_directory_path, not the throwing one, and that is
+    // behaviour preservation rather than caution: GetTempPathW reported failure by
+    // leaving its buffer empty, the name was then built relative to the working
+    // directory, and an empty path on the left of operator/ does exactly the same. The
+    // process id makes the name unique between concurrently running instances, which is
+    // the only guarantee platform_process.h:92-96 offers and the only one needed.
+    std::error_code tempEc;
+    const std::filesystem::path tempDir = std::filesystem::temp_directory_path(tempEc);
+    const std::filesystem::path tempFile =
+        tempDir / (L"tinta-pandoc-" + std::to_wstring(platform::currentProcessId()) +
+                   (f.htmlBridge ? L".html" : L".md"));
     if (f.htmlBridge) {
         // The parse tree can lag the buffer while the render is hidden
         if (app.editMode) editorReparse(app);
-        if (!exportHtmlFile(app, tempFile)) return;
+        if (!exportHtmlFile(app, tempFile.wstring())) return;
     } else {
         std::string md = app.editMode ? toUtf8Str(app.editorText)
                                       : std::string();
@@ -232,45 +265,59 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
             md.assign(std::istreambuf_iterator<char>(in),
                       std::istreambuf_iterator<char>());
         }
-        // THIS SITE WAS INVISIBLE TO THE COMPILER, and the reason is worth keeping.
-        // MAX_PATH does not exist off Windows, so the `wchar_t tempFile[MAX_PATH]`
-        // declaration above is itself an error, tempFile never gets a usable type, and
-        // g++ emits NOTHING for this construction -- an unrelated error masks the C58
-        // diagnostic on its use. Measured: supplying -DMAX_PATH=260 and changing nothing
-        // else moved this file's C58 site list from :230 alone to :230 and here. A
-        // wchar_t array is no more portable than a wstring; only fs::path is.
-        std::ofstream outFile(std::filesystem::path(tempFile), std::ios::binary);
+        // This construction was invisible to the compiler until the
+        // `wchar_t tempFile[MAX_PATH]` it used stopped being an error off Windows; the
+        // masking rule that hid it is stated once, at the top of this file, rather than
+        // in two places that can drift apart. tempFile is an fs::path now, so there is
+        // no C58 conversion left here to get wrong.
+        std::ofstream outFile(tempFile, std::ios::binary);
         if (!outFile) return;
         outFile.write(md.data(), (std::streamsize)md.size());
     }
 
-    // Assemble the command line; the writer comes from the -o extension
-    std::wstring cmd = L"\"" + app.pandocExe + L"\" -f " +
-                       (f.htmlBridge ? L"html" : L"gfm") + L" -s ";
-    std::wstring title = stem;
-    for (auto& ch : title) {
-        if (ch == L'"') ch = L'\'';
-    }
-    cmd += L"--metadata title=\"" + title + L"\" ";
+    // Assemble the arguments; the writer comes from the -o extension.
+    //
+    // ONE ENTRY PER ARGUMENT, and the grouping is what the old hand-built string
+    // encoded in its quotes: `--metadata title="X"` is TWO arguments to pandoc, so the
+    // `=` forms stay glued and the space-separated forms do not.
+    std::vector<std::wstring> args;
+    args.push_back(L"-f");
+    args.push_back(f.htmlBridge ? L"html" : L"gfm");
+    args.push_back(L"-s");
+    args.push_back(L"--metadata");
+    // THE TITLE'S DOUBLE QUOTES SURVIVE NOW, and this is the slice's one deliberate
+    // behaviour change rather than a refactor. A loop here used to rewrite every `"` in
+    // the stem to `'`, purely because the stem was being concatenated INTO a hand-quoted
+    // command line and there was nothing to escape it with. With a list there is nothing
+    // to escape it into, so a document called `The "Real" Thing` now carries its own
+    // punctuation into the exported file's title metadata.
+    args.push_back(L"title=" + stem);
     if (!f.htmlBridge && !app.currentFile.empty()) {
         // Relative image paths in the raw markdown resolve against the
         // document's own folder
         std::wstring dir = toWideStr(app.currentFile);
         size_t slash = dir.find_last_of(L"\\/");
         if (slash != std::wstring::npos) {
-            cmd += L"--resource-path=\"" + dir.substr(0, slash) + L"\" ";
+            args.push_back(L"--resource-path=" + dir.substr(0, slash));
         }
     }
-    cmd += L"-o \"" + out + L"\" \"" + tempFile + L"\"";
+    args.push_back(L"-o");
+    args.push_back(out);
+    args.push_back(tempFile.wstring());
 
-    PandocJob* job = new PandocJob{hwnd, cmd, tempFile};
+    PandocJob* job = new PandocJob{hwnd, app.pandocExe, args, tempFile};
     app.pandocRunning = true;
-    HANDLE thread = CreateThread(nullptr, 0, pandocWorker, job, 0, nullptr);
-    if (thread) {
-        CloseHandle(thread);
-    } else {
+    // std::thread rather than CreateThread: threading is standard C++ and needs no
+    // platform arm, so it does not go behind the seam. The catch reproduces the old
+    // `if (thread) ... else` exactly -- std::thread reports a creation failure by
+    // throwing std::system_error where CreateThread returned null, and the recovery is
+    // the same three statements it was.
+    try {
+        std::thread(pandocWorker, job).detach();
+    } catch (const std::system_error&) {
         app.pandocRunning = false;
-        DeleteFileW(tempFile);
+        std::error_code ignored;
+        std::filesystem::remove(tempFile, ignored);
         delete job;
     }
 }

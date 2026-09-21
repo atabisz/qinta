@@ -140,13 +140,23 @@ static_assert(offsetof(RECT, left) == 0 && offsetof(RECT, top) == sizeof(long) &
                   offsetof(RECT, right) == 2 * sizeof(long) &&
                   offsetof(RECT, bottom) == 3 * sizeof(long),
               "off-Windows RECT stands in with left/top/right/bottom in that order");
-static_assert(offsetof(WINDOWPLACEMENT, length) == 0 &&
-                  offsetof(WINDOWPLACEMENT, ptMinPosition) == 3 * sizeof(unsigned int) &&
-                  sizeof(WINDOWPLACEMENT) ==
-                      3 * sizeof(unsigned int) + 2 * sizeof(POINT) + sizeof(RECT),
-              "off-Windows WINDOWPLACEMENT stands in with the SDK's field order and size");
+// THE `WINDOWPLACEMENT` STAND-IN AND ITS ASSERTION ARE GONE AS OF 2026-09-21, and the reason is
+// worth a sentence because a deleted stand-in looks like a regression in portability. It had ONE
+// off-Windows reader: `App::zenRestorePlacement`, which is now `tinta::ZenRestore` -- two portable
+// fields in include/window_placement.h. The SDK struct still appears in src/main_d2d.cpp, which is
+// Windows-only and gets the real one from <windows.h>, so nothing off Windows names the type at
+// all. A stand-in kept for zero readers is this header's version of an ungated figure: it compiles
+// forever and asserts nothing about the tree.
+//
+// Its comment is also why it is mentioned rather than silently dropped. It read "because App stores
+// one by value and zen mode round-trips it through settings.ini" -- and the second clause was
+// FALSE. Nothing ever put that member in settings.ini; what round-trips is a separate local
+// `WINDOWPLACEMENT` in main_d2d.cpp, decomposed into `windowMaximized` plus a position. Read as
+// true, it priced the port as a settings FILE-FORMAT change and made this slice look expensive.
 static_assert(WM_APP == 0x8000, "off-Windows WM_APP stands in as 0x8000");
 static_assert(WM_CLOSE == 0x0010, "off-Windows WM_CLOSE stands in as 0x0010");
+static_assert(WM_SETTINGCHANGE == 0x001A,
+              "off-Windows WM_SETTINGCHANGE stands in as 0x001A; this SDK disagrees");
 
 // The scalar spellings, pinned the same way. is_same rather than sizeof, because
 // these are the cases where the exact type is checkable and a matching size is not
@@ -189,17 +199,6 @@ struct POINT {
     long x, y;
 };
 
-// Field-for-field with the SDK's, because App stores one by value and zen mode
-// round-trips it through settings.ini.
-struct WINDOWPLACEMENT {
-    unsigned int length;
-    unsigned int flags;
-    unsigned int showCmd;
-    POINT ptMinPosition;
-    POINT ptMaxPosition;
-    RECT rcNormalPosition;
-};
-
 // The real value, so the WM_APP_* ids app.h derives from it keep the numbers they
 // have on Windows. They are only ever compared against each other, but matching
 // the SDK keeps a debugger session on either platform reading the same.
@@ -218,6 +217,15 @@ struct WINDOWPLACEMENT {
 // above, and why the Windows branch static_asserts it against the real SDK rather
 // than trusting this line.
 #define WM_CLOSE 0x0010
+
+// WM_SETTINGCHANGE arrives for the third time on the same argument, and the two sites are the same
+// shape as WM_CLOSE's four: src/input.cpp posts it to itself after changing which theme index the
+// system-theme follower should snap to, both times through win32_api.h::postWindowMessage, whose
+// off-Windows arm returns false. So this number never delivers anything here either.
+//
+// The value is 0x001A and the Windows branch above static_asserts it against the real SDK rather
+// than trusting this line -- which is the only reason a literal message id is allowed in this file.
+#define WM_SETTINGCHANGE 0x001A
 
 // The SDK's names for plain scalars. Nothing Win32 about any of them except the
 // spelling, which is why they can stand in exactly rather than approximately --

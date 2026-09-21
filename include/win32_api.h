@@ -170,6 +170,49 @@ inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM
 #endif
 }
 
+// --- Quit ---------------------------------------------------------------------
+//
+// Ask the application to exit its event loop.
+//
+// THREE SITES, SO IT CLEARS THE FIRST ARM OF THE ADMISSION RULE ABOVE: src/input.cpp twice (Escape
+// with nothing open, and the Q shortcut) and src/main_d2d.cpp once, in WM_DESTROY. All three route
+// through here -- including the Windows-only one, which needed no porting. Leaving that site spelled
+// `PostQuitMessage` would make this paragraph's "three" a claim about the tree that the tree
+// contradicts, which is the drift this header keeps correcting in its own comments.
+//
+// NO PARAMETERS, WHICH IS A DEPARTURE FROM EVERY OTHER ENTRY HERE. `PostQuitMessage` takes an exit
+// code and no window; the seam drops the code because all three sites pass 0, and takes no `HWND`
+// because there is nothing for one to do -- Qt's eventual arm reaches the application through
+// `QCoreApplication::instance()`, a global, not through a widget. An `HWND` parameter accepted and
+// ignored would be a lie about what the call depends on.
+//
+// THIS IS THE ONE ENTRY IN THIS HEADER WHOSE OFF-WINDOWS ARM IS A PLACEHOLDER RATHER THAN AN
+// ANSWER, AND IT SAYS SO INSTEAD OF RETURNING A PLAUSIBLE VALUE. Quitting off Windows means
+// `QCoreApplication::quit()`, and this header cannot reach it: every function here is `inline` in a
+// header that app.h pulls into nearly every portable translation unit, including the
+// `portable_compile_only` targets that link no Qt at all. So the choice is not between a good arm
+// and a bad one -- it is between an empty arm and moving quit out to a two-file seam for two call
+// sites, which is a worse trade than admitting the gap here.
+//
+// WHY THE GAP IS SAFE TODAY AND WILL NOT BE: nothing off Windows calls either site. src/main_qt.cpp
+// routes no keyboard input, so `handleKeyDown` has no off-Windows caller, and the third site is in
+// a Windows-only file. The arm becomes wrong the moment the Qt arm routes a key -- Escape would
+// stop closing the application and do nothing visible -- so the owner is named: the main_qt.cpp
+// key/flag parity slice, which is the successor to the one that wrote this comment.
+//
+// It returns bool for the reason postWindowMessage does, and the return is deliberately IGNORED at
+// both input.cpp sites: there is no second thing to try when quit is unavailable. The value is here
+// so the gap is greppable -- `requestQuit` returning false is a fact a test can assert about the
+// off-Windows build, where a void no-op would be indistinguishable from a working quit.
+inline bool requestQuit() {
+#ifdef _WIN32
+    PostQuitMessage(0);
+    return true;
+#else
+    return false;
+#endif
+}
+
 // --- Mouse cursor shape -------------------------------------------------------
 //
 // Set the mouse cursor to one of the four shapes this tree uses.

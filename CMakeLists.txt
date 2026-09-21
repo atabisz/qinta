@@ -410,6 +410,12 @@ set(SOURCES
     # App&, which is what makes it something a test can create.
     src/tab_ghost.cpp
     src/tab_ghost_win32.cpp
+    # Zen mode's Windows arm. The DECISION half needed no new file -- "which monitor does this
+    # window belong to and what covers it" is arithmetic over rectangles, so it went into
+    # src/window_placement.cpp above, which both arms already link. Only the ACTING half is
+    # two-armed: WS_POPUP + SetWindowPos here, showFullScreen() in src/zen_mode_qt.cpp. That is
+    # why this seam costs four files where tab_ghost cost six.
+    src/zen_mode_win32.cpp
     src/keymap.cpp
     src/config_dir.cpp
     ${PLATFORM_PATHS_SOURCE}
@@ -839,6 +845,11 @@ set(QINTA_APP_SOURCES
     # clip that would merely agree with it.
     src/tab_ghost.cpp
     src/tab_ghost_qt.cpp
+    # Zen mode's Qt arm. Qt-only, so here and NOT in ${SOURCES}. It reaches the same monitor the
+    # Windows arm's MONITOR_DEFAULTTONEAREST would have picked by calling window_placement.cpp's
+    # zenFullscreenRect rather than QWidget::screen()->geometry() -- those two disagree for a window
+    # restored onto an unplugged monitor, which is the case window_placement.cpp exists for.
+    src/zen_mode_qt.cpp
     # The Qt arm's two launch steps -- Qt's screen list as a monitor list, and parsed options
     # plus loaded settings as a PlacementRequest. Qt-only, so it is here and NOT in ${SOURCES};
     # it exists at all so tests/qt_entry_tests.cpp can call the same two steps main() calls
@@ -1495,8 +1506,14 @@ if(BUILD_TESTING)
         # than a compile problem. It reached 0 errors off Windows once the clipboard seam
         # landed and its wide-path ofstream became a named fs::path; those were the two
         # families its census row hid behind one label. What it still cannot do is LINK
-        # into qinta: it calls handleFileWatchTimer, which lives in src/input.cpp, and
-        # input.cpp is windows.h-fatal. So this is the honest home for it -- a
+        # into qinta: it calls handleFileWatchTimer, which lives in src/input.cpp.
+        # UNTIL 2026-09-21 THIS SENTENCE ENDED "and input.cpp is windows.h-fatal", which
+        # is no longer why. input.cpp compiles off Windows at 0 errors since the zen-mode
+        # seam, and is itself in tests/portable-sources.txt -- but compile-only, linked
+        # into no Qt target, because nothing Qt-side routes input yet. So the closure is
+        # still open and this is still the honest home: the blocker moved from a fatal
+        # header to an unlinked translation unit, which is render.cpp's fixpoint lesson
+        # again and NOT progress this row may claim. So this is the honest home for it -- a
         # non-Windows compiler reads the file every build, which is what
         # tests/portable-sources.txt claims and all it claims.
         #
@@ -1597,8 +1614,13 @@ if(BUILD_TESTING)
         # include drifting into a file whose whole point is that both backends run it.
         src/paint_document.cpp
         # The scroll policy, here for the same reason and with a sharper edge on it. The
-        # file exists so that src/input.cpp can call it once input.cpp ports, and
-        # input.cpp will never link Qt -- so a QWheelEvent or a Qt::KeyboardModifier
+        # file exists so that src/input.cpp can call it, and input.cpp COMPILES off
+        # Windows as of 2026-09-21 -- this comment read "once input.cpp ports" until then,
+        # a future tense that the zen-mode seam made false. It is compile-only: it is in
+        # tests/portable-sources.txt and no Qt target links it, because nothing on the Qt
+        # side routes keyboard or mouse input yet. And input.cpp will still never link Qt
+        # even once something does -- its zen-mode call goes through zen_mode_win32.h
+        # behind `#ifdef _WIN32`, so a QWheelEvent or a Qt::KeyboardModifier
         # drifting into scroll.cpp would quietly make the shared policy unshareable.
         # THIS TARGET IS THE ONLY THING THAT WOULD CATCH THAT: qt_entry_tests links Qt,
         # so it cannot tell the difference.
@@ -1626,8 +1648,12 @@ if(BUILD_TESTING)
         #   reading with its own fixpoint -- exactly the render.cpp lesson, which took
         #   three linker readings to settle.
         #
-        #   RUNS: NO. Nothing executes an overlay off Windows. The overlays are
-        #   keyboard- and mouse-driven chrome and input.cpp has not ported.
+        #   RUNS: NO. Nothing executes an overlay off Windows. The overlays are keyboard-
+        #   and mouse-driven chrome, and this line read "and input.cpp has not ported"
+        #   until 2026-09-21, when it did -- input.cpp compiles off Windows and is the last
+        #   entry in this list. The conclusion is UNCHANGED and the reason is now one step
+        #   further out: what is missing is not a portable input.cpp, it is a Qt key and
+        #   mouse router in src/main_qt.cpp calling into it.
         #
         # What made it affordable was that the file was already half-ported: 530 sites
         # already drew through app.brush and app.renderTarget, and the eleven remaining
@@ -1844,6 +1870,36 @@ if(BUILD_TESTING)
         # So the claim this line makes is exactly the one tests/portable-sources.txt
         # makes and no more: a non-Windows compiler accepts the file every build.
         src/pandoc.cpp
+        # src/input.cpp -- 4,586 lines, the largest file this port has moved, and THIS LINE
+        # IS HERE BECAUSE THE PROBE REFUSED THE MANIFEST ENTRY WITHOUT IT. The zen-mode
+        # slice added input.cpp to tests/portable-sources.txt and stopped there; nothing
+        # off Windows compiled it, so scripts/probe-portable-linux.sh read
+        # `MISSING: input.cpp` on its every-listed-file-was-compiled check. A manifest line
+        # without a compiler behind it is a claim with no instrument -- exactly what that
+        # both-direction check exists to catch, and it caught it in the same slice that
+        # wrote the entry.
+        #
+        #   COMPILES off Windows: measured, 0 errors, and the SIZE IS THE FINDING. This
+        #   file was carried as a 4,553-line port for several passes; the real cost was
+        #   FIFTEEN LINES. g++ reported 29 errors before the pass, decomposed 24 in
+        #   toggleZenMode / 3 in handleKeyDown / 1 in settingsAction / 1 in handleMouseUp,
+        #   and 13 of the 15 lines sat inside one 21-line function. A source census over the
+        #   same file found 32 sites to the compiler's 15, and SIXTEEN OF THE SEVENTEEN it
+        #   saw that g++ did not were COMMENTS -- the a-comment-is-a-census-hit family, 11th
+        #   firing. Anything sized by grepping this file for Win32 names overstated it by
+        #   two orders of magnitude.
+        #
+        #   LINKS into a Qt app: NO, and not attempted. Its callees reach editor.cpp,
+        #   drafts.cpp and tabs.cpp, none of which links off Windows, so the closure is its
+        #   own fixpoint -- the render.cpp lesson again.
+        #
+        #   RUNS: NO, and this is the part no line count reaches. src/main_qt.cpp routes no
+        #   keyboard or mouse events, so nothing calls a handler in here. F11 reaching
+        #   src/zen_mode_qt.cpp needs a Qt key router, which is the named successor slice.
+        #   The ONE thing that would be silent if wrong: win32_api.h::requestQuit's
+        #   off-Windows arm is a placeholder returning false, unreachable only because of
+        #   this missing router.
+        src/input.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.

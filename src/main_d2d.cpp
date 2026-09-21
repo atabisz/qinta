@@ -1441,7 +1441,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
                 saveSettings(settings);
             }
-            PostQuitMessage(0);
+            // Routed for consistency rather than for portability -- this file is Windows-only. See
+            // win32_api.h: the seam's comment claims three sites, and a site left spelling the raw
+            // call would make that claim false the moment somebody counted.
+            requestQuit();
             return 0;
     }
 

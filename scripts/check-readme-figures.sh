@@ -291,7 +291,39 @@ claim "to-do header"     "**To do — $todo_count files, $(c "$todo_lines") line
 echo "-- to-do table rows, as the additive expressions they are written in"
 # Grouped exactly as the table groups them, so one rotted component fails the row it
 # lives in and names its neighbours in the output.
-claim "window + message loop" "| $(c "$(lines src/input.cpp)") + $(c "$(lines src/main_d2d.cpp)") |"
+#
+# THIS ROW'S MEMBERSHIP IS DERIVED FROM THE TO-DO SET AS OF 2026-09-21, AND IT IS THE ONLY ROW
+# HERE THAT EVER NEEDED TO BE, because it is the only one whose hand-written pair could lose a
+# member while the other stayed. src/input.cpp compiles off Windows at 0 errors and is in
+# tests/portable-sources.txt's compile-only section, so by the rule the export_html.cpp note
+# below states it leaves this gate too -- and at 4,586 lines it is the LARGEST departure this
+# gate has processed, ahead of editor.cpp's 3,207 and overlays.cpp's 4,153.
+#
+# WHAT SETTLED IT WAS THE ARITHMETIC RATHER THAN THE RULE, which is worth recording because the
+# rule alone would have been a judgment call: the to-do header above derives 9,194 lines, and
+# the rows of that table sum to exactly 9,194 ONLY with input.cpp out -- 2,061 + 1,234 + 1,615
+# + 516 + 3,768. With it in they sum to 13,780. Keeping the hand-written pair would have made
+# two GATED figures on the same page contradict each other by 4,586 lines, which is worse than
+# either one being stale, because both would have read as checked.
+#
+# Deriving the membership rather than editing the pair is the fix for the class and not the
+# instance: the next departure moves this row on its own. An empty set is a loud FAIL and never
+# a silent pass -- when main_d2d.cpp follows, this block gets deleted the way every other
+# departure's did, and the gate says so rather than asserting an empty expression.
+wml_files=$(printf '%s\n' $todo | grep -xE 'input\.cpp|main_d2d\.cpp' || true)
+expr_wml=""
+for f in $wml_files; do
+    if [ -n "$expr_wml" ]; then expr_wml="$expr_wml + "; fi
+    expr_wml="$expr_wml$(c "$(lines "src/$f")")"
+done
+if [ -n "$expr_wml" ]; then
+    claim "window + message loop" "| $expr_wml |"
+else
+    checks=$((checks + 1))
+    printf '  FAIL %-42s %s\n' "window + message loop" \
+        "both files have left the to-do set -- delete this block, do not assert an empty row"
+    failures=$((failures + 1))
+fi
 # editor.cpp is now DELIBERATELY absent, the EIGHTH file to exercise the rule the
 # export_html.cpp note below states -- it compiles off Windows and joined the manifest, so its
 # 3,207 lines left the to-do set and therefore left here. It is the largest single departure this

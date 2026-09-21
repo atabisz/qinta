@@ -189,6 +189,7 @@ struct IWICImagingFactory;
 #include "keymap.h"
 #include "settings_data.h"
 #include "theme_data.h"
+#include "window_placement.h"  // tinta::ZenRestore, the state zen mode gives back
 // Brings tinta::RenderTarget/Brush/Bitmap/StrokeStyle and their borrowed
 // Direct2D wrappers, which App now holds alongside the natives. This is the
 // commit that first makes a production translation unit include the seam at
@@ -782,7 +783,10 @@ struct App {
     bool showStats = false;
     // Zen mode: borderless fullscreen with a centered reading column (F11)
     bool zenMode = false;
-    WINDOWPLACEMENT zenRestorePlacement{};
+    // WAS A `WINDOWPLACEMENT` UNTIL 2026-09-21, which put a Win32 struct at the centre of a
+    // capability both arms have. include/window_placement.h says what the two fields are and what
+    // the SDK struct carried that they do not.
+    tinta::ZenRestore zenRestore{};
     bool followSystemTheme = false;
     int lightThemeIndex = 0;
     int darkThemeIndex = 5;

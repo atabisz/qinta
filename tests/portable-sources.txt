@@ -1212,3 +1212,57 @@ tab_ghost.cpp
 # probe-portable-linux.sh asserts its absence by name, alongside main_d2d.cpp, rather
 # than relying on this manifest's silence about a file nobody listed.
 tab_ghost_qt.cpp
+
+# THE LARGEST FILE IN THE TREE, AND THE ENTRY THAT MOST NEEDS ITS PRICE WRITTEN DOWN.
+#
+# src/input.cpp is 4,553 lines and was carried as a 4,553-line port for several slices. The
+# line count was never the cost. Measured with `g++ -std=c++20 -fsyntax-only` before the
+# porting pass: 29 errors, NO fatal error -- so the file's entire header graph already
+# compiled -- attributable to FIFTEEN distinct lines in four functions, and thirteen of the
+# fifteen were inside one 21-line function, toggleZenMode. A source-side census found 32
+# candidate lines against the compiler's 15; SIXTEEN OF THE SEVENTEEN the compiler could not
+# see were comments, and the seventeenth compiled because win32_types.h stands in WM_CLOSE.
+# So 15 was the span rather than a floor, and the whole of it was: zen mode's Win32 call
+# sequence, two WM_SETTINGCHANGE posts, two PostQuitMessage calls, one unguarded
+# launchQuickNoteWindow. Four things, none of them large.
+#
+# WHAT LISTING IT DOES NOT BUY, stated here because the opposite was claimed out loud one
+# slice ago and was wrong. This unblocks ZERO test targets. The five ${INPUT_TEST_SOURCES}
+# targets each compile seventeen non-portable src/*.cpp and input.cpp was one of seventeen;
+# sixteen remain. It does not even lower that seventeen -- see the next paragraph, which is
+# the sharper half of the finding.
+input.cpp
+
+# src/zen_mode_win32.cpp must NEVER appear here, for exactly tab_ghost_win32.cpp's reason:
+# it calls SetWindowLongW, SetWindowPos, GetWindowPlacement, SetWindowPlacement and
+# MonitorFromWindow, and it is in the Windows-only ${SOURCES} target. Its Qt counterpart IS
+# listed, and the paragraph below is the record of my having argued the opposite.
+#
+# AND THAT IS WHY THE FIVE ROWS' SEVENTEEN DID NOT BECOME SIXTEEN. The slice that made
+# input.cpp portable created zen_mode_win32.cpp to hold the fifteen lines that stopped it,
+# and ${SOURCES} carries that new file into the same five targets. One file left the
+# non-portable set and one joined it on the same commit, so the measured blocker count moved
+# by ZERO -- which is not a disappointment, it is what "extract the Win32 part" means
+# arithmetically, and it is invisible unless the census is read rather than predicted. The
+# gain is real and is elsewhere: 4,553 lines of layout, selection, shortcut and overlay logic
+# became portable in exchange for ~90 lines that did not.
+#
+# zen_mode_qt.cpp IS LISTED, AND THE PARAGRAPH THAT STOOD HERE ARGUED IT SHOULD NOT BE. That
+# argument was wrong and the probe said so in one line -- `UNEXPECTED: zen_mode_qt.cpp` on
+# scripts/probe-portable-linux.sh's nothing-was-compiled-that-the-manifest-does-not-list
+# check. It read: "zen_mode_qt.cpp has no test target yet, so listing it would assert a
+# compile nothing runs." The mistake is in the word ASSERT. An entry in this file claims
+# exactly one thing -- a non-Windows compiler accepts the file every build -- and the Qt app
+# target compiles it every build off Windows, so that claim was already true and withholding
+# the line made the manifest understate the tree rather than avoid an overclaim. Coverage is a
+# different claim, made by a test target, and this file has a compile-only section precisely
+# because the two come apart.
+#
+# The check is BOTH DIRECTIONS, which is what made the error impossible to sit on: a file the
+# build compiles and the manifest omits is a FAIL here, the same as a file the manifest lists
+# and nothing compiles. The same probe run reported both halves of this slice's version of that
+# error -- `MISSING: input.cpp` (listed, compiled by nothing, now in portable_compile_only) and
+# `UNEXPECTED: zen_mode_qt.cpp` (compiled, unlisted, now this line). Nothing RUNS either file
+# off Windows yet; that is the Qt key router's slice, and it is stated at both sites rather
+# than implied by an absent entry.
+zen_mode_qt.cpp

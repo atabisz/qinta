@@ -30,6 +30,14 @@
 // remove from a header two files away without a single error here.
 #include "win32_api.h"
 
+// Zen mode's mechanism. Only the Windows arm is included, and the reason is at toggleZenMode: this
+// file holds an `HWND`, so it can only name the arm that takes one. Including the Qt arm here would
+// pull QWidget into every target that compiles input.cpp -- including the compile-only portable ones
+// that link no Qt -- to reach a function nothing here can call.
+#ifdef _WIN32
+#include "zen_mode_win32.h"
+#endif
+
 // INT_MIN, for themeChooserHitAt's "nothing" sentinel below. NOT a consequence of
 // this pass -- that sentinel is older than the port, and it compiled here only
 // because MSVC's <windows.h> happens to pull the C limits in. The census could not
@@ -3419,24 +3427,37 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 }
 
 // Zen mode: borderless fullscreen + centered reading column (F11)
+//
+// THE POLICY IS HERE AND THE MECHANISM IS NOT, which is the whole of this function's change. Thirteen
+// of the fifteen lines that stopped src/input.cpp compiling off Windows were the sixteen lines this
+// one replaced -- `WINDOWPLACEMENT`, `MONITORINFO`, `MonitorFromWindow`, `SetWindowLongW`,
+// `SetWindowPos` and five constants -- and they were here because zen mode was written as a keyboard
+// handler's side effect rather than as a capability the app has.
+//
+// WHAT STAYED is the part that is genuinely about this file: the flag flips, the layout is dirtied,
+// a repaint is asked for. Those are the same on both platforms. What left is in
+// include/zen_mode_win32.h and include/zen_mode_qt.h, one arm each, with the state they hand back and
+// forth in include/window_placement.h.
+//
+// THE `#ifdef` IS NOT A GAP, unlike the one around launchQuickNoteWindow below. Both arms are
+// written; what is missing is a Qt caller, because src/main_qt.cpp routes no keyboard input yet, and
+// `App` holds an `HWND` rather than a `QWidget*`. So this site selects the only arm it can name and
+// the other arm waits for a Qt-side key router -- the same successor slice requestQuit names.
 static void toggleZenMode(App& app, HWND hwnd) {
     app.zenMode = !app.zenMode;
+#ifdef _WIN32
     if (app.zenMode) {
-        app.zenRestorePlacement.length = sizeof(WINDOWPLACEMENT);
-        GetWindowPlacement(hwnd, &app.zenRestorePlacement);
-        MONITORINFO mi = { sizeof(mi) };
-        GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi);
-        SetWindowLongW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-        SetWindowPos(hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-                     mi.rcMonitor.right - mi.rcMonitor.left,
-                     mi.rcMonitor.bottom - mi.rcMonitor.top,
-                     SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+        app.zenRestore = tinta::zenModeEnter(hwnd);
+        // Entering failed, so there is no mode to be in. Reported rather than swallowed: a true
+        // zenMode flag with a normal window would make the next F11 restore a rectangle nothing
+        // captured, and the reading column would draw for a width the window does not have.
+        if (!app.zenRestore.valid) app.zenMode = false;
     } else {
-        SetWindowLongW(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
-        SetWindowPlacement(hwnd, &app.zenRestorePlacement);
-        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+        tinta::zenModeLeave(hwnd, app.zenRestore);
     }
+#else
+    (void)hwnd;
+#endif
     app.layoutDirty = true;
     requestRepaint(hwnd);
 }
@@ -3809,7 +3830,17 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 // document gets a fresh note tab); Ctrl+Shift+N spawns a
                 // separate window
                 if (platform::isShiftDown()) {
+                    // GUARDED AT THE SITE, WHICH IS WHERE utils.h SAYS THE ANSWER BELONGS, and
+                    // src/editor.cpp's Ctrl+Shift+N already answered it the same way. The
+                    // declaration is `#ifdef _WIN32` on purpose so an off-Windows caller is a
+                    // compile error here rather than a link failure or a silent no-op half. This
+                    // is the second such caller, and the answer is unchanged: Ctrl+Shift+N does
+                    // NOTHING off Windows yet, because `--new` has no Qt-side parser. It
+                    // deliberately does not fall through to the new-tab branch below -- a new tab
+                    // where the user asked for a new window is a wrong picture rather than a gap.
+#ifdef _WIN32
                     launchQuickNoteWindow();
+#endif
                 } else if (app.currentFile.empty()) {
                     // The keystroke's WM_CHAR must not type into the
                     // editor the takeover just opened
@@ -4000,7 +4031,9 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 } else if (app.zenMode) {
                     toggleZenMode(app, hwnd);
                 } else {
-                    PostQuitMessage(0);
+                    // Return ignored: there is no second way to quit. win32_api.h says why it
+                    // returns a value at all, and that this arm is the one placeholder in it.
+                    requestQuit();
                 }
                 break;
             case VK_F11:
@@ -4013,7 +4046,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 if (!app.showThemeChooser && !app.showSearch &&
                     (!app.showFolderBrowser || app.browserPinned) &&
                     (!app.showToc || app.tocPinned)) {
-                    PostQuitMessage(0);
+                    requestQuit();
                 }
                 break;
             case 'N':

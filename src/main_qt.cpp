@@ -55,8 +55,13 @@
 //     A FIGURE INSIDE A COMMENT IS STILL A CLAIM. This one read as a considered
 //     estimate for exactly one commit and was never measured until somebody tried to
 //     spend it.
-//   * No exec() loop features: no menus, no tabs, no input. src/input.cpp is the
-//     deepest Windows file in the tree (344 native mentions at the last census).
+//   * No exec() loop features: no menus, no tabs, no input. This used to read
+//     "src/input.cpp is the deepest Windows file in the tree (344 native mentions at
+//     the last census)", and that is FALSE as of 2026-09-21: input.cpp compiles off
+//     Windows at 0 errors and is in tests/portable-sources.txt. A native-mention census
+//     is what made it look deepest -- the compiler found 15 lines, and 16 of the 17
+//     sites the source census saw but g++ did not were COMMENTS. What is missing here is
+//     not a portable input.cpp, it is a Qt key and mouse router calling into it.
 //
 // So `qinta some.md` opens a window with that document drawn in it, and `qinta`
 // with no argument opens the same window showing the placeholder line. The sentence
@@ -143,8 +148,17 @@ int main(int argc, char** argv) {
     // as the port's remaining work, in the place a user actually meets it.
     //
     // The first four all wait on the same file, and that is the substantive finding of this
-    // slice rather than an implementation detail: src/input.cpp is 4,394 lines with 98
-    // off-Windows compile errors, and every interactive feature is behind it.
+    // slice rather than an implementation detail: every interactive feature is behind
+    // src/input.cpp.
+    //
+    // THE FIGURE THAT STOOD HERE WAS STALE IN BOTH HALVES, 88 LINES BELOW THIS FILE'S OWN
+    // WARNING THAT "A FIGURE INSIDE A COMMENT IS STILL A CLAIM". It read "4,394 lines with
+    // 98 off-Windows compile errors". The file is 4,586 lines and has **0** off-Windows
+    // errors as of 2026-09-21 -- it compiles, and it is in tests/portable-sources.txt. The
+    // reason these four flags still refuse is no longer that the file will not build off
+    // Windows; it is that main_qt.cpp routes no keyboard or mouse events, so nothing calls
+    // into it. Deliberately no replacement count: a line count here would rot the same way,
+    // and the census that owns these numbers is scripts/check-readme-figures.sh.
     if (options.forceTabStrip) refuse("--tabbed", "there is no tab strip yet (src/input.cpp)");
     if (options.quickNote) refuse("--new", "quick notes need the window manager (src/input.cpp)");
     if (options.startInEditMode) refuse("--edit", "the editor needs input (src/input.cpp)");

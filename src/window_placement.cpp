@@ -36,6 +36,28 @@ int64_t distanceSquared(const WindowRect& a, const WindowRect& b) {
     return dx * dx + dy * dy;
 }
 
+// The monitor minimising the distance above, ties broken by list order. nullptr when there are
+// no monitors, which is the caller's problem and not this function's to invent an answer for.
+//
+// FACTORED OUT RATHER THAN COPIED when zenFullscreenRect arrived. Both callers have to agree with
+// `MONITOR_DEFAULTTONEAREST`, and the agreement is the measured part -- 17,328 positions swept,
+// 288 disagreements found and fixed in the seams. A second loop spelling the same intent would
+// pass every test written against it on the day it was written and be free to drift afterwards,
+// which is the failure this file's own header comment spends a paragraph on.
+const MonitorArea* nearestMonitor(const WindowRect& window,
+                                  const std::vector<MonitorArea>& monitors) {
+    const MonitorArea* nearest = nullptr;
+    int64_t best = 0;
+    for (const MonitorArea& m : monitors) {
+        const int64_t d = distanceSquared(window, m.bounds);
+        if (!nearest || d < best) {
+            nearest = &m;
+            best = d;
+        }
+    }
+    return nearest;
+}
+
 }  // namespace
 
 WindowRect choosePlacement(const PlacementRequest& request,
@@ -63,15 +85,7 @@ WindowRect choosePlacement(const PlacementRequest& request,
             // answer is the sentinel -- "let the window manager choose" is the only honest
             // response to "place this among zero displays", and it is also what the Win32
             // original does when GetMonitorInfoW fails.
-            const MonitorArea* nearest = nullptr;
-            int64_t best = 0;
-            for (const MonitorArea& m : monitors) {
-                const int64_t d = distanceSquared(saved, m.bounds);
-                if (!nearest || d < best) {
-                    nearest = &m;
-                    best = d;
-                }
-            }
+            const MonitorArea* nearest = nearestMonitor(saved, monitors);
 
             if (nearest) {
                 const WindowRect& wa = nearest->work;
@@ -107,6 +121,14 @@ WindowRect choosePlacement(const PlacementRequest& request,
     }
 
     return out;
+}
+
+WindowRect zenFullscreenRect(const WindowRect& window,
+                             const std::vector<MonitorArea>& monitors) {
+    const MonitorArea* nearest = nearestMonitor(window, monitors);
+    // No monitors, no nearest, nothing to cover -- see the header on why this returns the window
+    // rather than a zero rectangle or the placement sentinel.
+    return nearest ? nearest->bounds : window;
 }
 
 }  // namespace tinta

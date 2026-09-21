@@ -72,6 +72,34 @@ struct MonitorArea {
     WindowRect work;
 };
 
+// WHAT ZEN MODE MUST COME BACK TO, AND DELIBERATELY NOT A `WINDOWPLACEMENT`.
+//
+// F11 goes borderless over one whole monitor and F11 again undoes it, so something has to
+// remember the window it was. That something used to be a `WINDOWPLACEMENT` stored by value in
+// App -- which compiled off Windows only because win32_types.h stood the struct in field for
+// field, and which meant the state at the centre of a two-platform capability was spelled in a
+// vocabulary one of the two platforms has no word for. A seam whose state type is a Win32 struct
+// has not moved the coupling; it has hidden it behind a file boundary.
+//
+// TWO FIELDS, AND THE TREE ALREADY AGREED THIS IS THE RIGHT PAIR BEFORE THIS STRUCT EXISTED.
+// src/main_d2d.cpp's save path takes a real `WINDOWPLACEMENT` off the window and immediately
+// decomposes it into `settings.windowMaximized = (wp.showCmd == SW_SHOWMAXIMIZED)` plus a
+// position -- a rectangle and a flag. That is this struct, hand-written at one call site.
+//
+// WHAT IS LOST RELATIVE TO SetWindowPlacement, STATED RATHER THAN DISCOVERED. The SDK struct
+// also carries `ptMinPosition` and `ptMaxPosition`. The first is IGNORED by SetWindowPlacement
+// unless `WPF_SETMINPOSITION` is set, which the shipped code never set; the second is where a
+// maximized window's top-left would go, which Windows recomputes per monitor. Neither is a
+// concept Qt has, and neither is observable on the only transition zen mode can make -- F11 is
+// pressed on a window somebody is looking at, so `showCmd` is normal or maximized and never
+// minimized. The Win32 arm rebuilds a `WINDOWPLACEMENT` from these two fields; the divergence is
+// priced here so the next reader does not have to re-derive that it is nil.
+struct ZenRestore {
+    WindowRect normal;       // the window's normal-position rectangle, pre-zen
+    bool maximized = false;  // was it maximized when zen mode was entered
+    bool valid = false;      // nothing captured yet -- leaving zen mode without having entered it
+};
+
 // Everything the decision depends on, so the function has no other inputs and no clock,
 // no filesystem and no OS behind it.
 struct PlacementRequest {
@@ -95,6 +123,28 @@ struct PlacementRequest {
 // the sentinel and let Qt choose.
 WindowRect choosePlacement(const PlacementRequest& request,
                            const std::vector<MonitorArea>& monitors);
+
+// The rectangle zen mode covers: the FULL bounds of the monitor nearest `window`.
+//
+// `bounds` and not `work`, which is the one thing in this function that could be got wrong
+// invisibly. Zen mode is borderless fullscreen and deliberately covers the taskbar; clamping it
+// into the work area instead would leave a strip of desktop at the bottom of a "fullscreen"
+// window, and the shipped Win32 code reads `MONITORINFO::rcMonitor` for exactly this reason.
+// Everything else in this file clamps into `work`, so this is the asymmetry to notice.
+//
+// NEAREST BY THE SAME METRIC choosePlacement uses -- literally the same function, not a second
+// implementation that agrees today. The shipped code asked Win32 with
+// `MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST)`; this file's `distanceSquared` was swept
+// against that API over 17,328 positions and made to match it in the inter-monitor seams, so
+// reusing it is what makes the port faithful rather than merely plausible.
+//
+// WITH NO MONITORS the answer is `window` UNCHANGED. There is no nearest of nothing, and the
+// alternatives are both worse than doing nothing: a default-constructed WindowRect would collapse
+// the window to 0x0 at the origin, and the sentinel `choosePlacement` returns in the same
+// situation is meaningful for "where should a new window go" and meaningless for "what should
+// this window cover". A window that stays put is a visible failure to enter zen mode, which is
+// the behaviour this tree prefers to a confident wrong rectangle.
+WindowRect zenFullscreenRect(const WindowRect& window, const std::vector<MonitorArea>& monitors);
 
 }  // namespace tinta
 

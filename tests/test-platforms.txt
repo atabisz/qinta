@@ -74,6 +74,7 @@ qt_text                        both
 readme_figures                 both
 readme_figures_control         both
 render_api                     both
+repaint_sink                   both
 search                         both
 seated                         both
 selection                      both

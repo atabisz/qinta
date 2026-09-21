@@ -157,7 +157,14 @@ int main(int argc, char** argv) {
     // errors as of 2026-09-21 -- it compiles, and it is in tests/portable-sources.txt. The
     // reason these four flags still refuse is no longer that the file will not build off
     // Windows; it is that main_qt.cpp routes no keyboard or mouse events, so nothing calls
-    // into it. Deliberately no replacement count: a line count here would rot the same way,
+    // into it. READ THAT SENTENCE NARROWLY -- it is true of THIS FILE and it is NOT true of
+    // the Qt build, which is the trap it sets. src/qt_window.cpp::keyPressEvent routes TWELVE
+    // keys, hand-written on Qt::Key_* and calling tinta::scroll* directly, so the Qt build has
+    // a SECOND key router that never reaches src/input.cpp's several hundred behaviours. The
+    // 2026-09-21 slice that measured what it would take to collapse the two came back blocked
+    // on src/print.cpp (CMakeLists.txt, the src/input.cpp census row, has the symbols and the
+    // fatal include). So the four refusals above are not "no keyboard", they are "not THAT
+    // keyboard". Deliberately no replacement count: a line count here would rot the same way,
     // and the census that owns these numbers is scripts/check-readme-figures.sh.
     if (options.forceTabStrip) refuse("--tabbed", "there is no tab strip yet (src/input.cpp)");
     if (options.quickNote) refuse("--new", "quick notes need the window manager (src/input.cpp)");

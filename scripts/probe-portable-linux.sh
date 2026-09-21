@@ -217,6 +217,17 @@ else
     check 1 "tests/geometry_tests.cpp was compiled by $CXX_BIN (no object line found)"
 fi
 
+# include/repaint_sink.h is header-only, and so is the seam it serves, so neither
+# appears in any object list. This target is the only thing off Windows that calls
+# requestRepaint at all -- the 277 call sites under src/ are all in files that do not
+# link here -- so if it were dropped or moved inside if(WIN32), the seam would go back
+# to being unobserved and the ctest count would simply be one lower.
+if grep -qE "repaint_sink_tests\.cpp\.o" "$BUILD_DIR.build.log"; then
+    check 0 "tests/repaint_sink_tests.cpp was compiled by $CXX_BIN, so include/repaint_sink.h and requestRepaint's off-Windows arm were read off Windows"
+else
+    check 1 "tests/repaint_sink_tests.cpp was compiled by $CXX_BIN (no object line found)"
+fi
+
 # include/render_api.h is header-only for the same reason and needs the same
 # treatment. src/render_qt.cpp IS in the manifest above, so the backend is
 # watched; this asserts the TEST that reads the framebuffer back. Dropping it
@@ -695,7 +706,13 @@ while IFS= read -r cmd; do
     hit=""
     for tok in $(printf '%s\n' "$cmd" | tr '"' ' ' | tr '=;' '  '); do
         [ -d "$tok" ] && continue
-        base="$(basename "$tok")"
+        # `--` because the token stream still holds bare flags: `-DREPO_ROOT=<path>` splits on
+        # `=` above, the path half is caught by the -d guard, and the `-DREPO_ROOT` half reached
+        # basename as an OPTION -- `basename: invalid option -- 'D'`, once per gate test. It was
+        # harmless (empty base matches no exe) and it was noise in an instrument's own output,
+        # which is the class of thing that gets read as a failure later. The -d guard above is
+        # what actually prevents the directory/binary collision in note 3; this only silences it.
+        base="$(basename -- "$tok")"
         case " $(printf '%s ' $linked_exes)" in
             *" $base "*) hit="$hit $base" ;;
         esac
@@ -704,7 +721,7 @@ while IFS= read -r cmd; do
         c_resolved=$((c_resolved + 1))
         c_binaries="$c_binaries$hit"
     else
-        c_scripted="$c_scripted $(printf '%s\n' "$cmd" | awk '{print $NF}' | xargs -r basename)"
+        c_scripted="$c_scripted $(printf '%s\n' "$cmd" | awk '{print $NF}' | xargs -r basename --)"
     fi
 done <<< "$c_cmds"
 

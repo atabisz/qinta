@@ -131,6 +131,7 @@
 // run 19 adds one include and not four.
 #include "qt_launch.h"
 #include "qt_window.h"
+#include "repaint_sink.h"
 #include "text_api.h"
 // The chrome formats' own header, and the reason this file needs it now is the port: the
 // bodies run 11 asserts on moved out of src/qt_init.cpp into src/text_formats_app.cpp, so
@@ -496,6 +497,16 @@ int main(int argc, char** argv) {
     }
     check(true, "the grab produced an image the size of the window");
     check(window.paintCount() >= 1, "the window's paintEvent ran");
+
+    // ISC-3, FIRST ENDPOINT. Constructing the window must have installed the repaint
+    // sink, because off Windows that is the only thing standing between the 277
+    // requestRepaint sites under src/ and QWidget::update(). This half is a property of
+    // the constructor and is asserted here, where a window has just been built; the
+    // SECOND endpoint -- that a request actually arrives as a paint -- is a different
+    // claim and is measured at the end of this file, deliberately not by re-reading
+    // this one. A window that installed a sink pointing at nothing would pass here.
+    check(tinta::repaintSinkInstalled(),
+          "constructing QtAppWindow installed the repaint sink, so requestRepaint has somewhere to go");
     check(window.renderTargetInstalled(),
           "the paint got a non-null render target out of App's storage -- Seated<RenderTarget>::install()");
     check(app.renderTarget == nullptr,
@@ -2002,6 +2013,82 @@ int main(int argc, char** argv) {
               "ISC-17 is a WINDOWS-ONLY differential: off Windows there is no second enumeration, "
               "and monitorsFromWin32() correctly reports none rather than inventing one");
 #endif
+    }
+
+    // ---- ISC-3, SECOND ENDPOINT: DOES A REPAINT REQUEST ARRIVE AS A PAINT? ---------
+    //
+    // The registration check earlier in this file is a property of the constructor. This
+    // is the other endpoint, and it is measured through paintCount() rather than by
+    // re-reading the registration, because the two claims fail independently: a sink
+    // holding a closure that calls the wrong thing, or nothing, registers perfectly.
+    //
+    // WHY NOT grab(). Every other paint assertion in this file is driven by grabWindow(),
+    // and grab() renders the widget whether or not anything asked it to -- so a grab
+    // after a requestRepaint would rise identically with the seam still wired to
+    // (void)hwnd. That is this tree's an-assertion-over-one-capture-cannot-fail shape, and
+    // it is why this block shows the window and pumps the event loop instead.
+    //
+    // WHY THE OFFSCREEN GUARD, and why it is not a gap. update() is documented to do
+    // nothing on a hidden widget, so the receipt cannot be observed without show() --
+    // and on Windows this target runs the REAL platform (CMakeLists.txt sets that
+    // deliberately), where show() would flash a window onto the desktop of whoever ran
+    // ctest. It costs nothing to skip: the sink is the OFF-WINDOWS arm of requestRepaint.
+    // On Windows the same call reaches InvalidateRect and the sink is never consulted, so
+    // running this block there would be pointing the instrument away from its subject.
+    if (QApplication::platformName() == QLatin1String("offscreen")) {
+        QtAppWindow repaintProbe(app);
+        repaintProbe.resize(320, 240);
+        repaintProbe.show();
+        // Twice: the first flushes the show and its initial paint, the second settles
+        // anything the first posted, so the baseline below is a quiet window.
+        QApplication::processEvents();
+        QApplication::processEvents();
+
+        const int paintsBeforeRequest = repaintProbe.paintCount();
+        std::printf("repaint_probe paints_before_request=%d\n", paintsBeforeRequest);
+
+        // SUBJECT FIRST, then the control -- a control read against a red subject is not
+        // a reading, which this tree has paid for once.
+        requestRepaint(nullptr);
+        QApplication::processEvents();
+        const int paintsAfterRequest = repaintProbe.paintCount();
+        std::printf("repaint_probe paints_after_request=%d\n", paintsAfterRequest);
+        check(paintsAfterRequest > paintsBeforeRequest,
+              "requestRepaint(nullptr) off Windows reached QWidget::update() and the widget really "
+              "painted -- the receipt, not the registration");
+
+        // THE CONTROL THAT MAKES THE ASSERTION ABOVE MEAN ANYTHING. processEvents() is
+        // free to deliver paints for reasons of its own, and if it did, the rise above
+        // would be an artefact of pumping the loop rather than of the request. So pump it
+        // again, ask for nothing, and require the count to hold still.
+        QApplication::processEvents();
+        QApplication::processEvents();
+        std::printf("repaint_probe paints_after_control=%d\n", repaintProbe.paintCount());
+        check(repaintProbe.paintCount() == paintsAfterRequest,
+              "CONTROL: pumping the event loop without a request paints nothing, so the rise above "
+              "was the request and not the pump");
+
+        repaintProbe.hide();
+        // The destructor's unregistration, which is the one thing in this class that
+        // would be a use-after-free rather than a missing feature: the sink captures
+        // `this`, and the 277 sites that call it know nothing about this window's
+        // lifetime. Scoped so the destructor runs while the process can still assert.
+        {
+            QtAppWindow shortLived(app);
+            check(tinta::repaintSinkInstalled(), "the short-lived window installed its own sink");
+        }
+        check(!tinta::repaintSinkInstalled(),
+              "~QtAppWindow cleared the sink, so a later requestRepaint cannot call update() on a "
+              "destroyed widget");
+        // Deliberately not re-installed: the run ends below, and the single-window
+        // contract in include/qt_window.h means the slot holds one sink -- the outer
+        // window's was displaced by shortLived's the moment it was constructed. That is
+        // the contract being visible in a test rather than only in a comment.
+    } else {
+        std::printf("ISC-3 RECEIPT SKIPPED ON THIS PLATFORM: platform=%s -- update() cannot be "
+                    "observed on a hidden widget and show() here would flash a real window; the "
+                    "sink is the off-Windows arm and is not consulted on this platform at all\n",
+                    QApplication::platformName().toUtf8().constData());
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

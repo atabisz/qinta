@@ -18,6 +18,7 @@
 #include "qt_init.h"
 #include "render.h"
 #include "render_qt.h"
+#include "repaint_sink.h"
 #include "scroll.h"
 #include "scrollbar.h"
 #include "text_api.h"
@@ -67,6 +68,27 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // StrongFocus rather than ClickFocus: the window has to be usable from the keyboard
     // before anything has been clicked, because it is launched with a file in it.
     setFocusPolicy(Qt::StrongFocus);
+
+    // WITHOUT THIS, EVERY ONE OF THE 277 requestRepaint CALLS UNDER src/ IS A NO-OP.
+    // The seam in include/win32_api.h has no way to reach a QWidget on its own -- it is
+    // included tree-wide, including by translation units the Windows build compiles
+    // without Qt on the include path -- so the window hands it a closure instead. This
+    // is the same failure shape as the focus policy above: without it the code compiles,
+    // the calls return, App really does change, and nothing is ever redrawn.
+    //
+    // update() rather than repaint(): update() coalesces multiple requests into one
+    // paint at the next opportunity, which is what InvalidateRect does on the Windows
+    // arm. repaint() paints synchronously, so a handler that requests a repaint twice --
+    // and input.cpp has paths that do -- would paint twice per keystroke here and once
+    // on Windows. The seam's whole claim is that the two arms are the same request.
+    tinta::setRepaintSink([this]() { update(); });
+}
+
+QtAppWindow::~QtAppWindow() {
+    // Unconditional, and correct only because there is one window: see the header's
+    // single-window note. A second QtAppWindow would have displaced this sink already,
+    // and clearing here would then be removing somebody else's.
+    tinta::clearRepaintSink();
 }
 
 bool QtAppWindow::syncViewport() {

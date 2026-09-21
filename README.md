@@ -1413,11 +1413,28 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 48,623 / 70,031 | **69.4%** |
+| A. Source lines free of the Windows stack | 48,652 / 70,191 | **69.3%** |
 | B. `src/*.cpp` files compiling without Windows headers | 68 / 87 | 78.2% |
 | C. Files a running test links **off Windows** | 54 / 87 | 62.1% |
-| D. Test targets that *could* move, and do | 38 / 39 | 97.4% |
-| E. All test targets, run off Windows | 38 / 50 | 76.0% |
+| D. Test targets that *could* move, and do | 39 / 40 | 97.5% |
+| E. All test targets, run off Windows | 39 / 51 | 76.5% |
+
+**D AND E EACH ROSE BY ONE AT BOTH ENDS, WHICH IS THE ONLY SHAPE OF CHANGE THAT MOVES THEM TOGETHER:**
+`repaint_sink` is a new target that is portable from birth, so it enters `tests/test-platforms.txt` as
+a `both` row and lands in D's and E's numerator and denominator on the same commit — `38 / 39` → `39 / 40`
+and `38 / 50` → `39 / 51`. Every other way a target can arrive moves one end only. **Basis A went the
+WRONG WAY on the same slice — 69.4% → 69.3%, and the ceiling 82.6% → 82.4%, TWICE AS FAR** — and the
+decomposition sums with no remainder, which is the check that nothing else is hiding in it: numerator
+**+29** — `src/qt_window.cpp` 22 and `src/main_qt.cpp` 7 — and denominator **+160**, being that 29 plus
+**131 lines of header**: `include/repaint_sink.h` 92 as a whole new file, `include/qt_window.h` 24,
+`include/win32_api.h` net 15. So **82% of the slice's lines can never enter the numerator**, which is the
+header rule further down firing again, and it is the sharpest instance yet: what the slice DELETED was
+`(void)hwnd;`, one line of no-op, and what it cost to delete honestly was 131 denominator lines. **The
+two halves of the +160 are the rule and its contrast side by side** — the 29 are comments and code in
+portable `src/*.cpp` files, so they land at BOTH ends and the ratio barely moves, while the 131 land at
+one end only and drag the ceiling twice as far. Same prose, same slice, opposite effect, decided
+entirely by which file it was written in. That is not a reason to stop explaining a seam in the header
+that declares it; it is the reason the ceiling is published beside the ratio at all.
 
 **A TOOK ITS SECOND-LARGEST JUMP EVER — 63.1% → 69.4%, +6.3 POINTS, BEHIND ONLY `overlays.cpp`'s
 +6.7 — AND THE HONEST READING IS THAT IT MEASURES ONE FILE COMPILING AND NOTHING RUNNING.**
@@ -1470,10 +1487,10 @@ every test target is a checked-in file, `tests/test-platforms.txt`, one row per 
 and **the file's own fidelity is asserted from both ends** — this host compares `both ∪ windows-only`
 against the generated Windows ctest list, and `scripts/probe-portable-linux.sh` compares
 `both ∪ linux-only` against a fresh WSL configure's, each in both directions. The counting rule, so
-the next reading is reproducible rather than remembered: E is every target, `38 / 50`. D drops the
-targets that **cannot** move because their sources are Windows-only, leaving `38 / 39`, and the
-denominator's 39th member is `config_paths` — every source it compiles is portable and it stays on
-Windows because its *subject* is. Counting D by subject as well would make it `38 / 38`, a tautology
+the next reading is reproducible rather than remembered: E is every target, `39 / 51`. D drops the
+targets that **cannot** move because their sources are Windows-only, leaving `39 / 40`, and the
+denominator's 40th member is `config_paths` — every source it compiles is portable and it stays on
+Windows because its *subject* is. Counting D by subject as well would make it `39 / 39`, a tautology
 that cannot go red. The one Linux-only target, `platform_paths_bare_locale`, has no Windows
 counterpart and is outside both.
 
@@ -1861,8 +1878,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 57,817 lines of the 70,031,
-**basis A's ceiling is 82.6%, not 100%**, and 69.4% should be read against that. **AND THE MOVE THAT
+can never enter the numerator. With `src/*.cpp` totalling 57,846 lines of the 70,191,
+**basis A's ceiling is 82.4%, not 100%**, and 69.3% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into
 `include/theme_data.h` and a net 4 into `src/themes.cpp` — so the numerator rose **4** against a

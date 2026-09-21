@@ -972,6 +972,23 @@ if(BUILD_TESTING)
     target_include_directories(geometry_tests PRIVATE include)
     add_test(NAME geometry COMMAND geometry_tests)
 
+    # WHETHER A REPAINT REQUEST REACHES ANYTHING, which until now nothing could ask.
+    # include/win32_api.h::requestRepaint is the tree's single repaint seam at 277 call
+    # sites under src/, and off Windows its entire body was `(void)hwnd;` -- so every
+    # one of those requests returned cleanly having scheduled nothing. A no-op and a
+    # working repaint are indistinguishable from the caller's side, which is precisely
+    # why this needs a target rather than a reading: the state really does mutate, the
+    # call really does return, and the screen never changes.
+    #
+    # Header-only on both sides -- include/repaint_sink.h and the seam itself -- so
+    # there is no src/ file for tests/portable-sources.txt and the probe asserts on the
+    # test object instead, the same treatment geometry.h and render_api.h get above.
+    # Outside if(WIN32) deliberately: the arm this exercises is the non-Windows one, so
+    # a Windows-only target would be an instrument pointed away from its subject.
+    add_executable(repaint_sink_tests tests/repaint_sink_tests.cpp)
+    target_include_directories(repaint_sink_tests PRIVATE include)
+    add_test(NAME repaint_sink COMMAND repaint_sink_tests)
+
     # WHERE A WINDOW APPEARS, WHICH UNTIL NOW NOTHING COULD ASK. The decision lived in
     # thirty-five lines inside WinMain -- validate the saved rect against the monitors that
     # exist now, clamp it into the nearest work area if it is off all of them (issue #25),
@@ -1889,13 +1906,36 @@ if(BUILD_TESTING)
         #   firing. Anything sized by grepping this file for Win32 names overstated it by
         #   two orders of magnitude.
         #
-        #   LINKS into a Qt app: NO, and not attempted. Its callees reach editor.cpp,
-        #   drafts.cpp and tabs.cpp, none of which links off Windows, so the closure is its
-        #   own fixpoint -- the render.cpp lesson again.
+        #   LINKS into a Qt app: NO -- and MEASURED 2026-09-21, which is what corrects the
+        #   rest of this entry. The conclusion above was right and the reason it used to give
+        #   was two-thirds stale, which is the a-right-conclusion-hides-a-wrong-reason family:
+        #   it named editor.cpp, drafts.cpp and tabs.cpp, and editor.cpp and drafts.cpp have
+        #   BOTH been ported since (`grep -cx` against tests/portable-sources.txt returns 1
+        #   for each). Only tabs.cpp of the three still stands. THE COMMENT IS A CLAIM AND SO
+        #   IS ITS REASON -- THEY FAIL SEPARATELY, and either way of trusting this sentence
+        #   cost time: hunting editor.cpp finds nothing, and dismissing the warning as stale
+        #   hits the wall it failed to name.
+        #
+        #   The measurement, by `nm` over the object rather than by reading this file: 276
+        #   undefined symbols in input.cpp.o, 236 of them unsatisfied by the qinta target's
+        #   own 48 objects. The wall the old reason MISSED is src/print.cpp -- input.cpp calls
+        #   openPrintPreview and closePrintPreview, nothing else in the tree defines them, and
+        #   print.cpp stops the compiler dead at src/xps_page_emitter.h:24 with
+        #   `fatal error: d2d1.h: No such file or directory`. That is the one that matters:
+        #   tabs.cpp is a windowing port, but print.cpp needs the QPrinter arm, so the key
+        #   router IS gated on a Direct2D removal after all.
+        #
+        #   What this does NOT claim is a complete blocker list. Attributing all 236 symbols
+        #   to defining files over-attributed badly (substring matching invented 32 `*_tests.cpp`
+        #   rows), so this names the two walls it can stand behind and not a count.
         #
         #   RUNS: NO, and this is the part no line count reaches. src/main_qt.cpp routes no
         #   keyboard or mouse events, so nothing calls a handler in here. F11 reaching
-        #   src/zen_mode_qt.cpp needs a Qt key router, which is the named successor slice.
+        #   src/zen_mode_qt.cpp needs a Qt key router. THAT SUCCESSOR SLICE RAN ON 2026-09-21
+        #   AND CAME BACK BLOCKED: it delivered the repaint seam (include/repaint_sink.h, so
+        #   requestRepaint's off-Windows arm is no longer `(void)hwnd;`) and could NOT deliver
+        #   the router, for the print.cpp reason measured above. A successor named in a comment
+        #   is a prediction, and this one was half right.
         #   The ONE thing that would be silent if wrong: win32_api.h::requestQuit's
         #   off-Windows arm is a placeholder returning false, unreachable only because of
         #   this missing router.

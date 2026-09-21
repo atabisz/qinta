@@ -73,6 +73,21 @@
 // key event at all, which no pixel test and no probe in this tree could have caught --
 // keyPressEvent is reachable from a test with sendEvent whether the widget can be
 // focused or not, so the test asserts the focus policy separately and on purpose.
+//
+// WHERE THE REST OF THE TREE'S REPAINTS ARRIVE, as of 2026-09-21. This class installs
+// the repaint sink (include/repaint_sink.h) in its constructor, so the 277
+// requestRepaint call sites under src/ reach QWidget::update() off Windows instead of
+// returning silently. That is the counterpart to setFocusPolicy above and fails the same
+// way if it is missing: everything compiles, every call returns, and the screen never
+// changes. The direct update() calls in this file are NOT replaced by it -- they are
+// this window's own repaints of its own state, and routing them through a seam whose
+// argument is a window handle this class does not have would buy nothing.
+//
+// SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: the sink slot holds
+// one function, so a second QtAppWindow would displace the first's and the first window
+// would stop repainting. src/main_qt.cpp refuses --new and --tabbed today, which is what
+// makes that safe rather than lucky. The slice that makes a second window possible owns
+// turning the slot into a per-window dispatch, and this paragraph is the note it needs.
 
 #include <QWidget>
 #include <string>
@@ -89,6 +104,15 @@ public:
     // The App is BORROWED and must outlive the window. That is main()'s job and the
     // test's, and it is the same contract QtRenderTarget has with its paint device.
     explicit QtAppWindow(App& app, QWidget* parent = nullptr);
+
+    // DECLARED ONLY TO UNREGISTER THE REPAINT SINK, which is the one thing this class
+    // owns that outlives it. The constructor installs a sink capturing `this`, so a
+    // repaint request arriving after destruction would call update() on freed memory --
+    // and the 277 call sites that make such a request are in files that know nothing
+    // about this window's lifetime. A compiler-generated destructor would have left
+    // that dangling, silently, in exactly the build where nothing crashes on the
+    // happy path.
+    ~QtAppWindow() override;
 
     // How many times paintEvent has run. A test that asserts on pixels without
     // asserting this cannot tell a correct paint from a paint that never happened

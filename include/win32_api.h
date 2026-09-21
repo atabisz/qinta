@@ -22,6 +22,10 @@
 // existing error handling does the right thing for free.
 
 #include "win32_types.h"
+// The off-Windows arm of requestRepaint below. Included unconditionally: it has no
+// platform arms of its own, and a conditional include here would mean the Windows
+// build never compiles it, so a break in it would surface only on the other host.
+#include "repaint_sink.h"
 
 // --- Repaint ------------------------------------------------------------------
 //
@@ -45,14 +49,25 @@
 // been routed in earlier spans. 227+17 = 244 and 20+13 = 33. A partial count and a
 // stale count are indistinguishable by shape; only the total, 277, separates them.
 //
-// Off Windows this does nothing, because there is no window and no paint message
-// to schedule. That is a gap, not a lie: the Qt path will implement it as
-// QWidget::update(), which is the same request with the same coalescing semantics.
-inline void requestRepaint(HWND hwnd) {
+// Off Windows the request reaches a registered sink -- include/repaint_sink.h --
+// which the Qt window fills with QWidget::update(), the same request with the same
+// coalescing semantics. THAT COMMENT USED TO READ "the Qt path WILL implement it",
+// and the body under it was `(void)hwnd;`: all 277 requests returned cleanly having
+// scheduled nothing, in the one file whose opening rule is "never silent successes".
+// The plan sat one line above the violation of it for long enough to be quoted as
+// the design. Tense corrected 2026-09-21, when the arm landed.
+//
+// The parameter is [[maybe_unused]] rather than `(void)hwnd`-suppressed, and that is
+// the honest spelling: off Windows App::hwnd is nullptr at every call site (assigned
+// at exactly one site in the tree, src/main_d2d.cpp:1778, in the Windows-only D2D
+// window creation), so the token carries no information the sink could act on.
+// repaint_sink.h's header comment holds that measurement and why the sink therefore
+// takes no argument.
+inline void requestRepaint([[maybe_unused]] HWND hwnd) {
 #ifdef _WIN32
     InvalidateRect(hwnd, nullptr, FALSE);
 #else
-    (void)hwnd;
+    tinta::deliverRepaintRequest();
 #endif
 }
 

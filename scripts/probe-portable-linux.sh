@@ -598,6 +598,57 @@ while IFS= read -r test_name; do
 done <<< "$test_names"
 
 # ---------------------------------------------------------------------------
+note 'Platform manifest (both directions against tests/test-platforms.txt)'
+# THIS IS THE LINUX END OF A TWO-HOST CLAIM. README bases D and E are now derived by
+# scripts/check-readme-figures.sh from tests/test-platforms.txt -- D is `both / (both +
+# subject-only-windows)`, E is `both / (both + windows-only)`. That arithmetic runs on either host,
+# but the FILE it reads is a claim about BOTH, and a single host can only ever check its own half.
+# The gate asserts `both ∪ windows-only` against the generated Windows ctest list. This asserts
+# `both ∪ linux-only` against the list THIS configure just produced, in both directions:
+#
+#   - a name here that this host did not configure -> the manifest says a test runs off Windows and
+#     it does not. That inflates D and E directly.
+#   - a name configured here that is missing or marked windows-only -> a target became portable and
+#     the manifest did not notice. D and E understate, and the row a reader trusts is stale.
+#
+# `test_names` above is the authority and is derived from `ctest -N` in a build dir this script
+# `rm -rf`s on every run. That matters: build-linux/ sits in this same tree, configured and
+# gitignored, and `ctest -N` inside it listed 28 tests against this configure's 39. A stale build
+# dir is a silent instrument, so this probe never reads one.
+#
+# NOTE for whoever next edits the ~10 hand-written per-target guards above ("if X.cpp.o is missing,
+# fail, because the ctest count would silently fall"): this check is the general form of what every
+# one of them approximates. They are left alone deliberately -- they assert a specific OBJECT was
+# compiled into a specific target, which is finer than name-set equality -- but a new one should not
+# be added without first asking whether a manifest row already covers it.
+platforms="$SOURCE_DIR/tests/test-platforms.txt"
+if [ ! -f "$platforms" ]; then
+    check 1 "tests/test-platforms.txt exists -- it is the expected half of this comparison"
+else
+    check 0 "tests/test-platforms.txt found"
+    manifest_linux="$(grep -vE '^[[:space:]]*(#|$)' "$platforms" \
+        | awk '$2=="both"||$2=="linux-only" {print $1}' | sort -u)"
+    echo "manifest says portable: $(printf '%s\n' "$manifest_linux" | grep -c . || true)"
+
+    only_manifest="$(comm -23 <(printf '%s\n' "$manifest_linux") <(printf '%s\n' "$test_names"))"
+    only_configured="$(comm -13 <(printf '%s\n' "$manifest_linux") <(printf '%s\n' "$test_names"))"
+
+    if [ -z "$only_manifest" ]; then
+        check 0 "every both/linux-only row in the manifest was configured on this host"
+    else
+        check 1 "every both/linux-only row in the manifest was configured on this host"
+        printf '%s\n' "$only_manifest" | sed 's/^/       in manifest, NOT configured here: /'
+    fi
+
+    if [ -z "$only_configured" ]; then
+        check 0 "every test configured on this host is a both/linux-only row in the manifest"
+    else
+        check 1 "every test configured on this host is a both/linux-only row in the manifest"
+        printf '%s\n' "$only_configured" | sed 's/^/       configured here, NOT in the manifest as portable: /'
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 note 'Basis C: the files a RUNNING TEST LINKS off Windows (derived, not typed)'
 # README.md publishes basis C as "Files a running test links off Windows". Its
 # DENOMINATOR is gated by scripts/check-readme-figures.sh, because it is just

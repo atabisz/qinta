@@ -3,15 +3,17 @@
 # bare `add_test(COMMAND bash …)`.
 #
 # The gate's exit status is its failure count, so exit 0 does mean "every claim it
-# CHECKED was found". What exit 0 cannot say is how many it checked. One of the
-# eighteen claims sits inside a `command -v rg` guard
-# (scripts/check-readme-figures.sh:342-348) and SKIPS when ripgrep is not on PATH,
-# because its pattern needs PCRE2. On such a machine the subject arm checks 16 claims
-# and exits 0, and the control arm -- whose test is `failures == checks` -- prints
-# CONTROL PASSED at 16 of 16. Both arms read green having silently stopped asserting a
-# published figure. So EXPECTED_CHECKS is a second, independent reading, and a run that
-# does not make the expected number of assertions is a failure even when the script is
-# perfectly happy.
+# CHECKED was found". What exit 0 cannot say is how many it checked. One of the claims sits
+# inside a `command -v rg` guard (grep for `command -v rg` in
+# scripts/check-readme-figures.sh -- de-numbered because that citation had already rotted
+# once) and SKIPS when ripgrep is not on PATH, because its pattern needs PCRE2. On such a
+# machine the subject arm checks one claim fewer and exits 0, and the control arm -- whose
+# test is `failures == checks` -- prints CONTROL PASSED at that lower count. Both arms read
+# green having silently stopped asserting a published figure. So EXPECTED_CHECKS is a
+# second, independent reading, and a run that does not make the expected number of
+# assertions is a failure even when the script is perfectly happy. The numbers are
+# deliberately not written into this comment: EXPECTED_CHECKS lives in CMakeLists.txt, which
+# is the one copy, and a count repeated here would be a second copy nothing checks.
 #
 # The count is checked BEFORE the exit status on purpose: a run that both skipped claims
 # and found a stale figure should report the skip, because the skip is the reason the
@@ -62,10 +64,49 @@ if(NOT actual_checks EQUAL EXPECTED_CHECKS)
         "reading it appears to be.")
 endif()
 
+# The tests/test-platforms.txt fidelity checks are a SECOND, independently read family, for the
+# same reason EXPECTED_CHECKS exists: they are claims about what the BUILD does rather than about
+# what README.md says, they are not perturbable by --control, and they live in their own counters so
+# the control arm's `failures == checks` invariant stays satisfiable. Read the line, not the exit
+# status: the gate does fold these into its exit code, but that fold is for a human at a prompt --
+# here the count is what distinguishes 0-failures-from-3-readings from 0-failures-from-0-readings.
+#
+# A SKIP IS REPORTED, NEVER TREATED AS A PASS, AND NEVER AS A FAILURE EITHER. Off Windows there is
+# no *.vcxproj, so two of the three checks cannot be measured at all and skipping is the correct and
+# expected outcome -- this arm runs on both hosts. What must not happen is a skip being counted as
+# agreement, which is why the number is echoed here rather than left inside the script.
+if(NOT gate_out MATCHES "platform_manifest_failures=([0-9]+)")
+    message(FATAL_ERROR
+        "The gate printed no platform_manifest_failures= line, so whether tests/test-platforms.txt "
+        "still matches the build is unknown. Exit status was ${gate_result}.")
+endif()
+set(platform_failures "${CMAKE_MATCH_1}")
+
+if(NOT gate_out MATCHES "platform_manifest_skips=([0-9]+)")
+    message(FATAL_ERROR "The gate printed no platform_manifest_skips= line.")
+endif()
+set(platform_skips "${CMAKE_MATCH_1}")
+
+if(NOT platform_failures EQUAL 0)
+    message(FATAL_ERROR
+        "${platform_failures} tests/test-platforms.txt fidelity check(s) failed. Each FAIL line "
+        "above names the rows: either the manifest's platform sets no longer match the generated "
+        "ctest list, or a windows-only row's reason is not true of what that target compiles. That "
+        "manifest is the denominator of README bases D and E, so a wrong row makes both figures "
+        "wrong while the gate reports them as matching the README.")
+endif()
+
+if(platform_skips GREATER 0)
+    message("NOTE: ${platform_skips} tests/test-platforms.txt check(s) SKIPPED -- see the SKIP "
+            "lines above. Expected off Windows, where there is no *.vcxproj to census. A skip is "
+            "not a pass: on this run those rows were not read.")
+endif()
+
 if(NOT gate_result EQUAL 0)
     message(FATAL_ERROR
-        "${gate_result} of the ${actual_checks} derived README claims were not found. Each "
-        "MISS above prints the value derived from the tree; the README says something else.")
+        "${gate_result} claim(s) failed -- derived README claims not found, plus any "
+        "tests/test-platforms.txt failures folded in above. Each MISS prints the value derived "
+        "from the tree; the README says something else.")
 endif()
 
 # Exit 0 from --control means the script's own failures == checks test held. Requiring the

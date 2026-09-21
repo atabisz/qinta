@@ -75,6 +75,18 @@ fi
 failures=0
 checks=0
 
+# A SECOND, SEPARATE PAIR OF COUNTERS, and the separation is load-bearing. They are named
+# `platform_*` and not `manifest_*` because `manifest`/`manifest_count` below already mean
+# tests/portable-sources.txt, and two different manifests under one prefix is how the wrong
+# authority gets cited. `checks`/`failures`
+# count claims about what README.md SAYS, and the control arm's whole test is that they are equal.
+# The tests/test-platforms.txt fidelity checks added in 2026-09-21 are claims about what the BUILD
+# does, they are not perturbable by --control, and folding them into `failures` would make a
+# passing control arithmetically impossible. So they get their own counters, their own printed
+# line, and their own assertion in tests/run_figure_gate.cmake -- read the line, not the exit code.
+platform_failures=0
+platform_skips=0
+
 # In control mode every derived number is bumped by one AS IT IS COMPUTED, so the
 # claim strings are assembled wrong end to end rather than being string-edited
 # afterwards -- a substitution on the finished sentence could miss a component and
@@ -178,6 +190,85 @@ c_row=$(sed -nE 's/^\| C\. Files a running test links \*\*off Windows\*\* \| ([0
 [ -n "$c_row" ] || c_row=0
 claim "basis C denominator (= B's)" \
       "| C. Files a running test links **off Windows** | $c_row / $all_cpp_count | $(pct "$c_row" "$all_cpp_count")% |"
+# BASES D AND E, GATED 2026-09-21, AND THEY ARE THE TWO ROWS THIS SCRIPT USED TO LEAVE ALONE.
+# They read `30 / 35` and `30 / 39` for several passes while the suite grew from 39 test targets
+# to 50 -- stale inside the gated table, one line below three figures this script drags to the
+# truth on every commit. A stale row in a gated table is worse than a stale paragraph, because
+# the table is the part a reader trusts.
+#
+# THE REASON THEY WERE UNGATED WAS REAL AND IS NOW ANSWERED RATHER THAN ARGUED AWAY. D and E are
+# claims about TWO HOSTS, and this script runs on one at a time, so neither row is derivable from
+# the tree the way A, B and C are. The answer is tests/test-platforms.txt: one checked-in row per
+# ctest test name carrying its platform reach, from which D and E are pure arithmetic available on
+# any host -- and whose own truth is asserted from BOTH ends, the Windows ctest list here and a
+# fresh non-Windows configure in scripts/probe-portable-linux.sh.
+#
+# WHAT HAND-DERIVING THEM COST, because it is the reason the manifest's reason column is gated
+# instead of documented. Deriving D by hand produced a false finding that reached pushed history:
+# seven targets described as "linking only portable sources and running on Windows only for want
+# of a CMakeLists.txt entry" -- cheap wins. Five of them compile the whole Windows stack, reaching
+# it through ${INPUT_TEST_SOURCES} rather than through a filename the derivation was matching on,
+# and one is Windows-only by subject, which the comment directly above it in CMakeLists.txt
+# already said in those words. Zero were cheap. So `sources:` and `subject:` are not labels here;
+# each is an assertion with a probe, checked in both directions below.
+#
+# D's DENOMINATOR DELIBERATELY COUNTS BY SOURCES ONLY. Counting "could move" by subject as well
+# would make the row 38 / 38, a tautology that cannot go red. By sources, config_paths joins the
+# denominator -- every file it compiles is portable and it stays on Windows because <windows.h> is
+# in the test itself -- and the row then states something worth publishing.
+PLATFORMS=tests/test-platforms.txt
+platform_rows=$(grep -vE '^[[:space:]]*(#|$)' "$PLATFORMS" || true)
+prow() { printf '%s\n' "$platform_rows" | awk -v p="$1" '$2==p' ; }
+pcount() { prow "$1" | grep -c . || true; }
+both_count=$(pcount both)
+winonly_count=$(pcount windows-only)
+# The `subject:` rows are the ones whose SOURCES are entirely portable, so they are the only
+# Windows-only targets that belong in D's denominator.
+subject_winonly=$(prow windows-only | awk '$3=="subject:"' | grep -c . || true)
+
+d_num=$(bump "$both_count")
+d_den=$(bump "$((both_count + subject_winonly))")
+e_num=$(bump "$both_count")
+e_den=$(bump "$((both_count + winonly_count))")
+claim "basis D" \
+      "| D. Test targets that *could* move, and do | $d_num / $d_den | $(pct "$d_num" "$d_den")% |"
+claim "basis E" \
+      "| E. All test targets, run off Windows | $e_num / $e_den | $(pct "$e_num" "$e_den")% |"
+
+# THE DECOMPOSITION UNDER THOSE TWO TOTALS IS GATED TOO, and that is the point of this loop rather
+# than a flourish. This document's standing failure mode is a gated TOTAL sitting above an ungated
+# breakdown, and the passage D's new figure replaced was exactly that: seven targets published as
+# cheap wins with their blocker counts never measured. The README now carries a per-target blocker
+# table, and publishing that ungated would repeat the same error one row lower down the page.
+#
+# THE CHAIN HAS NO UNGATED LINK AND IT IS DELIBERATELY TWO HOPS, because one hop cannot be checked
+# on both hosts:
+#   the README table <- claimed here against tests/test-platforms.txt's reason column, a checked-in
+#                       file and therefore readable on ANY host;
+#   the manifest     <- checked against build-win-split/*.vcxproj by the fidelity block far below,
+#                       which SKIPS off Windows because there is no project file to census there.
+# Collapsing the two would make these twelve claims skip off Windows as well, and then
+# EXPECTED_CHECKS would have to differ per host -- which is how a second reading stops being one.
+#
+# The claimed literal is a PREFIX of the table row (`| name | N |`), so the third column's prose can
+# change freely without touching this; `claim` still requires it exactly once in the file.
+while read -r bname _bplat bkind brest; do
+    [ -n "$bname" ] || continue
+    case "$bkind" in
+        sources:) bn=$(printf '%s' "$brest" | awk '{print $1}') ;;
+        subject:) bn=0 ;;
+        *)        bn="" ;;
+    esac
+    # A non-numeric count claims a literal no table row can carry, so a malformed reason MISSes here
+    # as well as failing the well-formedness check below. It must NOT be coerced to a number: 0 is a
+    # meaningful value in this column -- it is what makes `config_paths` a subject row -- so a silent
+    # 0 would assert the exact opposite of what a broken row says.
+    case "$bn" in ''|*[!0-9]*) bn=999999 ;; esac
+    claim "blockers: $bname" "| \`$bname\` | $(bump "$bn") |"
+done <<EOF
+$(prow windows-only | sort)
+EOF
+
 claim "basis A ceiling"  "$(c "$src_cpp_lines") lines of the $(c "$denominator")"
 
 # The ceiling percentage needs a BIGGER perturbation than every other check, and the
@@ -444,10 +535,164 @@ claim "direct CreateTextLayout calls" \
 claim "  ... vs what a bare grep returns" \
       "\`grep\` for the call returns $(bump "$grep_total")"
 
+# --- is tests/test-platforms.txt telling the truth? -------------------------
+# D and E above are arithmetic over that file, so the file is now load-bearing and an unchecked
+# manifest would just move the rot one hop. Three things are asserted here; a fourth, that the
+# manifest matches what a non-Windows configure actually produces, is the Linux end of the same
+# claim and lives in scripts/probe-portable-linux.sh, because this script cannot see that host.
+#
+# ON A CONTROL RUN THESE ARE SKIPPED, not bumped. There is nothing to perturb: they compare two
+# sets and a count, and "bump one" would turn a correct manifest into an incorrect one and assert
+# that the gate notices -- which is a mutation test of a different shape, better run by hand than
+# smuggled into the arm whose pass condition is failures == checks.
+mfail() { printf '  FAIL %-42s %s\n' "$1" "$2"; platform_failures=$((platform_failures + 1)); }
+mok()   { printf '  ok   %-42s %s\n' "$1" "$2"; }
+mskip() { printf '  SKIP %-42s %s\n' "$1" "$2"; platform_skips=$((platform_skips + 1)); }
+
+echo
+if [ "$control" -eq 1 ]; then
+    echo "-- tests/test-platforms.txt fidelity: not run on a control arm (nothing here is perturbable)"
+else
+    echo "-- tests/test-platforms.txt fidelity"
+
+    # (1) Every row that is not `both` carries a reason whose first token is a known KIND. A row
+    # with a missing or unknown kind would silently fall out of D's denominator, because the
+    # subject_winonly count keys on the literal `subject:`.
+    bad_rows=$(printf '%s\n' "$platform_rows" \
+        | awk '$2!="both" && $3!="sources:" && $3!="subject:" {print $1" ["$2"] reason="$3}')
+    bad_tokens=$(printf '%s\n' "$platform_rows" \
+        | awk '$2!="both" && $2!="windows-only" && $2!="linux-only" {print $1" platform="$2}')
+    if [ -n "$bad_rows$bad_tokens" ]; then
+        mfail "manifest rows well-formed" "$(printf '%s %s' "$bad_rows" "$bad_tokens")"
+    else
+        mok "manifest rows well-formed" "$((both_count + winonly_count + $(pcount linux-only))) rows, every non-both row has a sources:/subject: reason"
+    fi
+
+    # (2) The manifest's both + windows-only set IS the Windows ctest list, both directions. The
+    # generated CTestTestfile.cmake is the authority and CMakeLists.txt is not: a static parse of
+    # the source read `if(WIN32 OR Qt6_FOUND)` as Windows-only and so reported 37 portable tests
+    # against a measured 39, one of three ways a hand parse went wrong in a single hour.
+    #
+    # EXACTLY ONE CANDIDATE, AND NO FALLBACK LIST. The first version of this tried
+    # `build-win-split build build-win-release` in turn, and the mutation arm that hid
+    # build-win-split did not skip -- it found a stale sibling and reported 16 phantom diffs, so an
+    # UNMEASURABLE state read as a loud wrong answer instead of a quiet honest one. The `.vcxproj`
+    # probe only proves a directory is an MSBuild configure, never that it is a CURRENT one, and
+    # build-linux/ in this same tree is the standing proof that a configured build dir can be
+    # stale by 11 tests and say nothing. So: one named directory, overridable, and anything else
+    # is a skip.
+    win_build=""
+    win_build_why=""
+    cand="${TINTA_WIN_BUILD_DIR:-build-win-split}"
+    if [ ! -f "$cand/CTestTestfile.cmake" ]; then
+        win_build_why="$cand has no CTestTestfile.cmake -- not configured, or this host is not Windows"
+    else
+        vcx_probe=$(printf '%s\n' "$cand"/*.vcxproj | head -1)
+        if [ ! -f "$vcx_probe" ]; then
+            win_build_why="$cand is configured but carries no *.vcxproj, so it is not the MSBuild arm (a Ninja or Linux configure of this same tree looks exactly like this)"
+        else
+            win_build="$cand"
+        fi
+    fi
+
+    if [ -z "$win_build" ]; then
+        mskip "manifest vs the Windows ctest list" "$win_build_why -- set \$TINTA_WIN_BUILD_DIR to name it; off Windows this skip is the expected state"
+        mskip "every windows-only reason is true"  "same reason: the source census reads that build dir's *.vcxproj"
+    else
+        ctest_names=$(grep -oE '^[[:space:]]*add_test\([A-Za-z0-9_]+' "$win_build/CTestTestfile.cmake" \
+            | sed -E 's/.*add_test\(//' | sort -u)
+        manifest_win=$(printf '%s\n' "$platform_rows" | awk '$2=="both"||$2=="windows-only" {print $1}' | sort -u)
+        only_manifest=$(comm -23 <(printf '%s\n' "$manifest_win") <(printf '%s\n' "$ctest_names") | tr '\n' ' ')
+        only_ctest=$(comm -13 <(printf '%s\n' "$manifest_win") <(printf '%s\n' "$ctest_names") | tr '\n' ' ')
+        if [ -n "$(printf '%s%s' "$only_manifest" "$only_ctest" | tr -d ' ')" ]; then
+            mfail "manifest vs the Windows ctest list" "in manifest only: ${only_manifest:-<none>}| in ctest only: ${only_ctest:-<none>}"
+        else
+            mok "manifest vs the Windows ctest list" "$(printf '%s\n' "$manifest_win" | grep -c .) names, equal both directions ($win_build)"
+        fi
+
+        # (3) THE CHECK THAT WOULD HAVE CAUGHT THE SEVEN. For each windows-only row, count the
+        # src/*.cpp the target actually compiles that are NOT in tests/portable-sources.txt -- read
+        # out of CMake's generated project file, so ${SOURCES}, ${INPUT_TEST_SOURCES} and
+        # ${LEGACY_D2D_SOURCES} are already expanded. ${PLATFORM_PATHS_SOURCE} is excluded by name:
+        # that slot is SELECTED per platform (platform_paths_win32.cpp here, platform_paths_qt.cpp
+        # off Windows), so it is never what strands a target.
+        # A `sources:` row must state a count EQUAL to the measured one; a `subject:` row must
+        # measure exactly zero. Both directions, because the failure this replaces was a
+        # `sources:`-shaped claim written over targets whose blockers nobody had counted.
+        #
+        # EXACT EQUALITY AND NOT `>= 1`, and that is the difference between this being a check and
+        # being a formality. The twelve `claim "blockers: …"` calls far above read their number out
+        # of THIS column, so a `>= 1` census would let the manifest say `sources: 99` and the README
+        # publish 99 blockers for a target that compiles seventeen -- green at both ends, wrong on
+        # the page, which is precisely the rot the whole slice exists to stop. The stated count is
+        # what makes the hop from build fact to published figure, so the stated count is what has
+        # to be right, not merely non-zero.
+        #
+        # `read` TAKES THE PLATFORM COLUMN TOO, and the discard is named rather than folded into
+        # the trailing catch-all. Written as `read -r name kind _rest` this loop put the string
+        # `windows-only` into `kind`, so NEITHER branch below could ever fire: it walked all twelve
+        # rows, counted them, and asserted nothing -- green against a manifest deliberately
+        # mislabelled with the exact refuted claim. The `else` at the bottom exists for the same
+        # reason: an unrecognised kind is a failure, never a row that quietly falls through.
+        census_bad=""
+        census_skip=""
+        census_rows=0
+        while read -r name _platform kind rest; do
+            [ -n "$name" ] || continue
+            tgt=$(sed -nE "s@^[[:space:]]*add_test\($name .*/([A-Za-z0-9_]+)\.exe.*@\1@p" \
+                "$win_build/CTestTestfile.cmake" | head -1)
+            if [ -z "$tgt" ] || [ ! -f "$win_build/$tgt.vcxproj" ]; then
+                # NOT a failure: no project file means the blocker count is UNKNOWN, and an unknown
+                # reported as a contradiction is the same error in the other direction.
+                census_skip="$census_skip $name"
+                continue
+            fi
+            n_block=$(grep -o 'ClCompile Include="[^"]*"' "$win_build/$tgt.vcxproj" \
+                | sed -e 's/.*Include="//' -e 's/"$//' | tr '\\' '/' \
+                | grep -E '/src/[A-Za-z0-9_]+\.cpp$' | sed 's@.*/src/@@' | sort -u \
+                | grep -v '^platform_paths_win32\.cpp$' \
+                | while read -r b; do grep -qxF "$b" tests/portable-sources.txt || echo "$b"; done \
+                | grep -c . || true)
+            census_rows=$((census_rows + 1))
+            case "$kind" in
+                sources:)
+                    stated=$(printf '%s' "$rest" | awk '{print $1}')
+                    case "$stated" in
+                        ''|*[!0-9]*)
+                            census_bad="$census_bad $name(sources: reason does not start with a count, it starts with '${stated:-<nothing>}')" ;;
+                        0)
+                            census_bad="$census_bad $name(says sources: 0, which is a subject: row wearing the wrong kind)" ;;
+                        *)
+                            [ "$stated" -eq "$n_block" ] \
+                                || census_bad="$census_bad $name(says sources: $stated but compiles $n_block non-portable src/*.cpp)" ;;
+                    esac ;;
+                subject:)
+                    [ "$n_block" -eq 0 ] \
+                        || census_bad="$census_bad $name(says subject: but compiles $n_block non-portable src/*.cpp)" ;;
+                *)
+                    census_bad="$census_bad $name(unrecognised reason kind '$kind')" ;;
+            esac
+        done <<EOF
+$(prow windows-only)
+EOF
+        if [ -n "$census_bad" ]; then
+            mfail "every windows-only reason is true" "$census_bad"
+        elif [ "$census_rows" -eq 0 ]; then
+            mskip "every windows-only reason is true" "no windows-only row was measurable, so this claim took no reading at all"
+        else
+            mok "every windows-only reason is true" "$census_rows targets censused against tests/portable-sources.txt"
+        fi
+        [ -z "$census_skip" ] \
+            || mskip "  ... blocker count unknown for" "$census_skip (no *.vcxproj in $win_build; those rows are unmeasured, not agreed with)"
+    fi
+fi
+
 # --- the reading, failures FIRST -------------------------------------------
 echo
 echo "readme_figure_failures=$failures"
 echo "readme_figures_checked=$checks"
+echo "platform_manifest_failures=$platform_failures"
+echo "platform_manifest_skips=$platform_skips"
 if [ "$control" -eq 1 ]; then
     if [ "$failures" -eq "$checks" ]; then
         echo "CONTROL PASSED: all $checks claims missed when perturbed, so each is anchored to its own sentence"
@@ -456,5 +701,10 @@ if [ "$control" -eq 1 ]; then
     echo "CONTROL FAILED: $((checks - failures)) perturbed claim(s) still matched -- those matches are too loose to trust"
     exit 1
 fi
-[ "$failures" -eq 0 ] && echo "All $checks derived claims are the ones the README states."
-exit "$failures"
+[ "$failures" -eq 0 ] && [ "$platform_failures" -eq 0 ] \
+    && echo "All $checks derived claims are the ones the README states, and tests/test-platforms.txt agrees with the build."
+# The platform failures are folded into the exit status as well as printed. The PRINTED line is
+# still the authority for tests/run_figure_gate.cmake -- but a hand run that exits 0 with a FAIL
+# line above it is a silent instrument, and the whole reason this block exists is that a figure
+# nothing checked went stale in a table a reader trusts.
+exit $((failures + platform_failures))

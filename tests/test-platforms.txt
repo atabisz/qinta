@@ -1,0 +1,85 @@
+# tests/test-platforms.txt -- the platform reach of every ctest test, one row per test name.
+#
+# Columns: <test name> <platform> <reason>
+#   platform is one of: both | windows-only | linux-only
+#   reason is REQUIRED on every row that is not `both`, and its first token is a KIND:
+#     sources:  the target compiles at least one src/*.cpp outside tests/portable-sources.txt
+#               (the ${PLATFORM_PATHS_SOURCE} slot excluded -- that one is selected, not a blocker)
+#     subject:  every source is portable; the TEST ITSELF is about a platform-only behaviour
+#
+# WHY THIS FILE EXISTS. README bases D and E are figures about two hosts, and for several passes they
+# were the only rows of the gated table that nothing checked -- they read 30/35 and 30/39 while the
+# suite grew from 39 targets to 50. Re-deriving them by hand then produced a false finding that
+# reached pushed history: seven targets called "cheap wins, stranded for want of a CMakeLists entry",
+# when five of them compile the entire Windows stack through ${INPUT_TEST_SOURCES} and one is
+# Windows-only by subject. The derivation had matched _d2d/_win32 FILENAMES in add_executable lines
+# and was blind to the same dependency arriving through a variable.
+#
+# So the reason column is not documentation -- it is gated, in both directions:
+#   scripts/check-readme-figures.sh  asserts every `sources:` row really has >= 1 blocker, every
+#                                    `subject:` row has exactly ZERO, and that this file's
+#                                    both+windows-only set equals the generated Windows ctest list.
+#                                    Its census reads build-win-split/*.vcxproj -- CMake's own
+#                                    generated project files, with every variable expanded, because
+#                                    three separate static parses of CMakeLists.txt misled me in one
+#                                    hour. Where no .vcxproj exists the claim SKIPS and says so.
+#   scripts/probe-portable-linux.sh  asserts this file's both+linux-only set equals what a fresh
+#                                    non-Windows configure actually produces, both directions.
+#
+# A `windows-only` row is a statement that work is owed, not that the target is finished. None of the
+# twelve below is a CMakeLists entry away from moving: they are owed the input.cpp port, the Direct2D
+# rasteriser's removal, or nothing at all because their subject has no non-Windows meaning.
+
+clipboard                      both
+clipboard_control              both
+context_menu                   both
+document_types                 both
+export_html                    both
+file_dialog                    both
+file_utils                     both
+geometry                       both
+i18n                           both
+image                          both
+inline_styles                  both
+keyboard                       both
+keymap                         both
+launch_options                 both
+math_parser                    both
+mermaid_parser                 both
+pdf_export_qt                  both
+platform_paths                 both
+portable_str                   both
+process                        both
+process_control                both
+qt_entry                       both
+qt_text                        both
+readme_figures                 both
+readme_figures_control         both
+render_api                     both
+search                         both
+seated                         both
+selection                      both
+selection_layout               both
+settings_roundtrip             both
+syntax                         both
+tab_ghost                      both
+tab_ghost_qt                   both
+text_utils                     both
+theme_data                     both
+typography                     both
+window_placement               both
+
+platform_paths_bare_locale     linux-only     subject: preferredUiLanguages dropping the C/POSIX locale, steered by LANGUAGE; no Windows meaning and macOS cannot steer it either
+
+bitmap_seam                    windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp
+blockquote_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- input.cpp, tabs.cpp, render_d2d.cpp, text_d2d.cpp and 13 more
+code_block_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- input.cpp, tabs.cpp, render_d2d.cpp, text_d2d.cpp and 13 more
+config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
+copy_file_path                 windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- input.cpp, tabs.cpp, render_d2d.cpp, text_d2d.cpp and 13 more
+inline_code_theme              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- input.cpp, tabs.cpp, render_d2d.cpp, text_d2d.cpp and 13 more
+input_shortcuts                windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- input.cpp, tabs.cpp, render_d2d.cpp, text_d2d.cpp and 13 more
+math_layout                    windows-only   sources: 2 via ${LEGACY_D2D_SOURCES} -- render_d2d.cpp, text_d2d.cpp
+pdf_export_win32               windows-only   sources: 3 -- pdf_export_win32.cpp, render_d2d.cpp, text_d2d.cpp
+render_d2d                     windows-only   sources: 3 -- image_win32.cpp, render_d2d.cpp, text_d2d.cpp
+tab_ghost_win32                windows-only   sources: 1 -- tab_ghost_win32.cpp
+text_factory                   windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp

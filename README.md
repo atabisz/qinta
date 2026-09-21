@@ -1392,7 +1392,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 | A. Source lines free of the Windows stack | 43,938 / 69,615 | **63.1%** |
 | B. `src/*.cpp` files compiling without Windows headers | 66 / 85 | 77.6% |
 | C. Files a running test links **off Windows** | 53 / 85 | 62.4% |
-| D. Test targets that *could* move, and do | 38 / 45 | 84.4% |
+| D. Test targets that *could* move, and do | 38 / 39 | 97.4% |
 | E. All test targets, run off Windows | 38 / 50 | 76.0% |
 
 **B AND C ROSE BY THE SAME TWO FILES AND A FELL, AND THE ONE FIGURE WORTH READING IS `tabs.cpp`: IT
@@ -1417,19 +1417,76 @@ design is stated rather than discovered later: a change *inside* the predicate m
 identically and neither arm's test can see it — only `tab_ghost_tests`, which asserts the shipped
 numbers at scale 1.0, can.
 
-**D AND E WERE STALE FOR SEVERAL PASSES AND THE REASON IS STRUCTURAL: THEY ARE THE TWO ROWS
-`scripts/check-readme-figures.sh` DOES NOT GATE**, so nothing failed while the suite grew from 39
-targets to 50 underneath them. Both are re-derived here, and the rule is written down so the next
-reading is reproducible rather than remembered: both are counted over the **Windows** suite's 50
-targets, the numerator is the **38** of them that also configure and run under WSL, and the one
-Linux-only target — `platform_paths_bare_locale`, which has no Windows counterpart — is deliberately
-outside both. D's denominator drops the **5** that link a `_d2d` or `_win32` source and therefore can
-never move: `bitmap_seam`, `pdf_export_win32`, `render_d2d`, `tab_ghost_win32`, `text_factory`. So
-45 − 38 = **7**, and the seven are nameable, which is the check that the pair means anything:
-`blockquote_layout`, `code_block_layout`, `config_paths`, `copy_file_path`, `inline_code_theme`,
-`input_shortcuts`, `math_layout` — portable sources every one, absent from the Linux build for want of
-a `CMakeLists.txt` entry rather than for any reason in the code. That is a list of cheap wins sitting
-in plain sight, and it was invisible while the row read 30/35.
+**D AND E WERE STALE FOR SEVERAL PASSES AND THE REASON IS STRUCTURAL: THEY WERE THE TWO ROWS
+`scripts/check-readme-figures.sh` DID NOT GATE**, so nothing failed while the suite grew from 39
+targets to 50 underneath them. Both are gated now, and not by hand-derivation: the platform reach of
+every test target is a checked-in file, `tests/test-platforms.txt`, one row per ctest name carrying
+`both` / `windows-only` / `linux-only` plus a required reason. The gate reads D and E straight off it,
+and **the file's own fidelity is asserted from both ends** — this host compares `both ∪ windows-only`
+against the generated Windows ctest list, and `scripts/probe-portable-linux.sh` compares
+`both ∪ linux-only` against a fresh WSL configure's, each in both directions. The counting rule, so
+the next reading is reproducible rather than remembered: E is every target, `38 / 50`. D drops the
+targets that **cannot** move because their sources are Windows-only, leaving `38 / 39`, and the
+denominator's 39th member is `config_paths` — every source it compiles is portable and it stays on
+Windows because its *subject* is. Counting D by subject as well would make it `38 / 38`, a tautology
+that cannot go red. The one Linux-only target, `platform_paths_bare_locale`, has no Windows
+counterpart and is outside both.
+
+**THE PASSAGE THAT STOOD HERE WAS FALSE, AND IT IS THE REASON THIS SLICE EXISTS.** It read: D's
+denominator drops the 5 that link a `_d2d` or `_win32` source, "so 45 − 38 = **7**, and the seven are
+nameable… `blockquote_layout`, `code_block_layout`, `config_paths`, `copy_file_path`,
+`inline_code_theme`, `input_shortcuts`, `math_layout` — portable sources every one, absent from the
+Linux build for want of a `CMakeLists.txt` entry rather than for any reason in the code. That is a
+list of cheap wins sitting in plain sight." **Zero of the seven are cheap wins, and not one of them is
+waiting on a `CMakeLists.txt` entry.** Measured against CMake's own generated project files — the
+authority, because they have every variable expanded — here is what actually holds each of the twelve
+Windows-only targets, as the count of `src/*.cpp` it compiles that are outside
+`tests/portable-sources.txt`:
+
+| target | blockers | what they are |
+|---|---|---|
+| `blockquote_layout` | 17 | `input.cpp`, `tabs.cpp`, `render_d2d.cpp`, `text_d2d.cpp` + 13 more, via `${INPUT_TEST_SOURCES}` |
+| `code_block_layout` | 17 | the same 17 |
+| `copy_file_path` | 17 | the same 17 |
+| `inline_code_theme` | 17 | the same 17 |
+| `input_shortcuts` | 17 | the same 17 |
+| `pdf_export_win32` | 3 | `pdf_export_win32.cpp`, `render_d2d.cpp`, `text_d2d.cpp` |
+| `render_d2d` | 3 | `image_win32.cpp`, `render_d2d.cpp`, `text_d2d.cpp` |
+| `bitmap_seam` | 2 | `render_d2d.cpp`, `text_d2d.cpp` |
+| `math_layout` | 2 | `render_d2d.cpp`, `text_d2d.cpp`, via `${LEGACY_D2D_SOURCES}` |
+| `text_factory` | 2 | `render_d2d.cpp`, `text_d2d.cpp` |
+| `tab_ghost_win32` | 1 | `tab_ghost_win32.cpp` |
+| `config_paths` | 0 | **nothing** — Windows-only by *subject*: MSIX filesystem virtualization, and its own test includes `<windows.h>` for `CreateFileW` |
+
+So the cheap count is **zero**. Five of the "seven" are the `input.cpp` port wearing a different hat —
+they reach the entire Windows stack through `${INPUT_TEST_SOURCES}`, which is `${SOURCES}` minus
+`src/main_d2d.cpp` — one is the Direct2D rasteriser, and the last is Windows-only on purpose.
+
+**HOW THE ERROR WAS MADE IS WORTH MORE THAN THE CORRECTION, because it is the third instance of one
+class inside a single hour.** The derivation matched `_d2d`/`_win32` **filenames in the
+`add_executable` line**, so it was structurally blind to the same dependency arriving through a
+*variable*. A second parse of the same file read `if(WIN32 OR Qt6_FOUND)` as Windows-only and reported
+37 portable targets against a measured 39, hiding `keyboard` and `image`; a third double-counted
+`platform_paths` across an `if(APPLE)`/`else()` pair. **CMake expands every variable when it generates;
+a regex over `CMakeLists.txt` does not** — which is why the gate now censuses
+`build-win-split/*.vcxproj` and skips loudly where no project file exists rather than reporting a
+number it could not measure. The cheapest refutation available was reading the file the claim was
+about: the comment directly above `config_paths` in `CMakeLists.txt` already said **"WINDOWS-ONLY BY
+SUBJECT"** in those words. **And this correction cannot be complete: the same false sentence went out
+in commit `9a27795`'s message, which is pushed and cannot be edited.** It is corrected here, in the
+slice ISA that recorded it, and in the working note that repeated it; the commit message stands wrong
+in the history, and naming that is the only remedy available.
+
+**What the gate now catches is precisely this error.** Every `windows-only` row's reason is itself
+probed, in both directions: a `sources:` reason must have **at least one** blocker, and a `subject:`
+reason must have **exactly zero**. Run against the seven-cheap-wins list above — which claims five
+`sources:`-blocked targets are held only by their subject — the check fails and names all five with
+their counts. That was measured, not assumed: the manifest was deliberately mislabelled with the
+refuted claim and the arm went red. **It went GREEN on its first run against the real tree, and that
+green was worthless** — `while read -r name kind` over a three-column row had put the platform token
+in the `kind` variable, so neither branch could ever fire and the loop counted twelve rows while
+asserting nothing. A check that walks its whole input and prints a plausible total is indistinguishable
+from a working one until something is deliberately broken under it.
 
 **B AND C ROSE AGAIN AND A FELL, AND THE DECOMPOSITION SUMS IN BOTH DIRECTIONS, WHICH IS THE ONLY
 REASON THE FALL IS READABLE.** The window-placement slice added three `src/*.cpp` files and all three

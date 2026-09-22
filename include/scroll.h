@@ -11,12 +11,16 @@
 // WHY A NEW FILE RATHER THAN THESE LINES INSIDE src/qt_window.cpp. Three reasons, in
 // order of how much they cost to get wrong:
 //
-//   1. src/input.cpp already holds this policy and does not compile off Windows. Its
+//   1. src/input.cpp already holds this policy and does not link into the Qt app. Its
 //      numbers -- 60 device-independent pixels a wheel notch, 50 an arrow key, 80% of
 //      the window a page -- are the product's behaviour, not defaults, and a second
 //      copy inside a Qt-only file would be a divergence with no test that can see it.
 //      Here there is ONE place for those numbers and input.cpp can route to it when it
-//      ports. That is the same argument loadDocumentFromPath was written under, and it
+//      links. CORRECTED 2026-09-22: this read "does not compile off Windows", which is
+//      false -- input.cpp compiles at errors 0, fatal 0 and is a manifest entry. It is
+//      held out of qinta by six symbols only src/print.cpp defines. The argument for a
+//      separate file is unaffected; the stale half was the reason, not the conclusion.
+//      That is the same argument loadDocumentFromPath was written under, and it
 //      is the argument this tree keeps having to re-learn: main_d2d.cpp's file loader
 //      is two lambdas inside WinMain, so nothing could reuse it and the Qt side had to
 //      write a new one.

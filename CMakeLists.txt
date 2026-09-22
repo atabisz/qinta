@@ -903,6 +903,57 @@ set(QINTA_APP_SOURCES
     src/text_formats_app.cpp
 )
 
+# WHY THIS LIST IS 47 OBJECTS AND NOT THE MANIFEST'S 68, MEASURED 2026-09-22.
+#
+# COMPILES OFF WINDOWS AND LINKS INTO qinta ARE TWO DIFFERENT PROPERTIES, and
+# tests/portable-sources.txt only ever claimed the first. Reading it as the second
+# is what let the 2026-09-21 hand-off size the remaining port at ONE file
+# (src/print.cpp) when the gap is TWENTY-ONE. This comment exists so the next
+# reader gets the measurement instead of re-deriving it from a manifest that
+# cannot see a link.
+#
+# 68 manifest entries, 47 linked here, so 21 compile portably and are not linked.
+# Adding all 21 and reading the linker -- not the manifest -- says: 7 close and
+# 14 do not.
+#
+# THERE ARE EXACTLY TWO ROOT BLOCKERS, and both are files no non-Windows compiler
+# can read at all. Everything else in the 14 is transitive through them:
+#
+#   src/tabs.cpp   not in the manifest. Stops at `#include <shellapi.h>` (:26),
+#                  and past a stub for that header g++ reports 61 more error
+#                  lines -- _stricmp, IsZoomed, _countof, swprintf_s,
+#                  HWND_TOPMOST. A real port, not an include fix. Read 61 as a
+#                  FLOOR: a fatal include means the file was never read, and
+#                  g++ names an undeclared identifier once per function.
+#                  Withholds 7 symbols (tabsInit, tabOpenPath, tabCloseIndex,
+#                  tabOpenQuickNote, tabBecomeStartPage, tabBulkCloseStep,
+#                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,
+#                  editrail.cpp, startpage.cpp.
+#   src/print.cpp  not in the manifest. Stops at d2d1.h, reached through
+#                  include/xps_page_emitter.h:24. Withholds openPrintPreview and
+#                  exportPdfFile, blocking editor.cpp and export_html.cpp.
+#
+# src/input.cpp IS NOT A ROOT BLOCKER AND CALLING IT ONE IS THE MISTAKE THIS
+# COMMENT IS HERE TO STOP. It is a manifest entry and compiles off Windows with
+# zero errors; it is absent from this list only because it needs six symbols that
+# only src/print.cpp defines. The same is true of every other name in the 14.
+#
+# CONSEQUENCE FOR THE FLAGS: all ten refusals in src/main_qt.cpp are behind these
+# two files. That includes --exportpdf, --exporthtml and --exportdocx, which look
+# independent and are not -- export_html.cpp calls exportPdfFile, and
+# export_docx.cpp calls buildDiagramPrims in export_html.cpp.
+#
+# WHY THE 7 THAT WOULD CLOSE ARE NOT ADDED: nothing calls them. qinta links clean
+# without them, so each is an object with no caller and no test, and this tree's
+# own rule is not to add code serving a caller that does not exist. When the
+# router lands they go in with something that exercises them.
+#
+# IF YOU DO ADD A SEAM ARM HERE, add it as ${PLATFORM_*_SOURCE} and never as a
+# _qt.cpp filename: each has a win32 counterpart, so a filename entry links both
+# arms on Windows and raises LNK2005 on that host only. ${PLATFORM_PATHS_SOURCE}
+# above is the pattern. src/file_dialog_qt.cpp and src/image_qt.cpp are older
+# hardcoded literals and are deliberately left alone.
+
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
     add_executable(qinta WIN32
         src/main_qt.cpp
@@ -1515,7 +1566,13 @@ if(BUILD_TESTING)
     #
     # What stands between it and a running test was measured, not assumed: it calls
     # editorMarkDirtyAndReparse, editorPreviewVisible and editorReplaceRangeExternal,
-    # all in src/editor.cpp, which does not compile off Windows at all (fatal <imm.h>).
+    # all in src/editor.cpp, which is not linked into any runnable off-Windows target.
+    # CORRECTED 2026-09-22: this said editor.cpp "does not compile off Windows at all
+    # (fatal <imm.h>)". FALSE -- it compiles with errors 0, fatal 0, and it is a
+    # tests/portable-sources.txt entry. The blocker is a LINK, and it is two files
+    # further out: editor.cpp needs symbols from src/tabs.cpp and src/print.cpp, which
+    # are the only two root blockers in the closure (see the note under
+    # QINTA_APP_SOURCES). The old sentence sent a reader to the wrong file.
     # Its two pure functions, tsvLooksLikeTable and tsvToMarkdownTable, need no App and
     # no HWND and are assertable the moment that is settled.
     add_library(portable_compile_only OBJECT
@@ -1550,9 +1607,15 @@ if(BUILD_TESTING)
         #
         # COMPILE-ONLY rather than in QINTA_APP_SOURCES, on the same rule as
         # src/annotations.cpp above: the closure, not the compile. exportAsDocx is reached
-        # from src/input.cpp, which is windows.h-fatal, so this file cannot LINK into qinta
-        # off Windows. Adding it to the app target would trade a green build for a manifest
-        # entry, and the manifest is not a wish list.
+        # from src/input.cpp, which is not in QINTA_APP_SOURCES, so this file cannot LINK
+        # into qinta off Windows. Adding it to the app target would trade a green build for
+        # a manifest entry, and the manifest is not a wish list.
+        #
+        # CORRECTED 2026-09-22: this said input.cpp "is windows.h-fatal". FALSE -- input.cpp
+        # compiles off Windows at errors 0, fatal 0 and is a manifest entry. It is out of the
+        # app target because it needs six symbols only src/print.cpp defines. The conclusion
+        # above survives; the reason did not, which is the dangerous half, because the old
+        # reason pointed at a file that is already ported.
         #
         # THE CONTROL IS RECORDED BECAUSE A CLEAN FIRST READ IS A WARNING IN THIS TREE, NOT
         # A RESULT. Under the same rig, before the edit, this file read `exit 1, fatal 1,
@@ -1562,8 +1625,13 @@ if(BUILD_TESTING)
         # as exactly 1, then restored and verified byte-exact by sha256.
         src/export_docx.cpp
         # src/text_utils_app.cpp -- one function, measureText's seam overload, split out
-        # of the windows.h-fatal src/utils.cpp because a linker reading of qinta's
-        # closure found it was the ONLY symbol render.cpp needed from that file.
+        # of src/utils.cpp because a linker reading of qinta's closure found it was the
+        # ONLY symbol render.cpp needed from that file.
+        #
+        # CORRECTED 2026-09-22: this called src/utils.cpp "windows.h-fatal". FALSE as of
+        # today -- utils.cpp compiles off Windows at errors 0, fatal 0 and is a manifest
+        # entry. The split was still worth doing for the reason the sentence already gives
+        # (one symbol, not a whole file), so only the stale adjective is gone.
         #
         # NOT COMPILE-ONLY, AND THE PARAGRAPH THAT SAID SO WAS WRONG ABOUT ITS OWN PROBE.
         # It read "NOTHING in this tree executes measureText on any platform -- grepping
@@ -1601,8 +1669,10 @@ if(BUILD_TESTING)
         #   whose six controls all held. That is what this target asserts.
         #
         #   LINKS into a Qt app: YES, AS OF THIS COMMIT, and the sentence here used to
-        #   say "NOT YET" with the residue named -- six symbols owned by
-        #   src/math_render.cpp, which still does not compile off Windows. What changed
+        #   say "NOT YET, the residue being six symbols owned by src/math_render.cpp,
+        #   which still does not compile off Windows" -- a QUOTATION of the old claim,
+        #   closed here in 2026-09-22 because the unclosed quote read as a live claim and
+        #   cost one sweep a misclassification. What changed
         #   is not math: src/math_stub.cpp supplies those six, and the nineteen other
         #   files the fixpoint named joined qinta with two Qt library lines.
         #
@@ -1660,10 +1730,15 @@ if(BUILD_TESTING)
         #   into a scratch file rather than into the subject.
         #
         #   LINKS into a Qt app: NOT CLAIMED, and deliberately not attempted in this
-        #   commit. Its callees include tr(), dpi() and the theme helpers, several of
-        #   which still live in windows.h-fatal files, so the closure is a separate
-        #   reading with its own fixpoint -- exactly the render.cpp lesson, which took
-        #   three linker readings to settle.
+        #   commit. The closure is a separate reading with its own fixpoint -- exactly
+        #   the render.cpp lesson, which took three linker readings to settle.
+        #
+        #   CORRECTED 2026-09-22: this said "its callees include tr(), dpi() and the
+        #   theme helpers, several of which still live in windows.h-fatal files". FALSE
+        #   for both named symbols -- tr() is defined in src/i18n.cpp and
+        #   src/i18n_app.cpp, both manifest entries that compile at errors 0/fatal 0,
+        #   and dpi() is an inline in include/app.h, so it has no source dependency at
+        #   all. NOT CLAIMED still stands; the reason offered for it did not.
         #
         #   RUNS: NO. Nothing executes an overlay off Windows. The overlays are keyboard-
         #   and mouse-driven chrome, and this line read "and input.cpp has not ported"
@@ -1739,9 +1814,15 @@ if(BUILD_TESTING)
         # and this is one file-local call with one caller.
         #
         # COMPILE-ONLY, predicted first and confirmed: three undefined symbols from two
-        # files not on the manifest -- draftsRecoverAll and draftsDiscardAll (src/drafts.cpp,
-        # <shlobj.h>-fatal) and saveEditorFile (src/editor.cpp). That is the next question
+        # files that are not in QINTA_APP_SOURCES -- draftsRecoverAll and draftsDiscardAll
+        # (src/drafts.cpp) and saveEditorFile (src/editor.cpp). That is the next question
         # this list poses, and it is a question, not a plan.
+        #
+        # CORRECTED 2026-09-22, two claims in one sentence: it said those two files were
+        # "not on the manifest" and called drafts.cpp "<shlobj.h>-fatal". BOTH FALSE --
+        # drafts.cpp and editor.cpp are manifest entries and each compiles off Windows at
+        # errors 0, fatal 0. They are out of the app target for a link reason, not a compile
+        # one: both are blocked through src/tabs.cpp and src/print.cpp.
         #
         # CORRECTED 2026-09-17: this comment said src/editor.cpp "carries no Windows include
         # at all". FALSE, and measured false the next pass -- it is `#include <imm.h>` at
@@ -1876,8 +1957,14 @@ if(BUILD_TESTING)
         # so g++ reported nothing whatever about the eleven calls inside it.
         #
         # WHAT KEEPS IT OUT OF ${QINTA_APP_SOURCES} is a link closure and one honest gap.
-        # pandocExportFlow calls editorReparse in src/editor.cpp, which is
-        # windows.h/imm.h-fatal, so the file cannot link into qinta at all yet. And even
+        # pandocExportFlow calls editorReparse in src/editor.cpp, which is not in that
+        # target, so the file cannot link into qinta at all yet.
+        #
+        # CORRECTED 2026-09-22: this said editor.cpp "is windows.h/imm.h-fatal". FALSE --
+        # editor.cpp is a manifest entry and compiles off Windows at errors 0, fatal 0.
+        # What holds it out is src/tabs.cpp and src/print.cpp, the only two root blockers
+        # in the closure; see the note under QINTA_APP_SOURCES. This sentence is the one
+        # that would have sent the next reader at editor.cpp instead. And even
         # once it could, the worker's last act is postWindowMessage(hwnd,
         # WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
         # include/win32_api.h's stated design -- the conversion would run and finish and

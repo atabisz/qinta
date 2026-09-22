@@ -186,12 +186,26 @@ int main(int argc, char** argv) {
         refuse("--exportdocx", "the DOCX exporter is not wired to this entry point yet");
     }
     if (!options.exportPdfPath.empty()) {
-        // NAMED SEPARATELY because it is the closest of the ten to honourable: the Qt PDF
-        // seam already exists and has its own passing test target. What is missing is this
-        // wiring, not the capability -- so this refusal is the one to delete first, and
-        // saying so here is cheaper than a reader re-deriving it.
+        // NAMED SEPARATELY, AND NO LONGER AS "THE ONE TO DELETE FIRST" -- that sentence
+        // stood here until 2026-09-22 and it sent a reader at the most expensive of the ten.
+        // It read: "the closest of the ten to honourable: the Qt PDF seam already exists and
+        // has its own passing test target. What is missing is this wiring, not the
+        // capability -- so this refusal is the one to delete first."
+        //
+        // Every clause of that is true and the conclusion was wrong. include/pdf_export.h
+        // says in its own header that pagination, print layout and the page painter all stay
+        // in src/print.cpp: the Qt seam is a SINK that renderPages drives, not an exporter.
+        // So exportPdfFile needs src/print.cpp, which no non-Windows compiler can read
+        // (fatal d2d1.h through include/xps_page_emitter.h:24).
+        //
+        // MEASURED 2026-09-22: all three exporters are behind the same two files, and
+        // --exporthtml/--exportdocx are not the cheap alternatives they look like either --
+        // export_html.cpp calls exportPdfFile, and export_docx.cpp calls buildDiagramPrims
+        // in export_html.cpp. The blocker map is under QINTA_APP_SOURCES in CMakeLists.txt.
+        // There is no cheapest refusal in this list; there are two files.
         refuse("--exportpdf",
-               "the QPdfWriter seam exists but is not wired to this entry point yet");
+               "the QPdfWriter seam exists but is a sink src/print.cpp drives, and that file "
+               "does not build off Windows");
     }
 
     // --light: the one appearance flag that needs nothing Windows-only. The three fields it

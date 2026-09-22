@@ -220,9 +220,13 @@ pdf_export_qt.cpp
 # before-control of nine.
 #
 # IT IS COMPILE-ONLY AND NOT IN QINTA, and the blocker is a link closure rather than
-# anything left in the file: it calls handleFileWatchTimer, which lives in the
-# windows.h-fatal src/input.cpp. So it goes in portable_compile_only, which is what
-# this section is for and all this line claims.
+# anything left in the file: it calls handleFileWatchTimer, which lives in src/input.cpp,
+# which is itself not linked into qinta. So it goes in portable_compile_only, which is
+# what this section is for and all this line claims.
+#
+# CORRECTED 2026-09-22: this called src/input.cpp "windows.h-fatal". FALSE, and it is
+# self-contradicting -- input.cpp is an entry in THIS FILE, which is the assertion that it
+# compiles. It is out of qinta because it needs six symbols only src/print.cpp defines.
 annotations.cpp
 
 # THREE ENTRIES BEFORE IT. selection.cpp used to head this section and has moved
@@ -268,9 +272,13 @@ editrail.cpp
 #
 # The reason it is not RUN is a measured link debt, not a guess: tableedit.cpp
 # references editorMarkDirtyAndReparse, editorPreviewVisible and
-# editorReplaceRangeExternal, all defined in src/editor.cpp -- which dies off Windows
-# at a fatal <imm.h> and reads `errors=1, fatal=1`, meaning NOT MEASURED rather than
-# one error away. So a running target needs either editor.cpp ported or those three
+# editorReplaceRangeExternal, all defined in src/editor.cpp -- which is not linked into
+# any runnable off-Windows target. CORRECTED 2026-09-22: this said editor.cpp "dies off
+# Windows at a fatal <imm.h> and reads `errors=1, fatal=1`, meaning NOT MEASURED rather
+# than one error away". That reading is stale -- editor.cpp now reads errors 0, fatal 0
+# and is an entry in this manifest. The `1,1` shape is still the warning the sentence
+# describes, and src/tabs.cpp and src/print.cpp are where it now applies.
+# So a running target needs either editor.cpp linked or those three
 # stubbed in the test, and stubbing is a claim about behaviour that no other target
 # here makes. Note what is being left on the table: tsvLooksLikeTable and
 # tsvToMarkdownTable are pure std::wstring functions with no App and no HWND, and they
@@ -423,10 +431,14 @@ utils.cpp
 #
 # COMPILE-ONLY, and this too was PREDICTED BEFORE IT WAS MEASURED: three undefined symbols
 # from two files not on this manifest. `nm -u` on the object reports exactly that --
-# draftsRecoverAll and draftsDiscardAll (drafts.cpp, which dies on <shlobj.h>) and
-# saveEditorFile (editor.cpp, which dies on <imm.h> and so has never been read end to end
-# either -- CORRECTED, see the drafts.cpp note below; this said "has no Windows include at
-# all", which was wrong). The other three resolve from files already listed here:
+# draftsRecoverAll and draftsDiscardAll (drafts.cpp) and saveEditorFile (editor.cpp).
+# CORRECTED 2026-09-22: this called drafts.cpp "dies on <shlobj.h>" and editor.cpp "dies
+# on <imm.h> and so has never been read end to end", and said the two were "not on this
+# manifest". All three claims are false -- both files are entries here and both compile at
+# errors 0, fatal 0. They are undefined for THIS object because they are not in
+# QINTA_APP_SOURCES, which is a link fact and not a compile one. (The older inline
+# correction about editor.cpp having "no Windows include at all" stands; that one was
+# about <imm.h> being present, which it is.) The other three resolve from files listed here:
 # measureText (text_utils_app.cpp), tr (i18n_app.cpp), platform::openExternalUrl
 # (platform_paths_qt.cpp) -- which is also the evidence the new seam call links.
 #
@@ -1129,9 +1141,15 @@ qt_launch.cpp
 # overlays.cpp. THE LARGEST FILE IN THIS MANIFEST -- 4,140 lines, ahead of render.cpp --
 # and it is here for the narrowest of the three readings this manifest can carry. Being
 # listed says a file COMPILES off Windows. It says nothing about LINKS and nothing about
-# RUNS, and for this file both of those are still NO: its callees reach into
-# windows.h-fatal files, and nothing executes an overlay off Windows because input.cpp
-# has not ported.
+# RUNS, and for this file both of those are still NO: its callees reach into files that
+# are not linked into qinta, and nothing executes an overlay off Windows because
+# input.cpp is not in that target.
+#
+# CORRECTED 2026-09-22, two claims: "windows.h-fatal files" and "input.cpp has not
+# ported". Both false. input.cpp is an entry in this manifest and compiles at errors 0,
+# fatal 0; so are the callees this paragraph meant. The only two files in the closure
+# that genuinely do not compile off Windows are src/tabs.cpp and src/print.cpp, and
+# neither is listed here. The NO on LINKS and RUNS is correct -- the reason was not.
 #
 # The count above it is why the number in the last paragraph moved: 23 of 24 becomes
 # 22 of 23, and the file-count bases in README.md all shifted with it.

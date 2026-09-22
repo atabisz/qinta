@@ -1416,13 +1416,22 @@ basis below is measured — Windows and Linux each built and tested in the same 
 | A. Source lines free of the Windows stack | 48,666 / 70,209 | **69.3%** |
 | B. `src/*.cpp` files compiling without Windows headers | 68 / 87 | 78.2% |
 | C. Files a running test links **off Windows** | 54 / 87 | 62.1% |
-| D. Test targets that *could* move, and do | 39 / 40 | 97.5% |
-| E. All test targets, run off Windows | 39 / 51 | 76.5% |
+| D. Test targets that *could* move, and do | 41 / 42 | 97.6% |
+| E. All test targets, run off Windows | 41 / 53 | 77.4% |
 
-**D AND E EACH ROSE BY ONE AT BOTH ENDS, WHICH IS THE ONLY SHAPE OF CHANGE THAT MOVES THEM TOGETHER:**
-`repaint_sink` is a new target that is portable from birth, so it enters `tests/test-platforms.txt` as
-a `both` row and lands in D's and E's numerator and denominator on the same commit — `38 / 39` → `39 / 40`
-and `38 / 50` → `39 / 51`. Every other way a target can arrive moves one end only. **Basis A went the
+**D AND E EACH ROSE BY TWO AT BOTH ENDS ON 2026-09-22 WITHOUT ONE LINE OF C++ BEING PORTED, AND THAT
+IS THE CAVEAT ON READING EITHER AS PORT PROGRESS.** The `portable_claims` / `portable_claims_control`
+pair are `cmake -P` script arms — a prose gate, no `add_executable`, no source file of their own — so
+they enter `tests/test-platforms.txt` as `both` rows and land at both ends of both ratios
+(`39 / 40` → `41 / 42`, `39 / 51` → `41 / 53`) while bases A, B and C do not move at all. A ratio
+whose denominator is *test targets* counts anything ctest will run, and this tree deliberately runs
+gates there. Read D and E as **suite reach**, and read A/B/C as the port; when the four disagree, the
+disagreement is the reading, not an error in it.
+
+**THE SAME SHAPE MOVED THEM ONE SLICE EARLIER, WHICH IS WHY THE SHAPE IS WORTH NAMING RATHER THAN THE
+NUMBER:** `repaint_sink` was a new target portable from birth, so it landed in D's and E's numerator
+and denominator on the same commit — `38 / 39` → `39 / 40` and `38 / 50` → `39 / 51`. Every other way
+a target can arrive moves one end only. **Basis A went the
 WRONG WAY on the same slice — 69.4% → 69.3%, and the ceiling 82.6% → 82.4%, TWICE AS FAR** — and the
 decomposition sums with no remainder, which is the check that nothing else is hiding in it: numerator
 **+29** — `src/qt_window.cpp` 22 and `src/main_qt.cpp` 7 — and denominator **+160**, being that 29 plus
@@ -1487,10 +1496,10 @@ every test target is a checked-in file, `tests/test-platforms.txt`, one row per 
 and **the file's own fidelity is asserted from both ends** — this host compares `both ∪ windows-only`
 against the generated Windows ctest list, and `scripts/probe-portable-linux.sh` compares
 `both ∪ linux-only` against a fresh WSL configure's, each in both directions. The counting rule, so
-the next reading is reproducible rather than remembered: E is every target, `39 / 51`. D drops the
-targets that **cannot** move because their sources are Windows-only, leaving `39 / 40`, and the
-denominator's 40th member is `config_paths` — every source it compiles is portable and it stays on
-Windows because its *subject* is. Counting D by subject as well would make it `39 / 39`, a tautology
+the next reading is reproducible rather than remembered: E is every target, `41 / 53`. D drops the
+targets that **cannot** move because their sources are Windows-only, leaving `41 / 42`, and the
+denominator's last member is `config_paths` — every source it compiles is portable and it stays on
+Windows because its *subject* is. Counting D by subject as well would make it `41 / 41`, a tautology
 that cannot go red. The one Linux-only target, `platform_paths_bare_locale`, has no Windows
 counterpart and is outside both.
 
@@ -1794,12 +1803,35 @@ link closure over `qinta`: put `render.cpp`'s object on the target's own lifted 
 map every unresolved symbol back to the objects that define it, add the ones a real `src/*.cpp`
 owns, and repeat until the set stops shrinking. Depth 1 read 23 unresolved. Depth 2 read **41**,
 because 21 of the newly-visible ones were `mermaidext::detail::build*` — a dispatcher whose arms
-are eleven more files. The fixpoint is: **nineteen more files must join `qinta`, two Qt
-library lines (`Qt6::Svg`, `Qt6::Network`) must be added, and six symbols are genuinely
-blocked.** All nineteen already compile. The six are `mathParse`, `mathBoxWidth`,
+are eleven more files. The fixpoint **that pass read** was: **nineteen more files must join
+`qinta`, two Qt library lines (`Qt6::Svg`, `Qt6::Network`) must be added, and six symbols are
+genuinely blocked.** All nineteen already compiled. The six were `mathParse`, `mathBoxWidth`,
 `mathBoxHeight`, `mathBoxBaseline`, `mathExpandLine` and `mathBoxRetain`, all defined in
-`src/math_render.cpp`, which does not compile off Windows (34 errors, `IDWriteTextLayout`
-incomplete). One of those six nearly escaped the reading: the first pass reported `mathParse` as
+`src/math_render.cpp`, which **at that tree** did not compile off Windows (34 errors,
+`IDWriteTextLayout` incomplete).
+
+**ALL THREE PARTS OF THAT FIXPOINT ARE DISCHARGED AS OF 2026-09-22, and the sentence above is put
+into the past tense rather than rewritten.** Its figures are a *reading taken at a tree*: editing
+them to today's values would make the depth-1 / depth-2 arithmetic above them stop reconciling and
+stop being checkable, so "what this reading was" is kept distinct from "what is true now". What is
+true now: the nineteen are on `QINTA_APP_SOURCES`, `Qt6::Svg` and `Qt6::Network` are on the
+target, and `src/math_render.cpp` compiles off Windows at **0** errors, is in
+`tests/portable-sources.txt`, and is itself on `QINTA_APP_SOURCES` — so the six resolve against
+the real backend and the residue is zero. `src/math_stub.cpp`, which stood in for them, is
+deleted from the tree.
+
+**THE CORRECTION IS LATE, AND HOW IT STAYED LATE IS WORTH MORE THAN THE FIGURES.** Until
+2026-09-22 those two clauses stood in the present tense, so this document asserted that a file
+which compiles does not compile. The identical claim had a **second home** in `CMakeLists.txt`
+beside `src/render.cpp` — and the sweep that corrected it *there*, the same day and in the commit
+immediately before this one, declared itself complete across six files **including this one**. The
+corrected copy is what kept this copy stale: a reader who checks the build system finds the truth
+and has no reason to come back here. The sweep missed it because its phrase set was derived from
+the phrasings it had already found in `CMakeLists.txt`, and this site words the same claim
+differently — **a census keyed on the shape you have already fixed is blind to the shape you have
+not.**
+
+One of those six nearly escaped the original reading: the first pass reported `mathParse` as
 *resolved*, because it took only the first object defining each symbol and a **test stub** in
 `export_html_tests` defines it. A blocker masquerading as a satisfied reference is the worst
 shape this instrument can produce, so it now prints every owner and refuses to treat a

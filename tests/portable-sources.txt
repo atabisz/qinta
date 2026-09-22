@@ -987,9 +987,20 @@ math_render.cpp
 # qt_entry_tests, and compiled with NO Qt at all by portable_compile_only.
 #
 # THE SECOND READING IS THE ONE WITH TEETH, and the reason differs from
-# paint_document.cpp's. This file exists so that src/input.cpp -- 344 native mentions
-# deep and not portable -- can call it instead of keeping its own copy of these
-# numbers, and input.cpp will never link Qt. A QWheelEvent or a Qt::KeyboardModifier
+# paint_document.cpp's. This file exists so that src/input.cpp can call it instead of
+# keeping its own copy of these numbers, and input.cpp will never link Qt.
+#
+# CORRECTED 2026-09-22: src/input.cpp was described here as "344 native mentions deep and
+# not portable". BOTH HALVES FALSE, and the second is self-contradicting -- input.cpp is
+# an entry in THIS FILE, which is the document that asserts a file compiles off Windows,
+# and it compiles at errors 0, fatal 0. The 344 was a SOURCE-mention census; g++ found 15
+# lines, and 16 of the 17 sites the source census saw and the compiler did not were
+# COMMENTS. Deliberately no replacement figure: the reason this file exists does not
+# depend on how deep input.cpp is, only on input.cpp never linking Qt, which is still
+# true. Found by scripts/check-portable-claims.sh, which is the fourteenth comment in the
+# tree to name the wrong blocker and the second one a sweep that called itself complete
+# walked straight past.
+# A QWheelEvent or a Qt::KeyboardModifier
 # drifting in here would compile fine in both Qt targets and quietly make the shared
 # policy unshareable, which is exactly the failure the Qt-free compile catches and the
 # Qt-linked test cannot.

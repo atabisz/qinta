@@ -3229,6 +3229,48 @@ if(BASH_EXECUTABLE)
     # `ctest -LE prose` gets the old suite back, and the label exists so that the answer
     # to "the suite got slow" is a documented flag rather than someone deleting the arms.
     set_tests_properties(readme_figures readme_figures_control PROPERTIES LABELS prose)
+
+    # THE PORTABLE-CLAIM GATE, and it is here rather than in the prose label for a measured
+    # reason: it is ONE awk pass over all 250 tracked text files and reads about four seconds,
+    # against 37-49 s for either readme_figures arm. THE FOUR SECONDS ARE THE THIRD READING AND
+    # THE FIRST TWO ARE WORTH THE LINE. This comment said "about two seconds" before the arm had
+    # ever run; the first ctest reading was 105 s, which would have made this pair the most
+    # expensive family in the suite by a wide margin. The gap was all process spawns on this host
+    # -- one awk per file plus a `cut`/`grep` per hit and per allowlist row -- so 68 basenames
+    # became one alternation (105 s to 47 s), 250 awk invocations became one (47 s to 26 s), and
+    # the two shell assertion loops became two awk passes (26 s to 4 s). Every counter the gate
+    # prints was identical at all four timings, which is what says the speed-ups changed the
+    # instrument's shape and not its reading.
+    # Putting it under `prose` would mean `ctest -LE prose`
+    # -- the flag this file recommends two comments up for getting the fast suite back -- silently
+    # stops checking it, and the whole point of the gate is to catch a claim nobody re-reads.
+    #
+    # WHAT IT ASSERTS: no comment anywhere in the tracked tree calls a tests/portable-sources.txt
+    # entry unportable, unless tests/portable-claims-allow.txt excuses that exact line text with
+    # one of five reasons. WHY IT EXISTS: on 2026-09-22 one slice corrected twelve comments naming
+    # the wrong blocker and closed a criterion saying the sweep was complete across six files. Two
+    # more survived -- README.md's math_render.cpp sentence and this manifest's own description of
+    # src/input.cpp as "344 native mentions deep and not portable" -- because the sweep's phrase
+    # set had been derived from the phrasings it had already found in THIS file. A census keyed on
+    # the shape you have already fixed is blind to the shape you have not.
+    #
+    # EXPECTED_MIN_HITS is a FLOOR, not a tracking count, so it does not have to be maintained
+    # when a comment is reworded. It exists because the gate's own strongest defence -- every
+    # allowlist row must match a live hit, so an empty corpus turns every row stale -- can be
+    # defeated by emptying the allowlist in the same edit that breaks the matcher.
+    add_test(NAME portable_claims COMMAND ${CMAKE_COMMAND}
+        -DBASH_EXE=${BASH_EXECUTABLE}
+        -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-portable-claims.sh
+        -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECTED_MIN_HITS=20
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_claims_gate.cmake)
+    add_test(NAME portable_claims_control COMMAND ${CMAKE_COMMAND}
+        -DBASH_EXE=${BASH_EXECUTABLE}
+        -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-portable-claims.sh
+        -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DEXPECTED_MIN_HITS=20
+        -DGATE_CONTROL=ON
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_claims_gate.cmake)
 else()
     # Said out loud, because a suite that is quietly two entries shorter is the same class
     # of problem the driver's count assertion exists to catch. The figures in README.md go
@@ -3236,6 +3278,10 @@ else()
     message(STATUS
         "readme_figures: SKIPPED -- no bash found, so the README figure gate is not wired "
         "into ctest on this configuration. Run it by hand: bash scripts/check-readme-figures.sh")
+    message(STATUS
+        "portable_claims: SKIPPED for the same reason -- nothing checks that the tree's comments "
+        "agree with tests/portable-sources.txt on this configuration. Run it by hand: "
+        "bash scripts/check-portable-claims.sh")
 endif()
 endif()
 

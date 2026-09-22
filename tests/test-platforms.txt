@@ -71,6 +71,8 @@ process                        both
 process_control                both
 qt_entry                       both
 qt_text                        both
+portable_claims                both
+portable_claims_control        both
 readme_figures                 both
 readme_figures_control         both
 render_api                     both

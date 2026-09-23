@@ -278,8 +278,9 @@ editrail.cpp
 # than one error away". That reading is stale -- editor.cpp now reads errors 0, fatal 0
 # and is an entry in this manifest. The `1,1` shape is still the warning the sentence
 # describes, and src/print.cpp is where it now applies. (src/tabs.cpp was named here
-# too until 2026-09-23, when its only fatal include left; it now reads fatal 0,
-# errors 40 -- a real count now, and still not zero.)
+# too until 2026-09-23, when its only fatal include left; it read fatal 0,
+# errors 40, and after the tear-off moved to src/tab_tearoff_win32.cpp the same day it
+# reads errors 0. It is still not an entry here: it compiles, and nothing links it.)
 # So a running target needs either editor.cpp linked or those three
 # stubbed in the test, and stubbing is a claim about behaviour that no other target
 # here makes. Note what is being left on the table: tsvLooksLikeTable and

@@ -47,6 +47,11 @@
 # and note the enumeration after `--` names FOUR of the seventeen and is NOT gated, so it is the part
 # of this row that can rot while the number stays green. It did: it led with input.cpp for one commit
 # too long.
+#
+# 17 → 18 ON 2026-09-23, AND THAT IS NOT MORE WORK OWED. src/tab_tearoff_win32.cpp is tabs.cpp's
+# tear-off arm, extracted so tabs.cpp compiles off Windows (errors 40 → 0). But tabs.cpp stays OFF the
+# manifest -- compiling is not linking, and its callees still have no Qt arm -- so nothing left the set
+# and one file joined it. The net-zero rule above assumes the donor leaves; here it did not, yet.
 
 clipboard                      both
 clipboard_control              both
@@ -93,12 +98,12 @@ window_placement               both
 platform_paths_bare_locale     linux-only     subject: preferredUiLanguages dropping the C/POSIX locale, steered by LANGUAGE; no Windows meaning and macOS cannot steer it either
 
 bitmap_seam                    windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp
-blockquote_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 13 more
-code_block_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 13 more
+blockquote_layout              windows-only   sources: 18 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 14 more
+code_block_layout              windows-only   sources: 18 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 14 more
 config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
-copy_file_path                 windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 13 more
-inline_code_theme              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 13 more
-input_shortcuts                windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 13 more
+copy_file_path                 windows-only   sources: 18 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 14 more
+inline_code_theme              windows-only   sources: 18 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 14 more
+input_shortcuts                windows-only   sources: 18 via ${INPUT_TEST_SOURCES} -- tabs.cpp, render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp and 14 more
 math_layout                    windows-only   sources: 2 via ${LEGACY_D2D_SOURCES} -- render_d2d.cpp, text_d2d.cpp
 pdf_export_win32               windows-only   sources: 3 -- pdf_export_win32.cpp, render_d2d.cpp, text_d2d.cpp
 render_d2d                     windows-only   sources: 3 -- image_win32.cpp, render_d2d.cpp, text_d2d.cpp

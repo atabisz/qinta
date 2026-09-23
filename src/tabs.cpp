@@ -22,6 +22,7 @@
 // platform, and the only ghost names off Windows that fail are the ones that should.
 #include "tab_ghost.h"
 #include "tab_ghost_win32.h"
+#include "tab_tearoff_win32.h"
 #include "file_utils.h"
 #include "i18n.h"
 #include "input.h"
@@ -847,7 +848,14 @@ void renderTabStrip(App& app) {
                 dpi(app, 1.0f));
         } else if (b == 1) {
             float half = dpi(app, 4.5f);
-            if (IsZoomed(app.hwnd)) {
+            // Off Windows the glyph always reads "not maximised": nothing here asks the
+            // window manager, so a maximised Qt window still draws the maximise square.
+#ifdef _WIN32
+            bool maximized = IsZoomed(app.hwnd) != 0;
+#else
+            bool maximized = false;
+#endif
+            if (maximized) {
                 // restore: two offset squares
                 float off = dpi(app, 2.0f);
                 app.renderTarget->DrawRectangle(
@@ -1075,7 +1083,10 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             return true;
         }
         if (hit.index == -4) {
-            // Pin: toggle always-on-top for this window
+            // Pin: toggle always-on-top for this window. Off Windows the click is
+            // consumed and nothing changes -- alwaysOnTop is not flipped, so the pin never
+            // draws as set on a window that is not on top.
+#ifdef _WIN32
             if (!middle) {
                 app.alwaysOnTop = !app.alwaysOnTop;
                 SetWindowPos(hwnd,
@@ -1084,6 +1095,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 requestRepaint(hwnd);
             }
+#endif
             return true;
         }
         if (middle) {
@@ -1449,6 +1461,9 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
     // Clear of the strip: the tab floats as a ghost card until release
     float stripH = chromeTopHeight(app);
     bool outside = tinta::tabGhostShouldDetach(app.contentScale, (float)y, stripH);
+    // Off Windows a tab never detaches: there is no ghost window and no tear-off
+    // (include/tab_tearoff_win32.h), so a drag below the strip keeps reordering.
+#ifdef _WIN32
     if (outside && detachable) {
         POINT screen = {x, y};
         ClientToScreen(hwnd, &screen);
@@ -1470,6 +1485,10 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         tinta::tabGhostDestroy(app.tabGhostWnd);
         requestRepaint(hwnd);
     }
+#else
+    (void)outside;
+    (void)detachable;
+#endif
 
     // Reorder: the dragged tab claims the slot under the pointer
     StripMetrics m = stripMetrics(app);
@@ -1494,9 +1513,15 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    tinta::tabGhostDestroy(app.tabGhostWnd);
+#ifdef _WIN32
+    tinta::tabGhostDestroy(app.tabGhostWnd);  // off Windows no ghost is ever made
+#endif
     releaseMouseIfCaptured(hwnd);
 
+    // WINDOWS ONLY, AND OFF WINDOWS THIS IS NOT A SKIPPED STEP: tabDragMove never detaches
+    // there, so `detached` is always false and there is nothing to drop. Where the tab lands
+    // is an HWND question -- include/tab_tearoff_win32.h says why it has no Qt arm.
+#ifdef _WIN32
     if (detached && index < (int)app.tabs.size()) {
         bool active = index == app.activeTab;
         const std::string& path =
@@ -1504,29 +1529,30 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
         POINT screen = {x, y};
         ClientToScreen(hwnd, &screen);
 
-        // Dropped onto another Tinta window: the tab moves there
-        HWND under = WindowFromPoint(screen);
-        HWND root = under ? GetAncestor(under, GA_ROOT) : nullptr;
-        wchar_t className[16] = {};
-        if (root && root != hwnd &&
-            GetClassNameW(root, className, (int)std::size(className)) &&
-            wcscmp(className, L"Tinta") == 0) {
-            COPYDATASTRUCT data;
-            data.dwData = 1;
-            data.cbData = (DWORD)path.size() + 1;
-            data.lpData = (void*)path.c_str();
-            SendMessageW(root, WM_COPYDATA, 0, (LPARAM)&data);
-            SetForegroundWindow(root);
+        switch (tinta::tabDropHandOff(hwnd, screen.x, screen.y, path)) {
+        case tinta::TabDropTarget::OtherWindow:
+            // Dropped onto another Tinta window: the tab moves there
             dragCloseLocal(app, hwnd, index);
-        } else if (root == hwnd) {
+            break;
+        case tinta::TabDropTarget::ThisWindow:
             // Dropped back onto this window's content: snap home
-        } else if (app.tabs.size() > 1) {
-            // Free drop: a new window appears where the ghost was
-            launchTornOffTabWindow(screen.x - (int)dpi(app, 120.0f),
-                                   screen.y - (int)dpi(app, 20.0f), path);
-            dragCloseLocal(app, hwnd, index);
+            break;
+        case tinta::TabDropTarget::Nowhere:
+            if (app.tabs.size() > 1) {
+                // Free drop: a new window appears where the ghost was
+                launchTornOffTabWindow(screen.x - (int)dpi(app, 120.0f),
+                                       screen.y - (int)dpi(app, 20.0f), path);
+                dragCloseLocal(app, hwnd, index);
+            }
+            break;
         }
     }
+#else
+    (void)index;
+    (void)detached;
+    (void)x;
+    (void)y;
+#endif
     requestRepaint(hwnd);
 }
 
@@ -1539,32 +1565,14 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
     const std::string& path = app.currentFile;
     if (path.empty()) return;
 
-    POINT cursor;
-    if (!GetCursorPos(&cursor)) return;
-    HWND target = nullptr;
-    // Top-level Tinta windows in z-order; the first one under the cursor
-    // (other than us) is the drop candidate
-    for (HWND w = FindWindowExW(nullptr, nullptr, L"Tinta", nullptr); w;
-         w = FindWindowExW(nullptr, w, L"Tinta", nullptr)) {
-        if (w == hwnd || !IsWindowVisible(w) || IsIconic(w)) continue;
-        RECT r;
-        if (!GetWindowRect(w, &r) || !PtInRect(&r, cursor)) continue;
-        // Only the strip band counts as a drop zone; anywhere lower is
-        // an ordinary overlapping window placement
-        UINT targetDpi = GetDpiForWindow(w);
-        if (cursor.y > r.top + MulDiv(46, (int)targetDpi, 96)) break;
-        target = w;
-        break;
-    }
-    if (!target) return;
-
-    COPYDATASTRUCT data;
-    data.dwData = 1;
-    data.cbData = (DWORD)path.size() + 1;
-    data.lpData = (void*)path.c_str();
-    SendMessageW(target, WM_COPYDATA, 0, (LPARAM)&data);
-    SetForegroundWindow(target);
-    postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+    // Windows only, for the same reason as tabDragEnd's drop: the one caller is
+    // main_d2d.cpp's end-of-window-move, and the search is an HWND walk.
+#ifdef _WIN32
+    if (tinta::tabMergeIntoWindowUnderCursor(hwnd, path))
+        postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+#else
+    (void)hwnd;
+#endif
 }
 
 // THE ONE RELEASE SITE IN THE TREE THAT SITS OUTSIDE THE PRESS-TO-RELEASE BRACKET,
@@ -1591,7 +1599,9 @@ void tabDragCancel(App& app, HWND hwnd) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    tinta::tabGhostDestroy(app.tabGhostWnd);
+#ifdef _WIN32
+    tinta::tabGhostDestroy(app.tabGhostWnd);  // off Windows no ghost is ever made
+#endif
     releaseMouseIfCaptured(hwnd);
     requestRepaint(hwnd);
 }

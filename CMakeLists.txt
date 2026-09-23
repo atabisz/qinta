@@ -410,6 +410,10 @@ set(SOURCES
     # App&, which is what makes it something a test can create.
     src/tab_ghost.cpp
     src/tab_ghost_win32.cpp
+    # Tear-off's Windows arm: which Tinta window a dragged tab was released over, and the
+    # WM_COPYDATA hand-off to it. Lifted out of src/tabs.cpp so that file compiles off Windows;
+    # include/tab_tearoff_win32.h says why there is no Qt arm.
+    src/tab_tearoff_win32.cpp
     # Zen mode's Windows arm. The DECISION half needed no new file -- "which monitor does this
     # window belong to and what covers it" is arithmetic over rectangles, so it went into
     # src/window_placement.cpp above, which both arms already link. Only the ACTING half is
@@ -921,17 +925,17 @@ set(QINTA_APP_SOURCES
 # in that sentence until 2026-09-23 and is now true of print.cpp only:
 #
 #   src/tabs.cpp   not in the manifest. ~~Stops at `#include <shellapi.h>`~~ --
-#                  since 2026-09-23 it has no fatal include and g++ reads it to
-#                  the end: 40 error lines, 31 distinct names, every one of them
-#                  window management (FindWindowExW, WindowFromPoint,
-#                  SetForegroundWindow), IPC (WM_COPYDATA, COPYDATASTRUCT), window
-#                  chrome (IsZoomed, SetWindowPos) or the ghost window's three
-#                  calls. It was 61 past a stub for shellapi.h; the 21 that left
-#                  were CRT idioms, two Explorer/relaunch ShellExecuteW calls and
-#                  portable ghost geometry that arrived only through the guarded
-#                  tab_ghost_win32.h. A real port, not an include fix. 40 is
-#                  still an UNDERCOUNT: g++ names an identifier once per function.
-#                  Withholds 7 symbols (tabsInit, tabOpenPath, tabCloseIndex,
+#                  since 2026-09-23 it has no fatal include, and since the same
+#                  day's tear-off pass it COMPILES off Windows: errors 0. The 40
+#                  error lines it read in between were window management
+#                  (FindWindowExW, WindowFromPoint, SetForegroundWindow), IPC
+#                  (WM_COPYDATA, COPYDATASTRUCT), chrome (IsZoomed, SetWindowPos)
+#                  and the ghost window's three calls. The search and hand-off
+#                  moved to src/tab_tearoff_win32.cpp; the rest sit under site
+#                  guards that say what is missing off Windows (no detach, no pin,
+#                  the maximise glyph reads not-maximised). So it is still a ROOT
+#                  BLOCKER, but for a LINK reason now, like the files it blocks:
+#                  it is not linked into qinta, so it withholds 7 symbols (tabsInit, tabOpenPath, tabCloseIndex,
 #                  tabOpenQuickNote, tabBecomeStartPage, tabBulkCloseStep,
 #                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,
 #                  editrail.cpp, startpage.cpp.

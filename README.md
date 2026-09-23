@@ -1080,7 +1080,7 @@ same session.
 
 **To do — 19 files, 7,668 lines**
 
-**TABS.CPP LEAVES, 2026-09-23 — 20 → 19 FILES, 9,290 → 7,668, −1,622, AND THE DONOR'S HALF ARRIVES ONE COMMIT LATE.** The paragraph below says the tear-off pass left `tabs.cpp` in the set "because it now compiles off Windows but its callees still have no Qt arm, so it does not link". Every clause of that is true and the conclusion is wrong: the manifest's test is *compiles off Windows*, and `input.cpp`, `editor.cpp` and `drafts.cpp` are entries that link into nothing. So `tabs.cpp` joined the compile-only section, and the two passes together are `input.cpp`'s shape after all — a 66-line Win32 arm in, a 1,622-line donor out. It is **not** linked into qinta: qinta's own link line reads 11 undefined symbols with `tabs.o` added, and nothing in the Qt app calls it. That also means the prediction further down — that `tabs.cpp` "promotes nobody" — is still untested, because promotion is a link reading and this is a compile claim. Basis A rose **69.2% → 71.5%** on a pass that changed no code.
+**TABS.CPP LEAVES, 2026-09-23 — 20 → 19 FILES, 9,290 → 7,668, −1,622, AND THE DONOR'S HALF ARRIVES ONE COMMIT LATE.** The paragraph below says the tear-off pass left `tabs.cpp` in the set "because it now compiles off Windows but its callees still have no Qt arm, so it does not link". Every clause of that is true and the conclusion is wrong: the manifest's test is *compiles off Windows*, and `input.cpp`, `editor.cpp` and `drafts.cpp` are entries that link into nothing. So `tabs.cpp` joined the compile-only section, and the two passes together are `input.cpp`'s shape after all — a 66-line Win32 arm in, a 1,622-line donor out. It is **not** linked into qinta: qinta's own link line reads 11 undefined symbols with `tabs.o` added, and nothing in the Qt app calls it. The prediction further down — that `tabs.cpp` "promotes nobody" — needed a link reading, since this is a compile claim; it was taken the same night and it holds (see there). Basis A rose **69.2% → 71.5%** on a pass that changed no code.
 
 **THE TEAR-OFF PASS, 2026-09-23 — 19 → 20 FILES, 9,214 → 9,290, +76, AND NOTHING LEFT.** `src/tab_tearoff_win32.cpp` arrived at **66** and `src/tabs.cpp` grew **10**, 66 + 10 = 76 exactly. This is the `input.cpp` pass's shape with the donor's half missing: that pass extracted a Win32 arm *and* moved the donor onto the manifest, so it read net-zero; this one extracted the arm and left `tabs.cpp` where it was, because it now compiles off Windows but its callees still have no Qt arm, so it does not link. Basis A's denominator took the header as well — 66 + 44 + 10 = **120**, 70,234 → 70,354 — so A fell **69.3% → 69.2%** on the pass that took `tabs.cpp` from 40 off-Windows errors to 0. The count this set cannot see is the one that moved.
 
@@ -1230,6 +1230,23 @@ sentence above: **zero blockers at one hop is not a link claim**, because the cl
 is in. Three passes, three files, three times the same wrong intuition — which is why the
 prediction for `tabs.cpp` is written down in the to-do table *before* it is ported, and it is that
 `tabs.cpp` promotes nobody either.
+
+**THAT PREDICTION WAS TESTED ON 2026-09-23, THE NIGHT `tabs.cpp` JOINED, AND IT HOLDS.** The
+instrument was a link fixpoint rather than a one-hop count. It used qinta's own Linux link line and
+every other manifest object. Each round drops any object the linker names in an undefined reference,
+and the rounds repeat until the link is clean. **With and without `tabs.o` the survivors are the same
+8 objects**, all already linked and run by a test: the keyboard, clipboard, process and PDF seams'
+Qt arms, `selection`, `context_menu`, `i18n` and `i18n_app`. No compile-only file survives either
+arm. `tabs.cpp` itself falls in round 2 on exactly three symbols: `restoreEditBuffer` and
+`enterQuickNoteMode` from `editor.cpp`, and `openDocumentInViewer` from `input.cpp`. Both files fell
+in round 1, and `print.cpp` is where the fall starts: `editor.cpp` lacks only `openPrintPreview`.
+`input.cpp` lacks the print-preview family plus nine theme, format and settings calls, so that wall
+is not print's alone. Controls: a planted object with one fake undefined symbol is dropped. **A stub
+for `editor.cpp`'s two symbols that `tableedit.cpp` needs does promote `tableedit.cpp`**, so the
+instrument can report a promotion; it reported none here. An earlier control aimed at
+`export_html.cpp` taught the lesson this section keeps teaching. Stubbing its one missing symbol,
+`exportPdfFile`, carried it two rounds further, then it fell on `signalPushKey`, because
+`signals.cpp` needs `editor.cpp` too. One missing symbol is still an edge, not a path.
 
 **ONE OF THE THREE FILES ON THAT CYCLE IS NOW IN, AND THE COUNTS ABOVE ARE DELIBERATELY NOT
 ADJUSTED FOR IT.** `export_docx.cpp` joined the manifest on 2026-09-20, so the closure now runs

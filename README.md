@@ -1240,17 +1240,41 @@ Qt arms, `selection`, `context_menu`, `i18n` and `i18n_app`. No compile-only fil
 arm. `tabs.cpp` itself falls in round 2 on exactly three symbols: `restoreEditBuffer` and
 `enterQuickNoteMode` from `editor.cpp`, and `openDocumentInViewer` from `input.cpp`. Both files fell
 in round 1, and `print.cpp` is where the fall starts: `editor.cpp` lacks only `openPrintPreview`.
-`input.cpp` lacks the print-preview family plus nine theme, format and settings calls, so that wall
-is not print's alone. Controls: a planted object with one fake undefined symbol is dropped. **A stub
+`input.cpp` lacks 13 symbols from three files: 6 from `print.cpp` (the five print-preview calls and
+`renderPeekBitmap`), 4 from `settings_app.cpp` and 3 from `d2d_init.cpp`. So that wall is not
+print's alone. Controls: a planted object with one fake undefined symbol is dropped. **A stub
 for `editor.cpp`'s two symbols that `tableedit.cpp` needs does promote `tableedit.cpp`**, so the
 instrument can report a promotion; it reported none here. An earlier control aimed at
 `export_html.cpp` taught the lesson this section keeps teaching. Stubbing its one missing symbol,
 `exportPdfFile`, carried it two rounds further, then it fell on `signalPushKey`, because
 `signals.cpp` needs `editor.cpp` too. One missing symbol is still an edge, not a path.
 
+**WHAT A `print.cpp` SEAM WOULD UNLOCK WAS MEASURED ON 2026-09-24, WITH STUBS, AND THE ANSWER IS
+NOTHING BY ITSELF.** Same fixpoint, same link set. Each arm adds one object of no-op definitions,
+compiled off Windows from the real headers. `print.cpp` defines 7 of the symbols the link set lacks:
+the 6 above plus `exportPdfFile`, which is `export_html.cpp`'s only hole. `d2d_init.cpp` defines 3
+and `settings_app.cpp` 4. Four arms, measured the same morning:
+
+| Stubbed | Survivors | Compile-only files promoted |
+|---|---|---|
+| nothing | 8 | 0 |
+| `print.cpp`'s 7 | 8 | 0 |
+| `d2d_init.cpp`'s 3 and `settings_app.cpp`'s 4 | 8 | 0 |
+| all 14 | 22 | **all 14**, clean in round 1 |
+
+**It is all or nothing.** With only print stubbed, `editor.cpp` gets past round 1, then falls in round 3
+on six `tabs.cpp` calls. `tabs.cpp` fell in round 2 on `openDocumentInViewer`, and `input.cpp` fell in
+round 1 on its 7 non-print symbols. The chain runs `input.cpp` → `tabs.cpp` → `editor.cpp` → the rest.
+So `input.cpp` is the gate, and it needs all three files. I had predicted that stubbing print alone
+would promote `editor.cpp` and `tableedit.cpp`. It promoted neither: I read the round-1 list as the
+whole of `editor.cpp`'s needs, and later rounds add edges. **A stub is a link claim only.** The
+all-14 arm says the 14 files would *link* against real definitions of those 14 symbols. It says
+nothing about whether they would run, since a no-op `applyTheme` is not a theme.
+
 **ONE OF THE THREE FILES ON THAT CYCLE IS NOW IN, AND THE COUNTS ABOVE ARE DELIBERATELY NOT
 ADJUSTED FOR IT.** `export_docx.cpp` joined the manifest on 2026-09-20, so the closure now runs
-through `tabs.cpp` and `print.cpp` only, and the edge this paragraph attributes to it —
+through `tabs.cpp` and `print.cpp` only (**wrong as measured 2026-09-24:** `d2d_init.cpp` and
+`settings_app.cpp` are on it too, see the table above), and the edge this paragraph attributes to it —
 `clipboardImageToPngFile`, one of `editor.cpp`'s eight — is satisfied by construction, because the
 symbol's *definition* joined the link set along with the file. **What is NOT asserted is a new
 one-hop number.** Adding a file to the manifest adds its own outgoing edges as well as its

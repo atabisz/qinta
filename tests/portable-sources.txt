@@ -1102,7 +1102,10 @@ scrollbar.cpp
 # Both sides above are derived by:
 #   ls src/*.cpp | wc -l
 #   grep -c '^[a-z_0-9]*\.cpp$' tests/portable-sources.txt
-#   ./scripts/census-nonportable-linux.sh   (reads `clean: N   fails: N` and the cause list)
+#   ./scripts/census-nonportable-linux.sh   (reads `clean: N   vacuous: N   fails: N` and the
+#                                            cause list. `vacuous` is a file that compiled an EMPTY
+#                                            translation unit off Windows -- exit 0 and the OPPOSITE
+#                                            of portable, which is why it is not in `clean`)
 qt_init.cpp
 qt_window.cpp
 main_qt.cpp

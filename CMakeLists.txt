@@ -1666,7 +1666,11 @@ if(BUILD_TESTING)
         # the three readings is unusually wide for this one file.
         #
         #   COMPILES off Windows: measured, exit 0 / fatal 0 / errors 0, under a census
-        #   whose six controls all held. That is what this target asserts.
+        #   whose controls all held -- de-numbered deliberately, because it said "six"
+        #   and the census has since grown three more. That is what this target asserts.
+        #   One qualifier the census itself now makes: exit 0 / fatal 0 / errors 0 is
+        #   also what a file that compiled NOTHING reads, so the census additionally
+        #   reports what the object emitted, and render.cpp reads `emits=code`.
         #
         #   LINKS into a Qt app: YES, AS OF THIS COMMIT, and the sentence here used to
         #   say "NOT YET, the residue being six symbols owned by src/math_render.cpp,
@@ -3199,13 +3203,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=32
+        -DEXPECTED_CHECKS=34
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=32
+        -DEXPECTED_CHECKS=34
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

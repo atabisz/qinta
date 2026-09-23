@@ -288,6 +288,79 @@ claim "basis A ceiling %" "**basis A's ceiling is $(pct "$ceiling_num" "$raw_den
 echo "-- the to-do set"
 claim "to-do header"     "**To do — $todo_count files, $(c "$todo_lines") lines**"
 
+# --- the non-manifest census paragraph -------------------------------------
+# WHY THIS BLOCK EXISTS. That paragraph published `clean: 1  fails: 17` out of "a census of 18"
+# while the tree held 19 non-manifest files reading 1 clean, 2 vacuous and 16 failing. It had
+# drifted twice -- 16 of 17, then 17 of 18 -- and nothing went red, because nothing here asserted
+# anything about it. Worse, the README claimed IN PROSE that this script derived those counts, so
+# the one reader who might have checked was told not to bother.
+#
+# WHAT THIS CAN AND CANNOT DO, which is the whole design of the block. This script cannot run g++,
+# so it can never know whether `fails: 16` is true. What it CAN own is the denominator -- src/*.cpp
+# minus the manifest, which is exactly $todo and is derived from the tree on every run -- and the
+# arithmetic of the published split against it. So the three verdict counts are read back OUT of
+# the README and checked for SUM against a number that came from the tree. That is a real check and
+# not a mirror: README cannot satisfy it by being internally consistent, because the total it has
+# to hit is not in the README.
+#
+# What it therefore CANNOT catch is a split that is internally consistent, sums correctly, and is
+# wholly stale against the compiler -- 3 + 0 + 16 = 19 would pass this gate and be false. The
+# README says so where the figure is published, rather than only here, because the person about to
+# trust the number is reading the README.
+claim "census denominator"  "that fail out of a census of **$todo_count**"
+
+# A parse that finds nothing must FAIL rather than become three zeros. Against a bumped
+# denominator three zeros would sum wrong and look like a working check, but against the real one
+# a 0-row parse of a 0-file census would sum RIGHT -- so the parse is asserted first and separately
+# from its arithmetic.
+#
+# AND THE FIRST VERSION OF THIS BLOCK SELECTED ON SHAPE ALONE, which was wrong and went red on its
+# first real run. `clean: N  vacuous: N  fails: N` matched TWICE: once at the published figure, and
+# once at the counterexample two paragraphs down that exists to show this gate's blind spot. So the
+# selector is now POSITIVE -- the figure is the one on the line carrying $CENSUS_ANCHOR -- and the
+# lesson generalises past this block: a gate that identifies its subject by format cannot tell a
+# measurement from an illustration OF a measurement, and prose about a number is exactly where the
+# second one lives. Do not fix a collision like that by reformatting the prose; the counterexample
+# has to keep the shape of the thing it is a counterexample to, or it stops being one.
+#
+# Two guards around the arithmetic, and neither can pass silently:
+#   * exactly one line may carry the anchor. Zero means the anchor phrase was reworded and this
+#     check has gone blind -- which MISSes, rather than falling through to a different match.
+#   * the total population of shape matches must be $CENSUS_SHAPES. A third census figure
+#     appearing anywhere in the README is then loud even though this block does not check it.
+# Both are folded into the SAME check as the arithmetic rather than counted separately, because
+# --control only bumps the denominator: a check that does not read $todo_count cannot fail in the
+# control arm, and the control arm's own criterion is failures == checked.
+CENSUS_ANCHOR='excludes the empty ones:**'
+CENSUS_SHAPES=2
+checks=$((checks + 1))
+census_all=$(grep -cE 'clean: [0-9]+ +vacuous: [0-9]+ +fails: [0-9]+' "$README" || true)
+census_line=$(grep -F -- "$CENSUS_ANCHOR" "$README" \
+    | grep -oE 'clean: [0-9]+ +vacuous: [0-9]+ +fails: [0-9]+' || true)
+census_hits=$(printf '%s\n' "$census_line" | grep -c . || true)
+if [ "$census_hits" -ne 1 ]; then
+    printf '  MISS %-42s %s\n' "census decomposition" \
+        "expected one 'clean: N  vacuous: N  fails: N' on the line carrying '$CENSUS_ANCHOR' in $README, found $census_hits"
+    failures=$((failures + 1))
+elif [ "$census_all" -ne "$CENSUS_SHAPES" ]; then
+    printf '  MISS %-42s %s\n' "census decomposition population" \
+        "$README holds $census_all census figures, expected $CENSUS_SHAPES (the measurement plus one counterexample); if you added or removed one deliberately, move CENSUS_SHAPES with it"
+    failures=$((failures + 1))
+else
+    c_clean=$(printf '%s' "$census_line" | sed -E 's/.*clean: ([0-9]+).*/\1/')
+    c_vac=$(printf   '%s' "$census_line" | sed -E 's/.*vacuous: ([0-9]+).*/\1/')
+    c_fail=$(printf  '%s' "$census_line" | sed -E 's/.*fails: ([0-9]+).*/\1/')
+    c_sum=$((c_clean + c_vac + c_fail))
+    if [ "$c_sum" -eq "$todo_count" ]; then
+        printf '  ok   %-42s %s\n' "census decomposition sums" \
+            "$c_clean + $c_vac + $c_fail = $c_sum, the $todo_count non-manifest src/*.cpp this script derives"
+    else
+        printf '  MISS %-42s %s\n' "census decomposition sums" \
+            "README publishes $c_clean + $c_vac + $c_fail = $c_sum, but the tree has $todo_count non-manifest src/*.cpp"
+        failures=$((failures + 1))
+    fi
+fi
+
 echo "-- to-do table rows, as the additive expressions they are written in"
 # Grouped exactly as the table groups them, so one rotted component fails the row it
 # lives in and names its neighbours in the output.

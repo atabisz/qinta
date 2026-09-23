@@ -660,26 +660,65 @@ along, is worth distinguishing from `scroll.cpp`, which is still here and still 
 | `shellapi.h` | 1 | `tabs` |
 | `objbase.h` | 1 | `d2d_init` |
 | `dwrite.h` | 1 | `chrome_dump_d2d` |
-| `WM_SETTINGCHANGE` | 1 | `input` |
 
 **FIVE OF THE SEVEN ROWS THE TABLE THEN CARRIED WERE WRONG BEFORE THAT PASS TOUCHED THEM, AND THE
 TABLE'S TOTAL WAS RIGHT THE WHOLE TIME — which is the more useful half of the finding.** (Seven is
-what it had at that reading; it carries eight now, and the eighth is written up below.) It read
+what it had at that reading, it went to eight, and it is back to seven: the `WM_SETTINGCHANGE` row —
+one file, `input.cpp` — left when `input.cpp` joined the manifest, the trustworthy kind of departure
+described below. **It was found by a sweep and not by the census** — `input.cpp` reached the manifest in
+`f8be505` on 2026-09-21 and two commits landed on top of the stale row before anything looked at it —
+which is one more instance for this table's own lesson rather than a counter-example to it.) It read
 `windows.h` 6 (missing `platform_process_win32`), `windowsx.h` 2 (`input` had stopped
 including it and now fails on `WM_SETTINGCHANGE`, a row the table did not carry at all),
 `objbase.h` 2, a `shlobj.h` row for `pandoc` that had left the census entirely, and no
-`dwrite.h` row for `chrome_dump_d2d`. The sentence below it — 14 + 2 = 16 of 17 — has been
-accurate throughout, because **a total and its decomposition rot independently and only one
-of them is checked**: `scripts/check-readme-figures.sh` derives the counts, so the arithmetic
-could not drift, while the list of *which files* is prose and drifts every time the census
-moves. The whole table is now re-derived from one census run rather than edited row by row,
-which is the only way to fix this class — patching the row you came for leaves the other four.
+`dwrite.h` row for `chrome_dump_d2d`. **The clause that stood here claimed the sentence below it —
+then 14 + 2 = 16 of 17 — "has been accurate throughout", and gave a reason that was simply untrue:**
+~~"`scripts/check-readme-figures.sh` derives the counts, so the arithmetic could not drift, while the
+list of *which files* is prose and drifts every time the census moves."~~ The gate asserted **nothing
+at all** about `clean`, `fails`, or that denominator. The paragraph sat ungated beside gated ones for
+its whole life and drifted twice with nothing red at any point — 16 of 17, then 17 of 18, then a
+measured 16 of **19**. A stated reason that a figure is safe is worth less than no reason, because it
+stops the next reader from checking; this one named a real script, which is what made it credible.
 
-15 files, plus the two deliberate `#error` guards in `render_d2d.cpp` and `text_d2d.cpp`, is
-the 17 that fail out of a census of **18**. The eighteenth is `settings_app.cpp`, which
-**compiles off Windows already** and is a deliberate manifest exclusion rather than a Windows
-dependency — worth knowing before someone spends a pass "porting" it. `clean: 1  fails: 17`,
-controls 4/4, `control failures: 0`.
+What survives is the half that was always true — **a total and its decomposition rot independently,
+and only what a script derives is checked** — and the remedy is now built instead of asserted: the
+gate derives the census denominator from the tree and fails when the published
+`clean + vacuous + fails` does not equal it. The list of *which files* is still prose. The claim
+below that the table is "re-derived from one census run rather than edited row by row" is refuted
+further down this section, and the `WM_SETTINGCHANGE` row is one more instance of it.
+
+14 files, plus the two deliberate `#error` guards in `render_d2d.cpp` and `text_d2d.cpp`, is
+the 16 that fail out of a census of **19**. **The other three all read `exit 0, fatal 0, errors 0`
+and they are not one population, which is the finding this paragraph used to hide.**
+`settings_app.cpp` **compiles off Windows already** and is a deliberate manifest exclusion rather
+than a Windows dependency — worth knowing before someone spends a pass "porting" it. But
+`tab_ghost_win32.cpp` and `zen_mode_win32.cpp` compiled **nothing at all**: every line of each sits
+between `#ifdef _WIN32` on line 3 and `#endif` on the last line, so off Windows each is an empty
+translation unit. For those two, "compiles off Windows" was a reading that the file is maximally
+*un*portable — there is no portable code in it, because there is no code in it — and one word was
+carrying both that and `settings_app.cpp`'s genuine pass. **The census now reports what the compile
+emitted and `clean` excludes the empty ones:** `clean: 1   vacuous: 2   fails: 16`, controls 6/6,
+`control failures: 0`.
+
+The word rotted by **addition, not by error**. It was accurate for as long as every `exit 0` row was
+a real one, and it stopped being accurate when the tree gained files that are wholly guarded — which
+is why nothing ever flagged it, and why the fix is a verdict that names what was measured
+(`vacuous` = the object exports no external symbol and carries no `.text` bytes) rather than what it
+implies.
+
+**WHAT THE GATE ON THIS PARAGRAPH DOES AND DOES NOT CHECK, stated here because this is where the
+number is read.** `scripts/check-readme-figures.sh` derives the denominator from the tree —
+`src/*.cpp` minus `tests/portable-sources.txt` — and fails if the **19** above is not that, or if the
+published `clean + vacuous + fails` does not sum to it. It cannot run g++, so **it can never tell you
+that `fails: 16` is true**: a split that is internally consistent, sums to 19 and is wholly stale
+against the compiler passes this gate. `clean: 3   vacuous: 0   fails: 16` would be green and false.
+That counterexample is why the gate finds the published figure by the sentence that introduces it
+rather than by its shape: on the gate's first run it matched both, and the illustration of a stale
+census is indistinguishable from a stale census. Rewording **the census now reports what the compile
+emitted and `clean` excludes the empty ones** turns this check red on purpose.
+Only `scripts/census-nonportable-linux.sh` takes the reading; the gate stops the arithmetic and the
+denominator from rotting between runs, and that is the whole of its claim. The cause table above is
+prose and is checked by nothing.
 
 **A `d2d1.h` ROW ARRIVED AND `commdlg.h` FELL FROM 2 TO 1 WITHOUT `print.cpp` BECOMING ONE LINE
 MORE PORTABLE, WHICH IS THIS TABLE'S SHARPEST DEMONSTRATION OF WHAT ITS CAUSE COLUMN ACTUALLY
@@ -760,8 +799,12 @@ generated from the census's own distinct-causes block on each pass instead of be
 row at a time."~~ There is no generator. There is a script anyone can run and a person who has to
 remember to run it, which is vigilance wearing a mechanism's clothes — so the true fix would be a
 gate that fails when this table disagrees with `scripts/census-nonportable-linux.sh`, and that
-does not exist either. What stands is the last clause, which needed no amendment and now has six
-more instances behind it: **a table of measurements that is maintained by hand is a table of
+does not exist either. **Still true of this table, and no longer true of the paragraph under it** —
+the gate now owns that paragraph's denominator and the arithmetic of its split, which is the part a
+script can derive without a compiler. The rows are still memories: nothing checks that
+`windows.h` has seven files under it, and the `WM_SETTINGCHANGE` row proved it by outliving its
+file. What stands is the last clause, which needed no amendment and has gained one more instance on
+top of the six already behind it: **a table of measurements that is maintained by hand is a table of
 memories.**
 
 The single most informative row **was** `render.cpp`, and the paragraph that stood here ended
@@ -1724,7 +1767,10 @@ the right trade — it is the reason a test paints a window at all.
 
 **Then basis A moved 39.2% → 44.5%, which is the largest single jump in this port, and it is
 one file.** `src/render.cpp` compiles off Windows: exit 0, `fatal 0`, `errors 0`, under a census
-whose six controls all held on that run. Numerator 23,470 → 26,857 (+3,387) and denominator
+whose six controls all held on that run. **That triple alone is now known to be ambiguous** — it is
+also what a file that compiled an empty translation unit reads, which is the `vacuous` finding
+above — so the claim has since been re-measured on the reading that disambiguates it:
+`render.cpp` is `emits=code`, under its **own** lifted flags rather than the template's. Numerator 23,470 → 26,857 (+3,387) and denominator
 59,934 → 60,303 (+369), and **both sums reconcile against the tree exactly**, which is worth
 saying because a jump this size is precisely where a bookkeeping error would hide. The
 numerator is `render.cpp` 3,294 plus `text_utils_app.cpp` 58 plus the 35 lines `image_qt.cpp`

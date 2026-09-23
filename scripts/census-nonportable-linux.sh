@@ -38,10 +38,90 @@
 # anything about the file.
 #
 # ---------------------------------------------------------------------------
+# WHAT `clean` USED TO MEAN, AND WHY THERE IS NOW A THIRD VERDICT
+#
+# Until 2026-09-23 this census had two outcomes per row, clean and fails, and `clean`
+# meant two opposite things. src/tab_ghost_win32.cpp opens `#ifdef _WIN32` on line 3
+# and closes `#endif` on its last line; src/zen_mode_win32.cpp does the same. Off
+# Windows each of those compiles to an EMPTY TRANSLATION UNIT -- and this script scored
+# that exit 0, fatal 0, errors 0, and tallied it as clean. For those two rows "clean"
+# was a reading that the file is maximally UNportable: there is no portable code in it,
+# because there is no code in it.
+#
+# The third clean row, src/settings_app.cpp, is the genuine article -- no conditionals
+# anywhere, a documented deliberate manifest exclusion -- so the column was not simply
+# wrong. It was two populations under one word, which is worse, and it got that way by
+# ADDITION rather than by error: the word was accurate while every clean row was a real
+# one, and it rotted when the tree gained files that are wholly guarded.
+#
+# So a row now also reports what the compile EMITTED, and `clean` excludes the ones
+# that emitted nothing:
+#
+#   emits=code   the object carries code or exports a symbol -- a real reading
+#   emits=NONE   the translation unit was empty; tallied `vacuous`, never `clean`
+#   emits=?      UNDECIDABLE. Never read as either (see below)
+#
+# THE VERDICT IS TWO READINGS THAT MUST BOTH BE ZERO, AND THAT IS MEASURED RATHER THAN
+# CAUTIOUS. Seven synthetic shapes were compiled before any of this was written, and
+# the two candidate routes -- `nm --defined-only --extern-only` and the object's .text
+# size -- disagree on two of them in OPPOSITE directions:
+#
+# All seven are listed, not the five that make the point, because the two omitted rows
+# are exactly the two blind spots -- and a table that says "seven shapes" while showing
+# five is how a decomposition stops matching the total it is quoted under.
+#
+#   shape                          extern  .text   both-zero   either route ALONE
+#   everything inside the guard        0      0     NONE  ok    vacuous (correct)
+#   guard around the body only,
+#     #include left outside it        0      0     NONE  ok    vacuous (correct; the
+#                                                  header's three .rodata symbols are
+#                                                  local, so --extern-only is not fooled)
+#   one exported function             1     15     code  ok    code (correct)
+#   only a STATIC function            0     15     code  ok    extern alone: vacuous. WRONG.
+#   only namespace-scope data         1      0     code  ok    .text alone: vacuous. WRONG.
+#   only an UNINSTANTIATED template   0      0     NONE  MISS  both say vacuous
+#   only `const` namespace-scope
+#     data (goes to .rodata)          0      0     NONE  MISS  both say vacuous
+#
+# So both-zero is right on five of seven and there are TWO blind spots, stated rather
+# than guarded, both in the same direction -- they read `vacuous` when the file does
+# carry portable source:
+#
+#   * .rodata is deliberately ignored, because a HEADER contributes it: the static-only
+#     shape above picked up three `r` symbols from <string>. Counting .rodata would have
+#     cost the guard-around-the-body row, which is a real defect shape. So a file whose
+#     sole contribution is `const` namespace-scope data reads vacuous.
+#   * an uninstantiated template emits nothing at all by design, so no section or symbol
+#     reader can see it. This one cannot be fixed by choosing a different section.
+#
+# Neither shape is reachable in src/*.cpp today, and that is a MEASUREMENT, not a
+# reassurance: a file with either shape would read NONE, --control reads 0 vacuous across
+# all 68 manifest rows, and the only two NONE rows in the census are accounted for by a
+# guard spanning the whole file (tab_ghost_win32.cpp and zen_mode_win32.cpp, `#ifdef
+# _WIN32` on line 3 to `#endif` on the last line). Nothing in this script NOTICES a
+# future file of either shape -- there is no automatic detector and CONTROL 8 is not one;
+# it proves only that this probe can still answer `code`. What would show is a NONE row
+# whose guards do not explain it, and reading that row is a person's job.
+#
+# Both misses are FALSE vacuous, never false clean -- the direction that gets a row
+# looked at rather than skipped.
+#
+# AND NEITHER ROUTE MAY BE READ OVER AN OBJECT THAT IS NOT THERE. `nm` over a missing
+# file counts zero and puts its only complaint on stderr; `size`'s field comes back
+# empty. Both of those are "vacuous" if you are not looking. So the object is asserted
+# present and non-empty first, `size -A` must print its Total line to prove the section
+# reader ran at all, and anything short of that is `?` -- which makes the census exit
+# non-zero rather than quietly becoming a verdict.
+#
+# ---------------------------------------------------------------------------
 # Controls, and why each one is here
 #
-# Six. Four run before the census and gate everything; 5 and 6 belong to --control and
-# gate its table. Any failure makes the census unreadable rather than merely suspect:
+# Eight. Six run before the census and gate everything -- 1-4 plus 7-8; 5 and 6 belong
+# to --control and gate its table, and 9 is a claim about the tree that only --control
+# can ask. THE NUMBERS ARE ADDITION ORDER, NOT EXECUTION ORDER, deliberately:
+# CMakeLists.txt:214 cites "CONTROL 5" by number, so renumbering to make the sequence
+# read top-to-bottom would rot a citation to buy nothing. Any failure among 1-4 and 7-8
+# makes the census unreadable rather than merely suspect:
 #
 #   1. The template's OWN source must pass. If the lifted flags cannot compile
 #      the file the real build compiled with them, the rig is broken and every
@@ -66,6 +146,17 @@
 #      command rather than falling back to the template. CONTROL 5 got easier when
 #      per-file flags arrived, and a control that gets easier unnoticed is worse than
 #      none -- this is what stops it degrading silently back to what it was.
+#   7. A file whose whole body sits inside `#ifdef _WIN32` must read emits=NONE. The
+#      vacuity probe's positive control: without it, a broken object path or a missing
+#      `nm` reads as "every translation unit is empty" and the new column is worse than
+#      no column, because it agrees with the hypothesis that motivated it.
+#   8. A file defining one exported function must read emits=code. The counter-case, and
+#      it is the arm that has to exist for CONTROL 7's green to mean anything: a probe
+#      that answers NONE for everything passes 7 and fails 8.
+#   9. (--control only) No file on the portable manifest may read emits=NONE. This one
+#      is a claim about the TREE rather than about the rig -- a file claimed portable
+#      that compiles to nothing off Windows is a defect in the manifest, not a broken
+#      instrument -- and it sits here with CONTROL 5, which is the same kind of claim.
 #
 # ---------------------------------------------------------------------------
 # A THIRD THING THIS CENSUS CANNOT SEE: COUPLING CARRIED BY A PARAMETER TYPE
@@ -222,6 +313,19 @@ if [ "$have_std" != "1" ]; then
     exit 3
 fi
 
+# The two object readers the emits column depends on. A REFUSAL rather than a skipped
+# column, because both of them count zero over nothing they can read: with nm absent,
+# `nm ... | grep -c .` is 0 and every row reads emits=NONE with confidence.
+NM_BIN="$(command -v nm || true)"
+SIZE_BIN="$(command -v size || true)"
+if [ -z "$NM_BIN" ] || [ -z "$SIZE_BIN" ]; then
+    echo "REFUSED: the emits column needs binutils nm and size on PATH (nm='$NM_BIN' size='$SIZE_BIN')."
+    echo "         Both count zero over an object they cannot read, so a missing one would"
+    echo "         report every translation unit as empty."
+    exit 3
+fi
+echo "readers   : $NM_BIN, $SIZE_BIN"
+
 # PER-FILE FLAGS, AND WHY THE TEMPLATE ALONE WAS NOT ENOUGH.
 #
 # One template's flags cannot stand in for the whole tree, and the failure was not
@@ -271,6 +375,59 @@ syntax_only() {
 DIAG="$(mktemp)"
 TMPD="$(mktemp -d)"
 trap 'rm -f "$DIAG"; rm -rf "$TMPD"' EXIT
+
+# Did the compile EMIT anything? Reasoning, the seven-shape table and the blind spot are
+# all in the header; this is the mechanism.
+#
+# It is a SECOND compile, on rows that already read exit 0, and not a switch of the first
+# one from -fsyntax-only to -c. That is deliberate and it is a claim-17 point: every
+# fatal/errors figure README publishes was measured with -fsyntax-only, codegen can add
+# diagnostics syntax checking never sees, and moving the primary reading would void
+# readings this change is not re-taking. Rows that already fail cost nothing here,
+# because a compile that stopped never got to codegen anyway.
+vac_verdict=''; vac_extern=''; vac_text=''; vac_note=''
+vacuity_of() {
+    # $1 = source path to compile. Reads FILE_FLAGS, which the syntax_only() call
+    # immediately before has already resolved for this file -- the same flags, so the
+    # emits reading and the errors reading are about the same compile world.
+    local obj="$TMPD/vac.o" total
+    vac_extern='-'; vac_text='-'; vac_note=''
+    rm -f "$obj"
+
+    if ! "$CXX_BIN" "${FILE_FLAGS[@]}" -c -o "$obj" "$1" > "$TMPD/vac.err" 2>&1; then
+        vac_verdict='?'
+        vac_note='the -c compile failed where -fsyntax-only passed, so codegen saw something syntax checking did not'
+        return
+    fi
+    if [ ! -s "$obj" ]; then
+        vac_verdict='?'
+        vac_note='no object file on disk after a successful -c, so neither reader has anything to read'
+        return
+    fi
+
+    # Route 1: what a linker could resolve out of this object. --extern-only is what
+    # makes a header's own .rodata constants not count as this file's contribution.
+    vac_extern="$("$NM_BIN" --defined-only --extern-only "$obj" 2>/dev/null | grep -c . || true)"
+
+    # Route 2: whether any code was emitted. The Total line is checked FIRST and for its
+    # own sake: it is the evidence that the section reader ran on a real object, which is
+    # what then licenses reading an ABSENT .text row as zero bytes rather than as
+    # "size said nothing".
+    total="$("$SIZE_BIN" -A "$obj" 2>/dev/null | grep -c '^Total' || true)"
+    if [ "$total" = "0" ]; then
+        vac_verdict='?'
+        vac_note="size -A printed no Total line for $obj, so the section reader did not run"
+        return
+    fi
+    vac_text="$("$SIZE_BIN" -A "$obj" 2>/dev/null | awk '$1 == ".text" { print $2 }')"
+    [ -n "$vac_text" ] || vac_text=0
+
+    if [ "$vac_extern" = "0" ] && [ "$vac_text" = "0" ]; then
+        vac_verdict='NONE'
+    else
+        vac_verdict='code'
+    fi
+}
 
 n_errors() { grep -c ': error:' "$DIAG" || true; }
 n_fatal()  { grep -c ': fatal error:' "$DIAG" || true; }
@@ -327,6 +484,30 @@ else
     head -5 "$DIAG" | sed 's/^/       /'
 fi
 
+# 7. The vacuity probe's positive control: the real defect shape must read NONE.
+#    The include is INSIDE the guard on purpose -- that is the shape of the two files
+#    that motivated the column.
+printf '// only a comment out here\n#ifdef _WIN32\n#include <string>\nint ctl_guarded() { return 1; }\n#endif\n' > "$TMPD/ctl_vac_none.cpp"
+FILE_FLAGS=("${FLAGS[@]}"); flags_origin="tmpl"
+vacuity_of "$TMPD/ctl_vac_none.cpp"
+if [ "$vac_verdict" = "NONE" ]; then
+    check 0 "CONTROL 7: a file wholly inside #ifdef _WIN32 reads emits=NONE (extern=$vac_extern .text=$vac_text)"
+else
+    check 1 "CONTROL 7: a file wholly inside #ifdef _WIN32 reads emits=NONE (got '$vac_verdict' extern=$vac_extern .text=$vac_text ${vac_note})"
+fi
+
+# 8. The counter-case, and it is the arm that gives CONTROL 7 its meaning. A probe that
+#    answered NONE for everything -- missing nm, wrong object path, an awk field that
+#    silently came back empty -- passes 7 and fails only here.
+printf 'int ctl_real() { return 1; }\n' > "$TMPD/ctl_vac_code.cpp"
+FILE_FLAGS=("${FLAGS[@]}"); flags_origin="tmpl"
+vacuity_of "$TMPD/ctl_vac_code.cpp"
+if [ "$vac_verdict" = "code" ]; then
+    check 0 "CONTROL 8: a file defining one exported function reads emits=code (extern=$vac_extern .text=$vac_text) -- so NONE is not this probe's only answer"
+else
+    check 1 "CONTROL 8: a file defining one exported function reads emits=code (got '$vac_verdict' extern=$vac_extern .text=$vac_text ${vac_note})"
+fi
+
 # --- Subject set ------------------------------------------------------------
 if [ ! -f "$MANIFEST" ]; then
     echo "REFUSED: $MANIFEST is missing -- it is what defines the non-portable set."
@@ -348,7 +529,11 @@ fi
 if [ "$mode" = "errors" ]; then
     printf '\n== Every diagnostic for %s\n' "$only_file"
     syntax_only "$SOURCE_DIR/$only_file" "$only_file"
-    echo "exit=$rc errors=$(n_errors) fatal=$(n_fatal) flags=$flags_origin"
+    vac_verdict='-'
+    [ "$rc" = "0" ] && vacuity_of "$SOURCE_DIR/$only_file"
+    echo "exit=$rc errors=$(n_errors) fatal=$(n_fatal) flags=$flags_origin emits=$vac_verdict"
+    [ "$vac_verdict" = "NONE" ] && echo "NOTE: the translation unit is EMPTY off Windows (extern=$vac_extern .text=$vac_text) -- exit 0 here is not portability"
+    [ "$vac_verdict" = "?" ] && echo "NOTE: emits is UNDECIDABLE -- $vac_note"
     echo '--- diagnostics ---'
     cat "$DIAG"
     printf '\n== Distinct causes, most frequent first\n'
@@ -368,21 +553,63 @@ if [ "$n_subject" = "0" ]; then
 fi
 
 # fatal comes BEFORE errors in the column order deliberately. A reader scanning
-# for the biggest number should hit the "was this even measured" column first.
-printf '%-28s %5s %5s %7s %5s  %s\n' 'file' 'exit' 'fatal' 'errors' 'flags' 'first cause'
+# for the biggest number should hit the "was this even measured" column first. `emits`
+# is last of the measured columns for the same reason inverted: it qualifies exit 0, so
+# it belongs beside the cause a reader lands on rather than up with the tallies.
+printf '%-28s %5s %5s %7s %5s %6s  %s\n' 'file' 'exit' 'fatal' 'errors' 'flags' 'emits' 'first cause'
 causes_tmp="$(mktemp)"
-clean=0; dirty=0; n_own=0
+notes_tmp="$(mktemp)"
+clean=0; vacuous=0; dirty=0; undecidable=0; n_own=0
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     syntax_only "$SOURCE_DIR/$f" "$f"
     e="$(n_errors)"; fa="$(n_fatal)"; c="$(first_cause)"
-    printf '%-28s %5s %5s %7s %5s  %s\n' "${f#src/}" "$rc" "$fa" "$e" "$flags_origin" "$c"
-    if [ "$rc" = "0" ]; then clean=$((clean + 1)); else dirty=$((dirty + 1)); fi
+    # A row that failed to compile gets no emits reading, and prints '-' rather than
+    # NONE. It emitted nothing, but "it emitted nothing" is not the finding there -- the
+    # errors are -- and reusing NONE would merge the two populations this column exists
+    # to separate.
+    if [ "$rc" = "0" ]; then
+        vacuity_of "$SOURCE_DIR/$f"
+    else
+        vac_verdict='-'
+    fi
+    printf '%-28s %5s %5s %7s %5s %6s  %s\n' "${f#src/}" "$rc" "$fa" "$e" "$flags_origin" "$vac_verdict" "$c"
+    case "$rc:$vac_verdict" in
+        0:code) clean=$((clean + 1)) ;;
+        0:NONE) vacuous=$((vacuous + 1)) ;;
+        0:\?)   undecidable=$((undecidable + 1))
+                printf '%s: %s\n' "${f#src/}" "$vac_note" >> "$notes_tmp" ;;
+        *)      dirty=$((dirty + 1)) ;;
+    esac
     [ "$flags_origin" = "own" ] && n_own=$((n_own + 1))
     printf '%s\n' "$c" | sed -E "s#'[^']*'#'X'#g" >> "$causes_tmp"
 done <<< "$subject"
 
-printf '\nclean: %d   fails: %d\n' "$clean" "$dirty"
+printf '\nclean: %d   vacuous: %d   fails: %d' "$clean" "$vacuous" "$dirty"
+[ "$undecidable" != "0" ] && printf '   UNDECIDABLE: %d' "$undecidable"
+printf '\n'
+if [ "$vacuous" != "0" ]; then
+    echo "note: 'vacuous' means the file compiled to an EMPTY translation unit off Windows."
+    echo "      Those rows exit 0 and are the OPPOSITE of portable. They are not in clean."
+fi
+if [ "$undecidable" != "0" ]; then
+    echo "UNDECIDABLE rows -- the emits reading could not be taken, so it is neither verdict:"
+    sed 's/^/      /' "$notes_tmp"
+fi
+rm -f "$notes_tmp"
+
+# The three tallies must account for every row. Without this, a verdict this script
+# forgot to case on would vanish from all three counters and the footer would read as a
+# smaller, cleaner census than the one that ran -- a silent instrument built out of an
+# unhandled case (claim 24).
+if [ "$((clean + vacuous + dirty + undecidable))" != "$n_subject" ]; then
+    check 1 "CONTROL: the tallies account for every row (clean $clean + vacuous $vacuous + fails $dirty + undecidable $undecidable != $n_subject censused)"
+fi
+# An UNDECIDABLE row never passes quietly. It is not a failure of the tree and not a
+# reading either, so it fails the RIG: the table must not be quoted until it is resolved.
+if [ "$undecidable" != "0" ]; then
+    check 1 "CONTROL: every clean row got an emits reading ($undecidable did not -- see the notes above)"
+fi
 
 printf '\n== Distinct causes across the census, most frequent first\n'
 sort "$causes_tmp" | uniq -c | sort -rn
@@ -407,6 +634,18 @@ if [ "$mode" = "control" ]; then
         check 0 "CONTROL 6: the per-file lookup resolved real commands ($n_own of $n_subject rows), so CONTROL 5 is not the template in disguise"
     else
         check 1 "CONTROL 6: the per-file lookup resolved real commands (only $n_own of $n_subject rows -- CONTROL 5 has quietly reverted to template flags)"
+    fi
+
+    # CONTROL 9 is a claim about the TREE, and it is the sharper half of CONTROL 5.
+    # CONTROL 5 asks whether a manifest row compiles; this asks whether compiling it
+    # produced anything. A row that passes 5 and fails 9 is a file listed as portable
+    # that contributes an empty object to the portable build -- which is the same defect
+    # the emits column was added to catch, sitting on the side of the manifest where it
+    # would be a claim rather than a label.
+    if [ "$vacuous" = "0" ]; then
+        check 0 "CONTROL 9: no file on the portable manifest compiles to an empty translation unit"
+    else
+        check 1 "CONTROL 9: no file on the portable manifest compiles to an empty translation unit ($vacuous did -- see the emits column; this is a manifest defect, not a broken rig)"
     fi
 fi
 

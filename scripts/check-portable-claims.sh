@@ -88,8 +88,38 @@ entry_count=$(printf '%s\n' "$entries" | grep -c . || true)
 
 # The corpus is git's list, so a build directory or an untracked scratch file cannot join it and
 # cannot be missed from it either. Everything here is text a human wrote.
+#
+# TWO FILES ARE EXCLUDED AND THE REASON IS THAT THEY ARE THE GATE TALKING ABOUT ITSELF. This
+# script shipped in 6ed42a4 reporting 37 failures, and 36 of them were the 36 rows of its OWN
+# allowlist: a row excuses a phrase by QUOTING it, `tests/*.txt` matches
+# tests/portable-claims-allow.txt, and the quoted phrase is then a fresh hit in a file whose
+# hit-text is the whole tab-separated row -- which matches no allow key, because the key is only
+# one field of it. So the allowlist was exactly 100% self-defeating: every row it held was also a
+# violation it did not excuse. The 37th was this file's own header comment, at line 8, explaining
+# the thing it looks for. Neither had anything to do with the tree.
+#
+# This is the same failure as a comment that explains a deletion matching the grep for what it
+# deleted -- prose ABOUT a pattern is an instance of the pattern -- and the general rule is that a
+# gate must not be inside its own corpus. The exclusion is deliberately these two paths and not a
+# directory or a glob, because a wider rule would start hiding real prose: every other .md and .sh
+# in the tree is still scanned, including the README paragraphs that are the actual subject.
+#
+# WHAT THIS COSTS, stated rather than implied: a false claim written INSIDE the allowlist's notes
+# or this header is now invisible to the gate. That is accepted because an allowlist row is read by
+# whoever is editing the gate, and a claim in it is checked at that moment; it is not accepted
+# quietly, which is what this paragraph is for.
 files=$(git ls-files -- '*.cpp' '*.h' '*.md' '*.sh' 'CMakeLists.txt' 'tests/*.txt' \
-        | grep -vE '^(third_party|external)/' | sort -u)
+        | grep -vE '^(third_party|external)/' \
+        | grep -vxF 'tests/portable-claims-allow.txt' \
+        | grep -vxF 'scripts/check-portable-claims.sh' | sort -u)
+# Both paths are LITERAL rather than "$ALLOWLIST", and that is not a style choice. The control arm
+# blanks $ALLOWLIST to withhold the allowlist, and `grep -vxF ''` excludes nothing (an empty pattern
+# under -x matches only empty lines) -- so an exclusion written as "$ALLOWLIST" put the allowlist
+# file back into the CONTROL corpus only: 251 files against the subject's 250, two arms reading
+# different trees. The control still passed, because a corpus with more self-referential hits in it
+# is stricter rather than weaker, which is exactly why this would have sat there. It also rested on
+# the -x: drop it and `grep -vF ''` excludes every line, leaving an empty corpus that only the
+# MIN_FILES floor would catch.
 file_count=$(printf '%s\n' "$files" | grep -c . || true)
 
 if [ "$entry_count" -lt "$MIN_ENTRIES" ]; then

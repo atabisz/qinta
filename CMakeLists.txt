@@ -916,15 +916,21 @@ set(QINTA_APP_SOURCES
 # Adding all 21 and reading the linker -- not the manifest -- says: 7 close and
 # 14 do not.
 #
-# THERE ARE EXACTLY TWO ROOT BLOCKERS, and both are files no non-Windows compiler
-# can read at all. Everything else in the 14 is transitive through them:
+# THERE ARE EXACTLY TWO ROOT BLOCKERS. Everything else in the 14 is transitive
+# through them. "and both are files no non-Windows compiler can read at all" stood
+# in that sentence until 2026-09-23 and is now true of print.cpp only:
 #
-#   src/tabs.cpp   not in the manifest. Stops at `#include <shellapi.h>` (:26),
-#                  and past a stub for that header g++ reports 61 more error
-#                  lines -- _stricmp, IsZoomed, _countof, swprintf_s,
-#                  HWND_TOPMOST. A real port, not an include fix. Read 61 as a
-#                  FLOOR: a fatal include means the file was never read, and
-#                  g++ names an undeclared identifier once per function.
+#   src/tabs.cpp   not in the manifest. ~~Stops at `#include <shellapi.h>`~~ --
+#                  since 2026-09-23 it has no fatal include and g++ reads it to
+#                  the end: 40 error lines, 31 distinct names, every one of them
+#                  window management (FindWindowExW, WindowFromPoint,
+#                  SetForegroundWindow), IPC (WM_COPYDATA, COPYDATASTRUCT), window
+#                  chrome (IsZoomed, SetWindowPos) or the ghost window's three
+#                  calls. It was 61 past a stub for shellapi.h; the 21 that left
+#                  were CRT idioms, two Explorer/relaunch ShellExecuteW calls and
+#                  portable ghost geometry that arrived only through the guarded
+#                  tab_ghost_win32.h. A real port, not an include fix. 40 is
+#                  still an UNDERCOUNT: g++ names an identifier once per function.
 #                  Withholds 7 symbols (tabsInit, tabOpenPath, tabCloseIndex,
 #                  tabOpenQuickNote, tabBecomeStartPage, tabBulkCloseStep,
 #                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,

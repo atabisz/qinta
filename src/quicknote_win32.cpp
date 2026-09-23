@@ -5,7 +5,9 @@
 
 // THE PIECES OF THE TREE THAT COULD NOT BE PORTED YET, SEPARATED SO THE REST COULD BE.
 //
-// TWO functions now, not one. launchDocumentWindow arrived 2026-09-20 from
+// THREE functions now. launchTornOffTabWindow arrived 2026-09-23 from src/tabs.cpp's
+// tab drag, byte-identical, and its note is at its definition. TWO stood here before
+// that: launchDocumentWindow arrived 2026-09-20 from
 // src/input.cpp, where it was the only ShellExecuteW call of five that did NOT become
 // a platform_paths.h seam call in the same slice -- the other four routed onto
 // openInDefaultApplication and a new revealInFileManager. It is here for the reason
@@ -56,8 +58,10 @@
 // would have been a silent success -- and its scope was wrong by half, which is exactly
 // the failure mode this tree records as "the residue of a correction is least
 // trustworthy": the clause a correction carries forward is the part nobody re-measures.
-// The flags this file's own two sites pass are `--cascade --new` and `--cascade --edit`,
-// so in both cases the FIRST flag is now honoured and the SECOND is the blocker.
+// The flags this file's own sites pass are `--cascade --new`, `--cascade --edit` and
+// (since 2026-09-23, when the tab drag's relaunch moved here) `--cascade --tabbed --pos`,
+// so in every case the FIRST flag is now honoured and a LATER one is the blocker --
+// `--pos` is honoured too, and `--tabbed` is refused.
 //
 // The real chain is parser -> Qt window/tab/placement state -> process seam, and the
 // MIDDLE link is the expensive one: src/input.cpp, where that state lives, is 4,394
@@ -79,10 +83,11 @@
 // Direct2D" makes every remaining blocker sound like a rendering job, and the one
 // standing between this file and its Qt half is not one.
 //
-// The same question governs the OTHER self-relaunch, the ShellExecuteW inside
-// src/tabs.cpp's tabDragEnd, which is why
-// neither was answered here: one parser answers both, and answering one at a time
-// invents a second mechanism. That site wants MORE than this one -- it passes
+// The same question governs the OTHER self-relaunch, which sat in src/tabs.cpp's
+// tabDragEnd until 2026-09-23 and is now launchTornOffTabWindow at the bottom of this
+// file -- moved here for the reason the other two are here, so the one mechanism
+// stays in one place: one parser answers all of them, and answering one at a time
+// invents a second mechanism. That site wants MORE than the others -- it passes
 // `--cascade --tabbed --pos X Y` plus a path -- so it is the stronger statement of the
 // same blocker, not a second instance of it.
 //
@@ -140,4 +145,22 @@ void launchDocumentWindow(const std::wstring& fullPath) {
     if (!GetModuleFileNameW(nullptr, exePath, MAX_PATH)) return;
     std::wstring params = L"--cascade --edit \"" + fullPath + L"\"";
     ShellExecuteW(nullptr, L"open", exePath, params.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
+// Spawns a new Tinta window at screen (x, y) holding the one document dragged out of
+// this window's tab strip. Moved from src/tabs.cpp's tabDragEnd 2026-09-23 with the
+// body byte-identical apart from the three values now arriving as parameters, for the
+// reason stated above launchQuickNoteWindow -- including the `%hs` over a UTF-8 path,
+// which reads the bytes in the ANSI code page and is what shipped. The drag's caller
+// still closes its local tab whether or not this spawned anything, as it did before.
+void launchTornOffTabWindow(int x, int y, const std::string& utf8Path) {
+    wchar_t exePath[MAX_PATH];
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
+        wchar_t args[MAX_PATH * 2];
+        swprintf_s(args, _countof(args),
+                   L"--cascade --tabbed --pos %d %d \"%hs\"",
+                   x, y, utf8Path.c_str());
+        ShellExecuteW(nullptr, L"open", exePath, args, nullptr,
+                      SW_SHOWNORMAL);
+    }
 }

@@ -44,9 +44,14 @@ void updateWindowTitle(App& app);
 // with `--cascade --edit "<path>"`, so it is the third of the three sites that
 // Qt-side window and tab state would unblock together -- the parser half of that
 // sentence is delivered.
+//
+// launchTornOffTabWindow is the FOURTH relaunch, moved out of tabs.cpp's tab drag
+// 2026-09-23, and the same deferral: it passes `--cascade --tabbed --pos X Y "<path>"`.
+// (x, y) is the screen position for the new window; the path is UTF-8.
 #ifdef _WIN32
 void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);
+void launchTornOffTabWindow(int x, int y, const std::string& utf8Path);
 #endif
 // openUrl IS GONE. Its ShellExecuteA body is platform::openExternalUrl in
 // include/platform_paths.h, with both halves already written; handleLinkClick below

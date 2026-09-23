@@ -14,16 +14,25 @@
 #include "tableedit.h"
 #include "editor.h"
 #include "startpage.h"
+// BOTH GHOST HEADERS, and the portable one is not redundant. tab_ghost_win32.h is
+// guarded `#ifdef _WIN32` inside itself and includes tab_ghost.h only under that
+// guard, so off Windows it brought in nothing -- and tabGhostShouldDetach,
+// tabGhostPlacement and TabGhostCard, which are portable geometry, went missing with
+// the three window calls that are not. Named directly they stay declared on every
+// platform, and the only ghost names off Windows that fail are the ones that should.
+#include "tab_ghost.h"
 #include "tab_ghost_win32.h"
 #include "file_utils.h"
 #include "i18n.h"
 #include "input.h"
+#include "platform_paths.h"
+#include "portable_str.h"
 #include "utils.h"
 #include "win32_api.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <shellapi.h>
+#include <iterator>
 
 namespace {
 
@@ -119,7 +128,7 @@ void tabsSeedSession(App& app, const std::vector<std::string>& paths) {
         tab.path = path;
         tab.title = titleForPath(app, path);
         if (app.activeTab < 0 &&
-            _stricmp(path.c_str(), app.currentFile.c_str()) == 0) {
+            platform::documentPathsEqual(path, app.currentFile)) {
             app.activeTab = (int)app.tabs.size();
         }
         app.tabs.push_back(std::move(tab));
@@ -188,8 +197,8 @@ void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
     for (size_t i = 0; i < app.tabs.size(); i++) {
         const std::string& existing =
             (int)i == app.activeTab ? app.currentFile : app.tabs[i].path;
-        if (!utf8Path.empty() && _stricmp(existing.c_str(),
-                                          utf8Path.c_str()) == 0) {
+        if (!utf8Path.empty() &&
+            platform::documentPathsEqual(existing, utf8Path)) {
             if (activate) tabActivate(app, hwnd, (int)i);
             return;
         }
@@ -948,7 +957,7 @@ void renderTabSwitcher(App& app) {
     // Caps header: OPEN FILES - N
     if (app.themeHeaderFormat) {
         wchar_t header[96];
-        swprintf_s(header, _countof(header), L"%ls \u2014 %d",
+        tinta::swprintf(header, std::size(header), L"%ls \u2014 %d",
                    tr(app, "tabs.switcher.header"), (int)app.tabs.size());
         tinta::Color headColor = text;
         headColor.a = 0.5f;
@@ -1027,7 +1036,7 @@ void renderTabSwitcher(App& app) {
         // Ctrl+1..9 hint
         if (i < 9 && app.folderBrowserFormat) {
             wchar_t hint[16];
-            swprintf_s(hint, _countof(hint), L"Ctrl+%d", (int)i + 1);
+            tinta::swprintf(hint, std::size(hint), L"Ctrl+%d", (int)i + 1);
             tinta::Color hintColor = text;
             hintColor.a = 0.4f;
             app.brush->SetColor(hintColor);
@@ -1372,11 +1381,7 @@ bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y) {
             break;
         case TM_REVEAL: {
             std::wstring fullPath = absoluteFilePath(path);
-            if (!fullPath.empty()) {
-                std::wstring params = L"/select,\"" + fullPath + L"\"";
-                ShellExecuteW(nullptr, L"open", L"explorer.exe",
-                              params.c_str(), nullptr, SW_SHOWNORMAL);
-            }
+            if (!fullPath.empty()) platform::revealInFileManager(fullPath);
             break;
         }
     }
@@ -1504,7 +1509,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
         HWND root = under ? GetAncestor(under, GA_ROOT) : nullptr;
         wchar_t className[16] = {};
         if (root && root != hwnd &&
-            GetClassNameW(root, className, _countof(className)) &&
+            GetClassNameW(root, className, (int)std::size(className)) &&
             wcscmp(className, L"Tinta") == 0) {
             COPYDATASTRUCT data;
             data.dwData = 1;
@@ -1517,16 +1522,8 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
             // Dropped back onto this window's content: snap home
         } else if (app.tabs.size() > 1) {
             // Free drop: a new window appears where the ghost was
-            wchar_t exePath[MAX_PATH];
-            if (GetModuleFileNameW(nullptr, exePath, MAX_PATH)) {
-                wchar_t args[MAX_PATH * 2];
-                swprintf_s(args, _countof(args),
-                           L"--cascade --tabbed --pos %d %d \"%hs\"",
-                           screen.x - (int)dpi(app, 120.0f),
-                           screen.y - (int)dpi(app, 20.0f), path.c_str());
-                ShellExecuteW(nullptr, L"open", exePath, args, nullptr,
-                              SW_SHOWNORMAL);
-            }
+            launchTornOffTabWindow(screen.x - (int)dpi(app, 120.0f),
+                                   screen.y - (int)dpi(app, 20.0f), path);
             dragCloseLocal(app, hwnd, index);
         }
     }

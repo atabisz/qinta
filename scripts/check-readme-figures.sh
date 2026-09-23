@@ -470,7 +470,12 @@ fi
 # is the one row that can rot silently in the *other* direction, by keeping a file the
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
 claim "exports and printing"  "| $(c "$(lines src/print.cpp)") |"
-claim "shell integration"     "| $(c "$(lines src/tabs.cpp)") |"
+# tabs.cpp is DELIBERATELY absent too, one more file exercising the rule, and this row's last
+# member, so the shell-integration claim that derived from it is gone with it. It left the to-do
+# set on 2026-09-23 by joining tests/portable-sources.txt's compile-only section at errors 0. One
+# commit earlier the README said it stayed off the manifest "because it does not link"; that was
+# the wrong test, and the claim here kept asserting 1,622 lines of remaining work for as long as it
+# was believed.
 # drafts.cpp is now DELIBERATELY absent from the row above as well, the SEVENTH file to
 # exercise the rule -- and it is the reading that settles the direction question, because the
 # growth was not marginal. 160 -> 279 lines, +74%, on the pass that FINISHED the file. The

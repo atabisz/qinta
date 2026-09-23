@@ -280,7 +280,9 @@ editrail.cpp
 # describes, and src/print.cpp is where it now applies. (src/tabs.cpp was named here
 # too until 2026-09-23, when its only fatal include left; it read fatal 0,
 # errors 40, and after the tear-off moved to src/tab_tearoff_win32.cpp the same day it
-# reads errors 0. It is still not an entry here: it compiles, and nothing links it.)
+# reads errors 0. It IS an entry here now, in this section -- "it compiles, and nothing links
+# it" stood in this parenthesis for one commit as the reason it was not, and it was the
+# wrong test; see tabs.cpp's own block at the end of this section.)
 # So a running target needs either editor.cpp linked or those three
 # stubbed in the test, and stubbing is a claim about behaviour that no other target
 # here makes. Note what is being left on the table: tsvLooksLikeTable and
@@ -660,6 +662,23 @@ pandoc.cpp
 # the direction of travel is the thing this note is for: three, then one, now two. The
 # arrival is explained in tableedit.cpp's own block above, including the three symbols
 # that stand between it and a running test.
+
+# tabs.cpp joins 2026-09-23, and ITS OWN PREVIOUS NOTES GAVE THE WRONG REASON FOR KEEPING IT OUT.
+# After the tear-off pass (src/tab_tearoff_win32.cpp) it read exit 0, fatal 0, errors 0 off Windows,
+# and three sites -- README's shell-integration row, tests/test-platforms.txt and the CMake root-blocker
+# note -- then said it stayed off this file "because it does not link". That is not this file's test.
+# An entry claims one thing, that a non-Windows compiler accepts the file, and input.cpp and several
+# other entries in this section link into nothing. The same slip was nearly acted on: the hand-off
+# proposed LINKING tabs.cpp into qinta to earn the line, which CMakeLists.txt's own rule refuses --
+# nothing in the Qt app calls it.
+#
+#   COMPILES off Windows: yes, errors 0, compiled every build by portable_compile_only.
+#   LINKS into qinta: NO, and deliberately. Measured with qinta's own link line: adding tabs.o reads
+#   11 undefined symbols (tr, startPageActive, updateWindowTitle, draftsDeleteForTab, tableEditCommit,
+#   restoreEditBuffer, renderAppMenuButtonBackground, openDocumentInViewer, enterQuickNoteMode,
+#   copyFilePath, absoluteFilePath). The tree's rule is not to link code that no caller reaches.
+#   RUNS: no. Tear-off, pin and the maximise glyph are site-guarded gaps off Windows.
+tabs.cpp
 
 # --- In-document search, compiled AND run off Windows --------------------------
 #
@@ -1164,9 +1183,11 @@ qt_launch.cpp
 #
 # CORRECTED 2026-09-22, two claims: "windows.h-fatal files" and "input.cpp has not
 # ported". Both false. input.cpp is an entry in this manifest and compiles at errors 0,
-# fatal 0; so are the callees this paragraph meant. The only two files in the closure
-# that genuinely do not compile off Windows are src/tabs.cpp and src/print.cpp, and
-# neither is listed here. The NO on LINKS and RUNS is correct -- the reason was not.
+# fatal 0; so are the callees this paragraph meant. The only file in the closure that
+# genuinely does not compile off Windows is src/print.cpp, which is not listed here.
+# The NO on LINKS and RUNS is correct -- the reason was not.
+# (The closure had a second such file until 2026-09-23. The tear-off pass took
+# src/tabs.cpp to errors 0 and it is listed now, compile-only: it is not linked into qinta.)
 #
 # The count above it is why the number in the last paragraph moved: 23 of 24 becomes
 # 22 of 23, and the file-count bases in README.md all shifted with it.

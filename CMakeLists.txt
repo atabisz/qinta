@@ -924,7 +924,8 @@ set(QINTA_APP_SOURCES
 # through them. "and both are files no non-Windows compiler can read at all" stood
 # in that sentence until 2026-09-23 and is now true of print.cpp only:
 #
-#   src/tabs.cpp   not in the manifest. ~~Stops at `#include <shellapi.h>`~~ --
+#   src/tabs.cpp   IN the manifest's compile-only section since 2026-09-23, NOT
+#                  linked into qinta. ~~Stops at `#include <shellapi.h>`~~ --
 #                  since 2026-09-23 it has no fatal include, and since the same
 #                  day's tear-off pass it COMPILES off Windows: errors 0. The 40
 #                  error lines it read in between were window management
@@ -934,7 +935,9 @@ set(QINTA_APP_SOURCES
 #                  moved to src/tab_tearoff_win32.cpp; the rest sit under site
 #                  guards that say what is missing off Windows (no detach, no pin,
 #                  the maximise glyph reads not-maximised). So it is still a ROOT
-#                  BLOCKER, but for a LINK reason now, like the files it blocks:
+#                  BLOCKER, but for a LINK reason now, like the files it blocks.
+#                  Being unlinked is NOT why it was off the manifest -- the manifest
+#                  claims compile only -- and it joined once that was seen:
 #                  it is not linked into qinta, so it withholds 7 symbols (tabsInit, tabOpenPath, tabCloseIndex,
 #                  tabOpenQuickNote, tabBecomeStartPage, tabBulkCloseStep,
 #                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,
@@ -2041,6 +2044,13 @@ if(BUILD_TESTING)
         #   off-Windows arm is a placeholder returning false, unreachable only because of
         #   this missing router.
         src/input.cpp
+        # src/tabs.cpp -- COMPILE-ONLY since 2026-09-23. The tear-off pass took it to errors 0
+        # off Windows, and a manifest entry needs a compiler behind it (input.cpp's MISSING
+        # lesson above). It is NOT in QINTA_APP_SOURCES: qinta's own link line reads 11
+        # undefined symbols with tabs.o added, and nothing in the Qt app calls it, so the rule
+        # at the root-blocker note applies. Tear-off, pin and the maximise glyph are site-guarded
+        # gaps off Windows.
+        src/tabs.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)
     # Unconditional, same argument as qinta above: a version number is not a platform fact.
@@ -3213,13 +3223,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=34
+        -DEXPECTED_CHECKS=33
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=34
+        -DEXPECTED_CHECKS=33
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

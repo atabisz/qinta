@@ -98,10 +98,13 @@
 # reassurance: a file with either shape would read NONE, --control reads 0 vacuous across
 # all 68 manifest rows, and the only two NONE rows in the census are accounted for by a
 # guard spanning the whole file (tab_ghost_win32.cpp and zen_mode_win32.cpp, `#ifdef
-# _WIN32` on line 3 to `#endif` on the last line). Nothing in this script NOTICES a
-# future file of either shape -- there is no automatic detector and CONTROL 8 is not one;
-# it proves only that this probe can still answer `code`. What would show is a NONE row
-# whose guards do not explain it, and reading that row is a person's job.
+# _WIN32` on line 3 to `#endif` on the last line). UNTIL 2026-09-23 NOTHING NOTICED a
+# future file of either shape, and this paragraph said reading such a row was a person's
+# job. It is now guard_explains: a third reader, of the SOURCE rather than the object, that
+# accepts a NONE row only when the file is one whole-file `#ifdef _WIN32` guard with nothing
+# but `#include`s outside it. Any other NONE row fails the census by name (CONTROLS 10-14
+# prove it can answer both ways; a planted template-only src/ file turned the census INVALID).
+# It still cannot tell you WHAT the unexplained file is -- that is still a person's read.
 #
 # Both misses are FALSE vacuous, never false clean -- the direction that gets a row
 # looked at rather than skipped.
@@ -116,11 +119,12 @@
 # ---------------------------------------------------------------------------
 # Controls, and why each one is here
 #
-# Eight. Six run before the census and gate everything -- 1-4 plus 7-8; 5 and 6 belong
-# to --control and gate its table, and 9 is a claim about the tree that only --control
-# can ask. THE NUMBERS ARE ADDITION ORDER, NOT EXECUTION ORDER, deliberately:
-# CMakeLists.txt:214 cites "CONTROL 5" by number, so renumbering to make the sequence
-# read top-to-bottom would rot a citation to buy nothing. Any failure among 1-4 and 7-8
+# Fourteen. Eleven run before the census and gate everything -- 1-4, 7-8 and 10-14; 5 and
+# 6 belong to --control and gate its table, and 9 is a claim about the tree that only
+# --control can ask. (This said "Eight" while listing nine; it was not re-counted when 9
+# landed.) THE NUMBERS ARE ADDITION ORDER, NOT EXECUTION ORDER, deliberately:
+# CMakeLists.txt cites "CONTROL 5" by number, so renumbering to make the sequence
+# read top-to-bottom would rot a citation to buy nothing. Any failure among the eleven
 # makes the census unreadable rather than merely suspect:
 #
 #   1. The template's OWN source must pass. If the lifted flags cannot compile
@@ -157,6 +161,12 @@
 #      is a claim about the TREE rather than about the rig -- a file claimed portable
 #      that compiles to nothing off Windows is a defect in the manifest, not a broken
 #      instrument -- and it sits here with CONTROL 5, which is the same kind of claim.
+#  10-14. The guard reader (guard_explains). 10 and 12 must read explained: CONTROL 7's
+#      file, and the real files' shape with an #include outside the guard. 11, 13 and 14
+#      must read unexplained: a template-only file (first shown to read emits=NONE, so it
+#      is the blind spot and not a file that never reaches this reader), a guard that
+#      closes early though the last line is #endif, and a guard with a top-level #else.
+#      A reader stuck on either answer fails one side; both mutants were run.
 #
 # ---------------------------------------------------------------------------
 # A THIRD THING THIS CENSUS CANNOT SEE: COUPLING CARRIED BY A PARAMETER TYPE
@@ -429,6 +439,60 @@ vacuity_of() {
     fi
 }
 
+# Does a WHOLE-FILE Windows guard explain an emits=NONE reading? Exit 0 if it does.
+#
+# This is what the two blind spots in the header need, and it is a reading of the SOURCE, not
+# of the object -- deliberately a third route, because both object routes are blind in the same
+# direction. The rule is the shape both real vacuous files measure, not a paraphrase of it:
+# tab_ghost_win32.cpp and zen_mode_win32.cpp open with `#include "<own>_win32.h"` OUTSIDE the
+# guard, then `#ifdef _WIN32` on line 3, then `#endif  // _WIN32` as the last line. So, after
+# comments and blank lines are removed:
+#
+#   * every line outside the guard is an `#include` -- a header can put nothing in this object
+#     that the object readers would miss, since the object already read NONE;
+#   * there is exactly one top-level `#ifdef _WIN32` / `#if defined(_WIN32)`, and its MATCHING
+#     `#endif` is the last significant line. Matching is tracked by depth, because "the last
+#     line is #endif" also describes a guard that closed early with a template after it;
+#   * that guard has no top-level `#else`/`#elif`, whose branch would be the non-Windows code.
+#
+# Anything else -- including a file that really is vacuous for a reason this rule does not
+# describe -- is UNEXPLAINED, and the census refuses to be quoted until a person has read it.
+# That is the direction the blind spots need: a false "unexplained" costs a look, a false
+# "explained" would hide exactly the file the header warns about.
+guard_explains() {
+    tr -d '\r' < "$1" | awk '
+        {
+            line = $0; out = ""
+            while (length(line) > 0) {
+                if (inblk) {
+                    i = index(line, "*/")
+                    if (!i) { line = ""; break }
+                    line = substr(line, i + 2); inblk = 0
+                    continue
+                }
+                i = index(line, "/*"); j = index(line, "//")
+                if (j && (!i || j < i)) { out = out substr(line, 1, j - 1); break }
+                if (i) { out = out substr(line, 1, i - 1); line = substr(line, i + 2); inblk = 1 }
+                else   { out = out line; line = "" }
+            }
+            gsub(/^[ \t]+|[ \t]+$/, "", out)
+            if (out == "") next
+            if (closed) { bad = 1; exit }
+            if (!opened) {
+                if (out ~ /^#[ \t]*include[ \t]*[<"]/) next
+                if (out ~ /^#[ \t]*ifdef[ \t]+_WIN32$/ ||
+                    out ~ /^#[ \t]*if[ \t]+defined[ \t]*\(?[ \t]*_WIN32[ \t]*\)?$/) {
+                    opened = 1; depth = 1; next
+                }
+                bad = 1; exit
+            }
+            if (out ~ /^#[ \t]*if/) { depth++; next }
+            if (depth == 1 && out ~ /^#[ \t]*(else|elif)/) { bad = 1; exit }
+            if (out ~ /^#[ \t]*endif/) { depth--; if (depth == 0) closed = 1 }
+        }
+        END { exit (bad || !closed) ? 1 : 0 }'
+}
+
 n_errors() { grep -c ': error:' "$DIAG" || true; }
 n_fatal()  { grep -c ': fatal error:' "$DIAG" || true; }
 first_cause() {
@@ -508,6 +572,37 @@ else
     check 1 "CONTROL 8: a file defining one exported function reads emits=code (got '$vac_verdict' extern=$vac_extern .text=$vac_text ${vac_note})"
 fi
 
+# 10-14. The guard reader. Two arms that must say "explained" and three that must not; a
+# reader that said either answer for everything passes at most one side.
+guard_ctl() {
+    # $1 = control number, $2 = expected (explained|unexplained), $3 = what the file is.
+    local got=unexplained
+    guard_explains "$TMPD/ctl_guard_$1.cpp" && got=explained
+    if [ "$got" = "$2" ]; then
+        check 0 "CONTROL $1: $3 reads $got"
+    else
+        check 1 "CONTROL $1: $3 reads $2 (got $got)"
+    fi
+}
+cp "$TMPD/ctl_vac_none.cpp" "$TMPD/ctl_guard_10.cpp"
+guard_ctl 10 explained "CONTROL 7's file, a comment then a guard around everything,"
+# 11 is the blind spot itself, so it must first be shown to READ NONE -- otherwise the
+# unexplained answer is about a file that could never reach this reader.
+printf 'template <typename T> T ctl_tmpl(T t) { return t; }\n' > "$TMPD/ctl_guard_11.cpp"
+FILE_FLAGS=("${FLAGS[@]}"); flags_origin="tmpl"
+vacuity_of "$TMPD/ctl_guard_11.cpp"
+if [ "$vac_verdict" = "NONE" ]; then
+    guard_ctl 11 unexplained "a file of only an uninstantiated template (emits=NONE, the header's blind spot)"
+else
+    check 1 "CONTROL 11: a template-only file reads emits=NONE before its guard is asked (got '$vac_verdict' ${vac_note})"
+fi
+printf '#include "x_win32.h"\n\n#ifdef _WIN32\n#include <cstdint>\nint f() { return 1; }\n#endif  // _WIN32\n' > "$TMPD/ctl_guard_12.cpp"
+guard_ctl 12 explained "the real files' shape, an #include outside then a guard to the last line,"
+printf '#ifdef _WIN32\nint f() { return 1; }\n#endif\ntemplate <typename T> T g(T t) { return t; }\n#ifdef _WIN32\n#endif\n' > "$TMPD/ctl_guard_13.cpp"
+guard_ctl 13 unexplained "a guard that closes early with a template after it, though the last line is #endif,"
+printf '#ifdef _WIN32\nint f() { return 1; }\n#else\ntemplate <typename T> T g(T t) { return t; }\n#endif\n' > "$TMPD/ctl_guard_14.cpp"
+guard_ctl 14 unexplained "a guard with a top-level #else branch"
+
 # --- Subject set ------------------------------------------------------------
 if [ ! -f "$MANIFEST" ]; then
     echo "REFUSED: $MANIFEST is missing -- it is what defines the non-portable set."
@@ -560,6 +655,7 @@ printf '%-28s %5s %5s %7s %5s %6s  %s\n' 'file' 'exit' 'fatal' 'errors' 'flags' 
 causes_tmp="$(mktemp)"
 notes_tmp="$(mktemp)"
 clean=0; vacuous=0; dirty=0; undecidable=0; n_own=0
+vac_explained=''; vac_unexplained=''
 while IFS= read -r f; do
     [ -n "$f" ] || continue
     syntax_only "$SOURCE_DIR/$f" "$f"
@@ -576,7 +672,12 @@ while IFS= read -r f; do
     printf '%-28s %5s %5s %7s %5s %6s  %s\n' "${f#src/}" "$rc" "$fa" "$e" "$flags_origin" "$vac_verdict" "$c"
     case "$rc:$vac_verdict" in
         0:code) clean=$((clean + 1)) ;;
-        0:NONE) vacuous=$((vacuous + 1)) ;;
+        0:NONE) vacuous=$((vacuous + 1))
+                if guard_explains "$SOURCE_DIR/$f"; then
+                    vac_explained="$vac_explained ${f#src/}"
+                else
+                    vac_unexplained="$vac_unexplained ${f#src/}"
+                fi ;;
         0:\?)   undecidable=$((undecidable + 1))
                 printf '%s: %s\n' "${f#src/}" "$vac_note" >> "$notes_tmp" ;;
         *)      dirty=$((dirty + 1)) ;;
@@ -591,6 +692,8 @@ printf '\n'
 if [ "$vacuous" != "0" ]; then
     echo "note: 'vacuous' means the file compiled to an EMPTY translation unit off Windows."
     echo "      Those rows exit 0 and are the OPPOSITE of portable. They are not in clean."
+    [ -n "$vac_explained" ] && echo "      explained by a whole-file #ifdef _WIN32 guard:$vac_explained"
+    [ -n "$vac_unexplained" ] && echo "      UNEXPLAINED -- no whole-file guard, so possibly a blind-spot shape:$vac_unexplained"
 fi
 if [ "$undecidable" != "0" ]; then
     echo "UNDECIDABLE rows -- the emits reading could not be taken, so it is neither verdict:"
@@ -609,6 +712,12 @@ fi
 # reading either, so it fails the RIG: the table must not be quoted until it is resolved.
 if [ "$undecidable" != "0" ]; then
     check 1 "CONTROL: every clean row got an emits reading ($undecidable did not -- see the notes above)"
+fi
+# An UNEXPLAINED vacuous row fails the rig for the same reason. Both object readers miss a
+# template-only or const-data-only file, so NONE without a whole-file guard is a verdict this
+# script cannot license. Read the file; then either guard it, port it, or extend guard_explains.
+if [ -n "$vac_unexplained" ]; then
+    check 1 "CONTROL: every vacuous row is explained by a whole-file #ifdef _WIN32 guard (not:$vac_unexplained)"
 fi
 
 printf '\n== Distinct causes across the census, most frequent first\n'

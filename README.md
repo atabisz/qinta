@@ -697,8 +697,15 @@ between `#ifdef _WIN32` on line 3 and `#endif` on the last line, so off Windows 
 translation unit. For those two, "compiles off Windows" was a reading that the file is maximally
 *un*portable — there is no portable code in it, because there is no code in it — and one word was
 carrying both that and `settings_app.cpp`'s genuine pass. **The census now reports what the compile
-emitted and `clean` excludes the empty ones:** `clean: 1   vacuous: 2   fails: 16`, controls 6/6,
+emitted and `clean` excludes the empty ones:** `clean: 1   vacuous: 2   fails: 16`, controls 11/11,
 `control failures: 0`.
+
+Both object readers miss the same two shapes — a file of only an uninstantiated template, or only
+`const` namespace-scope data, reads `vacuous` while carrying portable source — so a third reader
+asks the *source* why each `vacuous` row is empty. A row counts as explained only when everything
+outside one top-level `#ifdef _WIN32` is an `#include` and that guard's matching `#endif` is the
+last line; any other `vacuous` row fails the census by name. Both real rows are explained, and a
+planted template-only `src/` file turned the census invalid.
 
 The word rotted by **addition, not by error**. It was accurate for as long as every `exit 0` row was
 a real one, and it stopped being accurate when the tree gained files that are wholly guarded — which

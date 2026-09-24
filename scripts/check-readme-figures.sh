@@ -552,9 +552,10 @@ claim "device and factory"    "| Device and factory creation | $(c "$(lines src/
 # already follows, and which makes the next one join this row by existing. Note the two
 # things the pattern deliberately does NOT catch: d2d_init.cpp, whose stem starts with d2d
 # rather than ending in it and which has its own row, and settings_app.cpp, the one member
-# that predates the convention. That one is still named by hand -- and it is ASSERTED to be
-# in the to-do set below, because a hand-written name that silently stops matching is the
-# failure this comment is about.
+# that predated the convention. That one WAS named by hand and asserted to be in the to-do set
+# below, and on 2026-09-24 the assertion did its job: settings_app.cpp joined
+# tests/portable-sources.txt, left the to-do set, and the hand-written inclusion is deleted
+# with it rather than left to match nothing. The row is now name-shape only.
 #
 # The expression is SORTED, so the README row is in derivation order rather than arrival
 # order. That loses a small story the old row told and it is the correct trade: an order
@@ -564,14 +565,14 @@ claim "device and factory"    "| Device and factory creation | $(c "$(lines src/
 # main_d2d.cpp ends _d2d.cpp, so it walked into this row and took the total from 2,279 to
 # 4,162, while already being counted in the "Window and message loop" row. It is the Windows
 # *frontend*, not a backend behind a seam, and a name-shape rule cannot tell those apart. So
-# there is one exclusion, by name, and it gets the same guard the one inclusion gets: both
-# hand-written names are asserted to still be in the to-do set, because a hand-written name
-# that silently stops matching is precisely the failure this whole comment is about.
+# there is one exclusion, by name, and it gets the guard the one inclusion used to get: it is
+# asserted to still be in the to-do set, because a hand-written name that silently stops
+# matching is precisely the failure this whole comment is about.
 backends_excluded="main_d2d.cpp"
 backends=$( { printf '%s\n' $todo | grep -E '(_win32|_d2d)\.cpp$' \
-                | grep -vxF "$backends_excluded"; echo settings_app.cpp; } \
+                | grep -vxF "$backends_excluded"; } \
             | sed 's/\.cpp$//' | sort )
-for hand in settings_app.cpp $backends_excluded; do
+for hand in $backends_excluded; do
     if ! printf '%s\n' $todo | grep -qx "$hand"; then
         echo "  FAIL backends list       $hand is hand-named here and is NOT in the to-do set"
         failures=$((failures + 1))

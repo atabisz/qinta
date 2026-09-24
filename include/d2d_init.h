@@ -2,13 +2,12 @@
 #define TINTA_D2D_INIT_H
 
 #include "app.h"
+// applyTheme, updateTextFormats, applyWindowChrome and enumerateSystemFontFamilies are
+// declared there now, with the fourth hook installFontFallback. Included rather than
+// re-declared so the ten files that reached them through this header still do.
+#include "theme_apply.h"
 
 bool initD2D(App& app);
-void applyTheme(App& app, int themeIndex);
-// Tints the native title bar/border to the current theme (Windows 11;
-// Windows 10 falls back to the stock dark/light caption)
-void applyWindowChrome(App& app);
-void updateTextFormats(App& app);
 // Width of `text` in an IDWriteTextFormat, via a throwaway IDWriteTextLayout.
 //
 // THERE IS NO LONGER A NATIVE measureText DECLARED HERE. It took an
@@ -18,7 +17,6 @@ void updateTextFormats(App& app);
 // Windows-side measurement is ever wanted, note that this header is the wrong home
 // for it twice over: the reason the native overload existed at all was that it
 // cached space widths for formats which are no longer native.
-void enumerateSystemFontFamilies(App& app);
 // NO updateOverlayFormats AND NO ensureThemePreviewFormats. Both are gone from
 // src/d2d_init.cpp; their bodies are installChromeFormats and ensureThemePreviewFormats
 // in include/text_formats.h, and the second keeps its exact name -- which is why
@@ -35,6 +33,10 @@ void enumerateSystemFontFamilies(App& app);
 // third. NO FUNCTION DECLARED IN THIS HEADER CREATES A TEXT FORMAT ANY MORE -- what is
 // left is COM initialisation, the device, the render target, the theme and the font
 // enumeration, which is the residue anti-claim A2 of this slice's ISA predicted would stay.
+//
+// That list shrank again on 2026-09-24: the theme and the font enumeration went to
+// include/theme_apply.h, whose Windows arms are still defined in src/d2d_init.cpp. What
+// this header declares itself is COM initialisation and the render target.
 bool createRenderTarget(App& app);
 
 #endif // TINTA_D2D_INIT_H

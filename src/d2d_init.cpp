@@ -86,43 +86,11 @@ bool initD2D(App& app) {
     return true;
 }
 
-void applyTheme(App& app, int themeIndex) {
-    if (themeIndex < 0 || themeIndex >= themeCount()) return;
-
-    const D2DTheme& newTheme = themeAt(themeIndex);
-
-    // If the fonts are unchanged the existing text formats are identical —
-    // skip recreating them. Colors are baked into the cached layout runs, so a
-    // relayout is still needed.
-    //
-    // The count that used to be in this sentence ("~47 IDWriteTextFormat objects") is
-    // deleted rather than corrected: sixteen of them are tinta::TextFormat now and the
-    // rest are still native, so any single figure here would be wrong about one half.
-    // The probe reads app.textFormat, the seam pointer, where it used to read
-    // app.nativeTextFormat -- the same question ("has anything been built yet") asked of
-    // the object the tree actually draws with.
-    bool sameFonts = app.textFormat &&
-        wcscmp(app.theme.fontFamily, newTheme.fontFamily) == 0 &&
-        wcscmp(app.theme.codeFontFamily, newTheme.codeFontFamily) == 0;
-
-    app.currentThemeIndex = themeIndex;
-    app.theme = newTheme;
-    app.darkMode = newTheme.isDark;
-
-    if (sameFonts) {
-        app.layoutDirty = true;
-    } else {
-        updateTextFormats(app);
-    }
-
-    // Title bar follows the theme
-    applyWindowChrome(app);
-
-    // Force a redraw
-    if (app.hwnd) {
-        requestRepaint(app.hwnd);
-    }
-}
+// applyTheme AND updateTextFormats ARE IN src/theme_apply_app.cpp NOW, declared in
+// include/theme_apply.h. Neither named a Windows type: what kept them here was this file.
+// updateTextFormats' one DirectWrite block, the fallback chain, stayed behind as
+// installFontFallback below, moved without a byte changed inside it. Measured reason, and
+// the four-arm link table it came from: README, 2026-09-24.
 
 // THE NATIVE measureText OVERLOAD WAS HERE AND IS DELETED. It took an IDWriteTextFormat*
 // and measured through dwriteFactory->CreateTextLayout, and its four callers were the
@@ -137,29 +105,7 @@ void applyTheme(App& app, int themeIndex) {
 // targets recompiled. The compiler agreeing is the evidence; the grep only chose where to
 // point it.
 
-void updateTextFormats(App& app) {
-    // Editor line layouts hold the old format/size
-    app.clearEditorLineLayoutCache();
-    // Math boxes were laid out against the old theme font
-    mathClearCache();
-    // THE ELEVEN DOCUMENT FORMATS ARE CREATED THROUGH THE SEAM, and this one call replaces
-    // 90 lines of this function: the release block, eleven dwriteFactory->CreateTextFormat
-    // calls, the run of eleven SetParagraphAlignment statements and the four space-width
-    // measurements. The numbers are not repeated here because they are no longer chosen
-    // here -- src/text_formats_app.cpp holds the only copy, and it holds it because
-    // src/qt_init.cpp had a second one that this file could not see.
-    //
-    // The reason this is a deletion rather than a port: installQtTextFormats already built
-    // exactly these sixteen objects, with the same families, sizes and weights, through
-    // tinta::TextFactory. Two parallel copies of a table of numbers, one of them naming
-    // DirectWrite. Its own comment said a number disagreeing with this file "is a
-    // divergence, not a Qt decision", which names the hazard without removing it.
-    //
-    // It is safe to call before the fallback chain below exists: a fallback is attached to
-    // a LAYOUT, not to a format, and the handoff further down runs unconditionally on
-    // every call for exactly that reason.
-    installDocumentTextFormats(app);
-
+void installFontFallback(App& app) {
     // Build font fallback chain for emoji and CJK support
     if (!app.fontFallback) {
         IDWriteFactory2* factory2 = nullptr;
@@ -275,13 +221,6 @@ void updateTextFormats(App& app) {
     if (app.textFactory) {
         static_cast<D2DTextFactory*>(app.textFactory)->setFontFallback(app.fontFallback);
     }
-
-    // The chrome formats, through the shared portable function -- and NOT followed by a
-    // seating call any more. See the tombstone below for why that pairing had to break in
-    // one commit rather than two.
-    installChromeFormats(app);
-    app.appliedZoomFactor = app.zoomFactor;
-    app.layoutDirty = true;
 }
 
 // THE TWENTY CHROME FORMATS ARE NO LONGER BUILT HERE, and with them goes the last

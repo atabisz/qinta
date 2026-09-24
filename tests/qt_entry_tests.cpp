@@ -138,6 +138,7 @@
 // installQtBackends' call resolves through here. qt_init.h still declares the Qt-named
 // wrappers, which is why every existing assertion below compiles unchanged.
 #include "text_formats.h"
+#include "theme_apply.h"
 #include "theme_data.h"
 // ISC-17's Win32 half, in its own TU so <windows.h>'s macro set never reaches this file. Compiled
 // into this target only (CMakeLists.txt), and it compiles to two stubs off Windows so run 20's call
@@ -2089,6 +2090,57 @@ int main(int argc, char** argv) {
                     "observed on a hidden widget and show() here would flash a real window; the "
                     "sink is the off-Windows arm and is not consulted on this platform at all\n",
                     QApplication::platformName().toUtf8().constData());
+    }
+
+    // THE THEME HOOKS (include/theme_apply.h). applyTheme and updateTextFormats left
+    // src/d2d_init.cpp on 2026-09-24, and this is their first caller off Windows. Run here,
+    // with the Qt text factory still installed, because updateTextFormats rebuilds the
+    // formats through it.
+    {
+        // Font enumeration through src/theme_qt.cpp. Sorted is the contract the theme
+        // editor's picker relies on; the second call must not append a second copy.
+        app.systemFontFamilies.clear();
+        enumerateSystemFontFamilies(app);
+        const size_t fontCount = app.systemFontFamilies.size();
+        std::printf("theme_hooks font_families=%zu\n", fontCount);
+        check(fontCount > 0, "enumerateSystemFontFamilies found at least one family");
+        check(std::is_sorted(app.systemFontFamilies.begin(), app.systemFontFamilies.end()),
+              "enumerateSystemFontFamilies returned the families sorted");
+        enumerateSystemFontFamilies(app);
+        check(app.systemFontFamilies.size() == fontCount,
+              "a second enumerateSystemFontFamilies is a no-op, not a second copy");
+
+        // appliedZoomFactor is written ONLY by updateTextFormats, so a sentinel in it says
+        // which branch applyTheme took. Same fonts, forced by copying the target's two
+        // families into App first so the branch does not depend on the theme table:
+        // relayout only, formats kept.
+        const int themeBefore = app.currentThemeIndex;
+        const int target = (themeBefore + 1) % themeCount();
+        app.theme.fontFamily = themeAt(target).fontFamily;
+        app.theme.codeFontFamily = themeAt(target).codeFontFamily;
+        app.appliedZoomFactor = -1.0f;
+        app.layoutDirty = false;
+        applyTheme(app, target);
+        check(app.currentThemeIndex == target && app.darkMode == themeAt(target).isDark,
+              "applyTheme switched the theme index and the dark flag");
+        check(app.layoutDirty, "applyTheme marked the layout dirty");
+        check(app.appliedZoomFactor == -1.0f,
+              "unchanged fonts made applyTheme skip updateTextFormats (appliedZoomFactor untouched)");
+
+        // Different fonts: forced by planting a family no theme uses, so updateTextFormats
+        // MUST run -- and it runs through the portable skeleton and the Qt no-op fallback.
+        app.theme.fontFamily = L"tinta-theme-hooks-plant";
+        app.appliedZoomFactor = -1.0f;
+        applyTheme(app, themeBefore);
+        check(app.appliedZoomFactor == app.zoomFactor,
+              "a font change made applyTheme call updateTextFormats (appliedZoomFactor rewritten)");
+        check(app.textFormat != nullptr && app.headingFormats[0] != nullptr,
+              "updateTextFormats rebuilt the document formats through the Qt factory");
+        check(app.currentThemeIndex == themeBefore, "applyTheme restored the original theme");
+
+        // Out of range is refused without touching anything.
+        applyTheme(app, themeCount());
+        check(app.currentThemeIndex == themeBefore, "applyTheme ignores an out-of-range index");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

@@ -170,15 +170,14 @@ fi
 # Nothing Windows-only may have been dragged in. Each of these is inside if(WIN32)
 # or listed only in a Windows-only target, so none may appear at all.
 #
-# settings_app.cpp and settings_win32.cpp are the halves that were split OFF
-# settings.cpp so that it could compile here. Asserting their absence is what
-# makes the settings.cpp pass above mean something: if a future edit put App or a
-# registry call back into the portable file, or wired these into a portable
-# target, this is where it shows.
+# settings_win32.cpp is the half that was split OFF settings.cpp for the file-association
+# feature; it calls the registry and stays out.
 #
-# The `settings` loop entry above matches settings.cpp.o only -- the object names
-# differ -- but check that too, because a grep that accidentally matched
-# settings_app.cpp.o would report a pass for the wrong file.
+# settings_app.cpp LEFT THIS LOOP ON 2026-09-24 and is on the manifest now. It used to be
+# here as a proxy: "settings_app.cpp.o was not built" stood in for "settings.cpp has not
+# grown App back". That proxy was also the one thing stopping settings_app.cpp's four
+# functions linking off Windows, and input.cpp needs all four. So the property is now
+# asserted of settings.cpp directly, below the loop, which is what the proxy was for.
 # tab_ghost_win32.cpp is the newest member and the reason this loop is worth extending
 # rather than trusting the manifest's silence: an unlisted file that gets compiled shows
 # up as UNEXPECTED above, but only while the manifest comparison itself is working. This
@@ -186,7 +185,7 @@ fi
 # failure with the filename in it. Its portable half, src/tab_ghost.cpp, and its Qt arm,
 # src/tab_ghost_qt.cpp, are both ON the manifest -- so all three files are watched, in
 # opposite directions.
-for forbidden in main_d2d settings_app settings_win32 tab_ghost_win32; do
+for forbidden in main_d2d settings_win32 tab_ghost_win32; do
     if grep -qE "(^|[/ ])${forbidden}\.cpp\.o" "$BUILD_DIR.build.log"; then
         check 1 "src/${forbidden}.cpp stayed out of this build (it was compiled)"
         grep -oE "[^ ]*${forbidden}\.cpp\.o" "$BUILD_DIR.build.log" | head -1 | sed 's/^/       /'
@@ -194,6 +193,37 @@ for forbidden in main_d2d settings_app settings_win32 tab_ghost_win32; do
         check 0 "src/${forbidden}.cpp stayed out of this build, as a Windows-only file"
     fi
 done
+
+# settings.cpp must not reach App or the registry. This is the guard settings_app.cpp's
+# absence used to stand in for, asserted of the file itself.
+#
+# app.h is read off the TRANSITIVE header list, not a grep for the #include line: a header
+# settings.cpp includes could pull app.h in, and that is the regression that would matter.
+# The control is the same command on settings_app.cpp, which includes app.h on line 27 --
+# if the instrument cannot see app.h there, its silence about settings.cpp means nothing.
+settings_deps="$("$CXX_BIN" -std=c++20 -MM -I "$SOURCE_DIR/include" "$SOURCE_DIR/src/settings.cpp" 2>&1)"
+settings_app_deps="$("$CXX_BIN" -std=c++20 -MM -I "$SOURCE_DIR/include" "$SOURCE_DIR/src/settings_app.cpp" 2>&1)"
+if printf '%s' "$settings_app_deps" | grep -q 'include/app\.h'; then
+    check 0 "CONTROL: $CXX_BIN -MM sees include/app.h in settings_app.cpp's header list"
+    if printf '%s' "$settings_deps" | grep -q 'include/app\.h'; then
+        check 1 "src/settings.cpp reaches no include/app.h, directly or through a header (it does)"
+    elif printf '%s' "$settings_deps" | grep -q 'settings\.o:'; then
+        check 0 "src/settings.cpp reaches no include/app.h, directly or through a header"
+    else
+        check 1 "src/settings.cpp's header list was read (-MM produced no rule)"
+        printf '%s\n' "$settings_deps" | head -3 | sed 's/^/       /'
+    fi
+else
+    check 1 "CONTROL: $CXX_BIN -MM sees include/app.h in settings_app.cpp's header list (it does not, so the settings.cpp check below it is blind)"
+fi
+# Registry API names in code. Comment lines are dropped first: the header comments explain
+# the split and name what left.
+if grep -vE '^[[:space:]]*//' "$SOURCE_DIR/src/settings.cpp" \
+        | grep -qE '\bReg(Open|Create|Set|Get|Query|Delete|Close|Enum)[A-Za-z]*[[:space:]]*\(|\bHKEY\b'; then
+    check 1 "src/settings.cpp calls no registry API (it does)"
+else
+    check 0 "src/settings.cpp calls no registry API"
+fi
 
 # The settings round-trip has to be one of the tests that actually ran, not just
 # one that configured. It is the only assertion here that exercises the ini reader

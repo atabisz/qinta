@@ -49,7 +49,8 @@
 # because there is no code in it.
 #
 # The third clean row, src/settings_app.cpp, is the genuine article -- no conditionals
-# anywhere, a documented deliberate manifest exclusion -- so the column was not simply
+# anywhere, a documented deliberate manifest exclusion until 2026-09-24, when it joined the
+# manifest and left this census's population -- so the column was not simply
 # wrong. It was two populations under one word, which is worse, and it got that way by
 # ADDITION rather than by error: the word was accurate while every clean row was a real
 # one, and it rotted when the tree gained files that are wholly guarded.

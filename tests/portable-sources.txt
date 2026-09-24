@@ -25,8 +25,9 @@
 # add one to make the probe green -- run the probe and let it tell you.
 #
 # Windows-only files must NEVER appear here. scripts/probe-portable-linux.sh
-# separately asserts that main_d2d.cpp, settings_app.cpp and settings_win32.cpp
-# were not compiled at all.
+# separately asserts that main_d2d.cpp and settings_win32.cpp were not compiled at
+# all. settings_app.cpp was in that list until 2026-09-24 and is an entry below now;
+# the probe asserts settings.cpp's own independence from app.h instead.
 #
 # Files under tests/ must never appear here either, even when a non-Windows build
 # compiles them. Every name below is read as src/<name> when the probe counts the
@@ -634,9 +635,9 @@ pandoc.cpp
 # The two that are left of the three that arrived together, found by a census rather
 # than by porting work: g++ -fsyntax-only over every file NOT listed in this
 # manifest, which turned up six at zero errors. Two of the six had passing tests
-# gated to Windows and are now in tested sections below; one is staying out
-# deliberately (src/settings_app.cpp says why in its own header); these had nowhere
-# to record the reading.
+# gated to Windows and are now in tested sections below; one stayed out deliberately
+# until 2026-09-24 (src/settings_app.cpp, which is an entry at the end of this file now
+# and says why in its own header); these had nowhere to record the reading.
 #
 # syntax.cpp HAS LEFT THIS SECTION -- see its own heading below. This section's note
 # used to say it was "the one that most deserves to leave", and that is now done
@@ -1102,9 +1103,9 @@ scrollbar.cpp
 # src/ files outside this manifest fail a syntax-only non-Windows compile, on 10 distinct
 # first causes -- 7 on windows.h, 2 on d2d1.h, and one each on windowsx.h, shellapi.h,
 # objbase.h, dwrite.h, commdlg.h, an undeclared WM_SETTINGCHANGE, and the two deliberate
-# `#error` backstops in text_d2d.cpp and render_d2d.cpp. src/settings_app.cpp is the 18th
-# -- it compiles off Windows already, and the probe asserts it is NOT built, which is a
-# deliberate exclusion rather than a Windows dependency.
+# `#error` backstops in text_d2d.cpp and render_d2d.cpp. src/settings_app.cpp was the 18th
+# -- it compiled off Windows and the probe asserted it was NOT built, a deliberate exclusion
+# rather than a Windows dependency. It is a manifest entry as of 2026-09-24.
 #
 # THIS SENTENCE HAS NOW BEEN WRONG TWICE AND THE SECOND TIME IT DRIFTED THE OTHER WAY.
 # It read "23 OF THE 24 ... ON 12 DISTINCT FIRST CAUSES" and was over by seven: 77
@@ -1322,3 +1323,34 @@ input.cpp
 # off Windows yet; that is the Qt key router's slice, and it is stated at both sites rather
 # than implied by an absent entry.
 zen_mode_qt.cpp
+
+# --- The theme hooks, compiled AND RUN off Windows ----------------------------
+#
+# applyTheme and updateTextFormats, moved out of src/d2d_init.cpp on 2026-09-24 because
+# input.cpp's link needed them and neither named a Windows type. qt_entry_tests calls both,
+# so these are linked and executed, not compile-only. src/theme_qt.cpp is the Qt arm of the
+# three backend hooks in include/theme_apply.h; the Windows arm stays in src/d2d_init.cpp,
+# which must never appear here.
+theme_apply_app.cpp
+theme_qt.cpp
+
+# --- settings_app.cpp, compiled off Windows and NOT linked ---------------------
+#
+# The four App-touching settings functions. Out of every non-Windows build until
+# 2026-09-24 ON PURPOSE: the probe asserted its object was absent as a stand-in for
+# "settings.cpp has not grown App back". The link fixpoint measured what that stand-in
+# cost -- input.cpp needs all four of these, and input.cpp gates fourteen compile-only
+# files -- so the probe now asserts the real property of settings.cpp directly (g++ -MM,
+# with this file as the control that the instrument can see app.h at all), and this
+# file joins portable_compile_only. Compile-only: nothing off Windows calls it until
+# input.cpp links.
+settings_app.cpp
+
+# --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
+#
+# Seven symbols the rest of the tree calls out of src/print.cpp, each refusing visibly (a
+# warning chip plus a stderr line) or, for the link peek, returning the caller's existing
+# "no peek" null. print.cpp itself is unchanged and stays Windows-only. A stated gap, not
+# a port: nothing off Windows can print or export PDF through this file. Compile-only:
+# its callers are input.cpp, editor.cpp and export_html.cpp, none linked into qinta yet.
+print_qt.cpp

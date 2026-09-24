@@ -494,6 +494,11 @@ set(SOURCES
     # drifting apart. WINDOWS COMPILES THIS TOO -- that is the point of the entry, not an
     # oversight; updateTextFormats calls it and creates no format of its own.
     src/text_formats_app.cpp
+    # applyTheme and updateTextFormats, out of src/d2d_init.cpp. Portable, and in ${SOURCES}
+    # because every target that links d2d_init.cpp links its callers too. The Windows arms of
+    # the hooks it calls stay in d2d_init.cpp; the Qt arms are src/theme_qt.cpp, which is
+    # named on qt_entry_tests only.
+    src/theme_apply_app.cpp
     src/search.cpp
     src/render.cpp
     # The document paint pass, lifted out of main_d2d.cpp's WM_PAINT handler so a Qt
@@ -920,6 +925,18 @@ set(QINTA_APP_SOURCES
 # Adding all 21 and reading the linker -- not the manifest -- says: 7 close and
 # 14 do not.
 #
+# SUPERSEDED 2026-09-24, AND THE REST OF THIS BLOCK IS KEPT AS THE RECORD IT WAS. The same
+# fixpoint (qinta's own Linux link line, every compile-only and manifest-only object as a
+# candidate, drop what fails to resolve, repeat) now reads 26 candidates, round 1
+# link_exit=0 drop=0, 26 survivors: ALL 14 CLOSE. What closed them was 14 symbols in three
+# files, not the two root blockers below -- print.cpp's seven (now defined off Windows by
+# src/print_qt.cpp, every one a refusal), d2d_init.cpp's three (src/theme_apply_app.cpp and
+# src/theme_qt.cpp) and settings_app.cpp's four (compiled off Windows now). tabs.cpp is a
+# candidate in that run and survives it, so it withholds nothing. The control: the same run with
+# print_qt excluded drops input, editor and export_html in round 1 and all 14 by round 3.
+# So the reason none of them is in this list is now the one below, "nothing calls them",
+# and nothing else.
+#
 # THERE ARE EXACTLY TWO ROOT BLOCKERS. Everything else in the 14 is transitive
 # through them. "and both are files no non-Windows compiler can read at all" stood
 # in that sentence until 2026-09-23 and is now true of print.cpp only:
@@ -943,20 +960,26 @@ set(QINTA_APP_SOURCES
 #                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,
 #                  editrail.cpp, startpage.cpp.
 #   src/print.cpp  not in the manifest. Stops at d2d1.h, reached through
-#                  include/xps_page_emitter.h:24. Withholds openPrintPreview and
-#                  exportPdfFile, blocking editor.cpp and export_html.cpp.
+#                  include/xps_page_emitter.h:24. ~~Withholds openPrintPreview and
+#                  exportPdfFile, blocking editor.cpp and export_html.cpp.~~ -- print.cpp
+#                  itself is unchanged and still Windows-only, but it blocks nothing
+#                  since 2026-09-24: its seven called symbols have a refusing Qt arm in
+#                  src/print_qt.cpp.
 #
 # src/input.cpp IS NOT A ROOT BLOCKER AND CALLING IT ONE IS THE MISTAKE THIS
 # COMMENT IS HERE TO STOP. It is a manifest entry and compiles off Windows with
-# zero errors; it is absent from this list only because it needs six symbols that
-# only src/print.cpp defines. The same is true of every other name in the 14.
+# zero errors; it ~~is absent from this list only because it needs six symbols that
+# only src/print.cpp defines. The same is true of every other name in the 14.~~ was absent
+# for six symbols only src/print.cpp defined until 2026-09-24; now it is absent only
+# because nothing calls it, like every other name in the 14.
 #
-# CONSEQUENCE FOR THE FLAGS: all ten refusals in src/main_qt.cpp are behind these
-# two files. That includes --exportpdf, --exporthtml and --exportdocx, which look
+# CONSEQUENCE FOR THE FLAGS: all ten refusals in src/main_qt.cpp ~~are behind these
+# two files~~ were behind these two files; since 2026-09-24 they are behind the missing
+# caller, and the three export flags would reach print_qt.cpp's refusal for PDF. That includes --exportpdf, --exporthtml and --exportdocx, which look
 # independent and are not -- export_html.cpp calls exportPdfFile, and
 # export_docx.cpp calls buildDiagramPrims in export_html.cpp.
 #
-# WHY THE 7 THAT WOULD CLOSE ARE NOT ADDED: nothing calls them. qinta links clean
+# WHY THE 7 THAT WOULD CLOSE ARE NOT ADDED (all 21 since 2026-09-24): nothing calls them. qinta links clean
 # without them, so each is an object with no caller and no test, and this tree's
 # own rule is not to add code serving a caller that does not exist. When the
 # router lands they go in with something that exercises them.
@@ -1524,7 +1547,8 @@ if(BUILD_TESTING)
     # tests/portable-sources.txt, with the project's own include paths -- found six
     # files at zero errors. Two of them (context_menu.cpp, inline_style.cpp) already
     # had passing tests, gated to Windows, and have moved to real targets above. One
-    # (settings_app.cpp) is staying out on purpose and says why in its own header.
+    # (settings_app.cpp) stayed out on purpose until 2026-09-24 and is in this target
+    # now; its own header says what changed.
     # These had no test to un-gate and nowhere to record the reading:
     #
     #   src/i18n_app.cpp   18 lines. One function, tr(const App&, const char*). It was
@@ -1586,6 +1610,9 @@ if(BUILD_TESTING)
     # further out: editor.cpp needs symbols from src/tabs.cpp and src/print.cpp, which
     # are the only two root blockers in the closure (see the note under
     # QINTA_APP_SOURCES). The old sentence sent a reader to the wrong file.
+    # SUPERSEDED 2026-09-24: the 2026-09-24 fixpoint closes all 14 once print_qt.cpp, the theme hooks and
+    # settings_app.cpp are in (see the note under QINTA_APP_SOURCES), so what stands
+    # between this file and a running test is now only that nothing calls editor.cpp.
     # Its two pure functions, tsvLooksLikeTable and tsvToMarkdownTable, need no App and
     # no HWND and are assertable the moment that is settled.
     add_library(portable_compile_only OBJECT
@@ -1609,6 +1636,17 @@ if(BUILD_TESTING)
         src/annotations.cpp
         src/editrail.cpp
         src/tableedit.cpp
+        # src/settings_app.cpp -- COMPILE-ONLY. Its four functions are what src/input.cpp
+        # needs from it, and nothing off Windows links input.cpp yet. It was kept out of
+        # every non-Windows build as a proxy guard for settings.cpp; the probe asserts that
+        # property directly now (see the file's header).
+        src/settings_app.cpp
+        # src/print_qt.cpp -- COMPILE-ONLY. The Qt arm of src/print.cpp's seven symbols the
+        # rest of the tree calls, every one a visible refusal (the file says why). Not in
+        # QINTA_APP_SOURCES: its callers are input.cpp, editor.cpp and export_html.cpp, none
+        # of which qinta links yet. Not in SOURCES either -- Windows links print.cpp, and
+        # both would be LNK2005.
+        src/print_qt.cpp
         # src/export_docx.cpp -- COMPILE-ONLY, and it is here for a reason no other entry
         # in this list shares: NOBODY PORTED IT. Its 1,545 lines already compiled off
         # Windows. What kept it out of this target was three includes -- <objbase.h>,
@@ -1626,7 +1664,9 @@ if(BUILD_TESTING)
         #
         # CORRECTED 2026-09-22: this said input.cpp "is windows.h-fatal". FALSE -- input.cpp
         # compiles off Windows at errors 0, fatal 0 and is a manifest entry. It is out of the
-        # app target because it needs six symbols only src/print.cpp defines. The conclusion
+        # app target because it needs six symbols only src/print.cpp defines (TRUE until
+        # 2026-09-24; src/print_qt.cpp defines them now, and what is left is that nothing
+        # calls input.cpp -- the key router). The conclusion
         # above survives; the reason did not, which is the dangerous half, because the old
         # reason pointed at a file that is already ported.
         #
@@ -1839,7 +1879,9 @@ if(BUILD_TESTING)
         # "not on the manifest" and called drafts.cpp "<shlobj.h>-fatal". BOTH FALSE --
         # drafts.cpp and editor.cpp are manifest entries and each compiles off Windows at
         # errors 0, fatal 0. They are out of the app target for a link reason, not a compile
-        # one: both are blocked through src/tabs.cpp and src/print.cpp.
+        # one: both are blocked through src/tabs.cpp and src/print.cpp. (SUPERSEDED
+        # 2026-09-24: both link now in the fixpoint; nothing calls them, which is the rule
+        # that keeps them out of the app target.)
         #
         # CORRECTED 2026-09-17: this comment said src/editor.cpp "carries no Windows include
         # at all". FALSE, and measured false the next pass -- it is `#include <imm.h>` at
@@ -1981,7 +2023,8 @@ if(BUILD_TESTING)
         # editor.cpp is a manifest entry and compiles off Windows at errors 0, fatal 0.
         # What holds it out is src/tabs.cpp and src/print.cpp, the only two root blockers
         # in the closure; see the note under QINTA_APP_SOURCES. This sentence is the one
-        # that would have sent the next reader at editor.cpp instead. And even
+        # that would have sent the next reader at editor.cpp instead. (SUPERSEDED
+        # 2026-09-24: that closure now links, so the reason left is no caller.) And even
         # once it could, the worker's last act is postWindowMessage(hwnd,
         # WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
         # include/win32_api.h's stated design -- the conversion would run and finish and
@@ -2028,6 +2071,12 @@ if(BUILD_TESTING)
         #   `fatal error: d2d1.h: No such file or directory`. That is the one that matters:
         #   tabs.cpp is a windowing port, but print.cpp needs the QPrinter arm, so the key
         #   router IS gated on a Direct2D removal after all.
+        #
+        #   NO LONGER, AS OF 2026-09-24, AND THE WAY OUT WAS NOT THE ONE THIS NAMED. The
+        #   router is gated on the SYMBOLS, not on a QPrinter port: src/print_qt.cpp defines
+        #   the seven, each refusing, and the link fixpoint closes (26 of 26 candidates, and
+        #   the same run without print_qt drops this file in round 1). Printing off Windows is
+        #   still absent -- a stated gap in that file -- but it no longer holds the router.
         #
         #   What this does NOT claim is a complete blocker list. Attributing all 236 symbols
         #   to defining files over-attributed badly (substring matching invented 32 `*_tests.cpp`
@@ -2958,6 +3007,11 @@ if(BUILD_TESTING)
                 # and compiling it into the app would ship a second monitor enumeration.
                 tests/win32_monitor_dump.cpp
                 ${QINTA_APP_SOURCES}
+                # The theme hooks (include/theme_apply.h), named here and NOT in
+                # ${QINTA_APP_SOURCES}: qinta links clean without them, and nothing in it
+                # calls applyTheme until the key router lands. This test is the caller.
+                src/theme_apply_app.cpp
+                src/theme_qt.cpp
             )
             target_include_directories(qt_entry_tests PRIVATE
                 include ${md4c_SOURCE_DIR}/src)

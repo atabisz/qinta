@@ -13,17 +13,23 @@
 // its wrapper storage is pointers to the abstract seam types (include/seated.h),
 // and this file compiles clean with g++ today -- measured, 0 errors.
 //
-// IT IS STILL WINDOWS-ONLY IN THE BUILD, DELIBERATELY, and for a reason that has
-// nothing to do with the sentence above. scripts/probe-portable-linux.sh asserts
-// that settings_app.cpp.o appears in no non-Windows build, and that assertion is
-// what gives the settings.cpp pass its meaning: if a future edit put App or a
-// registry call back into the portable half, or wired these four into a portable
-// target, the probe is where it shows. Compiling this file off Windows would buy
-// four lines of field copying and cost a working guard.
+// IT WAS WINDOWS-ONLY IN THE BUILD, DELIBERATELY, UNTIL 2026-09-24, for a reason that
+// had nothing to do with the sentence above. scripts/probe-portable-linux.sh asserted
+// that settings_app.cpp.o appeared in no non-Windows build, as a stand-in for the real
+// property: that the portable half had not grown App or a registry call back. "Compiling
+// this file off Windows would buy four lines of field copying and cost a working guard."
 //
-// So the premise expired and the conclusion survived, which is why they are worth
-// separating. A gate whose stated reason has gone stale is not automatically a gate
-// to remove -- it has to be re-argued on its own terms, and this one still holds.
+// The price changed, not the argument. A link fixpoint over the manifest measured that
+// src/input.cpp needs all four functions here, and input.cpp gates fourteen compile-only
+// files (README, 2026-09-24). So the guard was re-pointed at what it stood in for: the
+// probe now reads settings.cpp's transitive header list with g++ -MM and requires no
+// include/app.h in it, with THIS file as the control that proves the instrument can see
+// app.h. The guard survives; only its proxy went.
+//
+// So the premise expired, the conclusion survived one more pass, and then the conclusion's
+// cost was measured and it lost. A gate whose stated reason has gone stale is not
+// automatically a gate to remove -- it has to be re-argued on its own terms -- and a gate
+// that still holds can be replaced by a better instrument for the same property.
 #include "app.h"
 #include "settings.h"
 #include "keymap.h"

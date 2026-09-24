@@ -34,7 +34,7 @@
 // file holds an `HWND`, so it can only name the arm that takes one. Including the Qt arm here would
 // pull QWidget into every target that compiles input.cpp -- including the compile-only portable ones
 // that link no Qt -- to reach a function nothing here can call.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
 #include "zen_mode_win32.h"
 #endif
 
@@ -586,9 +586,12 @@ static void commitFolderBrowserNaming(App& app) {
     // name, not line: that block moved twice in one day): off Windows, creating a note
     // from the folder browser makes the FILE and opens no window for it, because
     // the relaunch has no Qt half. The file exists and is findable; what is
-    // missing is visible rather than silently substituted with a wrong window.
-#ifdef _WIN32
+    // missing is said by the refusal rather than silently substituted with a wrong window.
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     launchDocumentWindow(fullPath);
+#else
+    refuseWindowFeature(app, "opening a new document in its own window",
+                        L"The file is made -- a new window for it isn't available in the Qt build yet");
 #endif
     if (app.hwnd) requestRepaint(app.hwnd);
 }
@@ -3445,7 +3448,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 // the other arm waits for a Qt-side key router -- the same successor slice requestQuit names.
 static void toggleZenMode(App& app, HWND hwnd) {
     app.zenMode = !app.zenMode;
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (app.zenMode) {
         app.zenRestore = tinta::zenModeEnter(hwnd);
         // Entering failed, so there is no mode to be in. Reported rather than swallowed: a true
@@ -3834,12 +3837,16 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     // src/editor.cpp's Ctrl+Shift+N already answered it the same way. The
                     // declaration is `#ifdef _WIN32` on purpose so an off-Windows caller is a
                     // compile error here rather than a link failure or a silent no-op half. This
-                    // is the second such caller, and the answer is unchanged: Ctrl+Shift+N does
-                    // NOTHING off Windows yet, because `--new` has no Qt-side parser. It
-                    // deliberately does not fall through to the new-tab branch below -- a new tab
-                    // where the user asked for a new window is a wrong picture rather than a gap.
-#ifdef _WIN32
+                    // is the second such caller, and the answer is unchanged: Ctrl+Shift+N opens
+                    // no window in the Qt build yet, because `--new` has no Qt-side parser, and it
+                    // refuses by name. It deliberately does not fall through to the new-tab
+                    // branch below -- a new tab where the user asked for a new window is a wrong
+                    // picture rather than a gap.
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
                     launchQuickNoteWindow();
+#else
+                    refuseWindowFeature(app, "Ctrl+Shift+N (new window)",
+                                        L"A new window isn't available in the Qt build yet");
 #endif
                 } else if (app.currentFile.empty()) {
                     // The keystroke's WM_CHAR must not type into the

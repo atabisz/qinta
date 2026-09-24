@@ -13,7 +13,7 @@
 #ifndef TINTA_TAB_TEAROFF_WIN32_H
 #define TINTA_TAB_TEAROFF_WIN32_H
 
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
 
 #include <windows.h>
 

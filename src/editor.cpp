@@ -38,7 +38,7 @@
 // file end to end and reported 55 errors on 40 lines -- so for as long as this
 // include was unguarded, every published figure about this file's portability
 // was a proxy for a number nobody had. A fatal include stops the read.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
 #include <imm.h>
 #endif
 
@@ -1635,8 +1635,11 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // launchQuickNoteWindow and for the same reason. What remains in
                 // input.cpp is the guarded CALL, which is what this sentence means.
                 if (shift) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
                     launchQuickNoteWindow();
+#else
+                    refuseWindowFeature(app, "Ctrl+Shift+N (new window)",
+                                        L"A new window isn't available in the Qt build yet");
 #endif
                 } else {
                     app.swallowCharsUntil =
@@ -2500,7 +2503,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
 // makes it the same blocker win32_api.h records twice -- no window object on the Qt
 // side -- and writing a Qt arm here would put the code in a place Qt never calls.
 void editorPositionImeWindow(App& app, HWND hwnd) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (!app.editMode || app.editorLineStarts.empty()) return;
     HIMC himc = ImmGetContext(hwnd);
     if (!himc) return;

@@ -850,7 +850,7 @@ void renderTabStrip(App& app) {
             float half = dpi(app, 4.5f);
             // Off Windows the glyph always reads "not maximised": nothing here asks the
             // window manager, so a maximised Qt window still draws the maximise square.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
             bool maximized = IsZoomed(app.hwnd) != 0;
 #else
             bool maximized = false;
@@ -1083,10 +1083,10 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             return true;
         }
         if (hit.index == -4) {
-            // Pin: toggle always-on-top for this window. Off Windows the click is
-            // consumed and nothing changes -- alwaysOnTop is not flipped, so the pin never
+            // Pin: toggle always-on-top for this window. Off the Win32 window stack the click
+            // is consumed and refused by name -- alwaysOnTop is not flipped, so the pin never
             // draws as set on a window that is not on top.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
             if (!middle) {
                 app.alwaysOnTop = !app.alwaysOnTop;
                 SetWindowPos(hwnd,
@@ -1095,6 +1095,10 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
                              SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
                 requestRepaint(hwnd);
             }
+#else
+            if (!middle)
+                refuseWindowFeature(app, "always on top",
+                                    L"Always on top isn't available in the Qt build yet");
 #endif
             return true;
         }
@@ -1463,7 +1467,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
     bool outside = tinta::tabGhostShouldDetach(app.contentScale, (float)y, stripH);
     // Off Windows a tab never detaches: there is no ghost window and no tear-off
     // (include/tab_tearoff_win32.h), so a drag below the strip keeps reordering.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (outside && detachable) {
         POINT screen = {x, y};
         ClientToScreen(hwnd, &screen);
@@ -1513,7 +1517,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     tinta::tabGhostDestroy(app.tabGhostWnd);  // off Windows no ghost is ever made
 #endif
     releaseMouseIfCaptured(hwnd);
@@ -1521,7 +1525,7 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     // WINDOWS ONLY, AND OFF WINDOWS THIS IS NOT A SKIPPED STEP: tabDragMove never detaches
     // there, so `detached` is always false and there is nothing to drop. Where the tab lands
     // is an HWND question -- include/tab_tearoff_win32.h says why it has no Qt arm.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (detached && index < (int)app.tabs.size()) {
         bool active = index == app.activeTab;
         const std::string& path =
@@ -1567,7 +1571,7 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
 
     // Windows only, for the same reason as tabDragEnd's drop: the one caller is
     // main_d2d.cpp's end-of-window-move, and the search is an HWND walk.
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (tinta::tabMergeIntoWindowUnderCursor(hwnd, path))
         postWindowMessage(hwnd, WM_CLOSE, 0, 0);
 #else
@@ -1599,7 +1603,7 @@ void tabDragCancel(App& app, HWND hwnd) {
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     tinta::tabGhostDestroy(app.tabGhostWnd);  // off Windows no ghost is ever made
 #endif
     releaseMouseIfCaptured(hwnd);

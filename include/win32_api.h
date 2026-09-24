@@ -20,6 +20,11 @@
 // instead of a compile error or a visible gap. Where a caller already handles
 // failure, the off-Windows path FAILS rather than no-ops, so that the caller's
 // existing error handling does the right thing for free.
+//
+// "OFF WINDOWS" BELOW MEANS OFF THE WIN32 WINDOW STACK. Every arm here is guarded
+// `defined(_WIN32) && !defined(TINTA_QT_UI)`, so qinta on Windows -- a Qt window on a
+// Win32 OS -- takes the same arm as qinta on Linux: InvalidateRect on a window qinta
+// never created is not a repaint. CMakeLists.txt says why at TINTA_QT_UI's definition.
 
 #include "win32_types.h"
 // The off-Windows arm of requestRepaint below. Included unconditionally: it has no
@@ -64,7 +69,7 @@
 // repaint_sink.h's header comment holds that measurement and why the sink therefore
 // takes no argument.
 inline void requestRepaint([[maybe_unused]] HWND hwnd) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     InvalidateRect(hwnd, nullptr, FALSE);
 #else
     tinta::deliverRepaintRequest();
@@ -97,7 +102,7 @@ inline void requestRepaint([[maybe_unused]] HWND hwnd) {
 // const wchar_t* rather than const std::wstring& on purpose: it keeps this header
 // free of <string>, and every caller already has a c_str() to hand.
 inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     SetWindowTextW(hwnd, title);
 #else
     (void)hwnd;
@@ -124,7 +129,7 @@ inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
 // is no message loop off Windows either, so a timer that armed would have nothing
 // to deliver WM_TIMER to. The Qt path is a QTimer per id.
 inline void armTimer(HWND hwnd, unsigned id, unsigned intervalMs) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     SetTimer(hwnd, id, intervalMs, nullptr);
 #else
     (void)hwnd;
@@ -134,7 +139,7 @@ inline void armTimer(HWND hwnd, unsigned id, unsigned intervalMs) {
 }
 
 inline void disarmTimer(HWND hwnd, unsigned id) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     KillTimer(hwnd, id);
 #else
     (void)hwnd;
@@ -174,7 +179,7 @@ inline void disarmTimer(HWND hwnd, unsigned id) {
 // mode that callers handle, an off-Windows implementation should USE that mode
 // rather than invent a third state.
 inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM lParam) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     return PostMessageW(hwnd, message, wParam, lParam) != 0;
 #else
     (void)hwnd;
@@ -220,7 +225,7 @@ inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM
 // so the gap is greppable -- `requestQuit` returning false is a fact a test can assert about the
 // off-Windows build, where a void no-op would be indistinguishable from a working quit.
 inline bool requestQuit() {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     PostQuitMessage(0);
     return true;
 #else
@@ -286,7 +291,7 @@ inline bool requestQuit() {
 enum class CursorShape { Arrow, Hand, IBeam, SizeWE };
 
 inline void setCursorShape(CursorShape shape) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     // Loaded once per shape. See the note above on why this is safe: these are
     // shared system handles, not owned resources.
     static HCURSOR arrow = LoadCursor(nullptr, IDC_ARROW);
@@ -389,7 +394,7 @@ inline void setCursorShape(CursorShape shape) {
 // what makes input.cpp unreadable off Windows -- the guarded form gets its own
 // entry below. It qualifies on the first arm of this header's rule at 6 sites.
 inline void captureMouse(HWND hwnd) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     SetCapture(hwnd);
 #else
     (void)hwnd;
@@ -397,7 +402,7 @@ inline void captureMouse(HWND hwnd) {
 }
 
 inline void releaseMouse() {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     ReleaseCapture();
 #endif
 }
@@ -421,7 +426,7 @@ inline void releaseMouse() {
 // written at that site, where the reader deciding what to do has the callers in
 // front of them, and not only here.
 inline void releaseMouseIfCaptured(HWND hwnd) {
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (GetCapture() == hwnd) ReleaseCapture();
 #else
     (void)hwnd;

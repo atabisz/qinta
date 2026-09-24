@@ -2016,6 +2016,17 @@ int main(int argc, char** argv) {
 #endif
     }
 
+    // ---- TINTA_QT_UI REACHED THE WINDOW-STACK GUARDS --------------------------------
+    //
+    // requestQuit() is the one arm in include/win32_api.h that returns a value saying which
+    // stack it was compiled for: true after PostQuitMessage, false where quitting is not yet
+    // wired. This target carries TINTA_QT_UI, so it must read false on BOTH hosts. On Windows
+    // that is the whole point -- without the macro _WIN32 alone would select the Win32 arm
+    // and this reads true (and posts a WM_QUIT this test never pumps). The Qt arm of quit is
+    // the key router's, and when it lands this check is replaced, not deleted.
+    check(!requestQuit(),
+          "TINTA_QT_UI: requestQuit() took the Qt-stack arm, not PostQuitMessage, on this host");
+
     // ---- ISC-3, SECOND ENDPOINT: DOES A REPAINT REQUEST ARRIVE AS A PAINT? ---------
     //
     // The registration check earlier in this file is a property of the constructor. This

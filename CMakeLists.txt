@@ -1005,6 +1005,23 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
     # fact, and every UNICODE definition in this file is guarded, so the tempting place to
     # add these is the one place they would silently not apply off Windows.
     target_compile_definitions(qinta PRIVATE ${TINTA_VERSION_DEFINITIONS})
+    # TINTA_QT_UI: "this target's window is a QWidget", which is a DIFFERENT QUESTION from
+    # _WIN32, the same split TINTA_D2D_BACKEND makes for the renderer. On Windows qinta is
+    # a Win32 OS with a Qt window, and `#ifdef _WIN32` could only answer the first: linking
+    # the router's files into qinta here read `LNK1120: 50 unresolved externals`, and the
+    # window-code share of them was zen_mode_win32, tab_ghost_win32, tab_tearoff_win32,
+    # quicknote_win32 and the IME -- Win32 window arms the callers picked because the OS
+    # was Windows. So every guard around WINDOW code reads
+    # `defined(_WIN32) && !defined(TINTA_QT_UI)`, and every guard about the OS (file
+    # times, process ids, the date format, the VK constants) stays `_WIN32`.
+    #
+    # OPT-IN ON THE QT TARGETS, deliberately the opposite polarity to TINTA_D2D_BACKEND: a
+    # target that forgets it keeps today's Win32 arms, so `tinta` cannot change silently,
+    # and a Qt target that forgets it fails its link loudly with the list above. Defined
+    # off Windows too, where it changes nothing (_WIN32 is already false) but keeps the
+    # definition a fact about the target rather than the host. qt_entry_tests carries it
+    # as well and asserts it arrived: requestQuit() must return false there on both hosts.
+    target_compile_definitions(qinta PRIVATE TINTA_QT_UI)
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
@@ -3021,6 +3038,8 @@ if(BUILD_TESTING)
             # same measured reason.
             target_link_libraries(qt_entry_tests PRIVATE
                 md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
+            # Same stack as qinta, so the same guard answer -- see TINTA_QT_UI at qinta.
+            target_compile_definitions(qt_entry_tests PRIVATE TINTA_QT_UI)
             if(WIN32)
                 target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
                 target_link_libraries(qt_entry_tests PRIVATE shell32)

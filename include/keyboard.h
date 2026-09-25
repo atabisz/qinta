@@ -85,6 +85,50 @@ bool isShiftDown();
 // Was Ctrl held when the event now being handled was generated?
 bool isCtrlDown();
 
+// THE EVENT'S OWN ANSWER, FOR THE LENGTH OF ONE HANDLER. An input layer that holds the event
+// opens one of these before calling into src/input.cpp, and while it is open both predicates
+// above answer from it instead of from the platform call. Both backends honour it.
+//
+// Needed because neither platform call reliably sees a SYNTHESISED event. GetKeyState reads
+// the thread's real key state and sees none of them. QGuiApplication::keyboardModifiers() is
+// half right, measured on Qt 6.4.2 with a standalone probe: a sent KEY event updates it, a
+// sent mouse or wheel event does not -- so a wheel after a sent Ctrl+J still reads Ctrl. And
+// qinta on Windows links keyboard_win32.cpp, so a scope only the Qt backend honoured would
+// fix one host of two. The Qt window opens one from event->modifiers() for every event it
+// routes, which makes the promise above true for sendEvent too; until this existed, slices 2
+// and 3 kept Ctrl+O and the wheel out of the router and dropped the checks that would have
+// measured them.
+//
+// Two bools and not a Qt::KeyboardModifiers, because this header is compiled by the Windows
+// build with no Qt on the include path, and by the same measurement that made the predicates
+// two: nothing asks about any other key. tinta's WinMain never opens one, so on that stack
+// the predicates are exactly the GetKeyState calls they were.
+//
+// A scope rather than a setter, because the answer is only true while the handler runs; each
+// scope restores the one it displaced, so nesting is safe.
+class EventModifierScope {
+public:
+    EventModifierScope(bool shift, bool ctrl) : previous_(current_), shift_(shift), ctrl_(ctrl) {
+        current_ = this;
+    }
+    ~EventModifierScope() { current_ = previous_; }
+
+    EventModifierScope(const EventModifierScope&) = delete;
+    EventModifierScope& operator=(const EventModifierScope&) = delete;
+
+    // The innermost open scope, or nullptr. Read by the two backends and by nothing else.
+    static const EventModifierScope* current() { return current_; }
+    bool shift() const { return shift_; }
+    bool ctrl() const { return ctrl_; }
+
+private:
+    // inline: one pointer for the whole program, defined here, so neither backend owns it.
+    static inline const EventModifierScope* current_ = nullptr;
+    const EventModifierScope* previous_;
+    bool shift_;
+    bool ctrl_;
+};
+
 } // namespace platform
 
 #endif // TINTA_KEYBOARD_H

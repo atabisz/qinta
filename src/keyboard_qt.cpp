@@ -23,13 +23,19 @@
 // the honest answer: nothing is held, because there is no window system connection to
 // hold anything. It is also why the assertions that matter in tests/keyboard_tests.cpp
 // are on modifierHeld and not on these two.
+//
+// An open EventModifierScope (include/keyboard.h) outranks keyboardModifiers(): a sent mouse
+// or wheel event leaves the cache as the last key event set it, and the scope carries the
+// event being handled.
 namespace platform {
 
 bool isShiftDown() {
+    if (const EventModifierScope* scope = EventModifierScope::current()) return scope->shift();
     return QGuiApplication::keyboardModifiers().testFlag(Qt::ShiftModifier);
 }
 
 bool isCtrlDown() {
+    if (const EventModifierScope* scope = EventModifierScope::current()) return scope->ctrl();
     return QGuiApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
 }
 

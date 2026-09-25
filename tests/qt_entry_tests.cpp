@@ -334,9 +334,10 @@ void sendKey(QtAppWindow& window, int key, Qt::KeyboardModifiers mods = Qt::NoMo
 // the button state AFTER the event, which is what Qt reports: a press holds its own button,
 // a release holds nothing, a hover move holds nothing.
 void sendMouse(QtAppWindow& window, QEvent::Type type, QPointF local,
-               Qt::MouseButton button = Qt::NoButton, Qt::MouseButtons held = Qt::NoButton) {
+               Qt::MouseButton button = Qt::NoButton, Qt::MouseButtons held = Qt::NoButton,
+               Qt::KeyboardModifiers modifiers = Qt::NoModifier) {
     QMouseEvent ev(type, local, QPointF(window.mapToGlobal(local.toPoint())), button, held,
-                   Qt::NoModifier);
+                   modifiers);
     QApplication::sendEvent(&window, &ev);
 }
 
@@ -909,30 +910,54 @@ int main(int argc, char** argv) {
     sendKey(window, Qt::Key_Left);
     check(sameScroll(app.scrollX, 0.0f), "and Left clamps at zero");
 
-    // THE Ctrl+J CONTROL THAT STOOD HERE IS GONE, because it can no longer be asked through
-    // sendEvent. handleKeyDown reads Ctrl from platform::isCtrlDown(), which on this stack is
-    // QGuiApplication::keyboardModifiers() -- the modifier state of the last INPUT EVENT Qt
-    // processed, and a synthesised event is not one. So a Ctrl+J sent from here reaches
-    // handleKeyDown with Ctrl reported up and scrolls, which would be a check of the harness,
-    // not of the window. In the running application a held Ctrl is reported, which is why
-    // the router is still right. Ctrl+O stays Qt-local in keyPressEvent for the same reason
-    // and is NOT sent from here: promptOpenDocument blocks in QFileDialog::exec until a human
-    // clicks, so sending it would hang the suite rather than fail it.
-    sendWheel(window, -1.0f, Qt::ControlModifier);
+    // Ctrl+J, RESTORED. Slice 2 dropped this control on the belief that a sent event reached
+    // handleKeyDown with Ctrl reported up. Half true: Qt's cache DOES follow a sent key event
+    // (include/keyboard.h has the probe), so on Linux this passed even before the modifier
+    // scope existed and is no reading of it there. On Windows handleKeyDown asks GetKeyState,
+    // which no sent event reaches, so there the scope is what lets Ctrl arrive. Either way
+    // handleKeyDown takes its `if (ctrl)` switch, which has no 'J': plain J scrolled 50 above,
+    // this one must not.
+    // Ctrl+O is still NOT sent from here: promptOpenDocument blocks in QFileDialog::exec until
+    // a human clicks, so sending it would hang the suite rather than fail it.
+    sendKey(window, Qt::Key_J, Qt::ControlModifier);
     check(sameScroll(app.scrollY, 0.0f),
-          "CONTROL: Ctrl+wheel does not scroll either. It is ZOOM on Windows "
-          "(src/input.cpp handleMouseWheel's Ctrl branch) and unimplemented here, and doing "
-          "nothing is the honest "
-          "behaviour -- scrolling would be the wrong gesture rather than a missing one");
+          "CONTROL: Ctrl+J does not scroll -- Ctrl reached handleKeyDown through the event's "
+          "modifiers, which a sent event could not do before the modifier scope");
 
+    const float zoomBefore = app.zoomFactor;
+    sendWheel(window, -1.0f, Qt::ControlModifier);
+    check(sameScroll(app.scrollY, 0.0f) && app.zoomFactor == zoomBefore,
+          "CONTROL: Ctrl+wheel neither scrolls nor zooms. It is ZOOM on Windows, but "
+          "applyZoomDelta coalesces through TIMER_ZOOM_APPLY and armTimer is a no-op here, so "
+          "routing it would zoom once and then only rescale the scroll offset; the window "
+          "ignores it until timers are ported");
+
+    // The zoom half of this check is what makes it a reading of the modifier scope. Without
+    // the scope, the wheel reads Qt's cache, which still holds the Ctrl the Ctrl+J above left
+    // there -- a sent wheel event does not refresh it -- so handleMouseWheel takes its ZOOM
+    // branch. Zooming at scrollY 0 leaves scrollY at 0, so the scrollY half alone passed
+    // that plant; the zoomFactor half is the one it fails.
     sendWheel(window, -1.0f, Qt::ShiftModifier);
-    check(sameScroll(app.scrollY, 0.0f),
-          "Shift+wheel does not scroll VERTICALLY: it is the horizontal gesture, from "
-          "src/input.cpp handleMouseWheel's Shift branch");
+    check(sameScroll(app.scrollY, 0.0f) && app.zoomFactor == zoomBefore,
+          "Shift+wheel neither scrolls VERTICALLY nor zooms: it is the horizontal gesture, "
+          "from src/input.cpp handleMouseWheel's Shift branch");
     check(sameScroll(app.scrollX, std::min(60.0f * scale, maxScrollX)),
           "it moves the horizontal offset instead -- zero here, because the content wraps to "
           "the window, which is the same clamp the Right arrow hit above");
     sendKey(window, Qt::Key_Home);
+
+    // The wheel is routed, so an open overlay takes it before the document does: help is
+    // handleMouseWheel's `helpScroll -= delta * dpi(60)` branch, which a local scroll in the
+    // window could never reach.
+    app.showHelp = true;
+    app.helpScroll = 0.0f;
+    sendWheel(window, -1.0f);
+    std::printf("help_wheel helpScroll=%.2f scrollY=%.2f\n", app.helpScroll, app.scrollY);
+    check(sameScroll(app.helpScroll, wheelStep) && sameScroll(app.scrollY, 0.0f),
+          "a wheel notch over the help overlay scrolls the overlay by 60 and leaves the document "
+          "where it was");
+    app.showHelp = false;
+    app.helpScroll = 0.0f;
 
     // NOTHING ABOVE TESTS THIS, and that is the point of asserting it separately.
     // QApplication::sendEvent delivers to a widget whether or not it can hold focus, so
@@ -2257,6 +2282,40 @@ int main(int argc, char** argv) {
             check(app.hasSelection && app.selAnchor != app.selFocus,
                   "press, drag and release across a text run select text through input.cpp");
             check(!app.selecting, "and the release ends the selection drag");
+
+            // Shift+click EXTENDS that selection: handleMouseDown's isShiftDown branch keeps the
+            // anchor and moves the focus. Untestable in slice 3, because the answer came from
+            // Qt's cached modifiers and a sent MOUSE event does not update them; the modifier
+            // scope (include/keyboard.h) is what makes this reach input.cpp as Shift.
+            {
+                const size_t anchorBefore = app.selAnchor;
+                const size_t focusBefore = app.selFocus;
+                const QPointF mid((start.x() + end.x()) * 0.5, midY);
+                app.clickCount = 0;
+                app.lastClickTime = std::chrono::steady_clock::time_point{};
+                sendMouse(mouseProbe, QEvent::MouseButtonPress, mid, Qt::LeftButton,
+                          Qt::LeftButton, Qt::ShiftModifier);
+                sendMouse(mouseProbe, QEvent::MouseButtonRelease, mid, Qt::LeftButton,
+                          Qt::NoButton, Qt::ShiftModifier);
+                std::printf("shiftclick hasSelection=%d anchor=%zu->%zu focus=%zu->%zu\n",
+                            app.hasSelection ? 1 : 0, anchorBefore, app.selAnchor, focusBefore,
+                            app.selFocus);
+                check(app.hasSelection && app.selAnchor == anchorBefore &&
+                          app.selFocus != focusBefore && app.selFocus != anchorBefore,
+                      "Shift+click keeps the anchor and moves the focus -- Shift reached "
+                      "input.cpp through the event's own modifiers");
+
+                // CONTROL: the same click with no Shift collapses the selection instead.
+                app.clickCount = 0;
+                app.lastClickTime = std::chrono::steady_clock::time_point{};
+                sendMouse(mouseProbe, QEvent::MouseButtonPress, mid, Qt::LeftButton,
+                          Qt::LeftButton);
+                sendMouse(mouseProbe, QEvent::MouseButtonRelease, mid, Qt::LeftButton,
+                          Qt::NoButton);
+                check(!app.hasSelection,
+                      "CONTROL: the same click without Shift collapses the selection, so the "
+                      "extension above was the Shift branch and not the click itself");
+            }
 
             // Double-click: Qt turns the second press into a DblClick event.
             resetClicks();

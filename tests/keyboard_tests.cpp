@@ -117,6 +117,28 @@ int main() {
     check(!platform::isShiftDown(), "no Shift is held while a test binary runs");
     check(!platform::isCtrlDown(), "no Ctrl is held while a test binary runs");
 
+    // --- the event scope, which a stub CAN fail ------------------------------
+    // Unlike the two checks above, these go through the linked backend with an answer that
+    // is not false, so a backend that ignores EventModifierScope fails them on whichever
+    // platform it is. The two keys are set to DIFFERENT values in each scope, so a backend
+    // that swapped them, or read one scope's shift as the other's ctrl, fails too.
+    {
+        platform::EventModifierScope outer(true, false);
+        check(platform::isShiftDown() && !platform::isCtrlDown(),
+              "an open scope answers for the event: Shift held, Ctrl not");
+        {
+            platform::EventModifierScope inner(false, true);
+            check(!platform::isShiftDown() && platform::isCtrlDown(),
+                  "a nested scope replaces the outer one's answer");
+        }
+        check(platform::isShiftDown() && !platform::isCtrlDown(),
+              "closing the nested scope restores the outer one, not the platform call");
+    }
+    check(!platform::isShiftDown() && !platform::isCtrlDown(),
+          "with every scope closed the answer is the platform's again");
+    check(platform::EventModifierScope::current() == nullptr,
+          "and no scope is left installed");
+
     if (failures == 0) {
         std::cout << "keyboard: all " << checks << " assertions passed\n";
         return 0;

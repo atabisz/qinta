@@ -71,7 +71,12 @@
 // the one key kept local -- see keyPressEvent for why. The MOUSE, as of slice 3: press,
 // move, release, double-click, the context menu and the two side buttons go through
 // src/input.cpp the way WinMain routes them, and the cursor comes back through the window
-// sink. The WHEEL alone stays on src/scroll.cpp's local policy -- see wheelEvent for why.
+// sink. The WHEEL, as of slice 4, goes to handleMouseWheel and handleMouseHWheel, so an
+// open overlay takes it before the document; only Ctrl+wheel zoom stays out, until timers
+// are ported -- see wheelEvent. Every routed handler opens a platform::EventModifierScope
+// (include/keyboard.h) from its event, so Shift and Ctrl reach src/input.cpp from the event
+// itself rather than from Qt's cache or GetKeyState, neither of which follows a sent mouse
+// or wheel event.
 // The one thing that MUST live here
 // is setFocusPolicy: a QWidget defaults to Qt::NoFocus and therefore never receives a
 // key event at all, which no pixel test and no probe in this tree could have caught --

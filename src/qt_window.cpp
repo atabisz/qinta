@@ -18,6 +18,7 @@
 #include "file_dialog.h"
 #include "file_utils.h"
 #include "input.h"
+#include "keyboard.h"
 #include "paint_document.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
@@ -78,6 +79,15 @@ Qt::CursorShape qtCursorFor(CursorShape shape) {
         case CursorShape::Arrow:
         default: return Qt::ArrowCursor;
     }
+}
+
+// Every handler below that reaches src/input.cpp opens one of these first, so the Shift and
+// Ctrl questions input.cpp asks are answered by THIS event, and not by Qt's cached state or
+// GetKeyState, which a sent mouse or wheel event does not reach. include/keyboard.h has the
+// measurement and says why the scope is two bools.
+platform::EventModifierScope modifierScopeFor(const QInputEvent& event) {
+    return platform::EventModifierScope(event.modifiers().testFlag(Qt::ShiftModifier),
+                                        event.modifiers().testFlag(Qt::ControlModifier));
 }
 
 }  // namespace
@@ -190,59 +200,49 @@ void QtAppWindow::promptOpenDocument() {
     openDocument(toUtf8(picked->path));
 }
 
-// WHY THE WHEEL, ALONE OF THE MOUSE, IS NOT ROUTED THROUGH src/input.cpp (slice 3).
-// handleMouseWheel decides zoom and horizontal scroll by asking platform::isCtrlDown and
-// isShiftDown, which on this stack are QGuiApplication::keyboardModifiers() -- the state of
-// the last event Qt itself processed, which a synthesised event does not update. Routed as
-// it stands, the Ctrl+wheel check in tests/qt_entry_tests.cpp would measure the harness
-// rather than the window. The cost of leaving it here is real and recorded: over an open
-// overlay or lightbox the wheel scrolls the document on qinta. Parity needs a modifier
-// seam that prefers the event's own modifiers, which is its own slice.
+// THE WHEEL, ROUTED (slice 4). WinMain sends WM_MOUSEWHEEL to handleMouseWheel and
+// WM_MOUSEHWHEEL to handleMouseHWheel, each in notches; Qt carries both axes in one event, so
+// each non-zero axis makes the call its own message would. The modifier scope is what made
+// this routable: handleMouseWheel's Shift branch asks platform::isShiftDown.
 void QtAppWindow::wheelEvent(QWheelEvent* event) {
-    // Ctrl+wheel is ZOOM on Windows (input.cpp:878, applyZoomDelta) and is not
-    // implemented here. Ignored rather than treated as a scroll, so the gesture does
-    // nothing instead of doing the wrong thing -- and ignore() rather than accept() so
-    // a parent that does implement it would still see it.
+    // Ctrl+wheel STAYS IGNORED, and not for the reason it used to. handleMouseWheel sends it
+    // to applyZoomDelta, which applies text formats on the leading notch, sets
+    // app_.zoomApplyPending and arms TIMER_ZOOM_APPLY to coalesce the rest -- and armTimer is
+    // a no-op on this stack, so the flag would never clear. The first notch would zoom and
+    // every later one would rescale the scroll offset under text that no longer resizes,
+    // which is worse than doing nothing. It routes when timers do. The cost is recorded
+    // rather than hidden: the lightbox, which zooms on any wheel, ignores Ctrl+wheel here.
+    // ignore() rather than accept() so a parent that did implement it would still see it.
     if (event->modifiers() & Qt::ControlModifier) {
         event->ignore();
         return;
     }
 
-    // Before the arithmetic, not after: every scroll maximum comes from app_.height,
-    // and the first wheel event can arrive before the first paint.
+    // Before the call, not after: every scroll maximum comes from app_.height, and the first
+    // wheel event can arrive before the first paint.
     syncViewport();
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
 
     const float vertical = static_cast<float>(event->angleDelta().y()) / kAngleDeltaPerNotch;
     const float horizontal = static_cast<float>(event->angleDelta().x()) / kAngleDeltaPerNotch;
 
-    if (event->modifiers() & Qt::ShiftModifier) {
-        // Shift+wheel is horizontal, matching input.cpp:879-885. The vertical delta is
-        // what a shifted wheel reports, so `vertical` is the right input here.
-        tinta::scrollDocumentHorizontallyByNotches(app_, vertical);
-    } else {
-        if (vertical != 0.0f) tinta::scrollDocumentByNotches(app_, vertical);
-        // A tilt wheel or a trackpad's horizontal axis. THE SIGN HERE IS UNVERIFIED ON
-        // THIS HOST -- there is no tilt wheel to test with -- and is taken from Qt's
-        // documented convention that a positive x delta is a rotation to the LEFT,
-        // which is the same direction a positive vertical notch means, hence the same
-        // helper with no negation. Win32's WM_MOUSEHWHEEL uses the opposite sign
-        // (input.cpp:900 adds where :881 subtracts), so this is exactly the kind of
-        // detail a port gets backwards; it is called out rather than left to be
-        // discovered as a "scrolling goes the wrong way" report.
-        if (horizontal != 0.0f) tinta::scrollDocumentHorizontallyByNotches(app_, horizontal);
-    }
+    if (vertical != 0.0f) handleMouseWheel(app_, nullptr, vertical);
+    // NEGATED, and the sign is still unverified on this host -- there is no tilt wheel to test
+    // with. Qt's documented convention is that a positive x delta is a rotation to the LEFT;
+    // WM_MOUSEHWHEEL's positive delta is a tilt to the RIGHT, and handleMouseHWheel ADDS it to
+    // targetScrollX. So Qt's number is the opposite of the one Windows hands that function.
+    if (horizontal != 0.0f) handleMouseHWheel(app_, nullptr, -horizontal);
 
     event->accept();
     update();
 }
 
 void QtAppWindow::keyPressEvent(QKeyEvent* event) {
-    // Ctrl+O first and HERE, not in handleKeyDown, for two reasons. handleKeyDown's Ctrl+O
-    // reads platform::isCtrlDown(), which on this stack is QGuiApplication::keyboardModifiers()
-    // (src/keyboard_qt.cpp) -- the state of the last input event Qt itself processed -- so a
-    // synthesised key event, which every test in tests/qt_entry_tests.cpp sends, would reach
-    // it with Ctrl reported up. And this window's
-    // own openDocument retitles the window, which the shared path does not do yet.
+    // Ctrl+O first and HERE, not in handleKeyDown, because this window's own openDocument
+    // retitles the window, which the shared path does not do yet. There used to be a second
+    // reason -- handleKeyDown could not see Ctrl on a synthesised event -- and the modifier
+    // scope below retired it. That reason was only ever true on Windows, where handleKeyDown
+    // asks GetKeyState; Qt's cache does follow a sent key event (include/keyboard.h).
     if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_O) {
         promptOpenDocument();
         event->accept();
@@ -273,6 +273,7 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
         return;
     }
 
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     bool consumed = false;
     if (vk != 0) consumed = handleKeyDown(app_, nullptr, vk);
     if (!consumed) {
@@ -303,6 +304,7 @@ void QtAppWindow::mousePressEvent(QMouseEvent* event) {
         return;
     }
     syncViewport();
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     const QPoint p = event->position().toPoint();
     handleMouseDown(app_, nullptr, p.x(), p.y());
     event->accept();
@@ -319,6 +321,7 @@ void QtAppWindow::mouseDoubleClickEvent(QMouseEvent* event) {
 
 void QtAppWindow::mouseMoveEvent(QMouseEvent* event) {
     syncViewport();
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     const QPoint p = event->position().toPoint();
     handleMouseMove(app_, nullptr, p.x(), p.y());
     event->accept();
@@ -326,6 +329,7 @@ void QtAppWindow::mouseMoveEvent(QMouseEvent* event) {
 
 void QtAppWindow::mouseReleaseEvent(QMouseEvent* event) {
     syncViewport();
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     const QPoint p = event->position().toPoint();
     switch (event->button()) {
         case Qt::LeftButton:
@@ -351,6 +355,7 @@ void QtAppWindow::contextMenuEvent(QContextMenuEvent* event) {
     // Keyboard is the menu key or Shift+F10 -- WM_CONTEXTMENU's (-1, -1). handleContextMenu
     // then ignores the position and centres the menu, so pos() is passed either way.
     const bool fromKeyboard = event->reason() == QContextMenuEvent::Keyboard;
+    const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     handleContextMenu(app_, nullptr, event->pos().x(), event->pos().y(), fromKeyboard);
     event->accept();
 }

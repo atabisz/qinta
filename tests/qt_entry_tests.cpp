@@ -314,7 +314,7 @@ tinta::RectF documentBand(const QtAppWindow& window) {
 // focus: a posted event reaches the widget whether or not it can hold focus, which is why
 // the focus policy is asserted separately and explicitly.
 //
-// notches is in the same unit src/scroll.h takes: POSITIVE IS WHEEL UP. Qt wants eighths
+// notches is in the unit handleMouseWheel takes: POSITIVE IS WHEEL UP. Qt wants eighths
 // of a degree, so 120 per notch, and the sign is passed straight through.
 void sendWheel(QtAppWindow& window, float notches, Qt::KeyboardModifiers mods = Qt::NoModifier,
                bool horizontalAxis = false) {
@@ -890,7 +890,7 @@ int main(int argc, char** argv) {
 
     // THE HORIZONTAL AXIS, AND THE DIVERGENCE THE KEY ROUTER RETIRED. This block used to
     // assert the opposite: the Qt window's own key switch clamped the Right arrow through
-    // src/scroll.cpp, and the check was written to fail on Windows' arithmetic on purpose.
+    // src/scroll.cpp's since-deleted step function, and the check was written to fail on Windows' arithmetic on purpose.
     // The router hands Right to handleKeyDown, whose VK_RIGHT does `targetScrollX += dpi(60)`
     // with no upper clamp and leaves src/paint_document.cpp's prepareDocumentViewport to clamp
     // the visible offset -- so both stacks now do the same thing, and the check says what that

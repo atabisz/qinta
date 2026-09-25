@@ -65,9 +65,8 @@ constexpr float kPlaceholderFontSize = 18.0f;
 constexpr float kPlaceholderBandHalfHeight = 40.0f;
 
 // Qt reports wheel rotation in eighths of a degree; 120 of them is one notch, the same
-// unit WHEEL_DELTA defines on Windows. Dividing here is what lets src/scroll.cpp take
-// notches and be shared with src/input.cpp, which divides by WHEEL_DELTA for the same
-// reason.
+// unit WHEEL_DELTA defines on Windows. Dividing here hands handleMouseWheel and
+// handleMouseHWheel the notches WinMain gives them after dividing by WHEEL_DELTA.
 constexpr float kAngleDeltaPerNotch = 120.0f;
 
 // The four-way mapping include/win32_api.h has named since the seam was written. SplitH
@@ -292,7 +291,7 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
     //
     // THE 12-KEY SWITCH THAT STOOD HERE IS GONE RATHER THAN KEPT AS A FALLBACK. Every one of
     // its keys maps to a code handleKeyDown's viewer branch already handles, with the same
-    // numbers (src/scroll.h names them), and handleKeyDown returns "consume the character",
+    // numbers, and handleKeyDown returns "consume the character",
     // not "handled" -- so there is no signal a fallback could run on, and running it
     // unconditionally would scroll twice per keystroke.
     const unsigned vk = tinta::vkFromQtKey(event->key());

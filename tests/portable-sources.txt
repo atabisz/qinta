@@ -1010,35 +1010,21 @@ math_render.cpp
 # file has never been a record of that; README.md's bases B and C are separate rows for
 # exactly this reason.
 
-# --- The scroll policy, compiled AND RUN off Windows ---------------------------
+# --- The scroll clamp, compiled AND RUN off Windows ----------------------------
 #
-# scroll.cpp. The wheel, arrow-key, page, Home and End arithmetic for the document
-# view, and the clamp all five share. Compiled, linked and RUN off Windows by
-# qt_entry_tests, and compiled with NO Qt at all by portable_compile_only.
+# scroll.cpp. One function, clampDocumentScroll, which QtAppWindow::resizeEvent calls to
+# bound the scroll offset against a new window height before the next paint. Compiled,
+# linked and RUN off Windows by qt_entry_tests, and compiled with NO Qt at all by
+# portable_compile_only, which is the reading with teeth: a QWheelEvent drifting in here
+# would compile fine in both Qt targets.
 #
-# THE SECOND READING IS THE ONE WITH TEETH, and the reason differs from
-# paint_document.cpp's. This file exists so that src/input.cpp can call it instead of
-# keeping its own copy of these numbers, and input.cpp will never link Qt.
-#
-# CORRECTED 2026-09-22: src/input.cpp was described here as "344 native mentions deep and
-# not portable". BOTH HALVES FALSE, and the second is self-contradicting -- input.cpp is
-# an entry in THIS FILE, which is the document that asserts a file compiles off Windows,
-# and it compiles at errors 0, fatal 0. The 344 was a SOURCE-mention census; g++ found 15
-# lines, and 16 of the 17 sites the source census saw and the compiler did not were
-# COMMENTS. Deliberately no replacement figure: the reason this file exists does not
-# depend on how deep input.cpp is, only on input.cpp never linking Qt, which is still
-# true. Found by scripts/check-portable-claims.sh, which is the fourteenth comment in the
-# tree to name the wrong blocker and the second one a sweep that called itself complete
-# walked straight past.
-# A QWheelEvent or a Qt::KeyboardModifier
-# drifting in here would compile fine in both Qt targets and quietly make the shared
-# policy unshareable, which is exactly the failure the Qt-free compile catches and the
-# Qt-linked test cannot.
-#
-# WHAT IT DOES NOT CLAIM: that the Windows build uses it. src/input.cpp still holds the
-# same numbers at eleven sites and is untouched by this slice, so the two copies exist
-# and this file is the one with a test on it. Routing input.cpp here is the deletion
-# that makes the claim whole, and it is not done.
+# THIS BLOCK USED TO DESCRIBE A SECOND COPY OF src/input.cpp's SCROLL NUMBERS, and that
+# copy is DELETED as of 2026-09-25. The file held the wheel, arrow-key, page, Home and End
+# arithmetic so the Qt window could scroll before input.cpp was routable, and said in as
+# many words that routing input.cpp here was "the deletion that makes the claim whole, and
+# it is not done". It resolved the other way: the key and mouse routers hand Qt's input to
+# handleKeyDown and handleMouseWheel, the seven policy functions lost their last caller,
+# and deleting them left the numbers in one place -- input.cpp -- on both stacks.
 scroll.cpp
 
 # --- The scrollbars, cut out of the least portable file in the tree ------------
@@ -1048,10 +1034,9 @@ scroll.cpp
 # latch from the same function. Compiled, linked and RUN off Windows by qt_entry_tests,
 # and compiled with NO Qt by portable_compile_only.
 #
-# THIS ONE IS A DELETION, WHICH THE TWO ENTRIES ABOVE ARE NOT. paint_document.cpp and
-# scroll.cpp both stand BESIDE a Windows copy -- scroll.cpp says so in as many words, and
-# src/input.cpp still holds its eleven duplicate sites. This file has no second copy:
-# main_d2d.cpp calls it. So "both stacks draw the same scrollbar" is a claim about the
+# THIS ONE IS A DELETION, WHICH paint_document.cpp ABOVE IS NOT: that file stands BESIDE a
+# Windows copy. (scroll.cpp did too, until its copy of input.cpp's numbers was deleted on
+# 2026-09-25 -- see its block.) This file has no second copy: main_d2d.cpp calls it. So "both stacks draw the same scrollbar" is a claim about the
 # PROGRAM here and not just about a file, which is the shape the other two are aiming for.
 #
 # WHY IT IS NOT A QScrollBar, since that is what the slice was scoped as: tinta's scrollbar

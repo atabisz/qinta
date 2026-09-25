@@ -336,8 +336,8 @@ bool loadDocumentFromPath(App& app, const std::string& path) {
     app.contentHeight = 0.0f;
     app.contentWidth = 0.0f;
 
-    // A new document starts at the top. Both members, because the pair is what the
-    // scroll policy reads and writes -- see include/scroll.h.
+    // A new document starts at the top. Both members, because src/input.cpp's scroll
+    // sites and the clamp in include/scroll.h read and write the pair.
     app.scrollY = 0.0f;
     app.scrollX = 0.0f;
     app.targetScrollY = 0.0f;

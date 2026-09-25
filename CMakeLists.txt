@@ -878,10 +878,9 @@ set(QINTA_APP_SOURCES
     # a new consumer drags onto a DIFFERENT link line, and the only reliable instrument is
     # the link itself.
     src/keymap.cpp
-    # The scroll policy, and the file dialog Ctrl+O opens. src/scroll.cpp is portable and
-    # links off Windows; it holds the numbers src/input.cpp holds, in the one place both
-    # stacks can reach, so the Qt window carries the translation from a QWheelEvent and
-    # nothing else.
+    # The scroll clamp, and the file dialog Ctrl+O opens. src/scroll.cpp is portable and
+    # holds one function, the clamp resizeEvent calls; the scroll numbers themselves are
+    # src/input.cpp's, which both stacks route to (include/scroll.h has the history).
     #
     # src/file_dialog_qt.cpp is named DIRECTLY rather than through
     # ${PLATFORM_FILE_DIALOG_SOURCE}, and that is the port's stated goal showing up in
@@ -1818,17 +1817,13 @@ if(BUILD_TESTING)
         # (one extra compile) and it is the only instrument that would catch a Qt
         # include drifting into a file whose whole point is that both backends run it.
         src/paint_document.cpp
-        # The scroll policy, here for the same reason and with a sharper edge on it. The
-        # file exists so that src/input.cpp can call it, and input.cpp COMPILES off
-        # Windows as of 2026-09-21 -- this comment read "once input.cpp ports" until then,
-        # a future tense that the zen-mode seam made false. It is compile-only: it is in
-        # tests/portable-sources.txt and no Qt target links it, because nothing on the Qt
-        # side routes keyboard or mouse input yet. And input.cpp will still never link Qt
-        # even once something does -- its zen-mode call goes through zen_mode_win32.h
-        # behind `#ifdef _WIN32`, so a QWheelEvent or a Qt::KeyboardModifier
-        # drifting into scroll.cpp would quietly make the shared policy unshareable.
-        # THIS TARGET IS THE ONLY THING THAT WOULD CATCH THAT: qt_entry_tests links Qt,
-        # so it cannot tell the difference.
+        # The scroll clamp, here for the same reason. It is one function now: the policy
+        # copy of src/input.cpp's numbers that this note used to defend was deleted on
+        # 2026-09-25, once the key and mouse routers made input.cpp the code both stacks
+        # run (this note still said "nothing on the Qt side routes keyboard or mouse input
+        # yet" two slices after that stopped being true). A Qt type drifting into
+        # scroll.cpp would compile in both Qt targets, so THIS TARGET IS THE ONLY THING
+        # THAT WOULD CATCH IT: qt_entry_tests links Qt and cannot tell the difference.
         src/scroll.cpp
         # The scrollbars, and this one has a Windows-flavoured edge rather than a Qt one.
         # The 95 lines came out of src/main_d2d.cpp, the least portable file in the tree,

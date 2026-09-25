@@ -3442,10 +3442,12 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 // include/zen_mode_win32.h and include/zen_mode_qt.h, one arm each, with the state they hand back and
 // forth in include/window_placement.h.
 //
-// THE `#ifdef` IS NOT A GAP, unlike the one around launchQuickNoteWindow below. Both arms are
-// written; what is missing is a Qt caller, because src/main_qt.cpp routes no keyboard input yet, and
-// `App` holds an `HWND` rather than a `QWidget*`. So this site selects the only arm it can name and
-// the other arm waits for a Qt-side key router -- the same successor slice requestQuit names.
+// THE `#if` IS NOT A GAP, unlike the one around launchQuickNoteWindow below. Both arms are written
+// and both are reached: `App` holds an `HWND` rather than a `QWidget*`, so the Qt arm cannot be named
+// from here, and include/window_sink.h is how the Qt window hands it in -- the same route requestQuit
+// takes. Entering through a sink that is not installed returns an invalid restore, which the
+// check below already reads as "entering failed", so a Qt build with no window stays out of zen mode
+// rather than drawing a reading column for a window that never went fullscreen.
 static void toggleZenMode(App& app, HWND hwnd) {
     app.zenMode = !app.zenMode;
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
@@ -3460,6 +3462,12 @@ static void toggleZenMode(App& app, HWND hwnd) {
     }
 #else
     (void)hwnd;
+    if (app.zenMode) {
+        app.zenRestore = tinta::deliverZenEnter();
+        if (!app.zenRestore.valid) app.zenMode = false;
+    } else {
+        tinta::deliverZenLeave(app.zenRestore);
+    }
 #endif
     app.layoutDirty = true;
     requestRepaint(hwnd);

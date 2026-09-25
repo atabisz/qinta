@@ -864,8 +864,9 @@ set(QINTA_APP_SOURCES
     # it exists at all so tests/qt_entry_tests.cpp can call the same two steps main() calls
     # instead of a copy of them.
     src/qt_launch.cpp
-    # settings.cpp for loadSettings() alone. Four fields are read off the result; the other
-    # twenty-six reach Windows-only consumers and are deliberately not applied, which
+    # settings.cpp for loadSettings(). Six fields are read off the result -- four for the
+    # placement, two for the keymap; the other twenty-four reach Windows-only consumers and
+    # are deliberately not applied, which
     # src/main_qt.cpp's header comment states at the site rather than leaving to inference.
     src/settings.cpp
     # And keymap.cpp, which the linker demanded on the NEXT attempt: loadSettings() restores
@@ -910,9 +911,46 @@ set(QINTA_APP_SOURCES
     src/text_utils.cpp
     src/text_utils_app.cpp
     src/text_formats_app.cpp
+    # THE KEY ROUTER'S CLOSURE. src/qt_window.cpp's keyPressEvent calls handleKeyDown and
+    # handleCharInput, so input.cpp has a caller on this stack and everything it reaches
+    # comes with it: the 18 the 2026-09-24 Windows link measured, the three portable files
+    # the Linux fixpoint already had as base (context_menu, i18n, selection) plus
+    # i18n_app, and three OS seams through their variables -- see the IF YOU DO ADD A SEAM
+    # ARM rule below for why never as a filename.
+    src/qt_key_map.cpp
+    src/input.cpp
+    src/editor.cpp
+    src/drafts.cpp
+    src/editrail.cpp
+    src/startpage.cpp
+    src/tabs.cpp
+    src/tableedit.cpp
+    src/annotations.cpp
+    src/overlays.cpp
+    src/pandoc.cpp
+    src/signals.cpp
+    src/utils.cpp
+    src/export_docx.cpp
+    src/export_html.cpp
+    src/print_qt.cpp
+    src/settings_app.cpp
+    src/theme_apply_app.cpp
+    src/theme_qt.cpp
+    src/context_menu.cpp
+    src/i18n.cpp
+    src/i18n_app.cpp
+    src/selection.cpp
+    ${PLATFORM_CLIPBOARD_SOURCE}
+    ${PLATFORM_KEYBOARD_SOURCE}
+    ${PLATFORM_PROCESS_SOURCE}
 )
 
-# WHY THIS LIST IS 47 OBJECTS AND NOT THE MANIFEST'S 68, MEASURED 2026-09-22.
+# WHY THIS LIST WAS 47 OBJECTS AND NOT THE MANIFEST'S 68, MEASURED 2026-09-22.
+#
+# SUPERSEDED AGAIN 2026-09-25, BY THE KEY ROUTER: the block headed THE KEY ROUTER'S CLOSURE
+# above is the 21 plus what they reach, added with their caller -- which is the condition the
+# "nothing calls them" paragraph below set, now met. Everything from here down is the record
+# of why they waited.
 #
 # COMPILES OFF WINDOWS AND LINKS INTO qinta ARE TWO DIFFERENT PROPERTIES, and
 # tests/portable-sources.txt only ever claimed the first. Reading it as the second
@@ -982,7 +1020,8 @@ set(QINTA_APP_SOURCES
 # WHY THE 7 THAT WOULD CLOSE ARE NOT ADDED (all 21 since 2026-09-24): nothing calls them. qinta links clean
 # without them, so each is an object with no caller and no test, and this tree's
 # own rule is not to add code serving a caller that does not exist. When the
-# router lands they go in with something that exercises them.
+# router lands they go in with something that exercises them. -- It landed 2026-09-25:
+# they are in, and tests/qt_entry_tests.cpp drives keys through them.
 #
 # IF YOU DO ADD A SEAM ARM HERE, add it as ${PLATFORM_*_SOURCE} and never as a
 # _qt.cpp filename: each has a win32 counterpart, so a filename entry links both
@@ -1898,7 +1937,8 @@ if(BUILD_TESTING)
         # errors 0, fatal 0. They are out of the app target for a link reason, not a compile
         # one: both are blocked through src/tabs.cpp and src/print.cpp. (SUPERSEDED
         # 2026-09-24: both link now in the fixpoint; nothing calls them, which is the rule
-        # that keeps them out of the app target.)
+        # that keeps them out of the app target. SUPERSEDED AGAIN 2026-09-25: the key router
+        # is their caller and both are in QINTA_APP_SOURCES.)
         #
         # CORRECTED 2026-09-17: this comment said src/editor.cpp "carries no Windows include
         # at all". FALSE, and measured false the next pass -- it is `#include <imm.h>` at
@@ -3024,11 +3064,6 @@ if(BUILD_TESTING)
                 # and compiling it into the app would ship a second monitor enumeration.
                 tests/win32_monitor_dump.cpp
                 ${QINTA_APP_SOURCES}
-                # The theme hooks (include/theme_apply.h), named here and NOT in
-                # ${QINTA_APP_SOURCES}: qinta links clean without them, and nothing in it
-                # calls applyTheme until the key router lands. This test is the caller.
-                src/theme_apply_app.cpp
-                src/theme_qt.cpp
             )
             target_include_directories(qt_entry_tests PRIVATE
                 include ${md4c_SOURCE_DIR}/src)
@@ -3038,8 +3073,11 @@ if(BUILD_TESTING)
             # same measured reason.
             target_link_libraries(qt_entry_tests PRIVATE
                 md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
-            # Same stack as qinta, so the same guard answer -- see TINTA_QT_UI at qinta.
-            target_compile_definitions(qt_entry_tests PRIVATE TINTA_QT_UI)
+            # Same stack as qinta, so the same guard answer -- see TINTA_QT_UI at qinta. The
+            # version too, because startpage.cpp and overlays.cpp arrive with the key router's
+            # closure and both print it; qinta has carried the same line since it had a window.
+            target_compile_definitions(qt_entry_tests PRIVATE TINTA_QT_UI
+                ${TINTA_VERSION_DEFINITIONS})
             if(WIN32)
                 target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
                 target_link_libraries(qt_entry_tests PRIVATE shell32)

@@ -53,10 +53,11 @@ std::vector<MonitorArea> monitorsFromQt();
 
 // Settings' four geometry fields plus the three placement options, and nothing else.
 //
-// The narrowness is the point and it is not laziness: Settings has thirty fields and the
-// other twenty-six reach consumers that are still Windows-only, so copying them would set
-// state nothing on this arm reads. These four have a portable consumer, which is why they are
-// the four.
+// The narrowness is the point and it is not laziness: Settings has thirty fields and a
+// placement reads four of them. main() also applies the two keymap fields, which the key
+// router consumes -- that is applyKeymap's job, not this function's. The other twenty-four
+// reach consumers that are still Windows-only, so copying them would set state nothing on
+// this arm reads.
 //
 // `savedX`/`savedY` may be kWindowPositionUseDefault and that value is passed through
 // unchanged -- it means "nothing has ever saved a position", and choosePlacement returns it

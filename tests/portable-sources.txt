@@ -185,6 +185,13 @@ pdf_export_qt.cpp
 
 # --- Compiled off Windows, but NOT linked or run ------------------------------
 #
+# SUPERSEDED 2026-09-25 FOR MOST OF WHAT FOLLOWS, BY THE KEY ROUTER. Every entry below that
+# is also in CMakeLists.txt's THE KEY ROUTER'S CLOSURE block is now LINKED into qinta and
+# LINKED AND RUN by qt_entry_tests, which drives keys through src/input.cpp into them; the
+# "not linked" and "nothing calls it" notes below are the record of why they waited, not the
+# current state. Read the membership off that CMake block, not off this heading. The section
+# is left in place because moving the entries would re-point every note that cites it.
+#
 # TEN ENTRIES, and this count has been WRONG here before. It read "SEVEN" until
 # 2026-09-20 while the section held nine, so it was a figure nothing checked, quoted for
 # three slices, and the tree has a name for that shape: a total whose decomposition is
@@ -1131,6 +1138,10 @@ scrollbar.cpp
 #                                            of portable, which is why it is not in `clean`)
 qt_init.cpp
 qt_window.cpp
+# qt_key_map.cpp -- the key router's Qt::Key -> virtual-key table, LINKED AND RUN by
+# qt_entry_tests, which asserts it one key at a time. Added because the probe reported it
+# compiled and unlisted, which is the direction this file exists to catch.
+qt_key_map.cpp
 main_qt.cpp
 
 # --- The launch CONVENTION: three files neither arm owns -----------------------
@@ -1353,4 +1364,5 @@ settings_app.cpp
 # "no peek" null. print.cpp itself is unchanged and stays Windows-only. A stated gap, not
 # a port: nothing off Windows can print or export PDF through this file. Compile-only:
 # its callers are input.cpp, editor.cpp and export_html.cpp, none linked into qinta yet.
+# -- SUPERSEDED 2026-09-25: all three are linked now, with the key router, and so is this.
 print_qt.cpp

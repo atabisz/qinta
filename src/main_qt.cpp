@@ -13,10 +13,11 @@
 //   * A NARROW settings load, and the narrowness is the point. What stood here said "No
 //     settings load", because the ~30 field assignments following loadSettings() in WinMain
 //     reach members whose consumers are still Windows-only -- which is still true of the
-//     other twenty-six. FOUR of them have a consumer now: windowX/Y/Width/Height feed
-//     tinta::choosePlacement, which is portable and tested. So the load happens and exactly
-//     four fields are read from it. Loading all thirty would set state nothing reads, which
-//     is the thing the old bullet was right about.
+//     other twenty-four. SIX of them have a consumer now: windowX/Y/Width/Height feed
+//     tinta::choosePlacement, which is portable and tested, and keyProfile/keyOverrides feed
+//     the keymap the key router's handleKeyDown translates through. So the load happens and
+//     exactly those six are read from it. Loading all thirty would set state nothing reads,
+//     which is the thing the old bullet was right about.
 //   * No loadCustomThemes(). It is portable and it would work, and it would change
 //     nothing: the theme index this file sets is a built-in (kLightModeThemeIndex), so the
 //     call would populate a registry nothing here indexes into.
@@ -157,15 +158,15 @@ int main(int argc, char** argv) {
     // errors as of 2026-09-21 -- it compiles, and it is in tests/portable-sources.txt. The
     // reason these four flags still refuse is no longer that the file will not build off
     // Windows; it is that main_qt.cpp routes no keyboard or mouse events, so nothing calls
-    // into it. READ THAT SENTENCE NARROWLY -- it is true of THIS FILE and it is NOT true of
-    // the Qt build, which is the trap it sets. src/qt_window.cpp::keyPressEvent routes TWELVE
-    // keys, hand-written on Qt::Key_* and calling tinta::scroll* directly, so the Qt build has
-    // a SECOND key router that never reaches src/input.cpp's several hundred behaviours. The
-    // 2026-09-21 slice that measured what it would take to collapse the two came back blocked
-    // on src/print.cpp (CMakeLists.txt, the src/input.cpp census row, has the symbols and the
-    // fatal include). So the four refusals above are not "no keyboard", they are "not THAT
-    // keyboard". Deliberately no replacement count: a line count here would rot the same way,
-    // and the census that owns these numbers is scripts/check-readme-figures.sh.
+    // into it. -- SUPERSEDED 2026-09-25 FOR THE KEYBOARD: src/qt_window.cpp::keyPressEvent is
+    // now the key router, handing every key to src/input.cpp's handleKeyDown and
+    // handleCharInput, and the twelve hand-written Qt::Key_* cases it replaced are gone. THE
+    // FOUR REFUSALS BELOW WERE NOT RE-EXAMINED BY THAT SLICE, and their messages still name
+    // src/input.cpp, which now links into this binary -- so "(src/input.cpp)" is no longer a
+    // measured blocker for any of them. What each one waits on now is the flag slice's first
+    // question; until it is asked, refusing stays safer than accepting a flag unverified.
+    // Deliberately no replacement count: a line count here would rot the same way, and the
+    // census that owns these numbers is scripts/check-readme-figures.sh.
     if (options.forceTabStrip) refuse("--tabbed", "there is no tab strip yet (src/input.cpp)");
     if (options.quickNote) refuse("--new", "quick notes need the window manager (src/input.cpp)");
     if (options.startInEditMode) refuse("--edit", "the editor needs input (src/input.cpp)");
@@ -226,8 +227,8 @@ int main(int argc, char** argv) {
 
     // WHERE THE WINDOW GOES, decided by the same function WinMain calls.
     //
-    // Four fields out of Settings and nothing else -- see the header comment on why the other
-    // twenty-six are deliberately not applied. The saved size is the request's size, so a
+    // Four fields out of Settings, plus the two keymap fields above and nothing else -- see
+    // the header comment on why the other twenty-four are deliberately not applied. The saved size is the request's size, so a
     // window restores at the dimensions it was closed at, and the 1000x700 that used to be
     // hardcoded here is now only the fallback Settings itself supplies (1024x768).
     // Both halves come from src/qt_launch.cpp rather than living here, because nine field
@@ -236,6 +237,16 @@ int main(int argc, char** argv) {
     // tests/qt_entry_tests.cpp asserts on the request AND on the geometry the window ends up
     // with, which are two separate claims.
     const Settings saved = loadSettings();
+
+    // THE KEYMAP, THE FIFTH FIELD WITH A CONSUMER: the key router hands every keystroke to
+    // handleKeyDown, which passes it through translateActionKey before its switch. App::keymap
+    // is zero-initialised, and against an unbound map every default action key -- J, K, T, Q,
+    // F11 -- translates to 0 and falls through the switch. Without these two lines the router
+    // would compile, pass every sendEvent test that forgot the same call, and F11 would do
+    // nothing in the running application. The same two lines as WinMain, in the same order.
+    app.keyOverrides = saved.keyOverrides;
+    applyKeymap(app, saved);
+
     const tinta::WindowRect placement =
         choosePlacement(tinta::placementRequestFrom(options, saved), tinta::monitorsFromQt());
 

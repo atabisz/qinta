@@ -123,8 +123,11 @@
 // TINTA_D2D_BACKEND from `tinta`, which puts the CreateStrokeStyle arm in the build and
 // makes the call dereference a null app.d2dFactory. This target is the only one that
 // compiles that function with its portable arm live.
+#include "input.h"
+#include "keymap.h"
 #include "paint_document.h"
 #include "qt_init.h"
+#include "qt_key_map.h"
 // Run 19's whole point: the four functions src/main_qt.cpp calls to place and colour its
 // window, reached from here so the test drives the SAME code rather than a copy of it. This
 // header also pulls launch_options.h, settings_data.h and window_placement.h, which is why
@@ -132,6 +135,7 @@
 #include "qt_launch.h"
 #include "qt_window.h"
 #include "repaint_sink.h"
+#include "settings.h"
 #include "text_api.h"
 // The chrome formats' own header, and the reason this file needs it now is the port: the
 // bodies run 11 asserts on moved out of src/qt_init.cpp into src/text_formats_app.cpp, so
@@ -144,6 +148,7 @@
 // into this target only (CMakeLists.txt), and it compiles to two stubs off Windows so run 20's call
 // sites need no guard of their own beyond the one assertion that IS platform-specific.
 #include "win32_monitor_dump.h"
+#include "window_sink.h"
 
 namespace {
 
@@ -408,6 +413,21 @@ int main(int argc, char** argv) {
     App app;
     check(app.renderTarget == nullptr, "a fresh App has no render target");
     check(app.textFactory == nullptr, "a fresh App has no text factory");
+
+    // THE KEYMAP, WHICH src/main_qt.cpp APPLIES AND WHICH THIS FILE HAS TO APPLY TOO. The key
+    // router sends every key through handleKeyDown, and handleKeyDown sends it through
+    // translateActionKey before its switch. Found by the J check in run 8 failing on the
+    // router's first run: App::keymap is zero-initialised, and an unbound map translates every
+    // default action key to 0 -- J, K, T, Q and F11 all fall through, while Down, which names
+    // no action, still works. K "passed" in the same run only because the scroll was already 0.
+    // So the control is asserted here, where the reason is one line away, and a default
+    // Settings is applied -- the "windows" profile, which is what a first launch gets.
+    check(translateActionKey(app.keymap, 'J', false) == 0,
+          "CONTROL: an unbound keymap translates J to 0, which is why the next line exists");
+    applyKeymap(app, Settings{});
+    check(translateActionKey(app.keymap, 'J', false) == 'J' &&
+              translateActionKey(app.keymap, VK_F11, false) == VK_F11,
+          "applyKeymap bound the default profile: J and F11 now reach handleKeyDown's switch");
 
     installQtBackends(app);
     check(app.textFactory != nullptr,
@@ -850,35 +870,39 @@ int main(int argc, char** argv) {
     sendKey(window, Qt::Key_Home);
     check(sameScroll(app.scrollY, 0.0f), "and Home comes back to the top");
 
-    // THE HORIZONTAL AXIS, AND THE ONE PLACE THIS PORT DELIBERATELY DOES NOT COPY WINDOWS.
-    // src/input.cpp's VK_RIGHT case does `targetScrollX += dpi(60)` with no upper clamp and leaves
-    // src/paint_document.cpp to clamp the visible offset, so on Windows targetScrollX grows
-    // past the end of the content and several Lefts do nothing afterwards. src/scroll.cpp
-    // clamps both axes at every site. The tall fixture wraps to the window, so the maximum
-    // here is ZERO and this assertion reads the divergence directly: it is satisfied by the
-    // clamped behaviour and fails on Windows' arithmetic.
+    // THE HORIZONTAL AXIS, AND THE DIVERGENCE THE KEY ROUTER RETIRED. This block used to
+    // assert the opposite: the Qt window's own key switch clamped the Right arrow through
+    // src/scroll.cpp, and the check was written to fail on Windows' arithmetic on purpose.
+    // The router hands Right to handleKeyDown, whose VK_RIGHT does `targetScrollX += dpi(60)`
+    // with no upper clamp and leaves src/paint_document.cpp's prepareDocumentViewport to clamp
+    // the visible offset -- so both stacks now do the same thing, and the check says what that
+    // is. Changing input.cpp to clamp would have kept the old assertion green, and it would
+    // have changed tinta, which this slice does not. The tall fixture wraps to the window, so
+    // the maximum is ZERO and the two halves separate cleanly: the arithmetic moves by 60, the
+    // paint brings it back.
     const float maxScrollX = std::max(0.0f, app.contentWidth - documentViewportWidth(app));
     sendKey(window, Qt::Key_Right);
     std::printf("content_width=%.1f viewport_width=%.1f max_scroll_x=%.2f scroll_x=%.2f\n",
                 app.contentWidth, documentViewportWidth(app), maxScrollX, app.scrollX);
-    check(sameScroll(app.scrollX, std::min(60.0f * scale, maxScrollX)),
-          "the Right arrow clamps the HORIZONTAL offset against the content width. THE ONE "
-          "DELIBERATE DIVERGENCE from src/input.cpp, which clamps this axis at zero only -- so "
-          "this check fails on the behaviour it was ported from, on purpose");
-    check(sameScroll(app.targetScrollX, app.scrollX),
-          "and targetScrollX is clamped too, which is the half Windows leaves growing");
+    check(sameScroll(app.targetScrollX, 60.0f * scale),
+          "the Right arrow takes handleKeyDown's arithmetic -- targetScrollX grows by 60 with no "
+          "upper clamp, which is src/input.cpp's VK_RIGHT and now this stack's too");
+    grabWindow(window);
+    check(sameScroll(app.scrollX, maxScrollX),
+          "and the PAINT clamps the visible offset against the content width, which is the half "
+          "of the Windows behaviour that keeps an over-long target from showing");
     sendKey(window, Qt::Key_Left);
     check(sameScroll(app.scrollX, 0.0f), "and Left clamps at zero");
 
-    // CONTROL: the two modifier branches. Ctrl+O is NOT sent from here and must not be:
-    // promptOpenDocument calls QFileDialog::exec, which blocks until a human clicks, so a
-    // test that sent it would hang the suite rather than fail it. What is testable is that
-    // the modifier branch is taken at all, and Ctrl+J is the discriminating key -- if the
-    // switch ran before the modifier check, Ctrl+J would scroll.
-    sendKey(window, Qt::Key_J, Qt::ControlModifier);
-    check(sameScroll(app.scrollY, 0.0f),
-          "CONTROL: Ctrl+J does not scroll, so the modifier branch is checked BEFORE the key "
-          "table and Ctrl+O's neighbours cannot move the document");
+    // THE Ctrl+J CONTROL THAT STOOD HERE IS GONE, because it can no longer be asked through
+    // sendEvent. handleKeyDown reads Ctrl from platform::isCtrlDown(), which on this stack is
+    // QGuiApplication::keyboardModifiers() -- the modifier state of the last INPUT EVENT Qt
+    // processed, and a synthesised event is not one. So a Ctrl+J sent from here reaches
+    // handleKeyDown with Ctrl reported up and scrolls, which would be a check of the harness,
+    // not of the window. In the running application a held Ctrl is reported, which is why
+    // the router is still right. Ctrl+O stays Qt-local in keyPressEvent for the same reason
+    // and is NOT sent from here: promptOpenDocument blocks in QFileDialog::exec until a human
+    // clicks, so sending it would hang the suite rather than fail it.
     sendWheel(window, -1.0f, Qt::ControlModifier);
     check(sameScroll(app.scrollY, 0.0f),
           "CONTROL: Ctrl+wheel does not scroll either. It is ZOOM on Windows "
@@ -2016,16 +2040,125 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    // ---- TINTA_QT_UI REACHED THE WINDOW-STACK GUARDS --------------------------------
+    // ---- THE KEY ROUTER: Qt KEY CODES TO VIRTUAL KEYS, ONE KEY AT A TIME ---------------
     //
-    // requestQuit() is the one arm in include/win32_api.h that returns a value saying which
-    // stack it was compiled for: true after PostQuitMessage, false where quitting is not yet
-    // wired. This target carries TINTA_QT_UI, so it must read false on BOTH hosts. On Windows
-    // that is the whole point -- without the macro _WIN32 alone would select the Win32 arm
-    // and this reads true (and posts a WM_QUIT this test never pumps). The Qt arm of quit is
-    // the key router's, and when it lands this check is replaced, not deleted.
-    check(!requestQuit(),
-          "TINTA_QT_UI: requestQuit() took the Qt-stack arm, not PostQuitMessage, on this host");
+    // One check per key rather than a loop over a table, because a table in the test would
+    // be a second copy of src/qt_key_map.cpp's and would agree with it by construction. F11
+    // is the case that matters: Qt::Key_F11 is 0x0100003A and VK_F11 is 0x7A, so a cast in
+    // place of the table passes every letter and fails here.
+    check(tinta::vkFromQtKey(Qt::Key_A) == 'A' && tinta::vkFromQtKey(Qt::Key_Z) == 'Z',
+          "vkFromQtKey: letters pass through -- the one range where the two numberings agree");
+    check(tinta::vkFromQtKey(Qt::Key_0) == '0' && tinta::vkFromQtKey(Qt::Key_9) == '9',
+          "vkFromQtKey: and so do digits");
+    check(static_cast<unsigned>(Qt::Key_F11) != VK_F11 && tinta::vkFromQtKey(Qt::Key_F11) == VK_F11,
+          "vkFromQtKey: F11 maps 0x0100003A to 0x7A, the case a cast would get wrong");
+    check(tinta::vkFromQtKey(Qt::Key_F1) == VK_F1 && tinta::vkFromQtKey(Qt::Key_F12) == VK_F12,
+          "vkFromQtKey: and both ends of the F1..F12 offset range land on their VK");
+    check(tinta::vkFromQtKey(Qt::Key_Escape) == VK_ESCAPE, "vkFromQtKey: Escape");
+    check(tinta::vkFromQtKey(Qt::Key_PageUp) == VK_PRIOR &&
+              tinta::vkFromQtKey(Qt::Key_PageDown) == VK_NEXT,
+          "vkFromQtKey: Page Up and Page Down are VK_PRIOR and VK_NEXT -- Windows' names");
+    check(tinta::vkFromQtKey(Qt::Key_Backtab) == VK_TAB,
+          "vkFromQtKey: Backtab, which is how Qt reports Shift+Tab, is VK_TAB as Windows reports it");
+    check(tinta::vkFromQtKey(Qt::Key_Enter) == VK_RETURN &&
+              tinta::vkFromQtKey(Qt::Key_Return) == VK_RETURN,
+          "vkFromQtKey: the keypad Enter and Return are both VK_RETURN");
+    check(tinta::vkFromQtKey(Qt::Key_Comma) == VK_OEM_COMMA &&
+              tinta::vkFromQtKey(Qt::Key_Slash) == VK_OEM_2,
+          "vkFromQtKey: the two OEM punctuation keys keymap.h names");
+    check(tinta::vkFromQtKey(Qt::Key_Question) == 0 && tinta::vkFromQtKey(Qt::Key_F13) == 0,
+          "CONTROL: a key no handler names maps to 0 -- '?' because shifted punctuation is "
+          "matched on its character, F13 because nothing binds it");
+
+    // ---- requestQuit AND ZEN MODE REACH THE WINDOW THROUGH ITS SINK -------------------
+    //
+    // What stood here asserted requestQuit() read FALSE on this target, which was the proof
+    // TINTA_QT_UI had selected the off-window arm. It is replaced, not deleted: the arm now
+    // delivers to include/window_sink.h, so the same proof is "true with a sink installed,
+    // false with none" -- and on Windows, without TINTA_QT_UI, it would read true from
+    // PostQuitMessage in BOTH halves, so the false half is the one that still pins the macro.
+    //
+    // A RECORDING SINK FOR THE DELIVERY, THE WINDOW'S OWN FOR THE REGISTRATION. The window's
+    // quit closure calls QCoreApplication::quit(), whose effect this suite cannot observe
+    // without an exec() it does not run; and its zen closures show the window fullscreen,
+    // which on the Windows platform would cover the desktop of whoever ran ctest. So the
+    // registration is read off the slot, the key path is driven into a recorder on both
+    // hosts, and the real fullscreen is measured below under offscreen only.
+    {
+        tinta::clearWindowSink();
+        check(!requestQuit(),
+              "TINTA_QT_UI: with no window sink, requestQuit() returns false -- the off-window "
+              "arm, not PostQuitMessage, which would have returned true");
+
+        QtAppWindow sinkProbe(app);
+        sinkProbe.resize(600, 400);
+        check(static_cast<bool>(tinta::windowSinkSlot().quit) &&
+                  static_cast<bool>(tinta::windowSinkSlot().zenEnter) &&
+                  static_cast<bool>(tinta::windowSinkSlot().zenLeave),
+              "constructing a QtAppWindow installs all three window-sink members");
+
+        int quits = 0, enters = 0, leaves = 0;
+        tinta::WindowSink recorder;
+        recorder.quit = [&quits]() { ++quits; };
+        recorder.zenEnter = [&enters]() {
+            ++enters;
+            tinta::ZenRestore restore;
+            restore.valid = true;
+            return restore;
+        };
+        recorder.zenLeave = [&leaves](const tinta::ZenRestore& restore) {
+            ++leaves;
+            return restore.valid;
+        };
+        tinta::setWindowSink(std::move(recorder));
+
+        check(requestQuit() && quits == 1,
+              "requestQuit() delivers to the installed sink and returns true");
+
+        const bool zenBefore = app.zenMode;
+        sendKey(sinkProbe, Qt::Key_F11);
+        std::printf("zen_after_f11=%d enters=%d leaves=%d\n", app.zenMode ? 1 : 0, enters, leaves);
+        check(!zenBefore && app.zenMode && enters == 1,
+              "F11 through the key router turns zen mode ON and asks the window sink to enter "
+              "-- vkFromQtKey, handleKeyDown, toggleZenMode, deliverZenEnter");
+        sendKey(sinkProbe, Qt::Key_F11);
+        check(!app.zenMode && leaves == 1,
+              "and F11 again turns it OFF through the sink's leave");
+
+        // THE MUTATION, run rather than argued: no sink, and the same key. toggleZenMode
+        // flips zenMode, gets an invalid ZenRestore back and flips it off again -- which is
+        // exactly the silent no-op the sink replaced, and the reason the check above can fail.
+        tinta::clearWindowSink();
+        sendKey(sinkProbe, Qt::Key_F11);
+        check(!app.zenMode,
+              "CONTROL: with the sink cleared, F11 leaves zen mode OFF -- an enter nobody can "
+              "deliver is read as a failed enter");
+        check(!requestQuit(), "CONTROL: and requestQuit() is false again with the sink cleared");
+    }
+    check(!static_cast<bool>(tinta::windowSinkSlot().quit),
+          "and a destroyed window leaves no sink behind -- every member captured it");
+
+    // THE REAL FULLSCREEN, offscreen only, for the reason the repaint block below gives:
+    // showFullScreen() on the Windows platform is a real frame over the real desktop.
+    if (QApplication::platformName() == QLatin1String("offscreen")) {
+        QtAppWindow zenProbe(app);
+        zenProbe.resize(600, 400);
+        sendKey(zenProbe, Qt::Key_F11);
+        QApplication::processEvents();
+        std::printf("zen_real: zenMode=%d fullscreen=%d\n", app.zenMode ? 1 : 0,
+                    zenProbe.isFullScreen() ? 1 : 0);
+        check(app.zenMode && zenProbe.isFullScreen(),
+              "F11 with the window's OWN sink sets zen mode AND puts the widget in full-screen "
+              "state -- the key reaches the window, not only App");
+        sendKey(zenProbe, Qt::Key_F11);
+        QApplication::processEvents();
+        check(!app.zenMode && !zenProbe.isFullScreen(),
+              "and F11 again clears both");
+    } else {
+        std::printf("zen_real: SKIPPED on platform %s -- showFullScreen would cover the desktop; "
+                    "the recording-sink half above ran here\n",
+                    QApplication::platformName().toUtf8().constData());
+    }
 
     // ---- ISC-3, SECOND ENDPOINT: DOES A REPAINT REQUEST ARRIVE AS A PAINT? ---------
     //

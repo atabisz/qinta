@@ -1,5 +1,6 @@
 #include "qt_window.h"
 
+#include <QCoreApplication>
 #include <QKeyEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
@@ -14,8 +15,10 @@
 #include "app.h"
 #include "file_dialog.h"
 #include "file_utils.h"
+#include "input.h"
 #include "paint_document.h"
 #include "qt_init.h"
+#include "qt_key_map.h"
 #include "render.h"
 #include "render_qt.h"
 #include "repaint_sink.h"
@@ -23,6 +26,8 @@
 #include "scrollbar.h"
 #include "text_api.h"
 #include "text_utils.h"
+#include "window_sink.h"
+#include "zen_mode_qt.h"
 
 namespace {
 
@@ -82,6 +87,22 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // and input.cpp has paths that do -- would paint twice per keystroke here and once
     // on Windows. The seam's whole claim is that the two arms are the same request.
     tinta::setRepaintSink([this]() { update(); });
+
+    // THE SAME FAILURE SHAPE A THIRD TIME, for the key router's two window requests. Without
+    // this, Escape with nothing open and Q both call requestQuit, which returns false and
+    // does nothing; F11 flips app_.zenMode, gets an invalid restore back, and flips it off
+    // again -- the key works in every sense a test of App could see and the window never
+    // leaves its frame. include/window_sink.h is the seam.
+    //
+    // QCoreApplication::quit() rather than close(): the Win32 arm is PostQuitMessage, which
+    // ends the message loop rather than destroying one window, and there is one window.
+    tinta::WindowSink sink;
+    sink.quit = []() { QCoreApplication::quit(); };
+    sink.zenEnter = [this]() { return tinta::zenModeEnter(*this); };
+    sink.zenLeave = [this](const tinta::ZenRestore& restore) {
+        return tinta::zenModeLeave(*this, restore);
+    };
+    tinta::setWindowSink(std::move(sink));
 }
 
 QtAppWindow::~QtAppWindow() {
@@ -89,6 +110,7 @@ QtAppWindow::~QtAppWindow() {
     // single-window note. A second QtAppWindow would have displaced this sink already,
     // and clearing here would then be removing somebody else's.
     tinta::clearRepaintSink();
+    tinta::clearWindowSink();
 }
 
 bool QtAppWindow::syncViewport() {
@@ -181,60 +203,51 @@ void QtAppWindow::wheelEvent(QWheelEvent* event) {
 }
 
 void QtAppWindow::keyPressEvent(QKeyEvent* event) {
-    // Ctrl+O first: the modifier check has to come before the plain-key switch or
-    // Ctrl+J would scroll.
-    if (event->modifiers() & Qt::ControlModifier) {
-        if (event->key() == Qt::Key_O) {
-            promptOpenDocument();
-            event->accept();
-            return;
-        }
-        QWidget::keyPressEvent(event);
+    // Ctrl+O first and HERE, not in handleKeyDown, for two reasons. handleKeyDown's Ctrl+O
+    // reads platform::isCtrlDown(), which on this stack is QGuiApplication::keyboardModifiers()
+    // (src/keyboard_qt.cpp) -- the state of the last input event Qt itself processed -- so a
+    // synthesised key event, which every test in tests/qt_entry_tests.cpp sends, would reach
+    // it with Ctrl reported up. And this window's
+    // own openDocument retitles the window, which the shared path does not do yet.
+    if ((event->modifiers() & Qt::ControlModifier) && event->key() == Qt::Key_O) {
+        promptOpenDocument();
+        event->accept();
         return;
     }
 
+    // Before the handlers, not after: every scroll maximum they compute comes from
+    // app_.height, and the first key can arrive before the first paint.
     syncViewport();
 
-    bool handled = true;
-    switch (event->key()) {
-        // K and J are vi bindings, and they are input.cpp's, not an addition here.
-        case Qt::Key_Up:
-        case Qt::Key_K:
-            tinta::scrollDocumentByStep(app_, -1);
-            break;
-        case Qt::Key_Down:
-        case Qt::Key_J:
-            tinta::scrollDocumentByStep(app_, 1);
-            break;
-        case Qt::Key_Left:
-            tinta::scrollDocumentHorizontallyByStep(app_, -1);
-            break;
-        case Qt::Key_Right:
-            tinta::scrollDocumentHorizontallyByStep(app_, 1);
-            break;
-        case Qt::Key_PageUp:
-            tinta::scrollDocumentByPage(app_, -1);
-            break;
-        case Qt::Key_PageDown:
-        case Qt::Key_Space:
-            tinta::scrollDocumentByPage(app_, 1);
-            break;
-        case Qt::Key_Home:
-            tinta::scrollDocumentToTop(app_);
-            break;
-        case Qt::Key_End:
-            tinta::scrollDocumentToBottom(app_);
-            break;
-        default:
-            handled = false;
-            break;
-    }
-
-    if (!handled) {
-        // Escape, Tab and everything else this stack does not implement yet has to
-        // reach the base class, or the window swallows keys it does nothing with.
+    // THE ROUTER. The same two calls, in the same order, that the Win32 message loop makes
+    // for one keystroke: WM_KEYDOWN reaches handleKeyDown, and TranslateMessage's WM_CHAR
+    // reaches handleCharInput UNLESS handleKeyDown returned true (include/input.h, #195).
+    // The HWND is nullptr, which is what it is on this stack everywhere (App::hwnd is only
+    // ever assigned by src/main_d2d.cpp), and every seam it reaches takes its off-stack
+    // arm for that reason -- see TINTA_QT_UI in CMakeLists.txt.
+    //
+    // THE 12-KEY SWITCH THAT STOOD HERE IS GONE RATHER THAN KEPT AS A FALLBACK. Every one of
+    // its keys maps to a code handleKeyDown's viewer branch already handles, with the same
+    // numbers (src/scroll.h names them), and handleKeyDown returns "consume the character",
+    // not "handled" -- so there is no signal a fallback could run on, and running it
+    // unconditionally would scroll twice per keystroke.
+    const unsigned vk = tinta::vkFromQtKey(event->key());
+    const QString text = event->text();
+    if (vk == 0 && text.isEmpty()) {
+        // Nothing either handler could match. The base class, so a parent sees it.
         QWidget::keyPressEvent(event);
         return;
+    }
+
+    bool consumed = false;
+    if (vk != 0) consumed = handleKeyDown(app_, nullptr, vk);
+    if (!consumed) {
+        // One call per UTF-16 unit, which is what WM_CHAR delivers: a character outside
+        // the BMP arrives as two messages. So handleCharInput sees here exactly the units
+        // it sees on Windows -- whatever it does with a surrogate, it does on both stacks.
+        for (const QChar unit : text) {
+            handleCharInput(app_, nullptr, static_cast<wchar_t>(unit.unicode()));
+        }
     }
 
     event->accept();

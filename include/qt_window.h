@@ -64,11 +64,13 @@
 // was written, which is the same mistake one level down: shrinking a window makes MORE of
 // the document reachable and can never need a clamp.
 //
-// WHAT INPUT THIS WINDOW HANDLES, and the ceiling on it: scrolling and open. That is
-// two of the several hundred behaviours src/input.cpp implements -- no selection, no
-// search, no tabs, no editor, no zoom. The scroll POLICY is not here either; it is
-// src/scroll.cpp, which links off Windows, so this class holds the Qt-to-policy
-// translation and nothing a non-Qt test cannot reach. The one thing that MUST live here
+// WHAT INPUT THIS WINDOW HANDLES, as of the key router: every KEY, through src/input.cpp.
+// keyPressEvent translates the Qt key code (src/qt_key_map.cpp) and makes the same two
+// calls the Win32 message loop makes, handleKeyDown and then handleCharInput, so the
+// keyboard behaviours are the ones tinta has rather than a subset copied here. Ctrl+O is
+// the one key kept local -- see keyPressEvent for why. The MOUSE is still wheel-only: the
+// wheel goes to src/scroll.cpp's policy, and clicks, selection and drags are the next
+// slice's. The one thing that MUST live here
 // is setFocusPolicy: a QWidget defaults to Qt::NoFocus and therefore never receives a
 // key event at all, which no pixel test and no probe in this tree could have caught --
 // keyPressEvent is reachable from a test with sendEvent whether the widget can be
@@ -83,9 +85,13 @@
 // this window's own repaints of its own state, and routing them through a seam whose
 // argument is a window handle this class does not have would buy nothing.
 //
-// SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: the sink slot holds
-// one function, so a second QtAppWindow would displace the first's and the first window
-// would stop repainting. src/main_qt.cpp refuses --new and --tabbed today, which is what
+// AND WHERE requestQuit AND ZEN MODE ARRIVE, the same way: the constructor also installs
+// the window sink (include/window_sink.h), so Escape, Q and F11 reach this widget
+// instead of reading a null HWND and doing nothing.
+//
+// SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: each sink slot holds
+// one window's closures, so a second QtAppWindow would displace the first's and the first
+// window would stop repainting and stop answering F11. src/main_qt.cpp refuses --new and --tabbed today, which is what
 // makes that safe rather than lucky. The slice that makes a second window possible owns
 // turning the slot into a per-window dispatch, and this paragraph is the note it needs.
 
@@ -105,11 +111,11 @@ public:
     // test's, and it is the same contract QtRenderTarget has with its paint device.
     explicit QtAppWindow(App& app, QWidget* parent = nullptr);
 
-    // DECLARED ONLY TO UNREGISTER THE REPAINT SINK, which is the one thing this class
-    // owns that outlives it. The constructor installs a sink capturing `this`, so a
-    // repaint request arriving after destruction would call update() on freed memory --
-    // and the 277 call sites that make such a request are in files that know nothing
-    // about this window's lifetime. A compiler-generated destructor would have left
+    // DECLARED ONLY TO UNREGISTER THE TWO SINKS, the only things this class owns that
+    // outlive it. The constructor installs closures capturing `this`, so a repaint or zen
+    // request arriving after destruction would call into freed memory -- and the call
+    // sites that make such requests are in files that know nothing about this window's
+    // lifetime. A compiler-generated destructor would have left
     // that dangling, silently, in exactly the build where nothing crashes on the
     // happy path.
     ~QtAppWindow() override;

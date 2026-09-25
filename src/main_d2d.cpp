@@ -1221,53 +1221,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
 
         case WM_TIMER:
-            if (wParam == TIMER_LINK_PEEK && app) handleLinkPeekTimer(*app, hwnd);
-            if (wParam == TIMER_FILE_WATCH && app) handleFileWatchTimer(*app, hwnd);
-            if (wParam == 2 && app) editorReparse(*app); // TIMER_EDITOR_REPARSE
-            if (wParam == TIMER_CURSOR_BLINK && app) {
-                app->cursorBlinkOn = !app->cursorBlinkOn;
-                requestRepaint(hwnd);
-            }
-            if (wParam == TIMER_NOTIFICATION && app) {
-                // Only draining chips need repaints; prompts are static
-                // until answered
-                bool fading = signalsNeedTicks(*app);
-                if (fading) {
-                    requestRepaint(hwnd);
-                } else {
-                    disarmTimer(hwnd, TIMER_NOTIFICATION);
-                }
-            }
-            if (wParam == TIMER_FOLDER_SEARCH && app) {
-                disarmTimer(hwnd, TIMER_FOLDER_SEARCH);
-                startFolderSearchScan(*app);
-            }
+            // The dispatch is input.cpp's handleTimer, shared with the Qt window's
+            // timer sink. The update check stays here: its worker is this file's.
             if (wParam == TIMER_UPDATE_CHECK && app) {
                 disarmTimer(hwnd, TIMER_UPDATE_CHECK);
                 std::thread(updateCheckWorker, hwnd).detach();
             }
-            if (wParam == TIMER_DRAFT_SAVE && app) {
-                draftsSweep(*app);
-            }
-            if (wParam == TIMER_SELECT_SCROLL && app) {
-                handleSelectScrollTimer(*app, hwnd);
-            }
-            if (wParam == TIMER_IMAGE_REFLOW && app) {
-                // One relayout for however many images arrived since armed
-                disarmTimer(hwnd, TIMER_IMAGE_REFLOW);
-                app->layoutDirty = true;
-                requestRepaint(hwnd);
-            }
-            if (wParam == TIMER_ZOOM_APPLY && app) {
-                if (app->zoomFactor != app->appliedZoomFactor) {
-                    // More zoom ticks arrived since the last apply
-                    updateTextFormats(*app);
-                    requestRepaint(hwnd);
-                } else {
-                    disarmTimer(hwnd, TIMER_ZOOM_APPLY);
-                    app->zoomApplyPending = false;
-                }
-            }
+            if (app) handleTimer(*app, hwnd, (unsigned)wParam);
             return 0;
 
         case WM_APP_IMAGE_READY:

@@ -72,8 +72,8 @@
 // move, release, double-click, the context menu and the two side buttons go through
 // src/input.cpp the way WinMain routes them, and the cursor comes back through the window
 // sink. The WHEEL, as of slice 4, goes to handleMouseWheel and handleMouseHWheel, so an
-// open overlay takes it before the document; only Ctrl+wheel zoom stays out, until timers
-// are ported -- see wheelEvent. Every routed handler opens a platform::EventModifierScope
+// open overlay takes it before the document; Ctrl+wheel zoom joined it in slice 5, once
+// timers were ported -- see wheelEvent. Every routed handler opens a platform::EventModifierScope
 // (include/keyboard.h) from its event, so Shift and Ctrl reach src/input.cpp from the event
 // itself rather than from Qt's cache or GetKeyState, neither of which follows a sent mouse
 // or wheel event.
@@ -96,6 +96,10 @@
 // the window sink (include/window_sink.h), so Escape, Q and F11 reach this widget
 // instead of reading a null HWND and doing nothing.
 //
+// AND THE TIMERS, as of slice 5: the constructor installs the timer sink
+// (include/timer_sink.h), one QTimer per id, and each tick runs src/input.cpp's
+// handleTimer -- the dispatch WM_TIMER runs on Windows.
+//
 // SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: each sink slot holds
 // one window's closures, so a second QtAppWindow would displace the first's and the first
 // window would stop repainting and stop answering F11. src/main_qt.cpp refuses --new and --tabbed today, which is what
@@ -103,6 +107,7 @@
 // turning the slot into a per-window dispatch, and this paragraph is the note it needs.
 
 #include <QWidget>
+#include <map>
 #include <string>
 
 #include "geometry.h"
@@ -111,6 +116,7 @@ class QContextMenuEvent;
 class QKeyEvent;
 class QMouseEvent;
 class QResizeEvent;
+class QTimer;
 class QWheelEvent;
 struct App;
 
@@ -120,7 +126,7 @@ public:
     // test's, and it is the same contract QtRenderTarget has with its paint device.
     explicit QtAppWindow(App& app, QWidget* parent = nullptr);
 
-    // DECLARED ONLY TO UNREGISTER THE TWO SINKS, the only things this class owns that
+    // DECLARED ONLY TO UNREGISTER THE SINKS (repaint, window, timer), the only things this class owns that
     // outlive it. The constructor installs closures capturing `this`, so a repaint or zen
     // request arriving after destruction would call into freed memory -- and the call
     // sites that make such requests are in files that know nothing about this window's
@@ -154,6 +160,11 @@ public:
     // placeholder as a rendered document, which is precisely the class of false green
     // this tree keeps finding in its own instruments.
     bool documentPainted() const { return documentPainted_; }
+
+    // Whether the timer sink holds timer `id` running -- armed and not yet disarmed. The
+    // test reads it beside the App flag the timer clears, so "the flag is still set" can be
+    // told apart from "the timer was never armed".
+    bool timerActive(unsigned id) const;
 
     // Load `path` into the App, retitle the window and repaint. Returns false and
     // changes NOTHING if the file will not open, which is loadDocumentFromPath's
@@ -207,6 +218,8 @@ private:
     int paintCount_ = 0;
     bool renderTargetInstalled_ = false;
     bool documentPainted_ = false;
+    // One per timer id ever armed, children of this widget. Never erased: disarm stops.
+    std::map<unsigned, QTimer*> timers_;
 };
 
 #endif // TINTA_QT_WINDOW_H

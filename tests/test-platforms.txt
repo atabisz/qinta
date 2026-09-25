@@ -103,6 +103,7 @@ tab_ghost                      both
 tab_ghost_qt                   both
 text_utils                     both
 theme_data                     both
+timer_sink                     both
 typography                     both
 window_placement               both
 

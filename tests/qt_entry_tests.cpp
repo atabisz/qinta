@@ -87,6 +87,7 @@
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QCursor>
+#include <QEventLoop>
 #include <QFontDatabase>
 #include <QImage>
 #include <QKeyEvent>
@@ -98,6 +99,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QWheelEvent>
 
 #include <algorithm>
@@ -924,13 +926,40 @@ int main(int argc, char** argv) {
           "CONTROL: Ctrl+J does not scroll -- Ctrl reached handleKeyDown through the event's "
           "modifiers, which a sent event could not do before the modifier scope");
 
+    // Ctrl+wheel ZOOMS, as of slice 5 -- this check asserted the opposite until the timer
+    // sink existed. applyZoomDelta applies text formats on the leading notch, sets
+    // zoomApplyPending and arms TIMER_ZOOM_APPLY; the tick after that finds nothing new and
+    // clears the flag. So the claim has three readings in order: armed, then a real event
+    // loop running past two 80 ms intervals, then disarmed with the flag down. The first
+    // reading is what makes the last one mean anything -- a flag that was never set, or a
+    // timer that was never armed, would pass "the flag is clear" without a single tick.
     const float zoomBefore = app.zoomFactor;
     sendWheel(window, -1.0f, Qt::ControlModifier);
-    check(sameScroll(app.scrollY, 0.0f) && app.zoomFactor == zoomBefore,
-          "CONTROL: Ctrl+wheel neither scrolls nor zooms. It is ZOOM on Windows, but "
-          "applyZoomDelta coalesces through TIMER_ZOOM_APPLY and armTimer is a no-op here, so "
-          "routing it would zoom once and then only rescale the scroll offset; the window "
-          "ignores it until timers are ported");
+    std::printf("ctrl_wheel zoom=%.3f->%.3f pending=%d timer_active=%d\n", zoomBefore,
+                app.zoomFactor, app.zoomApplyPending ? 1 : 0,
+                window.timerActive(TIMER_ZOOM_APPLY) ? 1 : 0);
+    check(sameScroll(app.scrollY, 0.0f) && app.zoomFactor < zoomBefore &&
+              app.appliedZoomFactor == app.zoomFactor,
+          "Ctrl+wheel down zooms OUT through handleMouseWheel -> applyZoomDelta, and the leading "
+          "notch bakes the new factor into the text formats; it does not scroll");
+    check(app.zoomApplyPending && window.timerActive(TIMER_ZOOM_APPLY),
+          "and it leaves zoomApplyPending set with TIMER_ZOOM_APPLY armed in the window's timer "
+          "sink -- armTimer reached a QTimer instead of a no-op");
+    {
+        QEventLoop loop;
+        QTimer::singleShot(400, &loop, &QEventLoop::quit);
+        loop.exec();
+    }
+    std::printf("ctrl_wheel after_loop pending=%d timer_active=%d\n",
+                app.zoomApplyPending ? 1 : 0, window.timerActive(TIMER_ZOOM_APPLY) ? 1 : 0);
+    check(!app.zoomApplyPending && !window.timerActive(TIMER_ZOOM_APPLY),
+          "after the event loop runs 400 ms the tick has cleared zoomApplyPending and disarmed "
+          "the timer -- input.cpp's handleTimer ran on this stack, which is WM_TIMER's dispatch");
+    // Back to the fixture's zoom, so every check below measures the layout it was written
+    // against. updateTextFormats is what the timer would have called.
+    app.zoomFactor = zoomBefore;
+    updateTextFormats(app);
+    app.layoutDirty = true;
 
     // The zoom half of this check is what makes it a reading of the modifier scope. Without
     // the scope, the wheel reads Qt's cache, which still holds the Ctrl the Ctrl+J above left

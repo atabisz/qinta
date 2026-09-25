@@ -4481,6 +4481,55 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     requestRepaint(hwnd);
 }
 
+// WM_TIMER's body, moved out of main_d2d.cpp's window procedure verbatim so the Qt
+// window's timer sink can call it too. WinMain keeps TIMER_UPDATE_CHECK, whose worker
+// thread is static there and not linked into qinta.
+void handleTimer(App& app, HWND hwnd, unsigned id) {
+    if (id == TIMER_LINK_PEEK) handleLinkPeekTimer(app, hwnd);
+    if (id == TIMER_FILE_WATCH) handleFileWatchTimer(app, hwnd);
+    if (id == 2) editorReparse(app); // TIMER_EDITOR_REPARSE
+    if (id == TIMER_CURSOR_BLINK) {
+        app.cursorBlinkOn = !app.cursorBlinkOn;
+        requestRepaint(hwnd);
+    }
+    if (id == TIMER_NOTIFICATION) {
+        // Only draining chips need repaints; prompts are static
+        // until answered
+        bool fading = signalsNeedTicks(app);
+        if (fading) {
+            requestRepaint(hwnd);
+        } else {
+            disarmTimer(hwnd, TIMER_NOTIFICATION);
+        }
+    }
+    if (id == TIMER_FOLDER_SEARCH) {
+        disarmTimer(hwnd, TIMER_FOLDER_SEARCH);
+        startFolderSearchScan(app);
+    }
+    if (id == TIMER_DRAFT_SAVE) {
+        draftsSweep(app);
+    }
+    if (id == TIMER_SELECT_SCROLL) {
+        handleSelectScrollTimer(app, hwnd);
+    }
+    if (id == TIMER_IMAGE_REFLOW) {
+        // One relayout for however many images arrived since armed
+        disarmTimer(hwnd, TIMER_IMAGE_REFLOW);
+        app.layoutDirty = true;
+        requestRepaint(hwnd);
+    }
+    if (id == TIMER_ZOOM_APPLY) {
+        if (app.zoomFactor != app.appliedZoomFactor) {
+            // More zoom ticks arrived since the last apply
+            updateTextFormats(app);
+            requestRepaint(hwnd);
+        } else {
+            disarmTimer(hwnd, TIMER_ZOOM_APPLY);
+            app.zoomApplyPending = false;
+        }
+    }
+}
+
 // A FILETIME as the single 64-bit tick count it has always been. This is what
 // CompareFileTime compared -- it is documented as comparing the two members as one
 // unsigned 64-bit quantity -- and it is what platform::fileWriteTicks hands back, so

@@ -33,6 +33,8 @@
 #include "repaint_sink.h"
 // And requestQuit's, on the same argument.
 #include "window_sink.h"
+// And armTimer's and disarmTimer's.
+#include "timer_sink.h"
 
 // --- Repaint ------------------------------------------------------------------
 //
@@ -127,25 +129,25 @@ inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
 // cursor should blink, when a notification fade needs repainting -- and only one
 // statement of MECHANISM each, which is why the mechanism is what got extracted.
 //
-// Off Windows these do nothing, and that is accurate rather than convenient: there
-// is no message loop off Windows either, so a timer that armed would have nothing
-// to deliver WM_TIMER to. The Qt path is a QTimer per id.
-inline void armTimer(HWND hwnd, unsigned id, unsigned intervalMs) {
+// Off the Win32 stack both reach include/timer_sink.h, which the Qt window fills with
+// a QTimer per id; a tick calls input.cpp's handleTimer, the same dispatch WM_TIMER
+// calls. THIS COMMENT USED TO READ "Off Windows these do nothing ... The Qt path is a
+// QTimer per id" over `(void)` bodies, so on qinta every armed timer was dropped and
+// Ctrl+wheel zoom could not be routed. Tense corrected 2026-09-25, when the arm landed.
+// With no sink installed (a test binary, a console run) the request is still nothing.
+inline void armTimer([[maybe_unused]] HWND hwnd, unsigned id, unsigned intervalMs) {
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
     SetTimer(hwnd, id, intervalMs, nullptr);
 #else
-    (void)hwnd;
-    (void)id;
-    (void)intervalMs;
+    tinta::deliverTimerArm(id, intervalMs);
 #endif
 }
 
-inline void disarmTimer(HWND hwnd, unsigned id) {
+inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
     KillTimer(hwnd, id);
 #else
-    (void)hwnd;
-    (void)id;
+    tinta::deliverTimerDisarm(id);
 #endif
 }
 

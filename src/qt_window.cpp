@@ -7,6 +7,7 @@
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QString>
+#include <QTimer>
 #include <QWheelEvent>
 
 #include <cstddef>
@@ -29,6 +30,7 @@
 #include "scrollbar.h"
 #include "text_api.h"
 #include "text_utils.h"
+#include "timer_sink.h"
 #include "win32_api.h"  // CursorShape's definition; window_sink.h only declares it
 #include "window_sink.h"
 #include "zen_mode_qt.h"
@@ -139,6 +141,35 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // pointer, which is what a widget cursor is, and an override would outlive the window.
     sink.cursor = [this](CursorShape shape) { setCursor(qtCursorFor(shape)); };
     tinta::setWindowSink(std::move(sink));
+
+    // AND A FOURTH TIME, for armTimer and disarmTimer (include/timer_sink.h). Without it
+    // every timer the tree arms is dropped, and the one that showed it is TIMER_ZOOM_APPLY:
+    // app_.zoomApplyPending would never clear, so the first Ctrl+wheel notch would zoom and
+    // every later one would only rescale the scroll offset.
+    //
+    // One QTimer per id, kept for the window's lifetime, which is what makes it SetTimer:
+    // start() on a running QTimer restarts it at the new interval, a QTimer repeats until
+    // stopped, and stop() on an idle one does nothing. The tick is input.cpp's handleTimer,
+    // the dispatch WM_TIMER calls, so the two stacks run the same code per id.
+    tinta::TimerSink timerSink;
+    timerSink.arm = [this](unsigned id, unsigned intervalMs) {
+        QTimer*& timer = timers_[id];
+        if (!timer) {
+            timer = new QTimer(this);
+            QObject::connect(timer, &QTimer::timeout, this, [this, id]() {
+                // Same argument as the input handlers: the drag auto-scroll tick clamps
+                // against app_.height.
+                syncViewport();
+                handleTimer(app_, nullptr, id);
+            });
+        }
+        timer->start(static_cast<int>(intervalMs));
+    };
+    timerSink.disarm = [this](unsigned id) {
+        const auto found = timers_.find(id);
+        if (found != timers_.end()) found->second->stop();
+    };
+    tinta::setTimerSink(std::move(timerSink));
 }
 
 QtAppWindow::~QtAppWindow() {
@@ -147,6 +178,13 @@ QtAppWindow::~QtAppWindow() {
     // and clearing here would then be removing somebody else's.
     tinta::clearRepaintSink();
     tinta::clearWindowSink();
+    // The QTimers themselves are children of this widget and go with it.
+    tinta::clearTimerSink();
+}
+
+bool QtAppWindow::timerActive(unsigned id) const {
+    const auto found = timers_.find(id);
+    return found != timers_.end() && found->second->isActive();
 }
 
 bool QtAppWindow::syncViewport() {
@@ -204,20 +242,12 @@ void QtAppWindow::promptOpenDocument() {
 // WM_MOUSEHWHEEL to handleMouseHWheel, each in notches; Qt carries both axes in one event, so
 // each non-zero axis makes the call its own message would. The modifier scope is what made
 // this routable: handleMouseWheel's Shift branch asks platform::isShiftDown.
+//
+// Ctrl+wheel is routed too, as of slice 5. Slice 4 ignored it here because handleMouseWheel
+// sends it to applyZoomDelta, which coalesces notches through TIMER_ZOOM_APPLY, and armTimer
+// was a no-op on this stack -- so app_.zoomApplyPending would never have cleared. The timer
+// sink the constructor installs is what clears it, and the lightbox's Ctrl+wheel with it.
 void QtAppWindow::wheelEvent(QWheelEvent* event) {
-    // Ctrl+wheel STAYS IGNORED, and not for the reason it used to. handleMouseWheel sends it
-    // to applyZoomDelta, which applies text formats on the leading notch, sets
-    // app_.zoomApplyPending and arms TIMER_ZOOM_APPLY to coalesce the rest -- and armTimer is
-    // a no-op on this stack, so the flag would never clear. The first notch would zoom and
-    // every later one would rescale the scroll offset under text that no longer resizes,
-    // which is worse than doing nothing. It routes when timers do. The cost is recorded
-    // rather than hidden: the lightbox, which zooms on any wheel, ignores Ctrl+wheel here.
-    // ignore() rather than accept() so a parent that did implement it would still see it.
-    if (event->modifiers() & Qt::ControlModifier) {
-        event->ignore();
-        return;
-    }
-
     // Before the call, not after: every scroll maximum comes from app_.height, and the first
     // wheel event can arrive before the first paint.
     syncViewport();

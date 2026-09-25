@@ -68,5 +68,8 @@ void handleFileWatchTimer(App& app, HWND hwnd);
 void handleSelectScrollTimer(App& app, HWND hwnd);
 // Dwell timer fired over a local .md link: load the peek preview
 void handleLinkPeekTimer(App& app, HWND hwnd);
+// One tick of timer `id`: WM_TIMER's dispatch, shared by WinMain and the Qt window's
+// timer sink. TIMER_UPDATE_CHECK is not here -- its worker is main_d2d.cpp's own.
+void handleTimer(App& app, HWND hwnd, unsigned id);
 
 #endif // TINTA_INPUT_H

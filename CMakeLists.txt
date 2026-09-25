@@ -1132,6 +1132,11 @@ if(BUILD_TESTING)
     target_include_directories(repaint_sink_tests PRIVATE include)
     add_test(NAME repaint_sink COMMAND repaint_sink_tests)
 
+    # armTimer and disarmTimer's sink, include/timer_sink.h, on the same argument.
+    add_executable(timer_sink_tests tests/timer_sink_tests.cpp)
+    target_include_directories(timer_sink_tests PRIVATE include)
+    add_test(NAME timer_sink COMMAND timer_sink_tests)
+
     # WHERE A WINDOW APPEARS, WHICH UNTIL NOW NOTHING COULD ASK. The decision lived in
     # thirty-five lines inside WinMain -- validate the saved rect against the monitors that
     # exist now, clamp it into the nearest work area if it is off all of them (issue #25),

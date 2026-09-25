@@ -278,12 +278,12 @@ inline bool requestQuit() {
 // mattered it would be a bug fix; it does not, which is why it is recorded here
 // as a consolidation and nowhere else as an improvement.
 //
-// Off Windows this does nothing, and it is a REAL gap rather than a cosmetic one:
-// the split-pane handle and the text area stop announcing that they are draggable
-// or clickable. The Qt path is QWidget::setCursor with Qt::ArrowCursor,
-// PointingHandCursor, IBeamCursor and SplitHCursor -- a direct four-way mapping
-// that needs a widget the App struct does not hold yet, which is the same
-// blocker setWindowTitle records above.
+// Off Windows this did nothing until slice 3 (2026-09-25), and it was a REAL gap rather
+// than a cosmetic one: WinMain returns TRUE from WM_SETCURSOR over the client area, so
+// on Windows this seam is the ONLY source of the cursor, and qinta showed the arrow over
+// text, links and the split-pane handle. The widget App lacks is reached the way repaints
+// reach it: the off-Win32 arm delivers to include/window_sink.h, and QtAppWindow maps the
+// four shapes to Qt::ArrowCursor, PointingHandCursor, IBeamCursor and SplitHCursor.
 enum class CursorShape { Arrow, Hand, IBeam, SizeWE };
 
 inline void setCursorShape(CursorShape shape) {
@@ -302,7 +302,7 @@ inline void setCursorShape(CursorShape shape) {
         default: SetCursor(arrow); break;
     }
 #else
-    (void)shape;
+    tinta::deliverCursorShape(shape);
 #endif
 }
 

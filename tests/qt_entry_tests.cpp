@@ -85,9 +85,12 @@
 // the branch, so run 6 proves the document's pixels are text through the seam and not
 // that the document branch itself is factory-dependent.
 #include <QApplication>
+#include <QContextMenuEvent>
+#include <QCursor>
 #include <QFontDatabase>
 #include <QImage>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QPixmap>
 #include <QPoint>
 #include <QPointF>
@@ -98,6 +101,7 @@
 #include <QWheelEvent>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 // std::abs(int) is declared here and not in <cmath>. libstdc++ happens to pull it in
@@ -136,6 +140,7 @@
 #include "qt_window.h"
 #include "repaint_sink.h"
 #include "settings.h"
+#include "startpage.h"
 #include "text_api.h"
 // The chrome formats' own header, and the reason this file needs it now is the port: the
 // bodies run 11 asserts on moved out of src/qt_init.cpp into src/text_formats_app.cpp, so
@@ -322,6 +327,16 @@ void sendWheel(QtAppWindow& window, float notches, Qt::KeyboardModifiers mods = 
 
 void sendKey(QtAppWindow& window, int key, Qt::KeyboardModifiers mods = Qt::NoModifier) {
     QKeyEvent ev(QEvent::KeyPress, key, mods);
+    QApplication::sendEvent(&window, &ev);
+}
+
+// A mouse event through the event system, for the same reason sendWheel gives. `held` is
+// the button state AFTER the event, which is what Qt reports: a press holds its own button,
+// a release holds nothing, a hover move holds nothing.
+void sendMouse(QtAppWindow& window, QEvent::Type type, QPointF local,
+               Qt::MouseButton button = Qt::NoButton, Qt::MouseButtons held = Qt::NoButton) {
+    QMouseEvent ev(type, local, QPointF(window.mapToGlobal(local.toPoint())), button, held,
+                   Qt::NoModifier);
     QApplication::sendEvent(&window, &ev);
 }
 
@@ -2158,6 +2173,156 @@ int main(int argc, char** argv) {
         std::printf("zen_real: SKIPPED on platform %s -- showFullScreen would cover the desktop; "
                     "the recording-sink half above ran here\n",
                     QApplication::platformName().toUtf8().constData());
+    }
+
+    // ---- THE MOUSE ROUTER (slice 3) ------------------------------------------------
+    //
+    // Every event goes through sendEvent into QtAppWindow's overrides and on into
+    // src/input.cpp, so each check below fails if the override is missing, calls the wrong
+    // handler, or passes the wrong coordinates. Targets are read off the laid-out text runs
+    // rather than guessed, converted doc -> widget the way handleMouseDown converts back
+    // (docX = x - documentViewportX + scrollX, docY = y + scrollY).
+    {
+        QtAppWindow mouseProbe(app);
+        mouseProbe.resize(600, 400);
+        check(mouseProbe.openDocument(tmpUtf8), "mouse router: the fixture opens");
+        (void)grabWindow(mouseProbe);  // the paint lays the document out
+        check(mouseProbe.hasMouseTracking(),
+              "mouse router: the window tracks the mouse with no button held, as WM_MOUSEMOVE does");
+        check(static_cast<bool>(tinta::windowSinkSlot().cursor),
+              "constructing a QtAppWindow installs the window sink's cursor member");
+
+        // THE PRECONDITION EVERY CLICK BELOW DEPENDS ON, asserted rather than assumed: until
+        // this slice loadDocumentFromPath left currentFile empty, startPageActive() stayed
+        // true over an open document, and handleMouseDown gave every press to the start page.
+        check(app.currentFile == tmpUtf8 && !startPageActive(app),
+              "opening a document records it as the current file, so clicks reach the document "
+              "rather than the start page");
+
+        // Aimed at a TextRect, the list findTextRectAt and selectionOffsetAtPoint hit-test --
+        // LayoutTextRun::selectable is not what they read, and on this fixture it is never set.
+        const App::TextRect* widest = nullptr;
+        for (const App::TextRect& tr : app.textRects) {
+            if (!widest || tr.rect.right - tr.rect.left > widest->rect.right - widest->rect.left) {
+                widest = &tr;
+            }
+        }
+        check(widest != nullptr && widest->rect.right - widest->rect.left > 40.0f,
+              "mouse router: the fixture has a text rect wide enough to drag across");
+        if (widest) {
+            const float offX = documentViewportX(app) - app.scrollX;
+            const float midY = (widest->rect.top + widest->rect.bottom) * 0.5f - app.scrollY;
+            const QPointF start(widest->rect.left + offX + 2.0f, midY);
+            const QPointF end(widest->rect.right + offX - 2.0f, midY);
+            std::printf("mouse_target rect=[%.1f..%.1f] y=%.1f start=(%.1f,%.1f) end=(%.1f,%.1f)\n",
+                        widest->rect.left, widest->rect.right, midY, start.x(), start.y(),
+                        end.x(), end.y());
+            auto resetClicks = [&app]() {
+                app.clickCount = 0;
+                app.lastClickTime = std::chrono::steady_clock::time_point{};
+                app.hasSelection = false;
+                app.selecting = false;
+            };
+
+            // Hover: the move reaches handleMouseMove, and its cursor comes back to the widget.
+            mouseProbe.setCursor(Qt::ArrowCursor);
+            sendMouse(mouseProbe, QEvent::MouseMove, start);
+            std::printf("hover mouseX=%d mouseY=%d overText=%d cursor=%d\n", app.mouseX, app.mouseY,
+                        app.overText ? 1 : 0, static_cast<int>(mouseProbe.cursor().shape()));
+            check(app.mouseX == start.toPoint().x() && app.mouseY == start.toPoint().y(),
+                  "a hover move reaches handleMouseMove with the widget position");
+            check(mouseProbe.cursor().shape() == Qt::IBeamCursor,
+                  "hovering document text sets the I-beam through setCursorShape and the sink");
+            {
+                // CONTROL: the same move with the cursor member unset leaves the arrow.
+                tinta::WindowSink saved = tinta::windowSinkSlot();
+                tinta::windowSinkSlot().cursor = nullptr;
+                mouseProbe.setCursor(Qt::ArrowCursor);
+                sendMouse(mouseProbe, QEvent::MouseMove, end);
+                sendMouse(mouseProbe, QEvent::MouseMove, start);
+                check(mouseProbe.cursor().shape() == Qt::ArrowCursor,
+                      "CONTROL: with the cursor member unset the same hover leaves the arrow -- "
+                      "the I-beam above came through the sink");
+                tinta::windowSinkSlot() = std::move(saved);
+            }
+
+            // Drag-select: press, held move, release.
+            resetClicks();
+            sendMouse(mouseProbe, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseMove, end, Qt::NoButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, end, Qt::LeftButton, Qt::NoButton);
+            std::printf("drag hasSelection=%d anchor=%zu focus=%zu selecting=%d\n",
+                        app.hasSelection ? 1 : 0, app.selAnchor, app.selFocus,
+                        app.selecting ? 1 : 0);
+            check(app.hasSelection && app.selAnchor != app.selFocus,
+                  "press, drag and release across a text run select text through input.cpp");
+            check(!app.selecting, "and the release ends the selection drag");
+
+            // Double-click: Qt turns the second press into a DblClick event.
+            resetClicks();
+            sendMouse(mouseProbe, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::LeftButton, Qt::NoButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonDblClick, start, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::LeftButton, Qt::NoButton);
+            std::printf("dblclick clickCount=%d mode=%d hasSelection=%d\n", app.clickCount,
+                        static_cast<int>(app.selectionMode), app.hasSelection ? 1 : 0);
+            check(app.clickCount == 2 && app.selectionMode == App::SelectionMode::Word &&
+                      app.hasSelection,
+                  "a double-click reaches the press path as a second press and selects a word");
+            // CONTROL: the same two events with the click clock reset between them -- the Word
+            // mode above has to have come from input.cpp's own click counting.
+            resetClicks();
+            sendMouse(mouseProbe, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::LeftButton, Qt::NoButton);
+            app.lastClickTime = std::chrono::steady_clock::time_point{};
+            sendMouse(mouseProbe, QEvent::MouseButtonDblClick, start, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::LeftButton, Qt::NoButton);
+            check(app.clickCount == 1 && app.selectionMode == App::SelectionMode::Normal,
+                  "CONTROL: with the click clock reset between them the same pair is two single "
+                  "clicks");
+
+            // Context menu: a mouse-reason event over the document opens the document menu.
+            app.showContextMenu = false;
+            {
+                QContextMenuEvent ev(QContextMenuEvent::Mouse, start.toPoint(),
+                                     mouseProbe.mapToGlobal(start.toPoint()));
+                QApplication::sendEvent(&mouseProbe, &ev);
+            }
+            check(app.showContextMenu, "a right-click context event opens the document menu");
+            // A left press outside the menu dismisses it, and the release is swallowed.
+            sendMouse(mouseProbe, QEvent::MouseButtonPress, QPointF(5.0, 395.0), Qt::LeftButton,
+                      Qt::LeftButton);
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, QPointF(5.0, 395.0), Qt::LeftButton,
+                      Qt::NoButton);
+            check(!app.showContextMenu && !app.swallowNextMouseUp,
+                  "a click away closes the menu and the release is consumed");
+
+            // Side buttons: WM_XBUTTONUP's shape, on release only.
+            //
+            // THE ENTRY NAMES THE DOCUMENT ALREADY OPEN, deliberately. A different file would
+            // go through openDocumentInViewer, which persists recents and reading positions to
+            // settings.ini -- and this target is not run under run_portable_test.cmake, so that
+            // would be the real user's file. The same-file entry takes navOpenEntry's other
+            // arm, which only restores the scroll, and still proves both stacks' routing.
+            app.navBack.clear();
+            app.navForward.clear();
+            app.pendingScrollRestore = -1.0f;
+            app.navBack.push_back({app.currentFile, 123.0f});
+            sendMouse(mouseProbe, QEvent::MouseButtonPress, start, Qt::BackButton, Qt::BackButton);
+            check(app.navBack.size() == 1 && app.pendingScrollRestore == -1.0f,
+                  "CONTROL: a Back PRESS navigates nowhere -- Windows navigates on release");
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::BackButton, Qt::NoButton);
+            std::printf("back navBack=%zu navForward=%zu restore=%.1f\n", app.navBack.size(),
+                        app.navForward.size(), app.pendingScrollRestore);
+            check(app.navBack.empty() && app.navForward.size() == 1 &&
+                      app.pendingScrollRestore == 123.0f,
+                  "a Back release walks back through navigateBack");
+            sendMouse(mouseProbe, QEvent::MouseButtonRelease, start, Qt::ForwardButton,
+                      Qt::NoButton);
+            check(app.navForward.empty() && app.navBack.size() == 1,
+                  "and a Forward release walks forward again");
+            app.pendingScrollRestore = -1.0f;  // not left for a later paint to apply
+        }
     }
 
     // ---- ISC-3, SECOND ENDPOINT: DOES A REPAINT REQUEST ARRIVE AS A PAINT? ---------

@@ -288,6 +288,15 @@ bool loadDocumentFromPath(App& app, const std::string& path) {
     app.parseTimeUs = result.parseTimeUs;
     app.sourceText = content;
 
+    // WHICH FILE IS OPEN, and src/input.cpp asks constantly. Missing until slice 3 (the
+    // mouse router), and nothing noticed while the keyboard was the only input: every left
+    // press on an open document went to the START PAGE, because startPageActive() is
+    // `currentFile.empty() && ...`, and the start page consumes the click. The Win32 loader,
+    // openDocumentInViewer, assigns it from the same UTF-8 spelling. What that loader also
+    // does -- recents, reading-position memory -- stays out: both write settings.ini, and
+    // this function has been side-effect-free on disk since it was written.
+    app.currentFile = path;
+
     // THE CACHED LAYOUT BELONGS TO THE DOCUMENT THAT JUST GOT REPLACED, AND NOTHING
     // DOWNSTREAM NOTICES ON ITS OWN. QtAppWindow::paintDocument relayouts only when the
     // widget resized or the run list is empty, so opening a SECOND file into a window

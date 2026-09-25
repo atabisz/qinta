@@ -33,6 +33,11 @@
 
 #include "window_placement.h"  // ZenRestore
 
+// OPAQUE, NOT MOVED. include/win32_api.h defines it -- that header includes this one, so a
+// definition here would invert who owns the enum for a single sink member. A scoped enum's
+// opaque declaration is a complete type (underlying int), which is all std::function needs.
+enum class CursorShape;
+
 namespace tinta {
 
 struct WindowSink {
@@ -41,6 +46,11 @@ struct WindowSink {
     // zen_mode_qt.h's two calls, already bound to the window.
     std::function<ZenRestore()> zenEnter;
     std::function<bool(const ZenRestore&)> zenLeave;
+    // setCursorShape's off-Win32 arm (slice 3). Added after the other three and NOT covered
+    // by their "installed together" argument in the sense that matters for tests: a window
+    // that set three members and forgot this one keeps the arrow over text and links, which
+    // is why it is asserted on its own.
+    std::function<void(CursorShape)> cursor;
 };
 
 // The single slot. Not part of the surface callers use.
@@ -77,6 +87,12 @@ inline bool deliverZenLeave(const ZenRestore& restore) {
     WindowSink& sink = windowSinkSlot();
     if (!sink.zenLeave) return false;
     return sink.zenLeave(restore);
+}
+
+// No return: SetCursor's own return (the previous cursor) is dropped by every caller too.
+inline void deliverCursorShape(CursorShape shape) {
+    WindowSink& sink = windowSinkSlot();
+    if (sink.cursor) sink.cursor(shape);
 }
 
 }  // namespace tinta

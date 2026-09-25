@@ -68,9 +68,11 @@
 // keyPressEvent translates the Qt key code (src/qt_key_map.cpp) and makes the same two
 // calls the Win32 message loop makes, handleKeyDown and then handleCharInput, so the
 // keyboard behaviours are the ones tinta has rather than a subset copied here. Ctrl+O is
-// the one key kept local -- see keyPressEvent for why. The MOUSE is still wheel-only: the
-// wheel goes to src/scroll.cpp's policy, and clicks, selection and drags are the next
-// slice's. The one thing that MUST live here
+// the one key kept local -- see keyPressEvent for why. The MOUSE, as of slice 3: press,
+// move, release, double-click, the context menu and the two side buttons go through
+// src/input.cpp the way WinMain routes them, and the cursor comes back through the window
+// sink. The WHEEL alone stays on src/scroll.cpp's local policy -- see wheelEvent for why.
+// The one thing that MUST live here
 // is setFocusPolicy: a QWidget defaults to Qt::NoFocus and therefore never receives a
 // key event at all, which no pixel test and no probe in this tree could have caught --
 // keyPressEvent is reachable from a test with sendEvent whether the widget can be
@@ -100,7 +102,9 @@
 
 #include "geometry.h"
 
+class QContextMenuEvent;
 class QKeyEvent;
+class QMouseEvent;
 class QResizeEvent;
 class QWheelEvent;
 struct App;
@@ -167,6 +171,11 @@ protected:
     void paintEvent(QPaintEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* event) override;
 
     // Marks the layout dirty and re-clamps the scroll offset against the new height.
     // Does NOT relayout -- see the header comment above for why that stays in the paint.

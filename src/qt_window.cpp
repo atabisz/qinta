@@ -1,7 +1,9 @@
 #include "qt_window.h"
 
+#include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QKeyEvent>
+#include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QString>
@@ -26,6 +28,7 @@
 #include "scrollbar.h"
 #include "text_api.h"
 #include "text_utils.h"
+#include "win32_api.h"  // CursorShape's definition; window_sink.h only declares it
 #include "window_sink.h"
 #include "zen_mode_qt.h"
 
@@ -64,6 +67,19 @@ constexpr float kPlaceholderBandHalfHeight = 40.0f;
 // reason.
 constexpr float kAngleDeltaPerNotch = 120.0f;
 
+// The four-way mapping include/win32_api.h has named since the seam was written. SplitH
+// for SizeWE because the one SizeWE user is the edit/preview divider, and Qt's split cursor
+// is the one drawn for exactly that; SizeHorCursor is the window-edge resize arrow.
+Qt::CursorShape qtCursorFor(CursorShape shape) {
+    switch (shape) {
+        case CursorShape::Hand: return Qt::PointingHandCursor;
+        case CursorShape::IBeam: return Qt::IBeamCursor;
+        case CursorShape::SizeWE: return Qt::SplitHCursor;
+        case CursorShape::Arrow:
+        default: return Qt::ArrowCursor;
+    }
+}
+
 }  // namespace
 
 QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app) {
@@ -73,6 +89,12 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // StrongFocus rather than ClickFocus: the window has to be usable from the keyboard
     // before anything has been clicked, because it is launched with a file in it.
     setFocusPolicy(Qt::StrongFocus);
+
+    // THE MOUSE COUNTERPART, same failure shape: without it Qt delivers mouseMoveEvent only
+    // while a button is held, so hover -- link and tab highlights, and every cursor shape
+    // below -- would work during a drag and nowhere else. WM_MOUSEMOVE arrives with no
+    // button down, and handleMouseMove is written for that.
+    setMouseTracking(true);
 
     // WITHOUT THIS, EVERY ONE OF THE 277 requestRepaint CALLS UNDER src/ IS A NO-OP.
     // The seam in include/win32_api.h has no way to reach a QWidget on its own -- it is
@@ -102,6 +124,10 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     sink.zenLeave = [this](const tinta::ZenRestore& restore) {
         return tinta::zenModeLeave(*this, restore);
     };
+    // The 58 setCursorShape calls in input.cpp and editor.cpp. setCursor rather than
+    // QGuiApplication::setOverrideCursor: SetCursor on Windows is per-window-under-the-
+    // pointer, which is what a widget cursor is, and an override would outlive the window.
+    sink.cursor = [this](CursorShape shape) { setCursor(qtCursorFor(shape)); };
     tinta::setWindowSink(std::move(sink));
 }
 
@@ -164,6 +190,14 @@ void QtAppWindow::promptOpenDocument() {
     openDocument(toUtf8(picked->path));
 }
 
+// WHY THE WHEEL, ALONE OF THE MOUSE, IS NOT ROUTED THROUGH src/input.cpp (slice 3).
+// handleMouseWheel decides zoom and horizontal scroll by asking platform::isCtrlDown and
+// isShiftDown, which on this stack are QGuiApplication::keyboardModifiers() -- the state of
+// the last event Qt itself processed, which a synthesised event does not update. Routed as
+// it stands, the Ctrl+wheel check in tests/qt_entry_tests.cpp would measure the harness
+// rather than the window. The cost of leaving it here is real and recorded: over an open
+// overlay or lightbox the wheel scrolls the document on qinta. Parity needs a modifier
+// seam that prefers the event's own modifiers, which is its own slice.
 void QtAppWindow::wheelEvent(QWheelEvent* event) {
     // Ctrl+wheel is ZOOM on Windows (input.cpp:878, applyZoomDelta) and is not
     // implemented here. Ignored rather than treated as a scroll, so the gesture does
@@ -252,6 +286,73 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
 
     event->accept();
     update();
+}
+
+// THE MOUSE ROUTER. Each handler makes the one call WinMain's matching message makes
+// (src/main_d2d.cpp), with the position in this widget's logical pixels -- the same space
+// syncViewport gives app_.width/height, so hit tests and the viewport agree. No update()
+// here, unlike keyPressEvent: WM_MOUSEMOVE does not invalidate, the handlers request their
+// own repaints through the sink, and a repaint per hover move would redraw constantly.
+//
+// Only the LEFT button presses and releases, because WinMain handles only WM_LBUTTON*; the
+// right button reaches handleContextMenu through contextMenuEvent, which is WM_CONTEXTMENU's
+// counterpart, and the middle button (tab-strip close) is out of this slice's scope.
+void QtAppWindow::mousePressEvent(QMouseEvent* event) {
+    if (event->button() != Qt::LeftButton) {
+        QWidget::mousePressEvent(event);
+        return;
+    }
+    syncViewport();
+    const QPoint p = event->position().toPoint();
+    handleMouseDown(app_, nullptr, p.x(), p.y());
+    event->accept();
+}
+
+// A SECOND PRESS, NOT A DOUBLE-CLICK. tinta's window class has no CS_DBLCLKS, so Windows
+// delivers the second click of a pair as another WM_LBUTTONDOWN, and handleMouseDown counts
+// clicks itself (500 ms, 5 px). Qt replaces that second press with this event, so it goes
+// down the same path -- the default already would, via QWidget's own override, but that is
+// an implementation detail of Qt this router should not lean on.
+void QtAppWindow::mouseDoubleClickEvent(QMouseEvent* event) {
+    mousePressEvent(event);
+}
+
+void QtAppWindow::mouseMoveEvent(QMouseEvent* event) {
+    syncViewport();
+    const QPoint p = event->position().toPoint();
+    handleMouseMove(app_, nullptr, p.x(), p.y());
+    event->accept();
+}
+
+void QtAppWindow::mouseReleaseEvent(QMouseEvent* event) {
+    syncViewport();
+    const QPoint p = event->position().toPoint();
+    switch (event->button()) {
+        case Qt::LeftButton:
+            handleMouseUp(app_, nullptr, p.x(), p.y());
+            break;
+        // WM_XBUTTONUP's two arms: on RELEASE, as Windows does it, so a press that is
+        // dragged off the window and released elsewhere navigates nowhere.
+        case Qt::BackButton:
+            navigateBack(app_, nullptr);
+            break;
+        case Qt::ForwardButton:
+            navigateForward(app_, nullptr);
+            break;
+        default:
+            QWidget::mouseReleaseEvent(event);
+            return;
+    }
+    event->accept();
+}
+
+void QtAppWindow::contextMenuEvent(QContextMenuEvent* event) {
+    syncViewport();
+    // Keyboard is the menu key or Shift+F10 -- WM_CONTEXTMENU's (-1, -1). handleContextMenu
+    // then ignores the position and centres the menu, so pos() is passed either way.
+    const bool fromKeyboard = event->reason() == QContextMenuEvent::Keyboard;
+    handleContextMenu(app_, nullptr, event->pos().x(), event->pos().y(), fromKeyboard);
+    event->accept();
 }
 
 tinta::RectF QtAppWindow::placeholderRect() const {

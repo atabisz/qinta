@@ -27,7 +27,7 @@ void clearFolderSearch(App& app) {
     app.folderSearchGeneration++;   // orphan any scan in flight
     app.folderResults.clear();
     app.folderResultHits.clear();
-    if (app.hwnd) disarmTimer(app.hwnd, TIMER_FOLDER_SEARCH);
+    if (canArmTimer(app.hwnd)) disarmTimer(app.hwnd, TIMER_FOLDER_SEARCH);
 }
 
 void startFolderSearchScan(App& app) {
@@ -115,10 +115,10 @@ void startFolderSearchScan(App& app) {
                 msg->files.push_back(std::move(result));
             }
         }
-        // The `delete` on failure is why postWindowMessage returns bool and returns
-        // false off Windows: ownership of `msg` transfers to the handler only if the
-        // post is accepted, so an off-Windows no-op that claimed success would leak
-        // it. This line is already the correct off-Windows behaviour, unchanged.
+        // The `delete` on failure is why postWindowMessage returns bool: ownership of
+        // `msg` transfers to the handler only if the post is accepted. Off Windows the
+        // Qt window's post sink accepts this message; with no window it is refused,
+        // and this line frees it -- on either stack, with no special case.
         if (!postWindowMessage(hwnd, WM_APP_FOLDER_SEARCH, 0, (LPARAM)msg)) delete msg;
     }).detach();
 }
@@ -134,6 +134,9 @@ void completeFolderSearch(App& app, void* results) {
     app.folderResults = std::move(msg->files);
     app.folderResultHits.clear();
     delete msg;
+    // Still app.hwnd: requestRepaint's guards are their own class, because
+    // InvalidateRect(NULL) repaints every window on Windows. On qinta this runs inside the
+    // Qt window's post sink, which repaints after it.
     if (app.hwnd) requestRepaint(app.hwnd);
 }
 
@@ -145,12 +148,13 @@ void performSearch(App& app) {
     // Folder-wide results follow the query, debounced on a timer so fast
     // typing doesn't spawn a scan per keystroke
     //
-    // STILL app.hwnd, deliberately, while the cursor-blink and notification arms in app.h
-    // moved to canArmTimer: the scan this timer starts returns its results through a posted
-    // WM_APP_FOLDER_SEARCH, and postWindowMessage returns false off the Win32 stack. Lifting
-    // this guard alone would start a scan thread whose results are deleted unread. It waits
-    // for a posted-message sink.
-    if (!app.editMode && app.folderSearchEnabled && app.hwnd) {
+    // TWO questions where this used to ask app.hwnd, which is null for the whole of a qinta
+    // run: can the debounce timer be armed, and can the scan it starts post its results
+    // back? The scan returns them as a posted WM_APP_FOLDER_SEARCH, so a timer without a
+    // queue would start a thread whose results are deleted unread. On Windows both answers
+    // are the window handle, so this is the old guard there.
+    if (!app.editMode && app.folderSearchEnabled && canArmTimer(app.hwnd) &&
+        canPostWindowMessage(app.hwnd)) {
         if (app.searchQuery.empty()) {
             clearFolderSearch(app);
         } else if (!app.currentFile.empty()) {

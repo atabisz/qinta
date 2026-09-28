@@ -25,6 +25,7 @@
 #include "qt_key_map.h"
 #include "render.h"
 #include "render_qt.h"
+#include "post_sink.h"
 #include "repaint_sink.h"
 #include "scroll.h"
 #include "scrollbar.h"
@@ -169,9 +170,36 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
         if (found != timers_.end()) found->second->stop();
     };
     tinta::setTimerSink(std::move(timerSink));
+
+    // AND A FIFTH, for postWindowMessage (include/post_sink.h), which is the only sink a
+    // WORKER thread calls: the async image download and the folder scan post their results
+    // from the threads that produced them. So this closure runs off the GUI thread, reads
+    // nothing of app_, and does one thing -- queue the handler onto this widget's thread,
+    // which is what PostMessageW's queue does for WinMain. A message input.cpp has no
+    // handler for gets false, and its sender keeps ownership of whatever lParam points at.
+    //
+    // The update() after the handler stands in for completeFolderSearch's own repaint,
+    // which is still guarded on app_.hwnd (a separate class of guard, see search.cpp).
+    tinta::setPostSink([this](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
+        if (!handlesPostedMessage(message)) return false;
+        return QMetaObject::invokeMethod(
+            this,
+            [this, message, wParam, lParam]() {
+                syncViewport();
+                handlePostedMessage(app_, message, static_cast<WPARAM>(wParam),
+                                    static_cast<LPARAM>(lParam));
+                update();
+            },
+            Qt::QueuedConnection);
+    });
 }
 
 QtAppWindow::~QtAppWindow() {
+    // FIRST, because it is the one a worker thread can be inside right now: clearPostSink
+    // takes the slot's lock, so when it returns no closure over `this` is still running.
+    // A post already queued onto this widget is dropped with it by Qt, and so is the
+    // allocation it carries -- one window, process lifetime, accepted rather than drained.
+    tinta::clearPostSink();
     // Unconditional, and correct only because there is one window: see the header's
     // single-window note. A second QtAppWindow would have displaced this sink already,
     // and clearing here would then be removing somebody else's.

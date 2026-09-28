@@ -3270,11 +3270,10 @@ void completeAsyncImage(App& app, void* asyncResult) {
     // finishing close together (the common case when a document loads) get
     // one relayout on the timer instead of a full document layout each
     //
-    // STILL app.hwnd, deliberately, while the cursor-blink and notification arms in app.h
-    // moved to canArmTimer: this function only runs on a posted WM_APP_IMAGE_READY, and
-    // postWindowMessage returns false off the Win32 stack. Lifting this guard alone would arm
-    // a timer on a path qinta cannot reach. It waits for a posted-message sink.
-    if (app.hwnd) armTimer(app.hwnd, TIMER_IMAGE_REFLOW, 60);
+    //
+    // canArmTimer, not app.hwnd, which is null for the whole of a qinta run: this function
+    // runs there too now, from the Qt window's post sink.
+    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_IMAGE_REFLOW, 60);
 }
 
 void ensureLayoutComplete(App& app) {

@@ -626,9 +626,9 @@ editor.cpp
 # COMPILE-ONLY, and TWO things make that precise rather than one. The link closure:
 # pandocExportFlow calls editorReparse in editor.cpp above, which cannot link off Windows.
 # And the honest gap even after that closes: the worker's last act is
-# postWindowMessage(hwnd, WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
-# win32_api.h's design, so an off-Windows conversion would run, finish, and never tell the
-# UI. Reaching zero census errors is a COMPILE claim about this file and nothing more.
+# postWindowMessage(hwnd, WM_APP_PANDOC_DONE, ...), which the Qt window's post sink refuses
+# -- it takes only the image and folder-search messages -- so an off-Windows conversion
+# would run, finish, and never tell the UI. Reaching zero census errors is a COMPILE claim about this file and nothing more.
 pandoc.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside

@@ -142,6 +142,7 @@
 #include "qt_launch.h"
 #include "qt_window.h"
 #include "repaint_sink.h"
+#include "search.h"
 #include "settings.h"
 #include "startpage.h"
 #include "text_api.h"
@@ -2589,6 +2590,114 @@ int main(int argc, char** argv) {
         // Out of range is refused without touching anything.
         applyTheme(app, themeCount());
         check(app.currentThemeIndex == themeBefore, "applyTheme ignores an out-of-range index");
+    }
+
+    // THE TWO POSTED MESSAGES (slice 8). An async image download and a folder scan each run
+    // on a worker thread and hand their result back through postWindowMessage, which off the
+    // Win32 stack returned false until include/post_sink.h existed -- so both workers deleted
+    // what they had produced, a remote image stayed `pending` for the life of the document,
+    // and folder search never armed at all. Each half below reads the state BEFORE the post
+    // (pending; the debounce armed) as well as after, because "not pending" and "one result"
+    // are also what a check reads if nothing was ever started.
+    //
+    // A WINDOW OF ITS OWN, and not `window`: every probe window above clears ALL the sinks
+    // in its destructor (qt_window.cpp's single-window note), so by this point `window` has
+    // none and each check below read false on the first run for that reason alone.
+    {
+        QtAppWindow postWindow(app);
+        postWindow.resize(800, 600);
+        // Runs the event loop until `done` holds or `budgetMs` passes, returning `done`.
+        // Polling rather than one long exec(), because the worker's timing is the network
+        // stack's: a refused connection is immediate on Linux and can take seconds on
+        // Windows.
+        auto pumpUntil = [](auto done, int budgetMs) {
+            const auto deadline =
+                std::chrono::steady_clock::now() + std::chrono::milliseconds(budgetMs);
+            while (!done() && std::chrono::steady_clock::now() < deadline) {
+                QEventLoop loop;
+                QTimer::singleShot(10, &loop, &QEventLoop::quit);
+                loop.exec();
+            }
+            return static_cast<bool>(done());
+        };
+
+        const std::filesystem::path postDir =
+            std::filesystem::temp_directory_path() / "qinta_post_probe";
+        std::error_code dirEc;
+        std::filesystem::remove_all(postDir, dirEc);
+        std::filesystem::create_directories(postDir, dirEc);
+        // Port 9 (discard) on loopback: refused, never answered, and never leaves the host.
+        const std::string remote = "http://127.0.0.1:9/qinta-post-probe.png";
+        {
+            std::ofstream a(postDir / "a.md", std::ios::binary);
+            a << "# post probe\n\n![remote](" << remote << ")\n";
+            std::ofstream b(postDir / "b.md", std::ios::binary);
+            b << "# sibling\n\nThe word zyxneedle is here.\n";
+            // Holds the query too, and must NOT be returned: the scan reads .md and
+            // .markdown only, so this is what makes "exactly one result" a reading of the
+            // filter and not of a directory that only had one file in it.
+            std::ofstream c(postDir / "c.txt", std::ios::binary);
+            c << "zyxneedle\n";
+        }
+        check(loadDocumentFromPath(app, (postDir / "a.md").u8string()),
+              "the post probe document loaded");
+        // Layout happens inside paint, which is the only time app.renderTarget is set, and
+        // getOrLoadImage starts the download only with a render target.
+        grabWindow(postWindow);
+        auto entryIt = app.imageCache.find(remote);
+        const bool startedPending = entryIt != app.imageCache.end() && entryIt->second.pending;
+        const bool completed = pumpUntil(
+            [&app, &remote]() {
+                auto it = app.imageCache.find(remote);
+                return it != app.imageCache.end() && !it->second.pending;
+            },
+            15000);
+        const bool reflowArmed = postWindow.timerActive(TIMER_IMAGE_REFLOW);
+        {
+            QEventLoop loop;
+            QTimer::singleShot(200, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
+        entryIt = app.imageCache.find(remote);
+        const bool failed = entryIt != app.imageCache.end() && entryIt->second.failed;
+        std::printf("post_image pending=%d completed=%d reflow_armed=%d reflow_after=%d "
+                    "failed=%d\n",
+                    startedPending ? 1 : 0, completed ? 1 : 0, reflowArmed ? 1 : 0,
+                    postWindow.timerActive(TIMER_IMAGE_REFLOW) ? 1 : 0, failed ? 1 : 0);
+        check(startedPending,
+              "laying out a remote image leaves its cache entry pending with a worker started");
+        check(completed && failed,
+              "the worker's WM_APP_IMAGE_READY reached completeAsyncImage through the post "
+              "sink: the entry is no longer pending, and failed, since port 9 refuses");
+        check(reflowArmed, "and completeAsyncImage armed TIMER_IMAGE_REFLOW on the window");
+        check(!postWindow.timerActive(TIMER_IMAGE_REFLOW),
+              "and the reflow tick disarmed it -- handleTimer's reflow branch ran");
+
+        const bool folderBefore = app.folderSearchEnabled, showBefore = app.showSearch,
+                   editBefore = app.editMode;
+        const std::wstring queryBefore = app.searchQuery;
+        app.folderSearchEnabled = true;
+        app.showSearch = true;
+        app.editMode = false;
+        app.searchQuery = L"zyxneedle";
+        performSearch(app);
+        const bool debounceArmed = postWindow.timerActive(TIMER_FOLDER_SEARCH);
+        const bool found = pumpUntil([&app]() { return !app.folderResults.empty(); }, 5000);
+        std::printf("post_folder armed=%d found=%d results=%d first=%ls\n",
+                    debounceArmed ? 1 : 0, found ? 1 : 0, (int)app.folderResults.size(),
+                    app.folderResults.empty() ? L"-" : app.folderResults[0].fileName.c_str());
+        check(debounceArmed, "a folder query arms TIMER_FOLDER_SEARCH on the window");
+        check(app.folderResults.size() == 1 && app.folderResults[0].fileName == L"b.md" &&
+                  app.folderResults[0].totalMatches == 1,
+              "and the scan's WM_APP_FOLDER_SEARCH delivered exactly the one sibling .md "
+              "holding the query -- not the document itself, not the .txt");
+        clearFolderSearch(app);
+        app.folderSearchEnabled = folderBefore;
+        app.showSearch = showBefore;
+        app.editMode = editBefore;
+        app.searchQuery = queryBefore;
+        app.searchMatches.clear();
+        std::filesystem::remove_all(postDir, dirEc);
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

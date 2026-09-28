@@ -4484,6 +4484,15 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
 // WM_TIMER's body, moved out of main_d2d.cpp's window procedure verbatim so the Qt
 // window's timer sink can call it too. WinMain keeps TIMER_UPDATE_CHECK, whose worker
 // thread is static there and not linked into qinta.
+bool handlesPostedMessage(unsigned message) {
+    return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH;
+}
+
+void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM lParam) {
+    if (message == WM_APP_IMAGE_READY) completeAsyncImage(app, (void*)lParam);
+    if (message == WM_APP_FOLDER_SEARCH) completeFolderSearch(app, (void*)lParam);
+}
+
 void handleTimer(App& app, HWND hwnd, unsigned id) {
     if (id == TIMER_LINK_PEEK) handleLinkPeekTimer(app, hwnd);
     if (id == TIMER_FILE_WATCH) handleFileWatchTimer(app, hwnd);

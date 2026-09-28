@@ -35,6 +35,8 @@
 #include "window_sink.h"
 // And armTimer's and disarmTimer's.
 #include "timer_sink.h"
+// And postWindowMessage's.
+#include "post_sink.h"
 
 // --- Repaint ------------------------------------------------------------------
 //
@@ -199,15 +201,35 @@ inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
 // The general lesson worth keeping: when a call already has a documented failure
 // mode that callers handle, an off-Windows implementation should USE that mode
 // rather than invent a third state.
-inline bool postWindowMessage(HWND hwnd, unsigned message, WPARAM wParam, LPARAM lParam) {
+//
+// THAT FALSE IS NOW THE NO-SINK ANSWER, NOT THE ONLY ANSWER. Off the Win32 stack the
+// post goes to include/post_sink.h, which the Qt window fills with a closure that takes
+// WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH and queues them onto its own thread. Every
+// other message still gets false from that closure, so the argument above holds unchanged
+// for them: the three owning callers keep their `delete`, and nothing is accepted that has
+// no handler. With no window at all -- a test binary, a console build -- the answer is
+// false exactly as before.
+inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPARAM wParam,
+                              LPARAM lParam) {
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
     return PostMessageW(hwnd, message, wParam, lParam) != 0;
 #else
-    (void)hwnd;
-    (void)message;
-    (void)wParam;
-    (void)lParam;
-    return false;
+    return tinta::deliverPostedMessage(message, static_cast<std::uintptr_t>(wParam),
+                                       static_cast<std::intptr_t>(lParam));
+#endif
+}
+
+// Whether a post made now could be received -- canArmTimer's question, asked of the
+// queue. On the Win32 stack it is the window handle: PostMessageW(NULL, ...) does not
+// fail, it posts a THREAD message that no window procedure sees, so a worker started
+// before WinMain has a window would lose its result. Off that stack it is whether a
+// sink is installed. A sink that is installed can still refuse a given message; this
+// answers for the queue, and the return of postWindowMessage answers for the message.
+inline bool canPostWindowMessage([[maybe_unused]] HWND hwnd) {
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
+    return hwnd != nullptr;
+#else
+    return tinta::postSinkInstalled();
 #endif
 }
 

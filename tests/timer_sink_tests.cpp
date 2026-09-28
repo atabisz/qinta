@@ -11,11 +11,20 @@
 // re-arm -- is asserted in tests/qt_entry_tests.cpp, which has a window and an event loop.
 // This file asserts only that each request reaches the sink with its id and interval
 // intact, and that nothing installed is a safe no-op.
+//
+// AND include/post_sink.h, the window sink postWindowMessage reaches, asserted here rather
+// than in a binary of its own because it is the same instrument over the same shape -- a
+// new target would move the README's test-target bases for one header. Its one property
+// the timer sink lacks is asserted too: a post from a SECOND thread arrives intact, which
+// is the only way the two portable senders ever post.
 
 #include "win32_api.h"
+#include "post_sink.h"
 #include "timer_sink.h"
 
+#include <cstdint>
 #include <cstdio>
+#include <thread>
 #include <vector>
 
 static int failures = 0;
@@ -97,6 +106,50 @@ int main() {
     const size_t before = log.size();
     tinta::deliverTimerArm(5, 80);
     check(log.size() == before, "and a cleared sink receives nothing");
+
+    // --- The post sink ----------------------------------------------------------
+    struct Posted {
+        unsigned message;
+        std::uintptr_t wParam;
+        std::intptr_t lParam;
+        std::thread::id thread;
+    };
+    std::vector<Posted> posted;
+    check(!tinta::postSinkInstalled(), "no post sink is installed at startup");
+    check(!tinta::deliverPostedMessage(7, 1, 2),
+          "and a post with none is REFUSED, so an owning sender keeps its delete");
+    // Only message 7 is taken, as the Qt window takes only the two it has handlers for.
+    tinta::setPostSink([&posted](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
+        if (message != 7) return false;
+        posted.push_back({message, wParam, lParam, std::this_thread::get_id()});
+        return true;
+    });
+    check(tinta::postSinkInstalled(), "setPostSink installs it");
+    check(tinta::deliverPostedMessage(7, 11, 22) && posted.size() == 1 &&
+              posted[0].wParam == 11 && posted[0].lParam == 22,
+          "an accepted post arrives with both parameters intact");
+    check(!tinta::deliverPostedMessage(8, 1, 2) && posted.size() == 1,
+          "a message the sink does not take is refused and never recorded");
+    bool fromThread = false;
+    std::thread worker([&fromThread]() { fromThread = tinta::deliverPostedMessage(7, 33, -44); });
+    worker.join();
+    check(fromThread && posted.size() == 2 && posted[1].lParam == -44 &&
+              posted[1].thread != std::this_thread::get_id(),
+          "a post from a second thread is accepted, runs on that thread, lParam's sign intact");
+#ifndef _WIN32
+    // The seam itself, off Windows only for the reason this file's header gives SetTimer:
+    // PostMessageW(NULL, ...) does not fail, it posts a thread message nobody reads.
+    check(canPostWindowMessage(nullptr) && postWindowMessage(nullptr, 7, 55, 66) &&
+              posted.size() == 3 && posted[2].wParam == 55,
+          "postWindowMessage's off-Win32 arm reaches the installed post sink");
+#endif
+    tinta::clearPostSink();
+    check(!tinta::postSinkInstalled() && !tinta::deliverPostedMessage(7, 1, 2),
+          "clearPostSink empties the slot and a post is refused again");
+#ifndef _WIN32
+    check(!canPostWindowMessage(nullptr) && !postWindowMessage(nullptr, 7, 1, 2),
+          "and the seam answers false with it cleared -- the no-window answer from before");
+#endif
 
     std::printf("timer_sink checks=%d failures=%d\n", checks, failures);
     return failures == 0 ? 0 : 1;

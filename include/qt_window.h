@@ -100,6 +100,10 @@
 // (include/timer_sink.h), one QTimer per id, and each tick runs src/input.cpp's
 // handleTimer -- the dispatch WM_TIMER runs on Windows.
 //
+// AND THE POSTED MESSAGES, as of slice 8: the post sink (include/post_sink.h) queues
+// WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH from their worker threads onto this widget,
+// where input.cpp's handlePostedMessage runs the handlers WinMain's window procedure calls.
+//
 // SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: each sink slot holds
 // one window's closures, so a second QtAppWindow would displace the first's and the first
 // window would stop repainting and stop answering F11. src/main_qt.cpp refuses --new and --tabbed today, which is what
@@ -126,7 +130,7 @@ public:
     // test's, and it is the same contract QtRenderTarget has with its paint device.
     explicit QtAppWindow(App& app, QWidget* parent = nullptr);
 
-    // DECLARED ONLY TO UNREGISTER THE SINKS (repaint, window, timer), the only things this class owns that
+    // DECLARED ONLY TO UNREGISTER THE SINKS (repaint, window, timer, post), the only things this class owns that
     // outlive it. The constructor installs closures capturing `this`, so a repaint or zen
     // request arriving after destruction would call into freed memory -- and the call
     // sites that make such requests are in files that know nothing about this window's

@@ -207,7 +207,8 @@ struct POINT {
 // WM_CLOSE is the one SDK message id the tree names as a LITERAL rather than
 // deriving, and it arrives here for the same reason WM_APP did: four sites post it
 // -- editor.cpp, input.cpp and tabs.cpp x2 -- all four through
-// win32_api.h::postWindowMessage, whose off-Windows arm returns false. So the
+// win32_api.h::postWindowMessage, whose off-Windows arm returns false for it (the Qt
+// window's post sink takes only the image and folder-search messages). So the
 // constant has to COMPILE off Windows even though nothing will ever deliver it.
 //
 // That is the whole of its off-Windows meaning, and it is worth being blunt about:
@@ -221,7 +222,7 @@ struct POINT {
 // WM_SETTINGCHANGE arrives for the third time on the same argument, and the two sites are the same
 // shape as WM_CLOSE's four: src/input.cpp posts it to itself after changing which theme index the
 // system-theme follower should snap to, both times through win32_api.h::postWindowMessage, whose
-// off-Windows arm returns false. So this number never delivers anything here either.
+// off-Windows arm returns false for it. So this number never delivers anything here either.
 //
 // The value is 0x001A and the Windows branch above static_asserts it against the real SDK rather
 // than trusting this line -- which is the only reason a literal message id is allowed in this file.

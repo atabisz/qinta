@@ -119,6 +119,7 @@
 #include "document.h"
 #include "file_utils.h"
 #include "geometry.h"
+#include "signals.h"
 #include "math_render.h"
 // For ensureDashedStrokeStyle, which run 18 calls directly. This target already LINKED
 // src/paint_document.cpp before this include existed -- the file is in QINTA_APP_SOURCES
@@ -960,6 +961,56 @@ int main(int argc, char** argv) {
     app.zoomFactor = zoomBefore;
     updateTextFormats(app);
     app.layoutDirty = true;
+
+    // THE TWO POLICY TIMERS THAT WERE GUARDED OUT (slice 7). app.h's updateBlinkTimer,
+    // resetCursorBlink and startNotificationTimer said `if (app.hwnd)`, which is null for the
+    // whole of a qinta run, so the arm never happened and the sink above never saw it. They
+    // ask canArmTimer now. Each check reads the WINDOW's timer, not only the App flag the
+    // handler writes, because a flag left at its default would pass "cleared" on its own.
+    {
+        const bool searchBefore = app.showSearch, activeBefore = app.searchActive;
+        app.showSearch = true;
+        app.searchActive = true;
+        updateBlinkTimer(app);
+        const bool blinkArmed = window.timerActive(TIMER_CURSOR_BLINK);
+        const bool blinkStart = app.cursorBlinkOn;
+        {
+            // 650 ms: one 500 ms tick and not two, so the phase has a single right answer.
+            QEventLoop loop;
+            QTimer::singleShot(650, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
+        const bool blinkAfter = app.cursorBlinkOn;
+        app.showSearch = searchBefore;
+        app.searchActive = activeBefore;
+        updateBlinkTimer(app);
+        std::printf("cursor_blink armed=%d start=%d after_tick=%d disarmed=%d on=%d\n",
+                    blinkArmed ? 1 : 0, blinkStart ? 1 : 0, blinkAfter ? 1 : 0,
+                    window.timerActive(TIMER_CURSOR_BLINK) ? 0 : 1, app.cursorBlinkOn ? 1 : 0);
+        check(blinkArmed && blinkStart,
+              "an active search arms TIMER_CURSOR_BLINK on the window with the cursor shown");
+        check(!blinkAfter,
+              "one 500 ms tick later the cursor is hidden -- handleTimer's blink branch ran");
+        check(!window.timerActive(TIMER_CURSOR_BLINK) && app.cursorBlinkOn,
+              "leaving search disarms the blink and leaves the cursor shown");
+
+        signalPush(app, SIG_INFO, SIGI_INFO, L"timer probe");
+        const bool chipArmed = window.timerActive(TIMER_NOTIFICATION);
+        // Pinned, so signalsNeedTicks is false and the handler's first tick has nothing to
+        // animate: the branch that disarms is the one under test.
+        app.signalChips.back().pinned = true;
+        {
+            QEventLoop loop;
+            QTimer::singleShot(150, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
+        std::printf("notification armed=%d after_tick_active=%d\n", chipArmed ? 1 : 0,
+                    window.timerActive(TIMER_NOTIFICATION) ? 1 : 0);
+        check(chipArmed, "signalPush arms TIMER_NOTIFICATION on the window");
+        check(!window.timerActive(TIMER_NOTIFICATION),
+              "with nothing left to animate, the first tick disarms it -- the handler's own exit");
+        app.signalChips.clear();
+    }
 
     // The zoom half of this check is what makes it a reading of the modifier scope. Without
     // the scope, the wheel reads Qt's cache, which still holds the Ctrl the Ctrl+J above left

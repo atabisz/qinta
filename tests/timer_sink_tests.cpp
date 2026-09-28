@@ -79,6 +79,17 @@ int main() {
     check(log.size() == 2 && log[0].op == 'a' && log[0].id == 8 && log[0].intervalMs == 16 &&
               log[1].op == 'd' && log[1].id == 8,
           "armTimer(nullptr, 8, 16) and disarmTimer(nullptr, 8) reach the sink off Win32");
+
+    // canArmTimer, the guard app.h's blink and notification helpers ask. Off Win32 it
+    // follows the SINK, never the handle: a null HWND is the only one qinta has, so a
+    // guard on the handle is the `if (app.hwnd)` that kept both timers dead.
+    check(canArmTimer(nullptr), "canArmTimer(nullptr) is true while a sink is installed");
+    tinta::clearTimerSink();
+    check(!canArmTimer(nullptr), "and false once the sink is cleared");
+    tinta::TimerSink again;
+    again.arm = [&log](unsigned id, unsigned ms) { log.push_back({'a', id, ms}); };
+    again.disarm = [&log](unsigned id) { log.push_back({'d', id, 0}); };
+    tinta::setTimerSink(std::move(again));
 #endif
 
     tinta::clearTimerSink();

@@ -144,6 +144,12 @@ void performSearch(App& app) {
 
     // Folder-wide results follow the query, debounced on a timer so fast
     // typing doesn't spawn a scan per keystroke
+    //
+    // STILL app.hwnd, deliberately, while the cursor-blink and notification arms in app.h
+    // moved to canArmTimer: the scan this timer starts returns its results through a posted
+    // WM_APP_FOLDER_SEARCH, and postWindowMessage returns false off the Win32 stack. Lifting
+    // this guard alone would start a scan thread whose results are deleted unread. It waits
+    // for a posted-message sink.
     if (!app.editMode && app.folderSearchEnabled && app.hwnd) {
         if (app.searchQuery.empty()) {
             clearFolderSearch(app);

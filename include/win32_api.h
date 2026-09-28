@@ -151,6 +151,23 @@ inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
 #endif
 }
 
+// Whether a timer armed now would reach something. The guard the policy helpers in
+// app.h need, which used to be spelled `if (app.hwnd)` and so was false for the whole of
+// a qinta run -- the cursor never blinked and a notification chip never drained.
+//
+// On the Win32 stack it is STILL the window handle, and that is not a formality:
+// SetTimer(NULL, id, ...) does not fail, it makes a THREAD timer with a system-chosen id,
+// so arming before WinMain has a window would leak a timer WM_TIMER never sees under the
+// id it was armed with. Off that stack the question is whether a sink is installed,
+// which the Qt window's constructor does.
+inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
+    return hwnd != nullptr;
+#else
+    return tinta::timerSinkInstalled();
+#endif
+}
+
 // --- Posted messages ----------------------------------------------------------
 //
 // Post a message to a window's queue and return whether it was accepted. 19 sites

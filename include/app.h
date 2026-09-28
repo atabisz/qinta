@@ -2093,8 +2093,11 @@ inline float documentViewportWidth(const App& app) {
 
 // Cursor blink runs on a timer instead of per-frame InvalidateRect so the
 // app is fully idle between blinks. Call after editMode/search state changes.
+//
+// Guarded on canArmTimer rather than app.hwnd, which is null for the whole of a qinta run
+// (include/win32_api.h has why the Win32 arm still needs the handle).
 inline void updateBlinkTimer(App& app) {
-    if (!app.hwnd) return;
+    if (!canArmTimer(app.hwnd)) return;
     if (app.editMode || (app.showSearch && app.searchActive) ||
         (app.showFolderBrowser &&
          (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
@@ -2109,13 +2112,13 @@ inline void updateBlinkTimer(App& app) {
 // Restart the blink phase so the cursor stays visible while typing
 inline void resetCursorBlink(App& app) {
     app.cursorBlinkOn = true;
-    if (app.hwnd) armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
+    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
 }
 
 // Notification fades repaint on this timer; the WM_TIMER handler kills it
 // once no notification is active.
 inline void startNotificationTimer(App& app) {
-    if (app.hwnd) armTimer(app.hwnd, TIMER_NOTIFICATION, 33);
+    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_NOTIFICATION, 33);
 }
 
 #endif // TINTA_APP_H

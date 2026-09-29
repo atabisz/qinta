@@ -90,9 +90,11 @@
 #include <QDir>
 #include <QEventLoop>
 #include <QFontDatabase>
+#include <QGuiApplication>
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
+#include <QPalette>
 #include <QPixmap>
 #include <QPoint>
 #include <QPointF>
@@ -100,6 +102,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QStyleHints>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QWheelEvent>
@@ -2866,14 +2869,16 @@ int main(int argc, char** argv) {
         for (int i = 1; i < themeCount() && lightIndex < 0; ++i) {
             if (!themeAt(i).isDark) lightIndex = i;
         }
+        // Follow-system stays OFF here, so the saved index is what starts; the follow-on start
+        // is slice 12's block below.
         App themeApp;
         Settings themed;
         themed.themeIndex = lightIndex;
-        themed.followSystemTheme = !themeApp.followSystemTheme;
+        themed.followSystemTheme = false;
         themed.lightThemeIndex = themeApp.lightThemeIndex + 1;
         themed.darkThemeIndex = themeApp.darkThemeIndex + 2;
         const bool darkBefore = themeApp.darkMode;
-        tinta::applySavedTheme(themeApp, themed);
+        tinta::applySavedTheme(themeApp, themed, true);
         const bool mapped = lightIndex > 0 && themeApp.currentThemeIndex == lightIndex &&
                             themeApp.theme.name == themeAt(lightIndex).name &&
                             !themeApp.darkMode && darkBefore &&
@@ -2881,11 +2886,11 @@ int main(int argc, char** argv) {
                             themeApp.lightThemeIndex == themed.lightThemeIndex &&
                             themeApp.darkThemeIndex == themed.darkThemeIndex;
         themed.themeIndex = themeCount();
-        tinta::applySavedTheme(themeApp, themed);
+        tinta::applySavedTheme(themeApp, themed, true);
         const bool clampHigh = themeApp.currentThemeIndex == 0;
         themeApp.currentThemeIndex = lightIndex;
         themed.themeIndex = -1;
-        tinta::applySavedTheme(themeApp, themed);
+        tinta::applySavedTheme(themeApp, themed, true);
         const bool clampLow = themeApp.currentThemeIndex == 0 &&
                               themeApp.theme.name == themeAt(0).name;
 
@@ -2984,6 +2989,178 @@ int main(int argc, char** argv) {
         app.activeTab = activeBefore;
         if (addedTab) app.tabs.clear();
         QApplication::setQuitOnLastWindowClosed(quitBefore);
+    }
+
+    // FOLLOW-SYSTEM (slice 12). qinta loaded followSystemTheme and never acted on it: a
+    // follow-on start drew the saved index, and the two in-app toggles post WM_SETTINGCHANGE
+    // "ImmersiveColorSet", which the post sink refused. The switch is theme_apply.h's one body,
+    // shared with WinMain; the reading is qt_launch's systemPrefersLight.
+    {
+        // A light and a dark theme past slot 0, and slot 0 (Paper, light) as a third index
+        // neither of them is, so a switch cannot be mistaken for staying put.
+        int lightIdx = -1;
+        int darkIdx = -1;
+        for (int i = 1; i < themeCount(); ++i) {
+            if (!themeAt(i).isDark && lightIdx < 0) lightIdx = i;
+            if (themeAt(i).isDark && darkIdx < 0) darkIdx = i;
+        }
+        const int otherIdx = 0;
+
+        // The start: with follow on, the reading picks, not the saved index.
+        App startApp;
+        Settings follow;
+        follow.followSystemTheme = true;
+        follow.themeIndex = otherIdx;
+        follow.lightThemeIndex = lightIdx;
+        follow.darkThemeIndex = darkIdx;
+        tinta::applySavedTheme(startApp, follow, true);
+        const bool startLight = startApp.followSystemTheme &&
+                                startApp.currentThemeIndex == lightIdx && !startApp.darkMode;
+        tinta::applySavedTheme(startApp, follow, false);
+        const bool startDark = startApp.currentThemeIndex == darkIdx && startApp.darkMode;
+        follow.darkThemeIndex = themeCount();
+        tinta::applySavedTheme(startApp, follow, false);
+        const bool startClamped = startApp.currentThemeIndex == 0;
+
+        const int themeBefore = app.currentThemeIndex;
+        const bool followBefore = app.followSystemTheme;
+        const int lightBefore = app.lightThemeIndex;
+        const int darkIndexBefore = app.darkThemeIndex;
+        app.lightThemeIndex = lightIdx;
+        app.darkThemeIndex = darkIdx;
+        const bool picks = followThemeIndex(app, true) == lightIdx &&
+                           followThemeIndex(app, false) == darkIdx;
+
+        // Follow off: nothing moves and nothing is written.
+        Settings seed;
+        seed.themeIndex = otherIdx;
+        saveSettings(seed);
+        app.followSystemTheme = false;
+        app.currentThemeIndex = otherIdx;
+        const bool offSwitched = followSystemAppearance(app, false);
+        const bool offInert = !offSwitched && app.currentThemeIndex == otherIdx &&
+                              loadSettings().themeIndex == otherIdx;
+
+        // Follow on, already showing the wanted theme: no switch.
+        app.followSystemTheme = true;
+        applyTheme(app, darkIdx);
+        const bool sameSwitched = followSystemAppearance(app, false);
+        const bool sameInert = !sameSwitched && app.currentThemeIndex == darkIdx &&
+                               loadSettings().themeIndex == otherIdx;
+
+        // Follow on, a different reading: switch, and persist through the pinned file.
+        const bool switched = followSystemAppearance(app, true);
+        const Settings afterSwitch = loadSettings();
+        const bool persisted = switched && app.currentThemeIndex == lightIdx && !app.darkMode &&
+                               afterSwitch.themeIndex == lightIdx &&
+                               afterSwitch.followSystemTheme &&
+                               afterSwitch.lightThemeIndex == lightIdx &&
+                               afterSwitch.darkThemeIndex == darkIdx;
+
+        // The in-app toggle's post, through a real window's post sink: accepted, queued, then
+        // answered with this arm's own reading. A different settings area is left alone.
+        bool posted = false;
+        bool queued = false;
+        bool applied = false;
+        bool otherAreaIgnored = false;
+        const bool reading = tinta::systemPrefersLight();
+        {
+            QtAppWindow followWindow(app);
+            followWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+            followWindow.resize(800, 600);
+            applyTheme(app, otherIdx);
+            posted = postWindowMessage(nullptr, WM_SETTINGCHANGE, 0,
+                                       reinterpret_cast<LPARAM>(L"ImmersiveColorSet"));
+            queued = app.currentThemeIndex == otherIdx;
+            QApplication::processEvents();
+            applied = app.currentThemeIndex == (reading ? lightIdx : darkIdx) &&
+                      loadSettings().themeIndex == app.currentThemeIndex;
+            applyTheme(app, otherIdx);
+            postWindowMessage(nullptr, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(L"Policy"));
+            QApplication::processEvents();
+            otherAreaIgnored = app.currentThemeIndex == otherIdx;
+        }
+
+        std::printf("follow_system light=%d dark=%d start_light=%d start_dark=%d "
+                    "start_clamped=%d picks=%d off_inert=%d same_inert=%d persisted=%d "
+                    "posted=%d queued=%d reading=%d applied=%d other_area=%d\n",
+                    lightIdx, darkIdx, startLight, startDark, startClamped, picks, offInert,
+                    sameInert, persisted, posted, queued, reading, applied, otherAreaIgnored);
+        check(lightIdx > 0 && darkIdx > 0, "the registry has a light and a dark theme past slot 0");
+        check(startLight && startDark,
+              "a follow-on start draws the theme the reading picks, not the saved index");
+        check(startClamped, "and an out-of-range picked index still starts on slot 0");
+        check(picks, "followThemeIndex picks the saved light or dark preference");
+        check(offInert, "follow off: the system reading switches nothing and writes nothing");
+        check(sameInert, "follow on, wanted theme already showing: no switch, no write");
+        check(persisted, "follow on, a new reading: switch, and persist the choice");
+        check(posted && queued,
+              "the post sink takes WM_SETTINGCHANGE and queues it rather than switching mid-sender");
+        check(applied, "and applies ImmersiveColorSet with this arm's own reading");
+        check(otherAreaIgnored, "a WM_SETTINGCHANGE for another area switches nothing");
+
+        // THE READING ITSELF. Below 6.5 it is the palette, which a test can set. On 6.5+ it is
+        // colorScheme, which a test can only REQUEST (setColorScheme, 6.8); a platform that does
+        // not honour the request is printed as a skip, never counted as a pass.
+#if QT_VERSION < QT_VERSION_CHECK(6, 5, 0)
+        {
+            const QPalette paletteBefore = QGuiApplication::palette();
+            QPalette darkPalette = paletteBefore;
+            darkPalette.setColor(QPalette::Window, QColor(30, 30, 30));
+            QApplication::setPalette(darkPalette);
+            const bool readsDark = !tinta::systemPrefersLight();
+            QPalette lightPalette = paletteBefore;
+            lightPalette.setColor(QPalette::Window, QColor(240, 240, 240));
+            QApplication::setPalette(lightPalette);
+            const bool readsLight = tinta::systemPrefersLight();
+            QApplication::setPalette(paletteBefore);
+            std::printf("follow_reading palette dark=%d light=%d\n", readsDark, readsLight);
+            check(readsDark && readsLight,
+                  "below Qt 6.5 the reading follows the palette's window lightness");
+        }
+#elif QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+        {
+            QStyleHints* hints = QGuiApplication::styleHints();
+            QtAppWindow schemeWindow(app);
+            schemeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+            // Light first, so the Dark request below is a CHANGE whatever the system shows --
+            // colorSchemeChanged does not fire for a request that matches the current scheme.
+            hints->setColorScheme(Qt::ColorScheme::Light);
+            QApplication::processEvents();
+            applyTheme(app, otherIdx);
+            hints->setColorScheme(Qt::ColorScheme::Dark);
+            QApplication::processEvents();
+            const bool honoured = hints->colorScheme() == Qt::ColorScheme::Dark;
+            const bool readsDark = !tinta::systemPrefersLight();
+            const bool signalled = app.currentThemeIndex == darkIdx;
+            hints->setColorScheme(Qt::ColorScheme::Light);
+            QApplication::processEvents();
+            const bool honouredLight = hints->colorScheme() == Qt::ColorScheme::Light;
+            const bool readsLight = tinta::systemPrefersLight();
+            const bool signalledLight = app.currentThemeIndex == lightIdx;
+            hints->unsetColorScheme();
+            QApplication::processEvents();
+            if (honoured && honouredLight) {
+                std::printf("follow_reading scheme dark=%d light=%d signal_dark=%d "
+                            "signal_light=%d\n",
+                            readsDark, readsLight, signalled, signalledLight);
+                check(readsDark && readsLight, "on Qt 6.5+ the reading is colorScheme");
+                check(signalled && signalledLight,
+                      "and colorSchemeChanged switches a follow-on window");
+            } else {
+                std::printf("follow_reading SKIP: this platform did not honour setColorScheme "
+                            "(dark=%d light=%d)\n",
+                            honoured, honouredLight);
+            }
+        }
+#else
+        std::printf("follow_reading SKIP: Qt 6.5-6.7 has colorScheme but no setColorScheme\n");
+#endif
+
+        app.followSystemTheme = followBefore;
+        app.lightThemeIndex = lightBefore;
+        app.darkThemeIndex = darkIndexBefore;
+        applyTheme(app, themeBefore);
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

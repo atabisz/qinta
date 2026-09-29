@@ -4507,12 +4507,13 @@ bool windowCloseMayProceed(App& app, HWND hwnd) {
     return true;
 }
 
-// WM_CLOSE is the one here that no worker sends: its senders run on the window's thread,
-// and it is taken so the post sink can queue the Qt window's close() behind them, as
-// PostMessageW queues it for WinMain. Qt answers it in the window, not here.
+// WM_CLOSE and WM_SETTINGCHANGE are the two here that no worker sends: their senders run on
+// the window's thread, and they are taken so the post sink can queue the Qt window's answer
+// behind them, as PostMessageW queues them for WinMain. Qt answers both in the window, not
+// here -- close(), and the follow-system switch with this arm's own appearance reading.
 bool handlesPostedMessage(unsigned message) {
     return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH ||
-           message == WM_CLOSE;
+           message == WM_CLOSE || message == WM_SETTINGCHANGE;
 }
 
 void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM lParam) {

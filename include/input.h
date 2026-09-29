@@ -77,8 +77,8 @@ void handleTimer(App& app, HWND hwnd, unsigned id);
 // (or, with the dialog open, marked the close as pending behind it).
 bool windowCloseMayProceed(App& app, HWND hwnd);
 // The posted messages the Qt window's post sink (include/post_sink.h) takes: the two whose
-// senders are portable worker threads, WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH, and
-// WM_CLOSE, which the window answers with its own close() rather than through here.
+// senders are portable worker threads, WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH, plus
+// WM_CLOSE and WM_SETTINGCHANGE, which the window answers itself rather than through here.
 // handlesPostedMessage runs on the POSTING thread, so it reads nothing but its argument;
 // handlePostedMessage runs on the window's thread and takes ownership of lParam, as the
 // window procedure's two cases do. WinMain keeps its own cases and does not call these.

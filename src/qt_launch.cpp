@@ -2,12 +2,15 @@
 
 #include <QGuiApplication>
 #include <QList>
+#include <QPalette>
 #include <QRect>
 #include <QScreen>
+#include <QStyleHints>
 #include <QWidget>
 
 #include "app.h"
 #include "settings.h"
+#include "theme_apply.h"
 #include "theme_data.h"
 
 namespace tinta {
@@ -57,13 +60,23 @@ void applyLightMode(App& app) {
     app.darkMode = app.theme.isDark;
 }
 
-void applySavedTheme(App& app, const Settings& settings) {
+bool systemPrefersLight() {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    // Unknown counts as light, as WinMain's registry read does when the value is missing.
+    return QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Dark;
+#else
+    return QGuiApplication::palette().color(QPalette::Window).lightness() >= 128;
+#endif
+}
+
+void applySavedTheme(App& app, const Settings& settings, bool systemPrefersLight) {
     app.followSystemTheme = settings.followSystemTheme;
     app.lightThemeIndex = settings.lightThemeIndex;
     app.darkThemeIndex = settings.darkThemeIndex;
     // WinMain checks only the top end; a negative index from a hand-edited file would be kept
     // there as currentThemeIndex while themeAt drew slot 0, so the two would disagree.
-    int start = settings.themeIndex;
+    int start = settings.followSystemTheme ? followThemeIndex(app, systemPrefersLight)
+                                           : settings.themeIndex;
     if (start < 0 || start >= themeCount()) start = 0;
     app.currentThemeIndex = start;
     app.theme = themeAt(start);

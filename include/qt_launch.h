@@ -91,9 +91,15 @@ void applyLightMode(App& app);
 // persistThemeChoice and the close save both read-modify-write these four, so an arm that
 // wrote them without loading them put App's defaults over the user's saved light/dark pair --
 // on Windows in the settings.ini tinta itself reads. The start index is WinMain's rule: an
-// index past the registry (a deleted custom theme) falls back to slot 0. Follow-system starts
-// on the saved index until this arm has a system appearance reading of its own.
-void applySavedTheme(App& app, const Settings& settings);
+// index past the registry (a deleted custom theme) falls back to slot 0. With follow-system on
+// the start index is the one `systemPrefersLight` picks, as WinMain's autoThemeIndex does.
+void applySavedTheme(App& app, const Settings& settings, bool systemPrefersLight);
+
+// This arm's reading of the system appearance, WinMain's AppsUseLightTheme counterpart. On Qt
+// 6.5+ it is QStyleHints::colorScheme, and Unknown reads as light the way a missing registry
+// value does. Below 6.5 there is no such property, so it is the palette's window lightness --
+// a reading of what the platform theme drew, taken when asked, with no change notification.
+bool systemPrefersLight();
 
 // show(), or showMaximized() when the saved window was maximized -- windowMaximized is one of
 // the fields the close save writes, so it is loaded for the same reason as the theme.

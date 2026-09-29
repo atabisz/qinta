@@ -3,7 +3,7 @@
 // It holds main() and nothing else. Everything it does is one call into
 // src/qt_init.cpp or one construction of the window in src/qt_window.cpp, which is
 // deliberate and is the opposite of how the Direct2D side grew: src/main_d2d.cpp is
-// 2,000+ lines because WinMain, the window procedure, the paint path and the command
+// nearly 2,000 lines because WinMain, the window procedure, the paint path and the command
 // line all ended up in one file, and that is a large part of why nothing in the tree
 // can test a tinta window. A main() with no logic in it has nothing to test, which is
 // the point -- the logic is next door where a test can reach it.
@@ -18,7 +18,9 @@
 //     keyProfile/keyOverrides feed the keymap handleKeyDown translates through; and
 //     themeIndex, followSystemTheme, lightThemeIndex and darkThemeIndex, because the theme
 //     picker and the close save read-modify-write them -- a field this arm writes and never
-//     loaded went back to settings.ini as App's default. The close save (qt_launch.h) writes
+//     loaded went back to settings.ini as App's default. followSystemTheme is also acted on
+//     now: it starts the theme the system reading picks, and the window follows changes to
+//     that reading (slice 12). The close save (qt_launch.h) writes
 //     only the theme and geometry fields. Loading all thirty would set state nothing reads,
 //     which is the thing the old bullet was right about.
 //   * loadCustomThemes() now runs, as it does in WinMain, because the saved theme index can
@@ -221,8 +223,8 @@ int main(int argc, char** argv) {
 
     // THE SAVED THEME, LOADED BECAUSE THIS ARM WRITES IT -- the theme picker and the close save
     // both read-modify-write the four theme fields, so skipping the load wrote defaults over
-    // them. See qt_launch.h.
-    tinta::applySavedTheme(app, saved);
+    // them. With follow-system on the start theme is the system's pick instead. See qt_launch.h.
+    tinta::applySavedTheme(app, saved, tinta::systemPrefersLight());
 
     // --light: the one appearance flag that needs nothing Windows-only. The three fields it
     // moves live in src/qt_launch.cpp rather than here, so tests/qt_entry_tests.cpp can grab a

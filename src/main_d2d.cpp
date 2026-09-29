@@ -97,9 +97,9 @@ static bool systemPrefersLight() {
     return value != 0;
 }
 
-// The theme the auto mode wants right now
+// The theme the auto mode wants right now -- the choice is theme_apply.h's, shared with qinta
 static int autoThemeIndex(const App& app) {
-    return systemPrefersLight() ? app.lightThemeIndex : app.darkThemeIndex;
+    return followThemeIndex(app, systemPrefersLight());
 }
 
 // Forward declarations
@@ -1012,13 +1012,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
         case WM_SETTINGCHANGE:
             // Windows switched light/dark mode
-            if (app && app->followSystemTheme && lParam &&
-                wcscmp((const wchar_t*)lParam, L"ImmersiveColorSet") == 0) {
-                int want = autoThemeIndex(*app);
-                if (want != app->currentThemeIndex) {
-                    applyTheme(*app, want);
-                    persistThemeChoice(*app);
-                }
+            if (app && lParam && wcscmp((const wchar_t*)lParam, L"ImmersiveColorSet") == 0) {
+                followSystemAppearance(*app, systemPrefersLight());
             }
             return 0;
 

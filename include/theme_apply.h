@@ -18,6 +18,16 @@
 void applyTheme(App& app, int themeIndex);
 void updateTextFormats(App& app);
 
+// FOLLOW-SYSTEM MODE, with the system's light/dark reading passed IN. Each stack reads it its
+// own way -- WinMain the AppsUseLightTheme registry value, the Qt arm QStyleHints (qt_launch.h)
+// -- and what to do with the reading is this one body, so the two cannot disagree about it.
+//
+// The theme follow mode wants for that reading: the saved light or dark preference.
+int followThemeIndex(const App& app, bool systemPrefersLight);
+// WM_SETTINGCHANGE "ImmersiveColorSet": with follow on and the wanted theme not already
+// showing, switch to it and persist the choice. Returns whether it switched.
+bool followSystemAppearance(App& app, bool systemPrefersLight);
+
 // THE THREE BACKEND HOOKS. One definition per stack: the Windows arms are in src/d2d_init.cpp,
 // beside the DirectWrite factory and the HWND they need, and the Qt arms are in
 // src/theme_qt.cpp. The two files are never linked into the same binary.

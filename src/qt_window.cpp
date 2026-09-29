@@ -3,16 +3,19 @@
 #include <QCloseEvent>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
+#include <QGuiApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QString>
+#include <QStyleHints>
 #include <QTimer>
 #include <QWheelEvent>
 
 #include <cstddef>
 #include <cstdint>
+#include <cwchar>
 #include <memory>
 #include <optional>
 
@@ -34,6 +37,7 @@
 #include "scrollbar.h"
 #include "text_api.h"
 #include "text_utils.h"
+#include "theme_apply.h"
 #include "timer_sink.h"
 #include "win32_api.h"  // CursorShape's definition; window_sink.h only declares it
 #include "window_sink.h"
@@ -187,6 +191,9 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // WM_CLOSE is queued like the others -- its senders are mid-handler, and closing under
     // them is what the queue exists to prevent -- but it is answered by close(), which
     // runs closeEvent and so the same unsaved-buffer check WinMain's WM_CLOSE runs.
+    //
+    // WM_SETTINGCHANGE is the follow-system toggle posting to itself, with a string literal
+    // for lParam, so there is nothing to own. It takes WinMain's case with this arm's reading.
     tinta::setPostSink([this](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
         if (!handlesPostedMessage(message)) return false;
         return QMetaObject::invokeMethod(
@@ -196,6 +203,14 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
                     close();
                     return;
                 }
+                if (message == WM_SETTINGCHANGE) {
+                    const auto* area = reinterpret_cast<const wchar_t*>(lParam);
+                    if (area && std::wcscmp(area, L"ImmersiveColorSet") == 0 &&
+                        followSystemAppearance(app_, tinta::systemPrefersLight())) {
+                        update();
+                    }
+                    return;
+                }
                 syncViewport();
                 handlePostedMessage(app_, message, static_cast<WPARAM>(wParam),
                                     static_cast<LPARAM>(lParam));
@@ -203,6 +218,18 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
             },
             Qt::QueuedConnection);
     });
+
+    // The system's own appearance change, WinMain's WM_SETTINGCHANGE from outside. Qt 6.5
+    // added the signal; below it there is none, so a follow-on window there changes only when
+    // the toggle is used or the app starts.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+    QObject::connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
+                     [this](Qt::ColorScheme scheme) {
+                         if (followSystemAppearance(app_, scheme != Qt::ColorScheme::Dark)) {
+                             update();
+                         }
+                     });
+#endif
 }
 
 QtAppWindow::~QtAppWindow() {

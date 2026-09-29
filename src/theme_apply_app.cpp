@@ -3,6 +3,7 @@
 #include <cwchar>
 
 #include "math_render.h"
+#include "settings.h"
 #include "text_formats.h"
 #include "theme_data.h"
 #include "win32_api.h"
@@ -48,6 +49,19 @@ void applyTheme(App& app, int themeIndex) {
     if (canRepaint(app.hwnd)) {
         requestRepaint(app.hwnd);
     }
+}
+
+int followThemeIndex(const App& app, bool systemPrefersLight) {
+    return systemPrefersLight ? app.lightThemeIndex : app.darkThemeIndex;
+}
+
+bool followSystemAppearance(App& app, bool systemPrefersLight) {
+    if (!app.followSystemTheme) return false;
+    const int want = followThemeIndex(app, systemPrefersLight);
+    if (want == app.currentThemeIndex) return false;
+    applyTheme(app, want);
+    persistThemeChoice(app);
+    return true;
 }
 
 void updateTextFormats(App& app) {

@@ -220,10 +220,10 @@ inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
 //
 // THAT FALSE IS NOW THE NO-SINK ANSWER, NOT THE ONLY ANSWER. Off the Win32 stack the
 // post goes to include/post_sink.h, which the Qt window fills with a closure that takes
-// WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH and queues them onto its own thread. Every
-// other message still gets false from that closure, so the argument above holds unchanged
-// for them: the three owning callers keep their `delete`, and nothing is accepted that has
-// no handler. With no window at all -- a test binary, a console build -- the answer is
+// WM_APP_IMAGE_READY, WM_APP_FOLDER_SEARCH, WM_CLOSE and WM_SETTINGCHANGE and queues them
+// onto its own thread. Every other message still gets false from that closure, so the
+// argument above holds unchanged for them: the three owning callers keep their `delete`,
+// and nothing is accepted that has no handler. With no window at all -- a test binary, a console build -- the answer is
 // false exactly as before.
 inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPARAM wParam,
                               LPARAM lParam) {

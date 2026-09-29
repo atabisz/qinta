@@ -103,6 +103,9 @@
 // AND THE POSTED MESSAGES, as of slice 8: the post sink (include/post_sink.h) queues
 // WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH from their worker threads onto this widget,
 // where input.cpp's handlePostedMessage runs the handlers WinMain's window procedure calls.
+// It also queues WM_CLOSE (slice 10) and WM_SETTINGCHANGE (slice 12), which the window
+// answers itself: close(), and the follow-system switch with qt_launch's appearance reading.
+// On Qt 6.5+ the constructor also connects colorSchemeChanged to that same switch.
 //
 // SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: each sink slot holds
 // one window's closures, so a second QtAppWindow would displace the first's and the first

@@ -207,22 +207,20 @@ struct POINT {
 // WM_CLOSE is the one SDK message id the tree names as a LITERAL rather than
 // deriving, and it arrives here for the same reason WM_APP did: four sites post it
 // -- editor.cpp, input.cpp and tabs.cpp x2 -- all four through
-// win32_api.h::postWindowMessage, whose off-Windows arm returns false for it (the Qt
-// window's post sink takes only the image and folder-search messages). So the
-// constant has to COMPILE off Windows even though nothing will ever deliver it.
+// win32_api.h::postWindowMessage, which off Windows hands it to the Qt window's post
+// sink; that sink answers it with close() (slice 10), and with no window it returns
+// false. So the constant has to COMPILE off Windows, and it is only ever compared.
 //
-// That is the whole of its off-Windows meaning, and it is worth being blunt about:
-// this number does not close a window here. It is an argument to a call that
-// honestly fails, so the value only has to be the SDK's for a debugger and a log
-// line to read the same on both platforms -- which is exactly the WM_APP argument
-// above, and why the Windows branch static_asserts it against the real SDK rather
-// than trusting this line.
+// The value only has to be the SDK's for a debugger and a log line to read the same
+// on both platforms -- which is exactly the WM_APP argument above, and why the
+// Windows branch static_asserts it against the real SDK rather than trusting this line.
 #define WM_CLOSE 0x0010
 
 // WM_SETTINGCHANGE arrives for the third time on the same argument, and the two sites are the same
 // shape as WM_CLOSE's four: src/input.cpp posts it to itself after changing which theme index the
-// system-theme follower should snap to, both times through win32_api.h::postWindowMessage, whose
-// off-Windows arm returns false for it. So this number never delivers anything here either.
+// system-theme follower should snap to, both times through win32_api.h::postWindowMessage. The Qt
+// window's post sink answers it (slice 12); it does not come from the system here, which reaches
+// the Qt window as QStyleHints::colorSchemeChanged instead.
 //
 // The value is 0x001A and the Windows branch above static_asserts it against the real SDK rather
 // than trusting this line -- which is the only reason a literal message id is allowed in this file.

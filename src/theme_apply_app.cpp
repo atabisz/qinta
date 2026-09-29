@@ -45,7 +45,7 @@ void applyTheme(App& app, int themeIndex) {
     applyWindowChrome(app);
 
     // Force a redraw
-    if (app.hwnd) {
+    if (canRepaint(app.hwnd)) {
         requestRepaint(app.hwnd);
     }
 }

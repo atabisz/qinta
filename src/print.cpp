@@ -213,7 +213,7 @@ void leavePrintLayout(App& app, const SavedView& saved) {
     app.scrollY = saved.scrollY;
     app.targetScrollX = saved.targetScrollX;
     app.targetScrollY = saved.targetScrollY;
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 // Page break positions in document Y. Breaks avoid slicing text lines,
@@ -893,7 +893,7 @@ void printPreviewSetFormat(App& app, int paper, bool landscape) {
     app.printPreviewPaper = paper;
     app.printPreviewLandscape = landscape;
     refreshPreviewLayout(app);
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 void closePrintPreview(App& app, HWND hwnd) {
@@ -918,7 +918,7 @@ void printPreviewSetPage(App& app, int page) {
     if (page == app.printPreviewPage) return;
     app.printPreviewPage = page;
     rasterizePreviewPage(app, page);
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 void printPreviewConfirm(App& app, HWND hwnd) {

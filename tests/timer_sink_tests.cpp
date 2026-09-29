@@ -149,6 +149,14 @@ int main() {
 #ifndef _WIN32
     check(!canPostWindowMessage(nullptr) && !postWindowMessage(nullptr, 7, 1, 2),
           "and the seam answers false with it cleared -- the no-window answer from before");
+
+    // canRepaint, the guard nine repaint callers ask. Off Win32 it follows the REPAINT sink,
+    // for canArmTimer's reason above.
+    check(!canRepaint(nullptr), "canRepaint(nullptr) is false with no repaint sink");
+    tinta::setRepaintSink([]() {});
+    check(canRepaint(nullptr), "and true once a repaint sink is installed");
+    tinta::clearRepaintSink();
+    check(!canRepaint(nullptr), "and false again once it is cleared");
 #endif
 
     std::printf("timer_sink checks=%d failures=%d\n", checks, failures);

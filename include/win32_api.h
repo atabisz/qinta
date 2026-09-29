@@ -82,6 +82,22 @@ inline void requestRepaint([[maybe_unused]] HWND hwnd) {
 #endif
 }
 
+// Whether a repaint requested now would reach a window. Nine callers used to ask
+// `if (app.hwnd)`, false for the whole of a qinta run, so a chip push, a table-cell
+// keystroke or a theme switch changed App and drew nothing until something else repainted.
+//
+// On the Win32 stack it is STILL the window handle, and for the same kind of reason as
+// canArmTimer below: InvalidateRect(NULL, ...) does not fail, it invalidates EVERY window
+// on the desktop. Off that stack the question is whether the Qt window installed its
+// repaint sink.
+inline bool canRepaint([[maybe_unused]] HWND hwnd) {
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
+    return hwnd != nullptr;
+#else
+    return tinta::repaintSinkInstalled();
+#endif
+}
+
 // --- Window title -------------------------------------------------------------
 //
 // Set the window's caption text.

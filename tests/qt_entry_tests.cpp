@@ -145,6 +145,7 @@
 #include "search.h"
 #include "settings.h"
 #include "startpage.h"
+#include "tableedit.h"
 #include "text_api.h"
 // The chrome formats' own header, and the reason this file needs it now is the port: the
 // bodies run 11 asserts on moved out of src/qt_init.cpp into src/text_formats_app.cpp, so
@@ -2698,6 +2699,65 @@ int main(int argc, char** argv) {
         app.searchQuery = queryBefore;
         app.searchMatches.clear();
         std::filesystem::remove_all(postDir, dirEc);
+    }
+
+    // THE REPAINT GUARDS (slice 9). Nine callers asked `if (app.hwnd)` before requestRepaint,
+    // which is null for the whole of a qinta run, so each changed App and drew nothing until
+    // something else happened to repaint. They ask canRepaint now. Read through a COUNTING
+    // sink rather than the window's update(), because update() leaves nothing a test can
+    // count -- and exactly one per call, since each of these functions has one repaint and
+    // an extra would be a second site nobody meant. Own window for the timer sink, for the
+    // reason the post block gives.
+    {
+        QtAppWindow repaintWindow(app);
+        repaintWindow.resize(800, 600);
+        int repaints = 0;
+        tinta::setRepaintSink([&repaints]() { ++repaints; });
+
+        signalPush(app, SIG_INFO, SIGI_INFO, L"repaint probe");
+        const int afterPush = repaints;
+
+        // Hover: the chip's rect is written by paint, so it is set here instead. The timer is
+        // disarmed first so the arm read below belongs to the hover and not to the push.
+        App::SignalChip& chip = app.signalChips.back();
+        chip.rect = tinta::RectF{10.0f, 10.0f, 210.0f, 50.0f};
+        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        const int beforeHover = repaints;
+        signalMouseMove(app, 50.0f, 20.0f);
+        const int hoverRepaints = repaints - beforeHover;
+        const bool hoverArmed = repaintWindow.timerActive(TIMER_NOTIFICATION);
+        app.signalHoverChip = 0;
+        app.signalChips.clear();
+
+        const bool tableBefore = app.tableEditActive;
+        app.tableEditActive = true;
+        app.tableEditText.clear();
+        app.tableEditCaret = 0;
+        const int beforeChar = repaints;
+        tableEditChar(app, L'x');
+        const int charRepaints = repaints - beforeChar;
+        const bool charInserted = app.tableEditText == L"x";
+        app.tableEditActive = tableBefore;
+        app.tableEditText.clear();
+        app.tableEditCaret = 0;
+
+        const int themeBefore = app.currentThemeIndex;
+        const int beforeTheme = repaints;
+        applyTheme(app, (themeBefore + 1) % themeCount());
+        const int themeRepaints = repaints - beforeTheme;
+        applyTheme(app, themeBefore);
+
+        std::printf("repaint_guards push=%d hover=%d hover_armed=%d char=%d theme=%d\n",
+                    afterPush, hoverRepaints, hoverArmed ? 1 : 0, charRepaints, themeRepaints);
+        check(afterPush == 1, "signalPush delivers exactly one repaint on the Qt stack");
+        check(hoverRepaints == 1,
+              "a signalMouseMove that changes the hovered chip delivers exactly one repaint");
+        check(hoverArmed,
+              "and it arms TIMER_NOTIFICATION -- the same guard held the hover animation out");
+        check(charInserted && charRepaints == 1,
+              "tableEditChar inserts the character and delivers exactly one repaint");
+        check(themeRepaints == 1, "applyTheme delivers exactly one repaint");
+        tinta::clearRepaintSink();
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

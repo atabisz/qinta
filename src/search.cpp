@@ -134,10 +134,9 @@ void completeFolderSearch(App& app, void* results) {
     app.folderResults = std::move(msg->files);
     app.folderResultHits.clear();
     delete msg;
-    // Still app.hwnd: requestRepaint's guards are their own class, because
-    // InvalidateRect(NULL) repaints every window on Windows. On qinta this runs inside the
-    // Qt window's post sink, which repaints after it.
-    if (app.hwnd) requestRepaint(app.hwnd);
+    // canRepaint, not app.hwnd -- see win32_api.h. On qinta this runs inside the Qt window's
+    // post sink, which repaints after it anyway, so here the guard changes nothing visible.
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 void performSearch(App& app) {

@@ -326,7 +326,7 @@ void signalPush(App& app, int severity, int icon, std::wstring text,
     app.signalChips.push_back(std::move(chip));
     app.signalLastTick = nowSeconds();
     startNotificationTimer(app);
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 void signalPushKey(App& app, int severity, int icon, const char* trKey,
@@ -811,7 +811,7 @@ bool signalMouseMove(App& app, float mx, float my) {
         pointIn(mx, my, app.signalTrayRect)) {
         interactive = true;
     }
-    if (prev != app.signalHoverChip && app.hwnd) {
+    if (prev != app.signalHoverChip && canRepaint(app.hwnd)) {
         startNotificationTimer(app);
         requestRepaint(app.hwnd);
     }

@@ -593,7 +593,7 @@ static void commitFolderBrowserNaming(App& app) {
     refuseWindowFeature(app, "opening a new document in its own window",
                         L"The file is made -- a new window for it isn't available in the Qt build yet");
 #endif
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
 // Ctrl+wheel zoom. The scroll anchor scales immediately, but text format

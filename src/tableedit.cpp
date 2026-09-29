@@ -500,7 +500,7 @@ bool tableEditChar(App& app, wchar_t ch) {
     if (ch < 0x20 || ch == 127) return true;  // controls handled as keys
     app.tableEditText.insert(app.tableEditCaret++, 1, ch);
     resetCursorBlink(app);
-    if (app.hwnd) requestRepaint(app.hwnd);
+    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
     return true;
 }
 

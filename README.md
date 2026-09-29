@@ -38,16 +38,18 @@ witnessed screenshots are further down and look plainer, because the Qt frontend
 
 ### Two executables, and they are not equivalent
 
-This one CMake project builds both. Which one you want depends on whether you want to *use* the
-app or *work on the port*:
+This one CMake project defines both, but a default build produces only `qinta`, on all three
+platforms. `tinta` is built only on request, with `--target tinta`, as the Direct2D reference
+the port is compared against:
 
 | Target | Stack | Platforms | State |
 |---|---|---|---|
-| `tinta` | Direct2D / DirectWrite / Win32 | Windows only | **The complete product.** Everything under [Features](#features) works. Transitional: scheduled for deletion once `qinta` reaches parity. |
+| `tinta` | Direct2D / DirectWrite / Win32 | Windows only, `--target tinta` | **The complete product.** Everything under [Features](#features) works. Not in the default build. Transitional: scheduled for deletion once `qinta` reaches parity. |
 | `qinta` | Qt 6 | Windows, macOS, Linux | Renders and scrolls a document. No input handling, no editor, no search yet. |
 
-So `tinta` is what you run to read a file today, and `qinta` is where the code is going. Nothing
-gets deleted before `qinta` can do the job: removing the Direct2D backend has already been
+So `qinta` is the app every platform builds, Windows included, and `tinta` is the reference it
+is measured against. The Direct2D and DirectWrite code goes once `qinta` covers what it does,
+and not before: removing that backend has already been
 measured, and what gates it is feature parity rather than any entanglement — see
 [The deprecated-backend flag](#the-deprecated-backend-flag).
 
@@ -61,7 +63,7 @@ state per platform, before any commands:
 
 | Platform | Target | State |
 |----------|--------|-------|
-| Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
+| Windows | `tinta` — Direct2D + DirectWrite | Out of the default build since 2026-09-29; `--target tinta` builds it. The backend being replaced. |
 | Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
 | Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
 | macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
@@ -73,8 +75,8 @@ toolchain named in the row. CI runs on GitHub's runners, not on those machines. 
 command below is unverified it says so on the spot, rather than sitting in the same voice as
 one that was measured.
 
-The Direct2D and DirectWrite build is the one that works today, and also the one being
-replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
+The Direct2D and DirectWrite code still compiles into the Windows test suite, and into `tinta`
+when asked for, until the port replaces it — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
 and how to measure what still depends on it.
 
 ### Prerequisites on every platform
@@ -84,10 +86,9 @@ and how to measure what still depends on it.
   first configure therefore also needs network access to github.com.
 - **CMake 3.15 or newer.**
 - **A C++17 compiler.** MD4C itself is C11.
-- **Qt 6** with the **Core, Gui, Widgets, Svg and Network** components, for `qinta`. Off Windows
-  Qt is not optional: the configure stops without Core, Gui or Widgets, and `qinta` cannot link
-  without Svg and Network. On Windows only `qinta` needs Qt; the `tinta` build uses the system
-  Direct2D and DirectWrite libraries and needs no Qt at all.
+- **Qt 6** with the **Core, Gui, Widgets, Svg and Network** components, on every platform,
+  Windows included. The configure stops without Core, Gui or Widgets, and `qinta` cannot link
+  without Svg and Network.
 
 Then, on any platform:
 
@@ -107,24 +108,20 @@ cd qinta
   `Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
   adds for you.
 - **Git for Windows.**
-- **Qt 6 for MSVC, 64-bit**, for `qinta` only: the `msvc2022_64` kit from the Qt Online
-  Installer. Measured with Qt 6.8.3, whose kit already includes Widgets, Svg and Network.
-  **Without Qt the configure still succeeds and just leaves `qinta` out.** The target is
-  declared inside `if(Qt6_FOUND AND Qt6Widgets_FOUND)`, so the missing Qt shows up only when
-  `--target qinta` finds no such target, not as a configure error.
+- **Qt 6 for MSVC, 64-bit**: the `msvc2022_64` kit from the Qt Online Installer. Measured with
+  Qt 6.8.3, whose kit already includes Widgets, Svg and Network. Without it the configure stops
+  with an error that names Qt and the `CMAKE_PREFIX_PATH` to set.
 
 **Build**
 
 ```bash
-# the Direct2D and DirectWrite build: the one that works today
-cmake -S . -B build
+cmake -S . -B build -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
 cmake --build build --config Release
-./build/Release/tinta.exe README.md
+./build/Release/qinta.exe README.md
 
-# the Qt build, where Qt is not on the default search path
-cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
-cmake --build build-qtwin --target qinta --config Release
-./build-qtwin/Release/qinta.exe README.md
+# the transitional Direct2D app, only on request: the reference the port is compared against
+cmake --build build --config Release --target tinta
+./build/Release/tinta.exe README.md
 ```
 
 **`qinta.exe` does not find Qt's own DLLs by itself**, and that is the first thing to go
@@ -2634,7 +2631,8 @@ tinta.exe /register
 
 Or simply drag and drop a `.md` or `.mmd` file onto the window.
 
-**Every line above is the Windows `tinta.exe`.** The Qt binary is `qinta` (`qinta.exe` on
+**Every line above is the Windows `tinta.exe`**, which a default build no longer produces —
+`--target tinta` builds it. The Qt binary is `qinta` (`qinta.exe` on
 Windows) and takes **one path and no switches at all** — see
 [Building](#building) for how to launch it per platform, and
 [Building and testing off Windows](#building-and-testing-off-windows) for why the switches are

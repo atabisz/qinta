@@ -624,8 +624,13 @@ set(RESOURCES
     resources/tinta.rc
 )
 
-# Main executable
-add_executable(tinta WIN32 ${SOURCES} ${HEADERS} ${RESOURCES})
+# Main executable -- the transitional Direct2D app, OUT OF THE DEFAULT BUILD. qinta is the
+# Windows app now, as on the other two platforms; `cmake --build <dir> --target tinta` still
+# builds this one on request, as the reference binary scripts/probe-output-guard.sh and
+# scripts/pdfmask.py compare against. EXCLUDE_FROM_ALL rather than deleting the target,
+# because five test targets below read $<TARGET_PROPERTY:tinta,...> and the Direct2D and
+# DirectWrite code it links stays until the Qt port covers it -- see TINTA_LEGACY_D2D.
+add_executable(tinta WIN32 EXCLUDE_FROM_ALL ${SOURCES} ${HEADERS} ${RESOURCES})
 
 target_include_directories(tinta PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -1031,6 +1036,15 @@ set(QINTA_APP_SOURCES
 # arms on Windows and raises LNK2005 on that host only. ${PLATFORM_PATHS_SOURCE}
 # above is the pattern. src/file_dialog_qt.cpp and src/image_qt.cpp are older
 # hardcoded literals and are deliberately left alone.
+
+# qinta is the app on Windows too, so a Windows configure without Qt has nothing to build.
+# It used to succeed anyway and just leave qinta out, which read as a working build until
+# `--target qinta` found no such target. Off Windows the seam selection above already stops.
+if(WIN32 AND NOT (Qt6_FOUND AND Qt6Widgets_FOUND))
+    message(FATAL_ERROR
+        "Qt 6 (Core, Gui and Widgets) is required on Windows: qinta is the Windows app. Point "
+        "CMAKE_PREFIX_PATH at a Qt 6 MSVC kit, e.g. -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64")
+endif()
 
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
     add_executable(qinta WIN32
@@ -3436,6 +3450,6 @@ endif()
 endif()
 
 # Install
-if(WIN32)
-    install(TARGETS tinta RUNTIME DESTINATION bin)
+if(TARGET qinta)
+    install(TARGETS qinta RUNTIME DESTINATION bin)
 endif()

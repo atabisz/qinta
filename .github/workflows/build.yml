@@ -63,7 +63,7 @@ jobs:
       - name: Stage
         run: |
           New-Item -ItemType Directory dist | Out-Null
-          Copy-Item build/Release/qinta.exe, build/Release/tinta.exe dist/
+          Copy-Item build/Release/qinta.exe dist/
           windeployqt --release --no-translations dist/qinta.exe
 
       - uses: actions/upload-artifact@v4

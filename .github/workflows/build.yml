@@ -18,13 +18,24 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Superseded runs are cancelled on pull requests only. On master every commit keeps its run:
+# the Windows build takes over 15 minutes, and with cancel-in-progress on pushes, commits
+# landing a few minutes apart cancelled it before it had once reached the test step.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'pull_request' || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 60
+    # /MP compiles a project's files in parallel; --parallel alone only runs projects in
+    # parallel, and each test target compiles its own copy of the shared sources. Set through
+    # the environment because CMake prepends CXXFLAGS to its defaults, where passing
+    # -DCMAKE_CXX_FLAGS would replace them and drop /EHsc.
+    env:
+      CFLAGS: /MP
+      CXXFLAGS: /MP
     steps:
       - uses: actions/checkout@v4
 

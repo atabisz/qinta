@@ -1619,6 +1619,20 @@ if(BUILD_TESTING)
 
     # COMPILE-ONLY, AND THAT IS THE CLAIM -- NOT THAT ANYTHING RUNS.
     #
+    # SUPERSEDED 2026-09-25 BY THE KEY ROUTER, RECORDED 2026-09-29: EVERY FILE IN THIS TARGET
+    # IS ALSO IN ${QINTA_APP_SOURCES}. All 21 link into qinta and qt_entry_tests, and
+    # qt_entry_tests runs input.cpp through the key router and the wheel (F11 into zen
+    # mode). So the per-entry notes below that say a file is "NOT in QINTA_APP_SOURCES" or
+    # "cannot LINK" are the record of why it waited, not the current state; read membership
+    # off the list, not off a note. LINKING IS NOT RUNNING, and a "RUNS: NO" below is
+    # re-read per file: input.cpp's is superseded, overlays.cpp's still holds (nothing off
+    # Windows draws an overlay; its note says which callers were checked). What this
+    # target still does is compile those 21 files a SECOND time, in every configure there
+    # is: a configure without Qt 6 Core, Gui and Widgets stops at FATAL_ERROR on Windows
+    # and off it, so no build reaches this target without qinta. Whether to keep it is an
+    # open question, not settled here. "This repo has no CI" below is superseded too:
+    # .github/workflows/build.yml runs ctest on Windows, macOS and Linux.
+    #
     # TWO FILES, down from four: src/syntax.cpp has left for syntax_tests above,
     # which is what this comment used to ask for. src/editrail.cpp reached zero
     # errors when its two CRT calls (swprintf_s, _countof) moved to portable_str.h
@@ -1698,6 +1712,9 @@ if(BUILD_TESTING)
     # between this file and a running test is now only that nothing calls editor.cpp.
     # Its two pure functions, tsvLooksLikeTable and tsvToMarkdownTable, need no App and
     # no HWND and are assertable the moment that is settled.
+    # SUPERSEDED AGAIN 2026-09-25: the key router is editor.cpp's caller and both it and
+    # tableedit.cpp are in QINTA_APP_SOURCES, so tableedit.cpp links. Whether a test
+    # executes its own logic is not claimed here.
     add_library(portable_compile_only OBJECT
         # src/annotations.cpp -- COMPILE-ONLY, and the reason is a link closure rather
         # than a compile problem. It reached 0 errors off Windows once the clipboard seam
@@ -1716,6 +1733,9 @@ if(BUILD_TESTING)
         #
         # NOT added to QINTA_APP_SOURCES, deliberately: doing that would trade a green
         # build for a manifest entry, and the manifest is not a wish list.
+        # SUPERSEDED 2026-09-25: input.cpp links into qinta with the key router, so the
+        # closure this note waited on closed, and annotations.cpp went into
+        # QINTA_APP_SOURCES with it.
         src/annotations.cpp
         src/editrail.cpp
         src/tableedit.cpp
@@ -1723,12 +1743,16 @@ if(BUILD_TESTING)
         # needs from it, and nothing off Windows links input.cpp yet. It was kept out of
         # every non-Windows build as a proxy guard for settings.cpp; the probe asserts that
         # property directly now (see the file's header).
+        # SUPERSEDED 2026-09-25: input.cpp links off Windows now (the key router), and
+        # settings_app.cpp is in QINTA_APP_SOURCES beside it.
         src/settings_app.cpp
         # src/print_qt.cpp -- COMPILE-ONLY. The Qt arm of src/print.cpp's seven symbols the
         # rest of the tree calls, every one a visible refusal (the file says why). Not in
         # QINTA_APP_SOURCES: its callers are input.cpp, editor.cpp and export_html.cpp, none
         # of which qinta links yet. Not in SOURCES either -- Windows links print.cpp, and
         # both would be LNK2005.
+        # SUPERSEDED 2026-09-25: all three callers link into qinta now (the key router), and
+        # print_qt.cpp is in QINTA_APP_SOURCES. The SOURCES half still holds.
         src/print_qt.cpp
         # src/export_docx.cpp -- COMPILE-ONLY, and it is here for a reason no other entry
         # in this list shares: NOBODY PORTED IT. Its 1,545 lines already compiled off
@@ -1744,6 +1768,8 @@ if(BUILD_TESTING)
         # from src/input.cpp, which is not in QINTA_APP_SOURCES, so this file cannot LINK
         # into qinta off Windows. Adding it to the app target would trade a green build for
         # a manifest entry, and the manifest is not a wish list.
+        # SUPERSEDED 2026-09-25: input.cpp is in QINTA_APP_SOURCES now (the key router), and
+        # export_docx.cpp went in with it, so it links.
         #
         # CORRECTED 2026-09-22: this said input.cpp "is windows.h-fatal". FALSE -- input.cpp
         # compiles off Windows at errors 0, fatal 0 and is a manifest entry. It is out of the
@@ -1882,6 +1908,14 @@ if(BUILD_TESTING)
         #   entry in this list. The conclusion is UNCHANGED and the reason is now one step
         #   further out: what is missing is not a portable input.cpp, it is a Qt key and
         #   mouse router in src/main_qt.cpp calling into it.
+        #   SUPERSEDED 2026-09-25 FOR LINKS AND FOR THE REASON, NOT FOR RUNS: overlays.cpp
+        #   is in QINTA_APP_SOURCES and links, and the key router exists (src/qt_window.cpp,
+        #   into input.cpp). RUNS is still NO because nothing off Windows DRAWS an overlay:
+        #   fifteen of its sixteen render* functions are called only from src/main_d2d.cpp,
+        #   and the sixteenth, renderAppMenuButtonBackground, only from renderTabStrip and
+        #   renderEditRail, whose only callers are main_d2d.cpp and the windows-only
+        #   copy_file_path test. Input that opens or scrolls one
+        #   (showHelp, helpScroll) is input.cpp's code, not this file's.
         #
         # What made it affordable was that the file was already half-ported: 530 sites
         # already drew through app.brush and app.renderTarget, and the eleven remaining
@@ -2097,7 +2131,9 @@ if(BUILD_TESTING)
         #
         # WHAT KEEPS IT OUT OF ${QINTA_APP_SOURCES} is a link closure and one honest gap.
         # pandocExportFlow calls editorReparse in src/editor.cpp, which is not in that
-        # target, so the file cannot link into qinta at all yet.
+        # target, so the file cannot link into qinta at all yet. SUPERSEDED 2026-09-25:
+        # editor.cpp and pandoc.cpp are both in QINTA_APP_SOURCES (the key router), so it
+        # links; the honest gap in the next paragraph is what remains.
         #
         # CORRECTED 2026-09-22: this said editor.cpp "is windows.h/imm.h-fatal". FALSE --
         # editor.cpp is a manifest entry and compiles off Windows at errors 0, fatal 0.
@@ -2172,6 +2208,12 @@ if(BUILD_TESTING)
         #   The ONE thing that would be silent if wrong: win32_api.h::requestQuit's
         #   off-Windows arm is a placeholder returning false, unreachable only because of
         #   this missing router.
+        #   SUPERSEDED 2026-09-25, BOTH HALVES: RUNS is YES. src/qt_window.cpp's keyPressEvent
+        #   hands every key to handleKeyDown and handleCharInput, and its wheelEvent calls
+        #   handleMouseWheel; qt_entry_tests sends F11 through it into toggleZenMode. And
+        #   requestQuit's off-Windows arm is tinta::deliverQuitRequest() through the window
+        #   sink, not a placeholder -- qt_entry_tests asserts both the no-sink false and the
+        #   delivered quit.
         src/input.cpp
         # src/tabs.cpp -- COMPILE-ONLY since 2026-09-23. The tear-off pass took it to errors 0
         # off Windows, and a manifest entry needs a compiler behind it (input.cpp's MISSING
@@ -2179,6 +2221,8 @@ if(BUILD_TESTING)
         # undefined symbols with tabs.o added, and nothing in the Qt app calls it, so the rule
         # at the root-blocker note applies. Tear-off, pin and the maximise glyph are site-guarded
         # gaps off Windows.
+        # SUPERSEDED 2026-09-25: tabs.cpp is in QINTA_APP_SOURCES with the key router, and it
+        # links. The site-guarded gaps above still hold.
         src/tabs.cpp
     )
     target_include_directories(portable_compile_only PRIVATE include ${md4c_SOURCE_DIR}/src)

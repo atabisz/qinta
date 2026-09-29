@@ -1156,6 +1156,14 @@ int main(int argc, char** argv) {
     // their only callers are src/overlays.cpp, src/editor.cpp and src/tabs.cpp, none of
     // which compiles off Windows yet. So this run is the whole guard, and a null here is
     // the segfault src/render.cpp:378 already produced once for the document formats.
+    //
+    // CORRECTED 2026-09-29, TWICE OVER. Those three files compile AND link off Windows now:
+    // all three have been in QINTA_APP_SOURCES since the 2026-09-25 key router. And "only
+    // callers" was never the whole list: src/signals.cpp, src/annotations.cpp and
+    // src/editrail.cpp read these formats too, and they link as well. What survives is the
+    // pixel half, read for two of the drawers only: renderEditor's one caller and fifteen of
+    // overlays.cpp's sixteen render* functions' callers are src/main_d2d.cpp. The other
+    // readers were not traced, so "the whole guard" is not re-claimed here.
     const bool chromeAllPresent =
         app.searchTextFormat != nullptr && app.signalSmallFormat != nullptr &&
         app.themeTitleFormat != nullptr && app.themeHeaderFormat != nullptr &&

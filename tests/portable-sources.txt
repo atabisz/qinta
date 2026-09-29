@@ -1186,6 +1186,12 @@ qt_launch.cpp
 # (The closure had a second such file until 2026-09-23. The tear-off pass took
 # src/tabs.cpp to errors 0 and it is listed now, compile-only: it is not linked into qinta.)
 #
+# SUPERSEDED 2026-09-25 FOR LINKS, RECORDED 2026-09-29: overlays.cpp, tabs.cpp and
+# input.cpp are all in QINTA_APP_SOURCES since the key router, so this file LINKS. RUNS
+# is still NO, for a different reason than the one above: input.cpp runs now, but nothing
+# off Windows DRAWS an overlay. Fifteen of its sixteen render* functions are called only
+# from src/main_d2d.cpp; CMakeLists.txt's overlays.cpp entry names the sixteenth.
+#
 # The count above it is why the number in the last paragraph moved: 23 of 24 becomes
 # 22 of 23, and the file-count bases in README.md all shifted with it.
 #
@@ -1204,6 +1210,8 @@ overlays.cpp
 # `#ifdef _WIN32` in place, so off Windows startPageEnsureIcon is an empty function and
 # the hero draws without its mark -- and that is a gap, not a regression, because this
 # file had never compiled off Windows at all before today.
+# SUPERSEDED 2026-09-25 FOR LINKS: this file is in QINTA_APP_SOURCES with the key
+# router, so it links. RUNS is still no: renderStartPage's only caller is src/main_d2d.cpp.
 #
 # THE MEASUREMENT NOTE THAT MATTERS HERE IS THE OPPOSITE ONE TO overlays.cpp ABOVE. This
 # file read 0 errors on its FIRST compile after the port, which by this tree's own rule
@@ -1241,6 +1249,8 @@ startpage.cpp
 #
 # Being listed here says this file COMPILES off Windows. It does not say it LINKS or RUNS:
 # export_as is reached from input.cpp, which has not ported.
+# SUPERSEDED 2026-09-25 FOR LINKS: input.cpp and this file are both in QINTA_APP_SOURCES
+# since the key router, so it links. Whether an export runs off Windows is not claimed.
 export_docx.cpp
 
 # --- The tab drag ghost seam --------------------------------------------------
@@ -1342,6 +1352,8 @@ theme_qt.cpp
 # with this file as the control that the instrument can see app.h at all), and this
 # file joins portable_compile_only. Compile-only: nothing off Windows calls it until
 # input.cpp links.
+# SUPERSEDED 2026-09-25, and so is the "NOT linked" in this section's header: input.cpp
+# links with the key router, and settings_app.cpp is in QINTA_APP_SOURCES beside it.
 settings_app.cpp
 
 # --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
@@ -1352,4 +1364,5 @@ settings_app.cpp
 # a port: nothing off Windows can print or export PDF through this file. Compile-only:
 # its callers are input.cpp, editor.cpp and export_html.cpp, none linked into qinta yet.
 # -- SUPERSEDED 2026-09-25: all three are linked now, with the key router, and so is this.
+# The "NOT linked" in this section's header is superseded by the same line.
 print_qt.cpp

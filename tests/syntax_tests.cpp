@@ -756,6 +756,8 @@ int main() {
     // Printed on SUCCESS as well as failure, deliberately. A test binary that
     // says nothing when it passes is indistinguishable from one that was never
     // built into the run, and this repo has no CI to notice the difference.
+    // SUPERSEDED 2026-09-29: .github/workflows/build.yml runs ctest on Windows, macOS
+    // and Linux (5246f73). The reason to print on success still holds.
     std::printf("all %d syntax assertions run, 0 failed\n", checks);
     return 0;
 }

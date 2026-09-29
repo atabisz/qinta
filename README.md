@@ -226,9 +226,12 @@ state per platform, before any commands:
 | Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
 | macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
 
-There is **no CI** in this repo, so a date in that table means somebody ran it that day and
-nothing re-runs it for you. Where a command below is unverified it says so on the spot, rather
-than sitting in the same voice as one that was measured.
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds every target and runs the
+whole ctest suite on all three platforms, on each push to `master` and each pull request. The
+table predates it, so a date in the table still means somebody ran it by hand that day, on the
+toolchain named in the row. CI runs on GitHub's runners, not on those machines. Where a
+command below is unverified it says so on the spot, rather than sitting in the same voice as
+one that was measured.
 
 The Direct2D and DirectWrite build is the one that works today, and also the one being
 replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
@@ -545,7 +548,7 @@ backends and a seam whose Windows half is never asserted is precisely the shape 
 has criticised elsewhere. Off Windows it links `keyboard_qt.cpp` and Qt; on Windows it links
 `keyboard_win32.cpp` and no Qt at all.
 
-There is **no CI**, so nothing is green unless somebody ran it. The regression guard is
+CI runs ctest but not this probe, so the probe is green only if somebody ran it. The regression guard is
 a probe that compares what the build actually compiled against a manifest of what it is
 supposed to compile, in both directions:
 

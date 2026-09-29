@@ -1,0 +1,112 @@
+# Builds every target and runs the whole ctest suite on Windows, macOS and Linux, then
+# uploads the binaries as workflow artifacts.
+#
+# THE ARTIFACTS ARE NOT RELEASES. Only the Windows one is self-contained (windeployqt copies
+# the Qt DLLs beside qinta.exe). The macOS and Linux binaries link against the Qt the runner
+# installed, so they run only where the same Qt is installed -- packaging them as an .app
+# bundle and an AppImage is the release job's work, not this one's.
+#
+# ripgrep is installed on every runner because readme_figures depends on it: without rg on
+# PATH, scripts/check-readme-figures.sh checks sixteen claims instead of all of them and exits 0.
+# The EXPECTED_CHECKS arm would catch that, but installing rg is cheaper than debugging it.
+
+name: build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The version the README's Windows section was measured with.
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          cache: true
+
+      - name: Install ripgrep
+        run: choco install ripgrep --no-progress -y
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_PREFIX_PATH="$env:QT_ROOT_DIR"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      # --repeat until-pass:2 because clipboard_tests round-trips the real system clipboard
+      # and loses a race now and then. A second failure still fails the job.
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure --repeat until-pass:2
+
+      - name: Stage
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item build/Release/qinta.exe, build/Release/tinta.exe dist/
+          windeployqt --release --no-translations dist/qinta.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qinta-windows-x64
+          path: dist/
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install qtbase qtsvg ripgrep
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)"
+
+      - name: Build
+        run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --repeat until-pass:2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qinta-macos-arm64
+          path: build/qinta
+
+  linux:
+    # Pinned rather than -latest: 24.04 ships Qt 6.4.2, the version the Linux build was
+    # measured against, and a runner-image bump would change Qt minor underneath the suite.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ cmake qt6-base-dev qt6-svg-dev libgl-dev fonts-dejavu-core ripgrep
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --repeat until-pass:2
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qinta-linux-x64
+          path: build/qinta

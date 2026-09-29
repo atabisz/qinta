@@ -481,14 +481,19 @@ int main(int argc, char** argv) {
         check(!platform::pathsEquivalent(same, (probeDir / L"other.md").wstring()),
               "CONTROL: two different names are never equivalent");
 
-        // THE CASE THAT DECIDES IT. One spelling, one file on Windows, two files
-        // on Linux, and the seam has to say so.
-#ifdef _WIN32
+        // THE CASE THAT DECIDES IT. One spelling, one file on Windows and macOS, two
+        // files on Linux, and the seam has to say so. macOS follows Windows because
+        // platform_paths_qt.cpp's __APPLE__ arm folds case for APFS's default; this
+        // used to expect DIFFERENT everywhere off Windows and failed on every Mac.
+#if defined(_WIN32)
         check(platform::pathsEquivalent(same, upper),
               "paths differing only in case are the SAME document on Windows");
+#elif defined(__APPLE__)
+        check(platform::pathsEquivalent(same, upper),
+              "paths differing only in case are the SAME document on macOS");
 #else
         check(!platform::pathsEquivalent(same, upper),
-              "paths differing only in case are DIFFERENT documents off Windows");
+              "paths differing only in case are DIFFERENT documents on Linux");
 #endif
 
         // std::filesystem::equivalent IS REJECTED, AND THIS IS WHERE THAT IS

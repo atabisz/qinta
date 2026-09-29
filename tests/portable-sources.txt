@@ -1326,7 +1326,9 @@ zen_mode_qt.cpp
 # input.cpp's link needed them and neither named a Windows type. qt_entry_tests calls both,
 # so these are linked and executed, not compile-only. src/theme_qt.cpp is the Qt arm of the
 # three backend hooks in include/theme_apply.h; the Windows arm stays in src/d2d_init.cpp,
-# which must never appear here.
+# which must never appear here. Nor must src/window_chrome_win32.cpp (slice 13): the four DWM
+# title-bar calls both Windows stacks make, which qinta links under WIN32 only. theme_qt.cpp's
+# applyWindowChrome reaches it through the window sink, never by name.
 theme_apply_app.cpp
 theme_qt.cpp
 

@@ -9,11 +9,19 @@
 // The Qt arms of include/theme_apply.h's three backend hooks. The Windows arms are in
 // src/d2d_init.cpp; no target links both files.
 
-// A REAL GAP, not a design: the title bar keeps the platform's colours when the theme
-// changes. Qt has no portable caption-colour API, and QWidget::setWindowTitle's frame is the
-// window manager's. Nothing is drawn wrong -- the document and tab strip follow the theme --
-// but a dark theme under a light title bar is visible, and this is where it would be fixed.
-void applyWindowChrome(App&) {}
+// Handed to the window, which owns the native frame: include/window_sink.h's chrome member.
+// This used to be `{}` under "A REAL GAP, not a design: the title bar keeps the platform's
+// colours when the theme changes", and it is now HALF closed. On Windows the widget is a real
+// HWND under the windows platform plugin, so src/qt_window.cpp paints the chrome with the same
+// DWM calls as the Direct2D stack (src/window_chrome_win32.cpp).
+//
+// ON LINUX AND macOS THE GAP STANDS. Qt has no portable caption-colour API and the frame
+// belongs to the window manager. QStyleHints::setColorScheme is not the fix: it is app-wide,
+// and qt_launch's systemPrefersLight reads that same scheme to decide follow-system mode, so
+// setting it from the theme would feed the theme back into its own input.
+void applyWindowChrome(App& app) {
+    tinta::deliverWindowChrome(windowChromeFor(app));
+}
 
 // Nothing to install. QFont resolves missing glyphs per font from the system's fallback
 // configuration (fontconfig on Linux, CoreText on macOS, DirectWrite underneath Qt on

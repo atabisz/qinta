@@ -4,6 +4,7 @@
 
 #include "math_render.h"
 #include "settings.h"
+#include "tabs.h"  // tabStripBackground
 #include "text_formats.h"
 #include "theme_data.h"
 #include "win32_api.h"
@@ -62,6 +63,14 @@ bool followSystemAppearance(App& app, bool systemPrefersLight) {
     applyTheme(app, want);
     persistThemeChoice(app);
     return true;
+}
+
+tinta::WindowChrome windowChromeFor(const App& app) {
+    tinta::WindowChrome chrome;
+    chrome.dark = app.theme.isDark;
+    chrome.caption = tabStripBackground(app);
+    chrome.text = app.theme.text;
+    return chrome;
 }
 
 void updateTextFormats(App& app) {

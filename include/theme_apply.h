@@ -2,6 +2,7 @@
 #define TINTA_THEME_APPLY_H
 
 #include "app.h"
+#include "window_sink.h"  // tinta::WindowChrome
 
 // Switching theme and rebuilding the text formats, for both stacks.
 //
@@ -28,13 +29,19 @@ int followThemeIndex(const App& app, bool systemPrefersLight);
 // showing, switch to it and persist the choice. Returns whether it switched.
 bool followSystemAppearance(App& app, bool systemPrefersLight);
 
+// The title bar for the current theme: the dark caption variant, the caption and border fill
+// -- the drawn tab strip's colour, so the frame blends with it -- and the caption text. One
+// body for both stacks' applyWindowChrome arms.
+tinta::WindowChrome windowChromeFor(const App& app);
+
 // THE THREE BACKEND HOOKS. One definition per stack: the Windows arms are in src/d2d_init.cpp,
 // beside the DirectWrite factory and the HWND they need, and the Qt arms are in
 // src/theme_qt.cpp. The two files are never linked into the same binary.
 
-// Tints the native title bar/border to the current theme (Windows 11; Windows 10 falls back
-// to the stock dark/light caption). Qt: does nothing, and that is a real gap -- the title bar
-// keeps the platform's colours.
+// Tints the native title bar/border to windowChromeFor(app) (Windows 11; Windows 10 falls back
+// to the stock dark/light caption). Qt: delivered through the window sink, and the window
+// paints it with the same DWM calls on Windows. On Linux and macOS it is still a real gap --
+// the title bar keeps the platform's colours. See src/theme_qt.cpp.
 void applyWindowChrome(App& app);
 
 // Builds the emoji/CJK font fallback chain once and hands it to the text factory. Called by

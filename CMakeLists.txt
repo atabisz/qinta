@@ -445,6 +445,10 @@ set(SOURCES
     src/signals.cpp
     src/tableedit.cpp
     src/d2d_init.cpp
+    # The four DWM title-bar calls, out of d2d_init.cpp's applyWindowChrome so qinta's window
+    # on Windows can make the same ones on its winId(). Linked by qinta and qt_entry_tests
+    # under WIN32 below, with dwmapi.
+    src/window_chrome_win32.cpp
     # The chrome falsifier: --dumpchrome reads all forty chrome text formats back off
     # DirectWrite. Its own file rather than lines in d2d_init.cpp, because it is an
     # INSTRUMENT on that file and will outlive the creation code it measures -- it reads
@@ -1067,6 +1071,11 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
         # onto src/platform_paths_qt.cpp, which is written to be correct on all three.
         target_compile_definitions(qinta PRIVATE UNICODE _UNICODE)
         target_link_libraries(qinta PRIVATE shell32)
+        # The title bar (slice 13): the Qt window paints applyTheme's caption colours through
+        # the same DWM file as tinta. Not a cutover leftover like shell32 -- DWM is the only
+        # caption-colour API Windows has, so this stays after the path seam collapses.
+        target_sources(qinta PRIVATE src/window_chrome_win32.cpp)
+        target_link_libraries(qinta PRIVATE dwmapi)
         # Dynamic CRT, the same override and the same measured reason as the Qt test
         # targets far below: Qt cannot be linked against the static CRT, and mixing the
         # two debug heaps in one process trips an assertion in Qt's own allocations.
@@ -3063,6 +3072,9 @@ if(BUILD_TESTING)
                 # is in NO other target and NOT in ${QINTA_APP_SOURCES}: it is a test instrument,
                 # and compiling it into the app would ship a second monitor enumeration.
                 tests/win32_monitor_dump.cpp
+                # Slice 13's DWM readback: a test instrument for the same reason, and in its own
+                # TU for the same reason.
+                tests/win32_chrome_readback.cpp
                 ${QINTA_APP_SOURCES}
             )
             target_include_directories(qt_entry_tests PRIVATE
@@ -3081,6 +3093,9 @@ if(BUILD_TESTING)
             if(WIN32)
                 target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
                 target_link_libraries(qt_entry_tests PRIVATE shell32)
+                # Same as qinta: the chrome sink paints through DWM on this host.
+                target_sources(qt_entry_tests PRIVATE src/window_chrome_win32.cpp)
+                target_link_libraries(qt_entry_tests PRIVATE dwmapi)
             endif()
             add_test(NAME qt_entry COMMAND qt_entry_tests)
             # Dynamic CRT, same reason and same measurement as qt_text_tests above.

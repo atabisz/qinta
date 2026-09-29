@@ -42,6 +42,9 @@
 #include "win32_api.h"  // CursorShape's definition; window_sink.h only declares it
 #include "window_sink.h"
 #include "zen_mode_qt.h"
+#ifdef _WIN32
+#include "window_chrome_win32.h"  // the chrome sink paints through DWM on this host only
+#endif
 
 namespace {
 
@@ -147,7 +150,21 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // QGuiApplication::setOverrideCursor: SetCursor on Windows is per-window-under-the-
     // pointer, which is what a widget cursor is, and an override would outlive the window.
     sink.cursor = [this](CursorShape shape) { setCursor(qtCursorFor(shape)); };
+    // applyTheme's title bar (slice 13). Recorded on every platform so a test can see the
+    // delivery; painted only on Windows, where winId() is the HWND DWM wants. Off Windows the
+    // frame is the window manager's -- see src/theme_qt.cpp.
+    sink.chrome = [this](const tinta::WindowChrome& chrome) {
+        ++chromeCount_;
+        lastChrome_ = chrome;
+#ifdef _WIN32
+        applyDwmWindowChrome(reinterpret_cast<HWND>(winId()), chrome);
+#endif
+    };
     tinta::setWindowSink(std::move(sink));
+    // Once now, because the first applyTheme ran in applySavedTheme before this window existed
+    // and delivered to nobody. winId() creates the native window early; that is harmless for a
+    // top-level widget and is what lets the first frame already show the theme's caption.
+    tinta::deliverWindowChrome(windowChromeFor(app_));
 
     // AND A FOURTH TIME, for armTimer and disarmTimer (include/timer_sink.h). Without it
     // every timer the tree arms is dropped, and the one that showed it is TIMER_ZOOM_APPLY:

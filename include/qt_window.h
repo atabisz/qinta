@@ -107,6 +107,11 @@
 // answers itself: close(), and the follow-system switch with qt_launch's appearance reading.
 // On Qt 6.5+ the constructor also connects colorSchemeChanged to that same switch.
 //
+// AND THE TITLE BAR, as of slice 13: the window sink's chrome member receives applyTheme's
+// colours and, on Windows, paints them with the Direct2D stack's DWM calls on winId(). The
+// constructor applies the current theme's once, because the first applyTheme ran before the
+// window existed. Linux and macOS record the colours and paint nothing -- src/theme_qt.cpp.
+//
 // SINGLE WINDOW BY CONTRACT, and the contract is enforced elsewhere: each sink slot holds
 // one window's closures, so a second QtAppWindow would displace the first's and the first
 // window would stop repainting and stop answering F11. src/main_qt.cpp refuses --new and --tabbed today, which is what
@@ -118,6 +123,7 @@
 #include <string>
 
 #include "geometry.h"
+#include "window_sink.h"  // tinta::WindowChrome
 
 class QCloseEvent;
 class QContextMenuEvent;
@@ -173,6 +179,12 @@ public:
     // test reads it beside the App flag the timer clears, so "the flag is still set" can be
     // told apart from "the timer was never armed".
     bool timerActive(unsigned id) const;
+
+    // How many title-bar colourings the chrome sink has received, and the last one. Read beside
+    // the DWM attributes on Windows, and alone elsewhere, where nothing paints them -- so the
+    // test can tell "delivered and not painted" (Linux, by design) from "never delivered".
+    int chromeCount() const { return chromeCount_; }
+    const tinta::WindowChrome& lastChrome() const { return lastChrome_; }
 
     // Load `path` into the App, retitle the window and repaint. Returns false and
     // changes NOTHING if the file will not open, which is loadDocumentFromPath's
@@ -234,6 +246,8 @@ private:
     bool documentPainted_ = false;
     // One per timer id ever armed, children of this widget. Never erased: disarm stops.
     std::map<unsigned, QTimer*> timers_;
+    int chromeCount_ = 0;
+    tinta::WindowChrome lastChrome_;
 };
 
 #endif // TINTA_QT_WINDOW_H

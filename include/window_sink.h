@@ -31,6 +31,7 @@
 #include <functional>
 #include <utility>
 
+#include "geometry.h"          // tinta::Color
 #include "window_placement.h"  // ZenRestore
 
 // OPAQUE, NOT MOVED. include/win32_api.h defines it -- that header includes this one, so a
@@ -39,6 +40,14 @@
 enum class CursorShape;
 
 namespace tinta {
+
+// What the title bar shows for a theme: include/theme_apply.h's windowChromeFor computes it, so
+// the two stacks cannot disagree about the colours, only about who can paint them.
+struct WindowChrome {
+    bool dark = false;
+    Color caption{0, 0, 0, 1};  // caption and border fill
+    Color text{0, 0, 0, 1};     // caption text
+};
 
 struct WindowSink {
     // Exit the application's event loop.
@@ -51,6 +60,10 @@ struct WindowSink {
     // that set three members and forgot this one keeps the arrow over text and links, which
     // is why it is asserted on its own.
     std::function<void(CursorShape)> cursor;
+    // applyWindowChrome's Qt arm (slice 13). Asserted on its own for the cursor's reason: a
+    // window that forgot it keeps the platform's title bar under every theme, and nothing
+    // else about the window looks wrong.
+    std::function<void(const WindowChrome&)> chrome;
 };
 
 // The single slot. Not part of the surface callers use.
@@ -93,6 +106,13 @@ inline bool deliverZenLeave(const ZenRestore& restore) {
 inline void deliverCursorShape(CursorShape shape) {
     WindowSink& sink = windowSinkSlot();
     if (sink.cursor) sink.cursor(shape);
+}
+
+// No window yet (applySavedTheme runs before one exists) is not a failure: the window applies
+// the current chrome itself when it installs the sink.
+inline void deliverWindowChrome(const WindowChrome& chrome) {
+    WindowSink& sink = windowSinkSlot();
+    if (sink.chrome) sink.chrome(chrome);
 }
 
 }  // namespace tinta

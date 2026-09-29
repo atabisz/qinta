@@ -110,12 +110,12 @@ window_placement               both
 platform_paths_bare_locale     linux-only     subject: preferredUiLanguages dropping the C/POSIX locale, steered by LANGUAGE; no Windows meaning and macOS cannot steer it either
 
 bitmap_seam                    windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp
-blockquote_layout              windows-only   sources: 16 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 12 more
-code_block_layout              windows-only   sources: 16 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 12 more
+blockquote_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 13 more
+code_block_layout              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 13 more
 config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
-copy_file_path                 windows-only   sources: 16 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 12 more
-inline_code_theme              windows-only   sources: 16 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 12 more
-input_shortcuts                windows-only   sources: 16 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 12 more
+copy_file_path                 windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 13 more
+inline_code_theme              windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 13 more
+input_shortcuts                windows-only   sources: 17 via ${INPUT_TEST_SOURCES} -- render_d2d.cpp, text_d2d.cpp, zen_mode_win32.cpp, tab_tearoff_win32.cpp and 13 more
 math_layout                    windows-only   sources: 2 via ${LEGACY_D2D_SOURCES} -- render_d2d.cpp, text_d2d.cpp
 pdf_export_win32               windows-only   sources: 3 -- pdf_export_win32.cpp, render_d2d.cpp, text_d2d.cpp
 render_d2d                     windows-only   sources: 3 -- image_win32.cpp, render_d2d.cpp, text_d2d.cpp

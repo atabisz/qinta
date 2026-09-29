@@ -165,6 +165,8 @@
 // ISC-17's Win32 half, in its own TU so <windows.h>'s macro set never reaches this file. Compiled
 // into this target only (CMakeLists.txt), and it compiles to two stubs off Windows so run 20's call
 // sites need no guard of their own beyond the one assertion that IS platform-specific.
+#include "tabs.h"  // tabStripBackground, what the caption must match
+#include "win32_chrome_readback.h"
 #include "win32_monitor_dump.h"
 #include "window_sink.h"
 
@@ -3160,6 +3162,101 @@ int main(int argc, char** argv) {
         app.followSystemTheme = followBefore;
         app.lightThemeIndex = lightBefore;
         app.darkThemeIndex = darkIndexBefore;
+        applyTheme(app, themeBefore);
+    }
+
+    // THE TITLE BAR (slice 13). theme_qt.cpp's applyWindowChrome was `{}`, so the caption kept
+    // the platform's colours under every theme. It now delivers windowChromeFor through the
+    // window sink, and on Windows the window paints it with the Direct2D stack's DWM calls.
+    {
+        int lightIdx = -1;
+        int darkIdx = -1;
+        for (int i = 1; i < themeCount(); ++i) {
+            if (!themeAt(i).isDark && lightIdx < 0) lightIdx = i;
+            if (themeAt(i).isDark && darkIdx < 0) darkIdx = i;
+        }
+        const int themeBefore = app.currentThemeIndex;
+        auto sameColor = [](const tinta::Color& a, const tinta::Color& b) {
+            return a.r == b.r && a.g == b.g && a.b == b.b;
+        };
+        auto sameChrome = [&](const tinta::WindowChrome& a, const tinta::WindowChrome& b) {
+            return a.dark == b.dark && sameColor(a.caption, b.caption) && sameColor(a.text, b.text);
+        };
+        // The expected COLORREF, 0x00BBGGRR, rounded the way the DWM helper rounds.
+        auto colorref = [](const tinta::Color& c) {
+            auto byte = [](float v) { return static_cast<std::uint32_t>(v * 255.0f + 0.5f); };
+            return byte(c.r) | (byte(c.g) << 8) | (byte(c.b) << 16);
+        };
+
+        applyTheme(app, lightIdx);  // before any window: delivered to nobody, and harmless
+        bool constructed = false;
+        bool darkDelivered = false;
+        bool formula = false;
+        bool distinct = false;
+        bool dwmDarkRead = false;
+        bool dwmCaptionRead = false;
+        bool dwmDark = false;
+        bool dwmLight = false;
+        bool dwmCaption = false;
+        {
+            QtAppWindow chromeWindow(app);
+            chromeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+            const tinta::WindowChrome wantLight = windowChromeFor(app);
+            constructed = chromeWindow.chromeCount() == 1 &&
+                          sameChrome(chromeWindow.lastChrome(), wantLight) && !wantLight.dark;
+            applyTheme(app, darkIdx);
+            const tinta::WindowChrome wantDark = windowChromeFor(app);
+            darkDelivered = chromeWindow.chromeCount() == 2 &&
+                            sameChrome(chromeWindow.lastChrome(), wantDark) && wantDark.dark;
+            // What the colours ARE: the drawn tab strip and the theme's text, as WinMain paints.
+            formula = sameColor(wantDark.caption, tabStripBackground(app)) &&
+                      sameColor(wantDark.text, app.theme.text);
+            distinct = !sameColor(wantLight.caption, wantDark.caption);
+
+            // What DWM now holds. Only Windows has a reading, and a refused read is a skip.
+            const tinta::DwmChromeReading darkRead = tinta::readDwmChrome(chromeWindow.winId());
+            applyTheme(app, lightIdx);
+            const tinta::DwmChromeReading lightRead = tinta::readDwmChrome(chromeWindow.winId());
+            dwmDarkRead = darkRead.darkRead && lightRead.darkRead;
+            if (dwmDarkRead) {
+                dwmDark = darkRead.dark;
+                dwmLight = !lightRead.dark;
+            }
+            dwmCaptionRead = darkRead.captionRead && lightRead.captionRead;
+            if (dwmCaptionRead) {
+                dwmCaption = darkRead.caption == colorref(wantDark.caption) &&
+                             lightRead.caption == colorref(wantLight.caption);
+            }
+        }
+        const bool cleared = !tinta::windowSinkSlot().chrome;
+
+        std::printf("window_chrome constructed=%d dark_delivered=%d formula=%d distinct=%d "
+                    "cleared=%d dwm_dark_read=%d dwm_dark=%d dwm_light=%d dwm_caption_read=%d "
+                    "dwm_caption=%d\n",
+                    constructed, darkDelivered, formula, distinct, cleared, dwmDarkRead, dwmDark,
+                    dwmLight, dwmCaptionRead, dwmCaption);
+        check(constructed,
+              "a new window applies the current theme's chrome itself, since the first "
+              "applyTheme ran before it existed");
+        check(darkDelivered, "applyTheme delivers the new theme's chrome to the window");
+        check(formula, "the caption is the tab strip's colour and the caption text the theme's");
+        check(distinct, "a light and a dark theme give different captions");
+        check(cleared, "the window's destruction clears the chrome sink");
+#ifdef _WIN32
+        // Each read on its own: Windows 11 answers the dark flag and refuses the caption colour
+        // (measured 2026-09-29, build 26200), so the caption is a SKIP here, and the colour DWM
+        // got is covered only by the delivery checks above plus the helper tinta.exe shares.
+        if (dwmDarkRead) {
+            check(dwmDark && dwmLight, "DWM holds the dark caption variant the theme asks for");
+        } else {
+            std::printf("window_chrome SKIP: DwmGetWindowAttribute refused the dark flag\n");
+        }
+        if (dwmCaptionRead) {
+            check(dwmCaption, "and the caption colour the theme asks for");
+        } else {
+            std::printf("window_chrome SKIP: DwmGetWindowAttribute refused the caption colour\n");
+        }
+#endif
         applyTheme(app, themeBefore);
     }
 

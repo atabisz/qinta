@@ -51,29 +51,213 @@ gets deleted before `qinta` can do the job: removing the Direct2D backend has al
 measured, and what gates it is feature parity rather than any entanglement — see
 [The deprecated-backend flag](#the-deprecated-backend-flag).
 
-## Install
+## Building
 
-**Qinta itself has no releases, no packages and no installer.** It is a work-in-progress fork
-and the only way to get it is [Building](#building) it from source. Every install route in this
-section installs **upstream Tinta** — the Windows Direct2D build — and is kept here because it
-is still the way to get a working viewer today.
+**Qinta has no releases, no packages and no installer.** It is a work-in-progress fork, and
+building it from source is the only way to get it.
 
-The recommended way is the [Microsoft Store](https://apps.microsoft.com/detail/9MZ5MZ3L9RKF): the build is signed by the Store, trusted by Windows out of the box (no security prompts, works with Smart App Control), and updates automatically. The same signed build installs from the command line:
+All three platforms build from the same CMake project, and they are not equally proven. The
+state per platform, before any commands:
 
-```pwsh
-winget install "Tinta Markdown Viewer" -s msstore
+| Platform | Target | State |
+|----------|--------|-------|
+| Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
+| Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
+| Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
+| macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
+
+[`.github/workflows/build.yml`](.github/workflows/build.yml) builds every target and runs the
+whole ctest suite on all three platforms, on each push to `master` and each pull request. The
+table predates it, so a date in the table still means somebody ran it by hand that day, on the
+toolchain named in the row. CI runs on GitHub's runners, not on those machines. Where a
+command below is unverified it says so on the spot, rather than sitting in the same voice as
+one that was measured.
+
+The Direct2D and DirectWrite build is the one that works today, and also the one being
+replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
+and how to measure what still depends on it.
+
+### Prerequisites on every platform
+
+- **Git**, to clone the repo and because CMake fetches the [MD4C](https://github.com/mity/md4c)
+  parser with `git` during the first configure (`FetchContent`, pinned to release 0.5.2). That
+  first configure therefore also needs network access to github.com.
+- **CMake 3.15 or newer.**
+- **A C++17 compiler.** MD4C itself is C11.
+- **Qt 6** with the **Core, Gui, Widgets, Svg and Network** components, for `qinta`. Off Windows
+  Qt is not optional: the configure stops without Core, Gui or Widgets, and `qinta` cannot link
+  without Svg and Network. On Windows only `qinta` needs Qt; the `tinta` build uses the system
+  Direct2D and DirectWrite libraries and needs no Qt at all.
+
+Then, on any platform:
+
+```bash
+git clone https://github.com/atabisz/qinta.git
+cd qinta
 ```
 
-### Portable and other options
+### Windows
 
-Prefer a single file? Grab [the latest release](https://github.com/oipoistar/tinta/releases/latest): a portable `tinta.exe`, no installation required. Because a freshly released exe is not yet code-signed, Windows may show a SmartScreen prompt on first run ("More info", then "Run anyway") until the new version builds up download reputation.
+**Prerequisites**
 
-[Scoop](https://scoop.sh) users can install from the bucket:
+- **Visual Studio 2019 or newer** with the **Desktop development with C++** workload, which
+  installs MSVC and the Windows SDK (Direct2D, DirectWrite and Win32 come from the SDK).
+- **CMake 3.15+.** The copy Visual Studio bundles is fine, but it is not necessarily on `PATH`
+  in an ordinary shell: it lives under
+  `Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
+  adds for you.
+- **Git for Windows.**
+- **Qt 6 for MSVC, 64-bit**, for `qinta` only: the `msvc2022_64` kit from the Qt Online
+  Installer. Measured with Qt 6.8.3, whose kit already includes Widgets, Svg and Network.
+  **Without Qt the configure still succeeds and just leaves `qinta` out.** The target is
+  declared inside `if(Qt6_FOUND AND Qt6Widgets_FOUND)`, so the missing Qt shows up only when
+  `--target qinta` finds no such target, not as a configure error.
 
-```pwsh
-scoop bucket add tinta https://github.com/oipoistar/scoop-bucket
-scoop install tinta
+**Build**
+
+```bash
+# the Direct2D and DirectWrite build: the one that works today
+cmake -S . -B build
+cmake --build build --config Release
+./build/Release/tinta.exe README.md
+
+# the Qt build, where Qt is not on the default search path
+cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
+cmake --build build-qtwin --target qinta --config Release
+./build-qtwin/Release/qinta.exe README.md
 ```
+
+**`qinta.exe` does not find Qt's own DLLs by itself**, and that is the first thing to go
+wrong rather than an edge case: launched with nothing else done it dies before `main()`, naming
+`Qt6Core.dll` — `Qt6Cored.dll` from a Debug build. The exact wording is the shell's, not the
+program's: measured in git-bash it reads `error while loading shared libraries: Qt6Core.dll`, and
+another shell will phrase the same missing DLL its own way. Put
+`C:\Qt\6.8.3\msvc2022_64\bin` on `PATH` in the shell you launch it from, or run Qt's
+`windeployqt` against the binary once. The exit codes are readings, not guesses: `127` without
+that directory on `PATH`, `124` under `timeout 5` with it, and the legacy `tinta.exe` reads `124`
+through the same harness — so `124` means *still running* rather than being what this harness
+returns for everything.
+
+### Linux
+
+**Prerequisites**
+
+- **g++ 13+**, **CMake 3.15+**, **Git**, and the **Qt 6 base and Svg development packages**.
+  Measured on Ubuntu 24.04.2 under WSL with g++ 13.3.0, CMake 3.28.3 and Qt 6.4.2. The package
+  names below are Debian and Ubuntu's; other distributions have not been tried, and need their
+  own equivalents of `qt6-base-dev` and `qt6-svg-dev`.
+
+**Build**
+
+```bash
+sudo apt install git g++ cmake qt6-base-dev qt6-svg-dev
+
+cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux -j"$(nproc)"
+(cd build-linux && ctest --output-on-failure)
+
+./build-linux/qinta README.md                      # a real window, with that file drawn in it
+./build-linux/qinta                                # no argument: the placeholder line
+QT_QPA_PLATFORM=offscreen ./build-linux/qinta      # headless: starts, paints, no window
+```
+
+**`qt6-svg-dev` is not optional, despite how the CMake reads.** Svg and Network are asked for as
+`OPTIONAL_COMPONENTS` deliberately — so that a partial Qt install loses one test target and says
+which one, instead of making `Qt6_FOUND` false and silently deleting every Qt target — but
+`qinta` itself links `Qt6::Svg` (`target_link_libraries(qinta …)` in `CMakeLists.txt`), and linking a component that
+`find_package` looked for and did not find is a **configure-time error, not a skip**. Measured
+both ways on a scratch project: linking an absent component fails the configure with `but the
+target was not found`, and linking a present one reaches `Generating done`. `qt6-base-dev`
+carries Core, Gui, Widgets and Network; Svg is the one that needs a package of its own. Widgets
+is not skippable either, and fails loudly on purpose: `QFileDialog` is the only non-Windows
+implementation of the file-picker seam, so its absence is a `FATAL_ERROR` that names itself
+rather than an undefined symbol at link time.
+
+All three run lines above read `124` under `timeout 5`, meaning the process was still alive when
+the timeout killed it. A path that cannot be opened prints `tinta: cannot open '<path>'` and
+**still** opens the window on the placeholder — so a bad argument reads `124` as well, and is
+not a refusal to launch.
+
+### macOS
+
+**Prerequisites**
+
+- **Xcode Command Line Tools**, for `clang`/`c++`, the system headers CMake needs to configure at
+  all, and `git`.
+- **[Homebrew](https://brew.sh)**, for the other three: **CMake 3.15+** and Qt 6's **qtbase** and
+  **qtsvg** formulae.
+
+Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64, with Apple clang
+21.0.0 (clang-2100.3.34.2), CMake 4.4.3, and Homebrew's `qtbase`/`qtsvg` 6.11.2. The meta
+packages `qt` and `qt6` are not required and were not installed for this build.
+
+**Build**
+
+```bash
+xcode-select --install                     # once, if `clang`/`c++` are not already present
+brew install cmake qtbase qtsvg
+
+cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)"
+cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
+(cd build-mac && ctest --output-on-failure)
+
+./build-mac/qinta README.md
+```
+
+- **The Qt requirement is identical to Linux's**: Core and Gui or the configure stops, Widgets
+  or it stops again, and Svg and Network for `qinta` to link at all. Homebrew splits those
+  across two formulae — `qtbase` (Core, Gui, Widgets, Network) and `qtsvg` — rather than one
+  combined package, so `CMAKE_PREFIX_PATH` needs both prefixes.
+- **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
+  `MACOSX_BUNDLE` — zero occurrences of it in the file — so `qinta` builds as a command-line
+  binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`.
+- **Every ctest entry passes**, after fixing four macOS-specific gaps the first build here
+  surfaced — none of them were build or link problems, the binary configured and ran from the
+  start:
+  - `platform_paths`'s forced-locale control set `LANGUAGE` via `setenv()`, which Linux's glibc
+    backend honours and macOS's does not: `QLocale::system()` there resolves through
+    CoreFoundation/`NSUserDefaults` (System Settings), never consulting
+    `LANG`/`LC_ALL`/`LANGUAGE`. The working macOS equivalent is `-AppleLanguages (tags)`, an
+    argument-domain override read from argv at process start — CMakeLists.txt now passes it on
+    the `platform_paths` test's command line on `APPLE`, and the exact-match assertion on the
+    most-preferred tag was loosened to a primary-subtag prefix check, because macOS's canonical
+    expansion order puts the maximized form (`zh-Hans-CN`) ahead of the literally-requested one
+    (`zh-CN`) — both match the "zh" prefix the real caller (`detectSystemLanguage()`) actually
+    depends on.
+  - `platform_paths_bare_locale` has no macOS equivalent at all: every override CoreFoundation
+    exposes (`LC_ALL=C`/`LANG=C`/empty `LANGUAGE`, an empty `-AppleLanguages ()`, `-AppleLocale
+    C`) falls back to the real system language list rather than reporting bare `"C"`, so the
+    state this control probes for is not reachable from a macOS test process. It is no longer
+    registered there (`CMakeLists.txt`, `NOT WIN32 AND NOT APPLE`), rather than left failing
+    against an unreachable target.
+  - `qt_text` assumed DejaVu Sans, which Linux gets from Qt's own fontconfig setup but macOS
+    does not ship at all — it silently substituted the system UI font instead, which is the
+    exact un-asserted substitution this test exists to catch, and had no 'fi' ligature either.
+    `kOnMacOS` now selects Helvetica for both the primary-family and ligature checks: it
+    resolves to itself and measured glyph count 1 for "fi" (has the ligature), the same shape
+    as the existing per-platform branches for Segoe UI/Calibri.
+  - `qt_entry`'s idempotency check compared one pointer (`folderBrowserFormat`) before and
+    after a second `installChromeFormats` call, expecting a fresh heap allocation to prove a
+    real release-and-rebuild happened rather than a no-op. Measured: that single comparison is
+    genuinely flaky on macOS's allocator — 2 passes then 3 fails across 5 consecutive,
+    code-identical `ctest` runs — because a just-freed same-size block is sometimes handed
+    straight back to the very next same-size request. The check now compares all ten format
+    pointers and requires at least one to have moved; a real no-op still fails it (none would
+    move), but one coincidental address reuse no longer does. Stable across 8+ repeated runs
+    after the fix.
+
+  `src/platform_paths_qt.cpp`'s `__APPLE__` branches (`_NSGetExecutablePath` for the executable
+  directory, `~/Library/Application Support` for the config base, deliberately not
+  `QStandardPaths`, whose generic config location is `~/Library/Preferences`) compile and pass.
+- **The repo's own portability probe will not run here as written.**
+  `scripts/probe-portable-linux.sh` calls `mktemp --suffix=.cpp` and
+  `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` (macOS's default) rejects.
+  The `linux` in the filename is load-bearing. Not re-probed this pass.
+- **Only this one configuration has been measured.** Apple clang 21 on macOS 26.6.2/arm64 via
+  Homebrew Qt 6.11.2 — not Intel, not an older macOS or Xcode, not a non-Homebrew Qt install,
+  and no `CMAKE_OSX_DEPLOYMENT_TARGET` was set, so the minimum supported macOS version is
+  whatever CMake's default picks up from the host, unverified.
 
 ## Why Tinta — and why fork it?
 
@@ -129,7 +313,6 @@ reasoning, and why Qt 6 rather than Skia, is in
 - **Draft recovery** - Unsaved quick notes are stashed continuously and offered back on the next launch
 - **Create on click** - Clicking a missing file reference offers to create the file and opens it ready to type
 - **Text-file references** - `.txt`, `.json`, `.yaml` and friends link like Markdown files and open as highlighted documents
-- **Update check** - Portable builds check GitHub once a day and offer a new release as a quiet, dismissible chip
 - **Search** - Find text with F or Ctrl+F, cycle through matches with Enter; every match shows as a tick on the scrollbar
 - **Persistent settings** - Remembers your theme, zoom level, and window position
 - **Portable mode** - Create a `settings.ini` next to `tinta.exe` (an empty file works) and the whole configuration — settings, custom themes, languages, drafts — lives beside the executable and travels with it; without one, everything stays in `%APPDATA%\Tinta`
@@ -213,166 +396,6 @@ Windows display language by default, or can be changed explicitly. Transient
 notifications and native error dialogs use the same language. Additional
 translations can be added through `languages.ini`; the app remains a native,
 single-file Windows viewer with no web runtime.
-
-## Building
-
-All three platforms build from the same CMake project, and they are not equally proven. The
-state per platform, before any commands:
-
-| Platform | Target | State |
-|----------|--------|-------|
-| Windows | `tinta` — Direct2D + DirectWrite | Works today, and is the backend being replaced. |
-| Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
-| Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
-| macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
-
-[`.github/workflows/build.yml`](.github/workflows/build.yml) builds every target and runs the
-whole ctest suite on all three platforms, on each push to `master` and each pull request. The
-table predates it, so a date in the table still means somebody ran it by hand that day, on the
-toolchain named in the row. CI runs on GitHub's runners, not on those machines. Where a
-command below is unverified it says so on the spot, rather than sitting in the same voice as
-one that was measured.
-
-The Direct2D and DirectWrite build is the one that works today, and also the one being
-replaced — see [the deprecated-backend flag](#the-deprecated-backend-flag) for what that means
-and how to measure what still depends on it.
-
-### Windows
-
-Visual Studio 2019+ and CMake 3.15+. `cmake` is not necessarily on `PATH` in an ordinary shell:
-on a Visual Studio install it lives under
-`Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
-adds for you.
-
-```bash
-# the Direct2D and DirectWrite build: the one that works today
-cmake -S . -B build
-cmake --build build --config Release
-./build/Release/tinta.exe README.md
-
-# the Qt build, where Qt is not on the default search path
-cmake -S . -B build-qtwin -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64
-cmake --build build-qtwin --target qinta --config Release
-./build-qtwin/Release/qinta.exe README.md
-```
-
-**`qinta.exe` does not find Qt's own DLLs by itself**, and that is the first thing to go
-wrong rather than an edge case: launched with nothing else done it dies before `main()`, naming
-`Qt6Core.dll` — `Qt6Cored.dll` from a Debug build. The exact wording is the shell's, not the
-program's: measured in git-bash it reads `error while loading shared libraries: Qt6Core.dll`, and
-another shell will phrase the same missing DLL its own way. Put
-`C:\Qt\6.8.3\msvc2022_64\bin` on `PATH` in the shell you launch it from, or run Qt's
-`windeployqt` against the binary once. The exit codes are readings, not guesses: `127` without
-that directory on `PATH`, `124` under `timeout 5` with it, and the legacy `tinta.exe` reads `124`
-through the same harness — so `124` means *still running* rather than being what this harness
-returns for everything.
-
-### Linux
-
-g++ 13+, CMake 3.15+, and Qt 6. Measured on Ubuntu 24.04.2 under WSL with g++ 13.3.0,
-CMake 3.28.3 and Qt 6.4.2.
-
-```bash
-sudo apt install g++ cmake qt6-base-dev qt6-svg-dev
-
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
-cmake --build build-linux -j"$(nproc)"
-(cd build-linux && ctest --output-on-failure)
-
-./build-linux/qinta README.md                      # a real window, with that file drawn in it
-./build-linux/qinta                                # no argument: the placeholder line
-QT_QPA_PLATFORM=offscreen ./build-linux/qinta      # headless: starts, paints, no window
-```
-
-**`qt6-svg-dev` is not optional, despite how the CMake reads.** Svg and Network are asked for as
-`OPTIONAL_COMPONENTS` deliberately — so that a partial Qt install loses one test target and says
-which one, instead of making `Qt6_FOUND` false and silently deleting every Qt target — but
-`qinta` itself links `Qt6::Svg` (`CMakeLists.txt:568-569`), and linking a component that
-`find_package` looked for and did not find is a **configure-time error, not a skip**. Measured
-both ways on a scratch project: linking an absent component fails the configure with `but the
-target was not found`, and linking a present one reaches `Generating done`. `qt6-base-dev`
-carries Core, Gui, Widgets and Network; Svg is the one that needs a package of its own. Widgets
-is not skippable either, and fails loudly on purpose: `QFileDialog` is the only non-Windows
-implementation of the file-picker seam, so its absence is a `FATAL_ERROR` that names itself
-rather than an undefined symbol at link time.
-
-All three run lines above read `124` under `timeout 5`, meaning the process was still alive when
-the timeout killed it. A path that cannot be opened prints `tinta: cannot open '<path>'` and
-**still** opens the window on the placeholder — so a bad argument reads `124` as well, and is
-not a refusal to launch.
-
-### macOS
-
-Xcode Command Line Tools (for `clang`/`c++`), CMake 3.15+, and Qt 6's **qtbase** and **qtsvg**
-components. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64, with Apple clang
-21.0.0 (clang-2100.3.34.2), CMake 4.4.3, and Homebrew's `qtbase`/`qtsvg` 6.11.2 — the meta
-packages `qt` and `qt6` are not required and were not installed for this build.
-
-```bash
-xcode-select --install                     # once, if `clang`/`c++` are not already present
-brew install cmake qtbase qtsvg
-
-cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)"
-cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
-(cd build-mac && ctest --output-on-failure)
-
-./build-mac/qinta README.md
-```
-
-- **The Qt requirement is identical to Linux's**: Core and Gui or the configure stops, Widgets
-  or it stops again, and Svg and Network for `qinta` to link at all. Homebrew splits those
-  across two formulae — `qtbase` (Core, Gui, Widgets, Network) and `qtsvg` — rather than one
-  combined package, so `CMAKE_PREFIX_PATH` needs both prefixes.
-- **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
-  `MACOSX_BUNDLE` — zero occurrences of it in the file — so `qinta` builds as a command-line
-  binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`.
-- **Every ctest entry passes**, after fixing four macOS-specific gaps the first build here
-  surfaced — none of them were build or link problems, the binary configured and ran from the
-  start:
-  - `platform_paths`'s forced-locale control set `LANGUAGE` via `setenv()`, which Linux's glibc
-    backend honours and macOS's does not: `QLocale::system()` there resolves through
-    CoreFoundation/`NSUserDefaults` (System Settings), never consulting
-    `LANG`/`LC_ALL`/`LANGUAGE`. The working macOS equivalent is `-AppleLanguages (tags)`, an
-    argument-domain override read from argv at process start — CMakeLists.txt now passes it on
-    the `platform_paths` test's command line on `APPLE`, and the exact-match assertion on the
-    most-preferred tag was loosened to a primary-subtag prefix check, because macOS's canonical
-    expansion order puts the maximized form (`zh-Hans-CN`) ahead of the literally-requested one
-    (`zh-CN`) — both match the "zh" prefix the real caller (`detectSystemLanguage()`) actually
-    depends on.
-  - `platform_paths_bare_locale` has no macOS equivalent at all: every override CoreFoundation
-    exposes (`LC_ALL=C`/`LANG=C`/empty `LANGUAGE`, an empty `-AppleLanguages ()`, `-AppleLocale
-    C`) falls back to the real system language list rather than reporting bare `"C"`, so the
-    state this control probes for is not reachable from a macOS test process. It is no longer
-    registered there (`CMakeLists.txt`, `NOT WIN32 AND NOT APPLE`), rather than left failing
-    against an unreachable target.
-  - `qt_text` assumed DejaVu Sans, which Linux gets from Qt's own fontconfig setup but macOS
-    does not ship at all — it silently substituted the system UI font instead, which is the
-    exact un-asserted substitution this test exists to catch, and had no 'fi' ligature either.
-    `kOnMacOS` now selects Helvetica for both the primary-family and ligature checks: it
-    resolves to itself and measured glyph count 1 for "fi" (has the ligature), the same shape
-    as the existing per-platform branches for Segoe UI/Calibri.
-  - `qt_entry`'s idempotency check compared one pointer (`folderBrowserFormat`) before and
-    after a second `installChromeFormats` call, expecting a fresh heap allocation to prove a
-    real release-and-rebuild happened rather than a no-op. Measured: that single comparison is
-    genuinely flaky on macOS's allocator — 2 passes then 3 fails across 5 consecutive,
-    code-identical `ctest` runs — because a just-freed same-size block is sometimes handed
-    straight back to the very next same-size request. The check now compares all ten format
-    pointers and requires at least one to have moved; a real no-op still fails it (none would
-    move), but one coincidental address reuse no longer does. Stable across 8+ repeated runs
-    after the fix.
-
-  `src/platform_paths_qt.cpp`'s `__APPLE__` branches (`_NSGetExecutablePath` for the executable
-  directory, `~/Library/Application Support` for the config base, deliberately not
-  `QStandardPaths`, whose generic config location is `~/Library/Preferences`) compile and pass.
-- **The repo's own portability probe will not run here as written.**
-  `scripts/probe-portable-linux.sh` calls `mktemp --suffix=.cpp` and
-  `mktemp -t tinta-probe-XXXXXX.md`, both GNU forms that BSD `mktemp` (macOS's default) rejects.
-  The `linux` in the filename is load-bearing. Not re-probed this pass.
-- **Only this one configuration has been measured.** Apple clang 21 on macOS 26.6.2/arm64 via
-  Homebrew Qt 6.11.2 — not Intel, not an older macOS or Xcode, not a non-Homebrew Qt install,
-  and no `CMAKE_OSX_DEPLOYMENT_TARGET` was set, so the minimum supported macOS version is
-  whatever CMake's default picks up from the host, unverified.
 
 ## Cross-platform port (Windows / macOS / Linux)
 

@@ -1059,6 +1059,38 @@ cannot keep the promise. Nothing breaks today — `tinta.exe` is unchanged and s
 but the decision is no longer ahead of the port, it is inside it, and the first person to ship
 a Qt Windows build makes it whether they mean to or not.
 
+### Planned: MinGW on Windows, once the Direct2D code is gone
+
+The plan is to build Windows with **MinGW-w64** instead of MSVC, so that building qinta no
+longer needs a Visual Studio licence. Linux (GCC) and macOS (AppleClang) already build without
+one; Windows is the only platform that does not.
+
+MinGW is the route because it is the only one that removes the licence. `clang-cl` would make the
+compiler free (Apache 2.0), but it still compiles against the MSVC STL, the CRT headers and
+libraries, and the Windows SDK, and those come with a Visual Studio or Build Tools install.
+MinGW-w64 supplies its own headers and import libraries and links against the C runtime Windows
+itself ships (UCRT); `llvm-mingw` (Clang) and MSYS2's GCC are both
+candidates.
+
+**It waits for the Direct2D and DirectWrite code to be removed, and not before.** MinGW's
+headers have historically lagged Microsoft's for the recent Direct2D and DirectWrite interfaces
+(`d2d1_3`, `dwrite_3`), so tinta is the part most likely to fail to build, and it is the part
+that is being deleted anyway. Once only qinta is left, the switch costs:
+
+- a **MinGW Qt kit** (Qt's `mingw_64`, or MSYS2's `qt6`) in place of `msvc2022_64`, locally and
+  in CI;
+- GCC-style equivalents of the `if(MSVC)` block in `CMakeLists.txt`, which MinGW does not enter:
+  `/W4`, `NOMINMAX`, `_CRT_SECURE_NO_WARNINGS` and the static-CRT setting;
+- re-running the full `ctest` suite and the rendering harnesses under the new toolchain, since
+  none of them has been built with MinGW yet.
+
+It also changes the C runtime question above: a MinGW build does not use the VC++ runtime, so
+"no VC++ redistributable" is no longer the constraint, and what ships next to the exe becomes
+the MinGW runtime (or links statically) plus the Qt DLLs.
+
+Nothing in this section is measured yet. No MinGW build of this tree exists, so the costs above
+are the known differences, not a list checked by a build.
+
 ### Status
 
 Measured on 2026-09-17 at this commit, Windows and Linux both built and tested in the

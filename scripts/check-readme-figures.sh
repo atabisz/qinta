@@ -95,8 +95,13 @@ bump() { if [ "$control" -eq 1 ]; then echo $(($1 + 1)); else echo "$1"; fi; }
 
 lines() { echo "$(bump "$(wc -l < "$1" | tr -d ' ')")"; }
 
-# 3307 -> 3,307
-c() { printf '%s' "$1" | sed ':a;s/\B[0-9]\{3\}\>/,&/;ta'; }
+# 3307 -> 3,307. Pure bash rather than the sed label loop it replaces, which needed GNU sed:
+# BSD sed on macOS rejects `:a;...;ta` and \B/\> outright, so every comma-grouped claim read MISS.
+c() {
+    local n=$1 out=""
+    while [ ${#n} -gt 3 ]; do out=",${n: -3}$out"; n=${n:0:${#n}-3}; done
+    printf '%s' "$n$out"
+}
 
 # Asserts a literal claim string appears in the README exactly once. Once, not
 # at-least-once: a figure appearing twice is how the same claim ends up corrected in

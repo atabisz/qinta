@@ -68,10 +68,15 @@ jobs:
       - name: Install dependencies
         run: brew install qtbase qtsvg ripgrep
 
+      # Homebrew installs qtsvg as its own keg, outside qtbase's prefix, and Qt6Config looks
+      # for add-on modules relative to its own install -- so a qtsvg keg on CMAKE_PREFIX_PATH
+      # is never searched and Qt6Svg_FOUND comes back false. QT_ADDITIONAL_PACKAGES_PREFIX_PATH
+      # is Qt's hook for modules installed in a separate prefix.
       - name: Configure
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase);$(brew --prefix qtsvg)"
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qtbase)" \
+            -DQT_ADDITIONAL_PACKAGES_PREFIX_PATH="$(brew --prefix qtsvg)"
 
       - name: Build
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"

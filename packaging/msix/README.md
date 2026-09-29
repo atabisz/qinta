@@ -1,5 +1,12 @@
 # MSIX packaging & Microsoft Store publishing
 
+> **Disabled.** `pack.ps1` stops on its first line. It packs `tinta.exe` under upstream
+> Tinta's Store identity, and a default build no longer produces `tinta.exe`: qinta is the
+> Windows app. This repository also has no `store` job in CI, so the automatic publishing
+> described below does not run from here. Re-enabling it means pointing the manifest and
+> `pack.ps1` at `qinta.exe` and its Qt runtime, under a qinta identity. The text below
+> describes the upstream setup this was inherited from.
+
 Tinta ships on the Microsoft Store as **Tinta Markdown Viewer**
 ([`9MZ5MZ3L9RKF`](https://apps.microsoft.com/detail/9MZ5MZ3L9RKF)).
 

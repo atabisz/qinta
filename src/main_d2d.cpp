@@ -721,6 +721,12 @@ render_document:
 // day, on a worker thread that starts ten seconds after startup. Store
 // installs update through the Store and skip all of this. The result
 // surfaces as a small dismissable chip in the corner, never a dialog.
+//
+// DISABLED: the worker asks upstream Tinta's releases (oipoistar/tinta), not
+// qinta's, so every portable build would be told about someone else's
+// release. Flip this back once the request and signals.cpp's release URL
+// point at qinta.
+static constexpr bool kUpdateCheckEnabled = false;
 
 static bool isStorePackaged() {
     UINT32 length = 0;
@@ -1885,8 +1891,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     app.metrics.showWindowUs = usElapsed(t0);
 
     // Update check: portable builds only, at most once a day, and only
-    // long after startup has finished (10 s timer arms a worker thread)
-    if (app.updateCheckEnabled && !isStorePackaged() &&
+    // long after startup has finished (10 s timer arms a worker thread).
+    // Off until it is re-pointed at qinta -- see kUpdateCheckEnabled.
+    if (kUpdateCheckEnabled && app.updateCheckEnabled && !isStorePackaged() &&
         app.updateLastCheck != todayString()) {
         armTimer(app.hwnd, TIMER_UPDATE_CHECK, 10000);
     }

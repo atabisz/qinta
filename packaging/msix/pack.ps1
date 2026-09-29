@@ -7,6 +7,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# DISABLED: this packs tinta.exe under upstream Tinta's Store identity, and tinta.exe is no
+# longer in the default build (qinta is the Windows app). Remove this line once the manifest
+# and this script package qinta.exe and its Qt runtime.
+throw "MSIX packaging is disabled until it is re-pointed at qinta -- see packaging/msix/README.md"
+
 if (-not (Test-Path $ExePath)) { throw "tinta.exe not found at $ExePath — build Release first" }
 
 # Version from CMakeLists project() VERSION, padded to 4 parts (Store requires x.y.z.0)

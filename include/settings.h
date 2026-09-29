@@ -46,6 +46,9 @@ unsigned long long fileTimeTicksNow();
 
 // Theme changes persist immediately so new windows spawn in the same look
 void persistThemeChoice(const App& app);
+// The four theme fields persistThemeChoice writes, copied onto a loaded Settings -- shared
+// with the Qt arm's close save (qt_launch.cpp) so the two cannot drift apart.
+void storeThemeChoice(Settings& settings, const App& app);
 // Editor mode pill choice (and the assists switch) persist immediately
 void persistEditorMode(const App& app);
 void persistOpenInTabs(const App& app);

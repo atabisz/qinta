@@ -19,11 +19,19 @@
 // The two OS lookups this needs are behind platform_paths.h, so the policy
 // below -- prefer the exe folder, else the user config home -- is now the same
 // code on every platform rather than being expressed in Win32 calls.
+namespace {
+std::wstring g_configDir;
+bool g_configDirResolved = false;
+}  // namespace
+
+void pinTintaConfigDir(const std::wstring& dir) {
+    g_configDir = dir;
+    g_configDirResolved = true;
+}
+
 std::wstring tintaConfigDir() {
-    static std::wstring cached;
-    static bool resolved = false;
-    if (resolved) return cached;
-    resolved = true;
+    if (g_configDirResolved) return g_configDir;
+    g_configDirResolved = true;
 
     std::wstring exeDir = platform::executableDirectory();
     if (!exeDir.empty()) {
@@ -31,13 +39,13 @@ std::wstring tintaConfigDir() {
         // regularFileExists, not a plain existence test: a *directory* named
         // settings.ini must not switch the app into portable mode.
         if (platform::regularFileExists(optIn)) {
-            cached = exeDir;
-            return cached;
+            g_configDir = exeDir;
+            return g_configDir;
         }
     }
 
-    cached = platform::userConfigDirectory(L"Tinta");
-    return cached;
+    g_configDir = platform::userConfigDirectory(L"Tinta");
+    return g_configDir;
 }
 
 #ifdef _WIN32

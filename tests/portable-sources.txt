@@ -1332,7 +1332,7 @@ theme_qt.cpp
 
 # --- settings_app.cpp, compiled off Windows and NOT linked ---------------------
 #
-# The four App-touching settings functions. Out of every non-Windows build until
+# The App-touching settings functions. Out of every non-Windows build until
 # 2026-09-24 ON PURPOSE: the probe asserted its object was absent as a stand-in for
 # "settings.cpp has not grown App back". The link fixpoint measured what that stand-in
 # cost -- input.cpp needs all four of these, and input.cpp gates fourteen compile-only

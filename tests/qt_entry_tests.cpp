@@ -87,6 +87,7 @@
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QCursor>
+#include <QDir>
 #include <QEventLoop>
 #include <QFontDatabase>
 #include <QImage>
@@ -99,6 +100,7 @@
 #include <QSize>
 #include <QString>
 #include <QStringList>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QWheelEvent>
 
@@ -111,6 +113,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 
 #include <memory>
@@ -134,6 +137,7 @@
 #include "input.h"
 #include "keymap.h"
 #include "paint_document.h"
+#include "platform_paths.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
 // Run 19's whole point: the four functions src/main_qt.cpp calls to place and colour its
@@ -413,6 +417,26 @@ float rowWidthAt(App& app, tinta::TextFormat* format, float maxWidth,
 int main(int argc, char** argv) {
     // QApplication, not QGuiApplication: QtAppWindow is a QWidget.
     QApplication qapp(argc, argv);
+
+    // THE CONFIGURATION HOME IS PINNED FIRST, before anything can resolve it. A clean close
+    // saves settings (slice 11) and the draft timer writes drafts, and unpinned both land in
+    // the real per-user directory -- on Windows the settings.ini tinta itself reads. Not an
+    // APPDATA redirect: the Win32 path backend asks SHGetFolderPathW, which ignores the
+    // variable. A pin that did not take refuses the run rather than writing the real file.
+    QTemporaryDir configHome;
+    const std::wstring realConfigDir = platform::userConfigDirectory(L"Tinta");
+    if (configHome.isValid()) {
+        pinTintaConfigDir(QDir::toNativeSeparators(configHome.path()).toStdWString());
+    }
+    const std::wstring settingsPath = getSettingsPath();
+    const std::wstring pinnedDir = QDir::toNativeSeparators(configHome.path()).toStdWString();
+    if (!configHome.isValid() || settingsPath.rfind(pinnedDir, 0) != 0 ||
+        (!realConfigDir.empty() && settingsPath.rfind(realConfigDir, 0) == 0)) {
+        std::printf("FAIL: the configuration home is not pinned to a temporary directory, so a\n"
+                    "      close would write the real settings.ini. Refusing to run.\n");
+        return 2;
+    }
+    check(true, "the configuration home is pinned to a temporary directory, away from the real one");
 
     const QString platform = QApplication::platformName();
     std::printf("platform=%s\n", platform.toUtf8().constData());
@@ -2824,6 +2848,138 @@ int main(int argc, char** argv) {
 
         app.editMode = editBefore;
         app.editorDirty = dirtyBefore;
+        app.escPressedOnce = false;
+        app.activeTab = activeBefore;
+        if (addedTab) app.tabs.clear();
+        QApplication::setQuitOnLastWindowClosed(quitBefore);
+    }
+
+    // LOAD BEFORE WRITE (slice 11). qinta wrote the four theme fields -- the theme picker's
+    // persistThemeChoice -- without ever loading them, so on Windows a theme pick put App's
+    // defaults over tinta's saved light/dark pair. It loads them now, and a clean close saves
+    // them plus the geometry. Every read below goes through loadSettings() on the pinned home.
+    {
+        // applySavedTheme: the four fields, and the start theme they select. Index chosen at
+        // runtime as the first LIGHT theme past slot 0, so darkMode has to move off the
+        // default Midnight's true and the fallback slot cannot pass for a mapped index.
+        int lightIndex = -1;
+        for (int i = 1; i < themeCount() && lightIndex < 0; ++i) {
+            if (!themeAt(i).isDark) lightIndex = i;
+        }
+        App themeApp;
+        Settings themed;
+        themed.themeIndex = lightIndex;
+        themed.followSystemTheme = !themeApp.followSystemTheme;
+        themed.lightThemeIndex = themeApp.lightThemeIndex + 1;
+        themed.darkThemeIndex = themeApp.darkThemeIndex + 2;
+        const bool darkBefore = themeApp.darkMode;
+        tinta::applySavedTheme(themeApp, themed);
+        const bool mapped = lightIndex > 0 && themeApp.currentThemeIndex == lightIndex &&
+                            themeApp.theme.name == themeAt(lightIndex).name &&
+                            !themeApp.darkMode && darkBefore &&
+                            themeApp.followSystemTheme == themed.followSystemTheme &&
+                            themeApp.lightThemeIndex == themed.lightThemeIndex &&
+                            themeApp.darkThemeIndex == themed.darkThemeIndex;
+        themed.themeIndex = themeCount();
+        tinta::applySavedTheme(themeApp, themed);
+        const bool clampHigh = themeApp.currentThemeIndex == 0;
+        themeApp.currentThemeIndex = lightIndex;
+        themed.themeIndex = -1;
+        tinta::applySavedTheme(themeApp, themed);
+        const bool clampLow = themeApp.currentThemeIndex == 0 &&
+                              themeApp.theme.name == themeAt(0).name;
+
+        // The close save. A settings.ini is seeded first with a zoomFactor this arm never
+        // writes, which is the field a WinMain-style full save would have put a default over.
+        const bool quitBefore = QApplication::quitOnLastWindowClosed();
+        QApplication::setQuitOnLastWindowClosed(false);
+        const bool addedTab = app.tabs.empty();
+        if (addedTab) app.tabs.emplace_back();
+        const int activeBefore = app.activeTab;
+        app.activeTab = 0;
+        const int themeBefore = app.currentThemeIndex;
+        const bool followBefore = app.followSystemTheme;
+        const int lightBefore = app.lightThemeIndex;
+        const int darkIndexBefore = app.darkThemeIndex;
+
+        Settings seed;
+        seed.zoomFactor = 1.75f;
+        seed.themeIndex = 1;
+        saveSettings(seed);
+        app.currentThemeIndex = 2;
+        app.followSystemTheme = !seed.followSystemTheme;
+        app.lightThemeIndex = seed.lightThemeIndex + 3;
+        app.darkThemeIndex = seed.darkThemeIndex + 4;
+
+        QtAppWindow saveWindow(app);
+        saveWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        tinta::applyPlacement(saveWindow, tinta::WindowRect{140, 160, 820, 610});
+        tinta::showPlaced(saveWindow, false);
+        const bool shownPlain = saveWindow.isVisible() && !saveWindow.isMaximized();
+        const QPoint savePos = saveWindow.pos();
+        const bool cleanClose = saveWindow.close();
+        const Settings afterClean = loadSettings();
+        const bool themeSaved = afterClean.themeIndex == 2 &&
+                                afterClean.followSystemTheme == app.followSystemTheme &&
+                                afterClean.lightThemeIndex == app.lightThemeIndex &&
+                                afterClean.darkThemeIndex == app.darkThemeIndex;
+        const bool geometrySaved = afterClean.windowX == savePos.x() &&
+                                   afterClean.windowY == savePos.y() && savePos.x() == 140 &&
+                                   savePos.y() == 160 && afterClean.windowWidth == 820 &&
+                                   afterClean.windowHeight == 610 && !afterClean.windowMaximized;
+        const bool zoomKept = afterClean.zoomFactor == 1.75f;
+
+        // A refused close writes nothing: the file's bytes are compared, not its fields.
+        auto readSettingsFile = []() {
+            std::ifstream in(std::filesystem::path(getSettingsPath()), std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in),
+                               std::istreambuf_iterator<char>());
+        };
+        const std::string bytesBefore = readSettingsFile();
+        tinta::showPlaced(saveWindow, false);
+        app.currentThemeIndex = 3;
+        app.editMode = true;
+        app.editorDirty = true;
+        const bool dirtyClose = saveWindow.close();
+        const bool dirtyUnwritten = !dirtyClose && !bytesBefore.empty() &&
+                                    readSettingsFile() == bytesBefore;
+        confirmExitAction(app, nullptr, 3);
+        app.editMode = false;
+        app.editorDirty = false;
+
+        // Maximized: the flag is saved and the restore rectangle on disk is left alone,
+        // because the maximized widget's rectangle is not one to restore to.
+        tinta::showPlaced(saveWindow, true);
+        const bool shownMaximized = saveWindow.isMaximized();
+        saveWindow.close();
+        const Settings afterMax = loadSettings();
+        const bool maxSaved = afterMax.windowMaximized && afterMax.windowX == 140 &&
+                              afterMax.windowY == 160 && afterMax.windowWidth == 820 &&
+                              afterMax.windowHeight == 610 && afterMax.themeIndex == 3;
+
+        std::printf("settings_lbw light_index=%d mapped=%d clamp_high=%d clamp_low=%d "
+                    "shown=%d clean_close=%d theme=%d geometry=%d,%d %dx%d max=%d zoom=%.2f "
+                    "dirty_close=%d dirty_unwritten=%d shown_max=%d max_saved=%d\n",
+                    lightIndex, mapped, clampHigh, clampLow, shownPlain, cleanClose, themeSaved,
+                    afterClean.windowX, afterClean.windowY, afterClean.windowWidth,
+                    afterClean.windowHeight, afterClean.windowMaximized, afterClean.zoomFactor,
+                    dirtyClose, dirtyUnwritten, shownMaximized, maxSaved);
+        check(mapped, "applySavedTheme maps all four fields and draws the saved theme, "
+                      "darkMode read off it");
+        check(clampHigh, "a saved index past the theme registry starts on slot 0, as in WinMain");
+        check(clampLow, "and so does a negative one, with the theme drawn from the same slot");
+        check(shownPlain, "showPlaced(false) shows the window unmaximized");
+        check(cleanClose && themeSaved, "a clean close saves the four theme fields");
+        check(geometrySaved, "and the geometry, as applyPlacement's inverse: frame pos, client size");
+        check(zoomKept, "and keeps a field this arm never loads as the file had it");
+        check(dirtyUnwritten, "a close refused for a dirty buffer leaves settings.ini byte-identical");
+        check(shownMaximized && maxSaved,
+              "a maximized close saves the flag and leaves the restore rectangle as it was");
+
+        app.currentThemeIndex = themeBefore;
+        app.followSystemTheme = followBefore;
+        app.lightThemeIndex = lightBefore;
+        app.darkThemeIndex = darkIndexBefore;
         app.escPressedOnce = false;
         app.activeTab = activeBefore;
         if (addedTab) app.tabs.clear();

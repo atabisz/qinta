@@ -32,6 +32,7 @@
 // defect planted in main()'s copy. The tree has paid for that shape before -- memory
 // `a-reproduction-is-not-an-instrument`. So main() calls these and the test calls the same
 // two functions, and what is left uncovered in main() is only which arguments it passes.
+// The settings functions after them (slice 11) are here for the same reason.
 
 struct App;
 class QWidget;
@@ -55,9 +56,10 @@ std::vector<MonitorArea> monitorsFromQt();
 //
 // The narrowness is the point and it is not laziness: Settings has thirty fields and a
 // placement reads four of them. main() also applies the two keymap fields, which the key
-// router consumes -- that is applyKeymap's job, not this function's. The other twenty-four
-// reach consumers that are still Windows-only, so copying them would set state nothing on
-// this arm reads.
+// router consumes -- that is applyKeymap's job, not this function's -- and the theme fields
+// and windowMaximized, which applySavedTheme and showPlaced below take. The rest reach
+// consumers that are still Windows-only, so copying them would set state nothing on this
+// arm reads.
 //
 // `savedX`/`savedY` may be kWindowPositionUseDefault and that value is passed through
 // unchanged -- it means "nothing has ever saved a position", and choosePlacement returns it
@@ -84,6 +86,24 @@ void applyPlacement(QWidget& window, const WindowRect& placement);
 // than assumed false -- assuming it is how a renamed or reordered theme table turns a light
 // window into a light window drawn with dark-mode decisions.
 void applyLightMode(App& app);
+
+// THE THEME FIELDS settings.ini HOLDS, LOADED BECAUSE THIS ARM WRITES THEM. The theme picker's
+// persistThemeChoice and the close save both read-modify-write these four, so an arm that
+// wrote them without loading them put App's defaults over the user's saved light/dark pair --
+// on Windows in the settings.ini tinta itself reads. The start index is WinMain's rule: an
+// index past the registry (a deleted custom theme) falls back to slot 0. Follow-system starts
+// on the saved index until this arm has a system appearance reading of its own.
+void applySavedTheme(App& app, const Settings& settings);
+
+// show(), or showMaximized() when the saved window was maximized -- windowMaximized is one of
+// the fields the close save writes, so it is loaded for the same reason as the theme.
+void showPlaced(QWidget& window, bool maximized);
+
+// WM_DESTROY's save, narrowed to the fields this arm loads: the four theme fields, the
+// maximized flag and -- unless maximized or full screen, where the widget's rectangle is not
+// the one to restore -- the geometry, as the inverse of applyPlacement: frame position, client
+// size. Every other field is written back as loadSettings() read it.
+void saveClosingState(const App& app, const QWidget& window);
 
 }  // namespace tinta
 

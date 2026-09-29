@@ -1,4 +1,5 @@
-// The four settings functions that touch App.
+// The settings functions that touch App -- four, plus storeThemeChoice, the field copy
+// persistThemeChoice and the Qt arm's close save share.
 //
 // They are here rather than in settings.cpp because that single line of field
 // copying each was what kept the entire ini reader and writer, 380 lines of string
@@ -63,9 +64,13 @@ void persistOpenInTabs(const App& app) {
 // otherwise come up in the look from the previous session
 void persistThemeChoice(const App& app) {
     Settings settings = loadSettings();
+    storeThemeChoice(settings, app);
+    saveSettings(settings);
+}
+
+void storeThemeChoice(Settings& settings, const App& app) {
     settings.themeIndex = app.currentThemeIndex;
     settings.followSystemTheme = app.followSystemTheme;
     settings.lightThemeIndex = app.lightThemeIndex;
     settings.darkThemeIndex = app.darkThemeIndex;
-    saveSettings(settings);
 }

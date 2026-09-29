@@ -17,6 +17,7 @@
 #include <optional>
 
 #include "app.h"
+#include "drafts.h"
 #include "file_dialog.h"
 #include "file_utils.h"
 #include "input.h"
@@ -24,6 +25,7 @@
 #include "paint_document.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
+#include "qt_launch.h"
 #include "render.h"
 #include "render_qt.h"
 #include "post_sink.h"
@@ -439,6 +441,11 @@ void QtAppWindow::closeEvent(QCloseEvent* event) {
     // The dialog windowCloseMayProceed opens is App state drawn by the paint, so a refusal
     // repaints through the repaint sink it already called; nothing else to do here.
     if (windowCloseMayProceed(app_, nullptr)) {
+        // WinMain's WM_DESTROY, in its order: every dirty buffer was just resolved, so a
+        // leftover draft would resurrect content the user already decided about -- then the
+        // save, narrowed to the fields this arm loads (qt_launch.h).
+        draftsDeleteAll(app_);
+        tinta::saveClosingState(app_, *this);
         event->accept();
     } else {
         event->ignore();

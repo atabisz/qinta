@@ -13,14 +13,17 @@
 //   * A NARROW settings load, and the narrowness is the point. What stood here said "No
 //     settings load", because the ~30 field assignments following loadSettings() in WinMain
 //     reach members whose consumers are still Windows-only -- which is still true of the
-//     other twenty-four. SIX of them have a consumer now: windowX/Y/Width/Height feed
-//     tinta::choosePlacement, which is portable and tested, and keyProfile/keyOverrides feed
-//     the keymap the key router's handleKeyDown translates through. So the load happens and
-//     exactly those six are read from it. Loading all thirty would set state nothing reads,
+//     rest. ELEVEN are read now, each because something on this arm reads or WRITES it:
+//     windowX/Y/Width/Height and windowMaximized feed the placement and the show;
+//     keyProfile/keyOverrides feed the keymap handleKeyDown translates through; and
+//     themeIndex, followSystemTheme, lightThemeIndex and darkThemeIndex, because the theme
+//     picker and the close save read-modify-write them -- a field this arm writes and never
+//     loaded went back to settings.ini as App's default. The close save (qt_launch.h) writes
+//     only the theme and geometry fields. Loading all thirty would set state nothing reads,
 //     which is the thing the old bullet was right about.
-//   * No loadCustomThemes(). It is portable and it would work, and it would change
-//     nothing: the theme index this file sets is a built-in (kLightModeThemeIndex), so the
-//     call would populate a registry nothing here indexes into.
+//   * loadCustomThemes() now runs, as it does in WinMain, because the saved theme index can
+//     name a custom theme. The bullet that stood here said it "would change nothing" while
+//     the only index this file set was the built-in kLightModeThemeIndex.
 //   * THE FLAGS ARE PARSED, THREE ARE HONOURED, AND THE REST ARE REFUSED BY NAME. What
 //     stood here was "A FILE ARGUMENT AND NOTHING ELSE. argv[1], if it is there, is opened
 //     as a document", and it described a DEFECT rather than a limitation: reading argv[1]
@@ -118,6 +121,11 @@ int main(int argc, char** argv) {
     // learned that same fact from a linker three separate times.
     App app;
 
+    // Before the settings load, as in WinMain, because a saved theme index may name a custom
+    // theme -- and before installQtBackends, which sizes the theme picker's preview formats
+    // to themeCount() at install.
+    loadCustomThemes();
+
     // Before the window, because the first paint can arrive during show().
     installQtBackends(app);
 
@@ -209,10 +217,18 @@ int main(int argc, char** argv) {
                "does not build off Windows");
     }
 
+    const Settings saved = loadSettings();
+
+    // THE SAVED THEME, LOADED BECAUSE THIS ARM WRITES IT -- the theme picker and the close save
+    // both read-modify-write the four theme fields, so skipping the load wrote defaults over
+    // them. See qt_launch.h.
+    tinta::applySavedTheme(app, saved);
+
     // --light: the one appearance flag that needs nothing Windows-only. The three fields it
     // moves live in src/qt_launch.cpp rather than here, so tests/qt_entry_tests.cpp can grab a
     // window before and after the SAME function this line calls -- a test with its own copy of
-    // the three assignments could not fail on a defect planted in this one.
+    // the three assignments could not fail on a defect planted in this one. After the saved
+    // theme, so the flag wins, and the close save then persists it, as WinMain's does.
     if (options.lightMode) tinta::applyLightMode(app);
 
     QString title = QStringLiteral("tinta");
@@ -227,8 +243,8 @@ int main(int argc, char** argv) {
 
     // WHERE THE WINDOW GOES, decided by the same function WinMain calls.
     //
-    // Four fields out of Settings, plus the two keymap fields above and nothing else -- see
-    // the header comment on why the other twenty-four are deliberately not applied. The saved size is the request's size, so a
+    // Four geometry fields out of Settings, plus windowMaximized, the theme fields and the
+    // keymap fields -- see the header comment on why the rest are deliberately not applied. The saved size is the request's size, so a
     // window restores at the dimensions it was closed at, and the 1000x700 that used to be
     // hardcoded here is now only the fallback Settings itself supplies (1024x768).
     // Both halves come from src/qt_launch.cpp rather than living here, because nine field
@@ -236,7 +252,6 @@ int main(int argc, char** argv) {
     // the window somewhere plausible on the wrong axis in a build that compiles and runs.
     // tests/qt_entry_tests.cpp asserts on the request AND on the geometry the window ends up
     // with, which are two separate claims.
-    const Settings saved = loadSettings();
 
     // THE KEYMAP, THE FIFTH FIELD WITH A CONSUMER: the key router hands every keystroke to
     // handleKeyDown, which passes it through translateActionKey before its switch. App::keymap
@@ -256,7 +271,7 @@ int main(int argc, char** argv) {
     // resolved by the placement seam.
     tinta::applyPlacement(window, placement);
     window.setWindowTitle(title);
-    window.show();
+    tinta::showPlaced(window, saved.windowMaximized);
 
     const int rc = QApplication::exec();
 

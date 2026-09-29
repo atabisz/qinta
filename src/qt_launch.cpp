@@ -7,6 +7,7 @@
 #include <QWidget>
 
 #include "app.h"
+#include "settings.h"
 #include "theme_data.h"
 
 namespace tinta {
@@ -54,6 +55,40 @@ void applyLightMode(App& app) {
     app.currentThemeIndex = kLightModeThemeIndex;
     app.theme = themeAt(kLightModeThemeIndex);
     app.darkMode = app.theme.isDark;
+}
+
+void applySavedTheme(App& app, const Settings& settings) {
+    app.followSystemTheme = settings.followSystemTheme;
+    app.lightThemeIndex = settings.lightThemeIndex;
+    app.darkThemeIndex = settings.darkThemeIndex;
+    // WinMain checks only the top end; a negative index from a hand-edited file would be kept
+    // there as currentThemeIndex while themeAt drew slot 0, so the two would disagree.
+    int start = settings.themeIndex;
+    if (start < 0 || start >= themeCount()) start = 0;
+    app.currentThemeIndex = start;
+    app.theme = themeAt(start);
+    app.darkMode = app.theme.isDark;
+}
+
+void showPlaced(QWidget& window, bool maximized) {
+    if (maximized) {
+        window.showMaximized();
+    } else {
+        window.show();
+    }
+}
+
+void saveClosingState(const App& app, const QWidget& window) {
+    Settings settings = loadSettings();
+    storeThemeChoice(settings, app);
+    settings.windowMaximized = window.isMaximized();
+    if (!window.isMaximized() && !window.isFullScreen()) {
+        settings.windowX = window.x();
+        settings.windowY = window.y();
+        settings.windowWidth = window.width();
+        settings.windowHeight = window.height();
+    }
+    saveSettings(settings);
 }
 
 }  // namespace tinta

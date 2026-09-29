@@ -13,6 +13,12 @@
 // directory. Resolved once per run and cached.
 std::wstring tintaConfigDir();
 
+// Fix the configuration home for the rest of the run, replacing the cached answer.
+// For tests that save settings: an APPDATA redirect is not enough, because the Win32
+// path backend asks SHGetFolderPathW, which ignores the environment variable -- so a
+// test that only redirected it would write the user's real settings.ini on Windows.
+void pinTintaConfigDir(const std::wstring& dir);
+
 // Resolve the actual file before handing it to an external editor, which does
 // not share a Store/MSIX process's virtualized AppData view. That virtualization
 // is a Windows mechanism with no counterpart elsewhere, so on other platforms

@@ -116,6 +116,7 @@
 
 #include "geometry.h"
 
+class QCloseEvent;
 class QContextMenuEvent;
 class QKeyEvent;
 class QMouseEvent;
@@ -200,6 +201,12 @@ protected:
     // Marks the layout dirty and re-clamps the scroll offset against the new height.
     // Does NOT relayout -- see the header comment above for why that stays in the paint.
     void resizeEvent(QResizeEvent* event) override;
+
+    // WinMain's WM_CLOSE question, asked through windowCloseMayProceed: an unsaved buffer
+    // IGNORES the close and opens the unsaved-changes dialog, whose resolution posts
+    // WM_CLOSE again. Every close reaches this -- the title bar, close(), and a posted
+    // WM_CLOSE through the post sink.
+    void closeEvent(QCloseEvent* event) override;
 
 private:
     // Copy the widget's size into App's viewport. Returns whether it CHANGED, which is

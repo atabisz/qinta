@@ -1,5 +1,6 @@
 #include "qt_window.h"
 
+#include <QCloseEvent>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QKeyEvent>
@@ -178,13 +179,21 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // which is what PostMessageW's queue does for WinMain. A message input.cpp has no
     // handler for gets false, and its sender keeps ownership of whatever lParam points at.
     //
-    // The update() after the handler stands in for completeFolderSearch's own repaint,
-    // which is still guarded on app_.hwnd (a separate class of guard, see search.cpp).
+    // The update() after the handler is belt and braces: completeFolderSearch repaints
+    // through canRepaint itself now, and completeAsyncImage's early exits do not.
+    //
+    // WM_CLOSE is queued like the others -- its senders are mid-handler, and closing under
+    // them is what the queue exists to prevent -- but it is answered by close(), which
+    // runs closeEvent and so the same unsaved-buffer check WinMain's WM_CLOSE runs.
     tinta::setPostSink([this](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
         if (!handlesPostedMessage(message)) return false;
         return QMetaObject::invokeMethod(
             this,
             [this, message, wParam, lParam]() {
+                if (message == WM_CLOSE) {
+                    close();
+                    return;
+                }
                 syncViewport();
                 handlePostedMessage(app_, message, static_cast<WPARAM>(wParam),
                                     static_cast<LPARAM>(lParam));
@@ -424,6 +433,16 @@ tinta::RectF QtAppWindow::placeholderRect() const {
     // wrong produces a plausible-looking rectangle rather than an error.
     return tinta::RectF{0.0f, mid - kPlaceholderBandHalfHeight, w,
                         mid + kPlaceholderBandHalfHeight};
+}
+
+void QtAppWindow::closeEvent(QCloseEvent* event) {
+    // The dialog windowCloseMayProceed opens is App state drawn by the paint, so a refusal
+    // repaints through the repaint sink it already called; nothing else to do here.
+    if (windowCloseMayProceed(app_, nullptr)) {
+        event->accept();
+    } else {
+        event->ignore();
+    }
 }
 
 void QtAppWindow::resizeEvent(QResizeEvent* event) {

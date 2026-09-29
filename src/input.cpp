@@ -4481,11 +4481,38 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     requestRepaint(hwnd);
 }
 
-// WM_TIMER's body, moved out of main_d2d.cpp's window procedure verbatim so the Qt
-// window's timer sink can call it too. WinMain keeps TIMER_UPDATE_CHECK, whose worker
-// thread is static there and not linked into qinta.
+// WM_CLOSE's body, moved out of main_d2d.cpp's window procedure verbatim so the Qt window's
+// closeEvent asks the same question. Unsaved buffers (active or parked in tabs) get the
+// dialog before the window may close; tabs stay open so the session save still remembers
+// them.
+bool windowCloseMayProceed(App& app, HWND hwnd) {
+    if (app.confirmExitPending) {
+        app.pendingWindowClose = true;  // dialog is already asking
+        return false;
+    }
+    for (size_t i = 0; i < app.tabs.size(); i++) {
+        bool dirty = (int)i == app.activeTab
+                         ? (app.editMode && app.editorDirty)
+                         : (app.tabs[i].editMode && app.tabs[i].editorDirty);
+        if (!dirty) continue;
+        if ((int)i != app.activeTab) {
+            tabActivate(app, hwnd, (int)i);
+        }
+        app.pendingWindowClose = true;
+        app.confirmExitPending = true;
+        app.confirmExitOpenedAt = std::chrono::steady_clock::now();
+        requestRepaint(hwnd);
+        return false;
+    }
+    return true;
+}
+
+// WM_CLOSE is the one here that no worker sends: its senders run on the window's thread,
+// and it is taken so the post sink can queue the Qt window's close() behind them, as
+// PostMessageW queues it for WinMain. Qt answers it in the window, not here.
 bool handlesPostedMessage(unsigned message) {
-    return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH;
+    return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH ||
+           message == WM_CLOSE;
 }
 
 void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM lParam) {

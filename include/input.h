@@ -71,8 +71,14 @@ void handleLinkPeekTimer(App& app, HWND hwnd);
 // One tick of timer `id`: WM_TIMER's dispatch, shared by WinMain and the Qt window's
 // timer sink. TIMER_UPDATE_CHECK is not here -- its worker is main_d2d.cpp's own.
 void handleTimer(App& app, HWND hwnd, unsigned id);
-// The posted messages the Qt window's post sink (include/post_sink.h) takes: exactly the two
-// whose senders are portable worker threads, WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH.
+// WM_CLOSE's question, shared by WinMain's case and the Qt window's closeEvent: true when
+// the window may close now. False when an unsaved buffer has to be resolved first, in
+// which case it has already activated that tab and opened the unsaved-changes dialog
+// (or, with the dialog open, marked the close as pending behind it).
+bool windowCloseMayProceed(App& app, HWND hwnd);
+// The posted messages the Qt window's post sink (include/post_sink.h) takes: the two whose
+// senders are portable worker threads, WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH, and
+// WM_CLOSE, which the window answers with its own close() rather than through here.
 // handlesPostedMessage runs on the POSTING thread, so it reads nothing but its argument;
 // handlePostedMessage runs on the window's thread and takes ownership of lParam, as the
 // window procedure's two cases do. WinMain keeps its own cases and does not call these.

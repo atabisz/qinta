@@ -130,6 +130,7 @@
 // TINTA_D2D_BACKEND from `tinta`, which puts the CreateStrokeStyle arm in the build and
 // makes the call dereference a null app.d2dFactory. This target is the only one that
 // compiles that function with its portable arm live.
+#include "editor.h"
 #include "input.h"
 #include "keymap.h"
 #include "paint_document.h"
@@ -2758,6 +2759,75 @@ int main(int argc, char** argv) {
               "tableEditChar inserts the character and delivers exactly one repaint");
         check(themeRepaints == 1, "applyTheme delivers exactly one repaint");
         tinta::clearRepaintSink();
+    }
+
+    // WM_CLOSE (slice 10). Five portable senders post it -- File > Exit, closing the start
+    // page, dragging off the last tab, the unsaved-changes dialog resuming a close -- and
+    // the post sink used to refuse it, so each did nothing on qinta. And the window had no
+    // closeEvent, so its title bar discarded a dirty buffer without asking. Both now reach
+    // windowCloseMayProceed, WinMain's WM_CLOSE body. Own window, for the post block's
+    // reason; quit-on-last-window off, so a close that works does not queue an app quit.
+    {
+        const bool quitBefore = QApplication::quitOnLastWindowClosed();
+        QApplication::setQuitOnLastWindowClosed(false);
+        const bool addedTab = app.tabs.empty();
+        if (addedTab) app.tabs.emplace_back();
+        const int activeBefore = app.activeTab;
+        app.activeTab = 0;
+        const bool editBefore = app.editMode;
+        const bool dirtyBefore = app.editorDirty;
+
+        QtAppWindow closeWindow(app);
+        closeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        closeWindow.resize(800, 600);
+
+        // Clean: a posted WM_CLOSE is accepted, waits for the queue, then closes.
+        closeWindow.show();
+        const bool cleanPosted = postWindowMessage(nullptr, WM_CLOSE, 0, 0);
+        const bool visibleBeforeQueue = closeWindow.isVisible();
+        QApplication::processEvents();
+        const bool cleanClosed = !closeWindow.isVisible();
+
+        // Dirty: close() is refused and opens the dialog on the dirty tab.
+        closeWindow.show();
+        app.editMode = true;
+        app.editorDirty = true;
+        const bool dirtyClose = closeWindow.close();
+        const bool dialogOpened = app.confirmExitPending && app.pendingWindowClose &&
+                                  closeWindow.isVisible();
+        // With the dialog up, a posted close only re-marks the pending close.
+        app.pendingWindowClose = false;
+        postWindowMessage(nullptr, WM_CLOSE, 0, 0);
+        QApplication::processEvents();
+        const bool behindDialog = closeWindow.isVisible() && app.pendingWindowClose;
+        // Keep editing cancels the whole close.
+        confirmExitAction(app, nullptr, 3);
+        const bool cancelled = !app.confirmExitPending && !app.pendingWindowClose &&
+                               closeWindow.isVisible();
+        // Resolved, the next close goes through.
+        app.editMode = false;
+        app.editorDirty = false;
+        const bool resolvedClose = closeWindow.close() && !closeWindow.isVisible();
+
+        std::printf("window_close clean_posted=%d queued=%d clean_closed=%d dirty_close=%d "
+                    "dialog=%d behind_dialog=%d cancelled=%d resolved=%d\n",
+                    cleanPosted, visibleBeforeQueue, cleanClosed, dirtyClose, dialogOpened,
+                    behindDialog, cancelled, resolvedClose);
+        check(cleanPosted && visibleBeforeQueue,
+              "the post sink takes WM_CLOSE and queues it rather than closing mid-sender");
+        check(cleanClosed, "and a clean window closes once the queue runs");
+        check(!dirtyClose && dialogOpened,
+              "a dirty buffer refuses close() and opens the unsaved-changes dialog");
+        check(behindDialog, "with the dialog open, a posted WM_CLOSE only marks the close pending");
+        check(cancelled, "Keep editing cancels the pending close and the window stays");
+        check(resolvedClose, "once resolved, close() goes through");
+
+        app.editMode = editBefore;
+        app.editorDirty = dirtyBefore;
+        app.escPressedOnce = false;
+        app.activeTab = activeBefore;
+        if (addedTab) app.tabs.clear();
+        QApplication::setQuitOnLastWindowClosed(quitBefore);
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

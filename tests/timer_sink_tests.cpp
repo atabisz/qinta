@@ -118,7 +118,7 @@ int main() {
     check(!tinta::postSinkInstalled(), "no post sink is installed at startup");
     check(!tinta::deliverPostedMessage(7, 1, 2),
           "and a post with none is REFUSED, so an owning sender keeps its delete");
-    // Only message 7 is taken, as the Qt window takes only the two it has handlers for.
+    // Only message 7 is taken, as the Qt window takes only the ones handlesPostedMessage names.
     tinta::setPostSink([&posted](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
         if (message != 7) return false;
         posted.push_back({message, wParam, lParam, std::this_thread::get_id()});

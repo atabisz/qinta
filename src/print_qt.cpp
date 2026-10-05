@@ -1,66 +1,52 @@
-#include "print.h"
-#include "export.h"
+#include "print_pages.h"
+#include "render_qt.h"
 #include "signals.h"
+
+#include <QImage>
+#include <QLocale>
 
 #include <cstdio>
 
-// THE QT ARM OF src/print.cpp, AND IT PRINTS NOTHING. Every function here refuses, visibly,
-// and that is the whole of this file -- a stated gap, not a port.
+// THE QT ARM OF src/print.cpp's THREE BACKEND HOOKS. Until 2026-10-06 this file defined seven
+// print symbols, and every one refused: preview, PDF export and the link peek included. Those
+// now live in print.cpp itself, which compiles off Windows. What is left is the three questions
+// only a platform can answer: printDocument (include/print.h) and the two in src/print_pages.h.
 //
-// Why it exists anyway: a link fixpoint over the manifest on 2026-09-24 measured that
-// src/input.cpp needs six of these symbols (src/editor.cpp one of the same six) and
-// src/export_html.cpp the seventh, and that
-// no compile-only file links off Windows while any of them is undefined. print.cpp's other
-// two, printDocument and printDebugPages, are called only from print.cpp itself and the
-// Windows-only src/main_d2d.cpp, so they have no arm here. print.cpp stays the Windows arm,
-// unchanged: it holds
-// ID2D1PrintControl, DEVMODE and the printer dialog, and a real QPrinter port waits on a
-// CJK print fixture that can tell a correct page from a plausible one.
+// PRINTING STILL REFUSES, AND THAT IS THE ONE STATED GAP. A QPrinter arm is a Qt6::PrintSupport
+// dependency plus a dialog nobody can drive from a test. Its correctness question is font
+// embedding, which needs a CJK print fixture that can tell a correct page from a plausible
+// one. The preview and the PDF are real on this stack, so a user reaches the refusal only by
+// pressing Print in the preview, and the preview has already shown them the pages.
 //
-// A REFUSAL HERE IS A CHIP AND A LINE ON stderr, the same two channels src/main_qt.cpp's
-// refused flags and the rest of the app use. The chip text is ENGLISH ONLY: it is not an
-// i18n key, because translating a message that exists to be deleted would add four strings
-// to src/i18n.cpp for a file whose goal is to stop existing.
+// A REFUSAL IS A CHIP AND A LINE ON stderr, the same two channels src/main_qt.cpp's refused
+// flags use. The chip text is ENGLISH ONLY. It is not an i18n key, because translating a
+// message that exists to be deleted would add four strings to src/i18n.cpp.
 
-namespace {
+bool printLocalePrefersLetter() {
+    // ImperialUSSystem only. ImperialUKSystem means A4 paper, as LOCALE_IMEASURE's '0' does
+    // for a UK locale on the Windows arm.
+    return QLocale::system().measurementSystem() == QLocale::ImperialUSSystem;
+}
 
-void refusePrint(App& app, const char* what) {
-    std::fprintf(stderr, "tinta: %s is not available in the Qt build yet -- src/print.cpp "
-                         "has no Qt arm\n", what);
+// A QtRenderTarget over a 1x1 image, created on first use and DELIBERATELY NEVER DESTROYED.
+// QtRenderTarget begins a QPainter in its constructor and ends it in its destructor
+// (include/render_qt.h). A function-local static would end that painter during static
+// destruction, after QApplication is gone, and an exit-time Qt call is not worth the bytes it
+// saves. The print code uses it only as a factory: rasterizeToImage ignores its target on
+// this arm, and CreateBitmap builds a QImage without touching the painter. So the image
+// behind it is never drawn on, and its size does not matter.
+tinta::RenderTarget* printOffscreenTarget() {
+    static QtRenderTarget* const target = [] {
+        auto* device = new QImage(1, 1, QImage::Format_ARGB32_Premultiplied);
+        device->fill(Qt::transparent);
+        return new QtRenderTarget(*device);
+    }();
+    return target;
+}
+
+bool printDocument(App& app) {
+    std::fprintf(stderr, "tinta: printing is not available in the Qt build yet -- "
+                         "src/print_qt.cpp has no QPrinter arm\n");
     signalPush(app, SIG_WARN, SIGI_WARNING, L"Printing isn't available in the Qt build yet");
-}
-
-}  // namespace
-
-void openPrintPreview(App& app, HWND) { refusePrint(app, "print preview"); }
-
-// Silent on purpose, and unreachable today: every caller of these three (src/input.cpp's
-// Escape key and Cancel/paper hit tests) sits behind app.showPrintPreview, and the refusal
-// above never sets it. They exist because the linker resolves a call it cannot see is dead.
-void closePrintPreview(App&, HWND) {}
-void printPreviewSetPage(App&, int) {}
-void printPreviewSetFormat(App&, int, bool) {}
-
-void printPreviewConfirm(App& app, HWND) { refusePrint(app, "printing"); }
-
-// The link peek draws a rendered miniature of the linked file. A null bitmap is the
-// caller's existing "no peek" path (src/input.cpp returns before showing the panel), so this
-// refusal is silent: hovering a link is not a request to print.
-//
-// THE BODY OF THE WINDOWS ARM IS ALREADY PORTABLE -- include/print.h says so of this
-// function in those words -- so this is the cheapest of the seven to make real: move that
-// body into a shared file and delete this definition. Not done here because the approved
-// scope left print.cpp untouched.
-std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App&, const std::wstring&, float,
-                                                float&) {
-    return nullptr;
-}
-
-// Returns false, and the caller then pushes its own generic "Save failed" chip beside this
-// one -- which names the wrong cause (a locked or read-only file). That double chip is a
-// known wart of refusing through a bool, recorded rather than fixed: the fix is a real PDF
-// path, and src/pdf_export_qt.cpp already holds the seam's Qt half for it.
-bool exportPdfFile(App& app, const std::wstring&) {
-    refusePrint(app, "PDF export");
     return false;
 }

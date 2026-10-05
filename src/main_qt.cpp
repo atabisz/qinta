@@ -185,7 +185,11 @@ int main(int argc, char** argv) {
         refuse("/register", "file associations are a Windows-registry feature");
     }
     if (!options.printPagesDir.empty()) {
-        refuse("--printpages", "page capture is still on the Direct2D path");
+        // The reason changed on 2026-10-06 and the refusal did not. It said "page capture is
+        // still on the Direct2D path". printDebugPages is portable now and qinta links it, so
+        // what is missing is this entry point calling it, which is the same gap as the three
+        // exporters below.
+        refuse("--printpages", "page capture is not wired to this entry point yet");
     }
     if (!options.dumpChromePath.empty()) {
         refuse("--dumpchrome", "the chrome dump is still on the Direct2D path");
@@ -203,20 +207,23 @@ int main(int argc, char** argv) {
         // has its own passing test target. What is missing is this wiring, not the
         // capability -- so this refusal is the one to delete first."
         //
-        // Every clause of that is true and the conclusion was wrong. include/pdf_export.h
+        // Every clause of that was true and the conclusion was wrong. include/pdf_export.h
         // says in its own header that pagination, print layout and the page painter all stay
-        // in src/print.cpp: the Qt seam is a SINK that renderPages drives, not an exporter.
-        // So exportPdfFile needs src/print.cpp, which no non-Windows compiler can read
-        // (fatal d2d1.h through include/xps_page_emitter.h:24).
+        // in the print code: the Qt seam is a SINK that renderPages drives, not an exporter.
+        // So exportPdfFile needed that file, which stopped at a fatal d2d1.h off Windows at
+        // the time (through include/xps_page_emitter.h:24).
         //
         // MEASURED 2026-09-22: all three exporters are behind the same two files, and
         // --exporthtml/--exportdocx are not the cheap alternatives they look like either --
         // export_html.cpp calls exportPdfFile, and export_docx.cpp calls buildDiagramPrims
         // in export_html.cpp. The blocker map is under QINTA_APP_SOURCES in CMakeLists.txt.
         // There is no cheapest refusal in this list; there are two files.
-        refuse("--exportpdf",
-               "the QPdfWriter seam exists but is a sink src/print.cpp drives, and that file "
-               "does not build off Windows");
+        //
+        // BOTH FILES ARE LINKED NOW. print.cpp left Windows on 2026-10-06 and qinta exports
+        // PDFs interactively through it, which tests/qt_entry_tests.cpp asserts. So this
+        // refusal now has the same reason as --exporthtml and --exportdocx above: the
+        // command-line path to the exporter is not written. It is no longer the expensive one.
+        refuse("--exportpdf", "the PDF exporter is not wired to this entry point yet");
     }
 
     const Settings saved = loadSettings();

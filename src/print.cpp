@@ -1,30 +1,34 @@
 #include "print.h"
+#include "print_pages.h"
 #include "render.h"
-#include "d2d_init.h"
+#include "theme_apply.h"
 #include "document.h"
 #include "editor.h"
 #include "utils.h"
 
-// Named rather than left to arrive through app.h, which embeds the D2D wrappers by
-// value and so has always pulled render_d2d.h in transitively. drawDocumentRange now
-// takes a tinta::RenderTarget& and the three call sites construct D2DRenderTarget and
-// D2DBrush, so this file uses both headers directly and says so.
-// tinta::rasterizeToImage and tinta::encodePng: the link peek's offscreen raster and,
-// since the renderPages inversion, the --printpages page dump as well.
+// tinta::rasterizeToImage and tinta::encodePng: the link peek's offscreen raster, the
+// --printpages page dump and, since 2026-10-06, the preview page too.
 #include "image_api.h"
 #include "render_api.h"
-#include "render_d2d.h"
 
 // The PDF seam. exportPdfFile below is now a page-geometry decision and one call into
 // it, and the SHCreateStreamOnFileEx / IPrintDocumentPackageTarget / CreatePrintControl
 // half of what it used to be lives in src/pdf_export_win32.cpp. tinta::PagePainter also
 // comes from here -- see the alias below.
 #include "pdf_export.h"
-// Windows-only, internal, and shared with exactly one other file: the command-list
-// recording both printDocument (below) and the PDF backend do. It used to be a struct in
-// this file's anonymous namespace; it is a header because a second consumer appeared and
-// a copy was the alternative.
-#include "xps_page_emitter.h"
+
+// THIS FILE COMPILES OFF WINDOWS AS OF 2026-10-06, and these lines used to be a list of
+// Windows headers. render_d2d.h, xps_page_emitter.h, <commdlg.h>, <documenttarget.h> and
+// <shlwapi.h> are gone. So is d2d_init.h, which was here only for updateTextFormats and
+// that function is declared in theme_apply.h now. The Windows surface they served moved
+// to src/print_win32.cpp: printDocument's printer dialog and XPS print job, and the
+// locale's paper question. rasterizePreviewPage, the only other Direct2D code here, went
+// onto the image seam instead (its comment says what that cost).
+//
+// <winspool.h> was here once too, and had no caller: swept 2026-09-20. Nothing in the
+// print code talks to the spooler API -- no OpenPrinter, no DeviceCapabilities, no
+// DocumentProperties, no EnumPrinters -- so anybody sizing the QPrinter port off
+// "print.cpp includes winspool.h" was sizing it off nothing.
 
 #include <filesystem>
 #include <fstream>
@@ -34,36 +38,6 @@
 #include <functional>
 #include <memory>
 #include <sstream>
-
-#include <commdlg.h>
-#include <documenttarget.h>
-#include <shlwapi.h>
-// <winspool.h> was here and had no caller: swept 2026-09-20, and of the THREE
-// dead includes that sweep confirmed it is the one that changes a DECISION
-// rather than a line count. (Three of five candidates: the screen proposed five
-// and the Windows build refused two of them, which is written up where those two
-// live.) This file does not talk to the print spooler API at all --
-// no OpenPrinter, no DeviceCapabilities, no DocumentProperties, no EnumPrinters
-// -- so anybody sizing the QPrinter port off "print.cpp includes winspool.h"
-// was sizing it off nothing. DEVMODEW and DEVNAMES below are real and come from
-// windows.h, not from here.
-//
-// WHAT THIS FILE'S WINDOWS SURFACE ACTUALLY IS, measured the same day rather
-// than inferred from the include list: ONE PrintDlgW (plus its PRINTDLGW), SIX
-// IPrintDocumentPackage* symbols (the XPS package target), FIVE WIC symbols,
-// and ONE SHCreateStreamOnFileEx -- and after the PDF seam landed, the
-// SHCreateStreamOnFileEx and the six IPrintDocumentPackage* symbols are in
-// src/pdf_export_win32.cpp, not here.
-//
-// THE CENSUS NAMES d2d1.h AS THIS FILE'S CAUSE, and it used to say commdlg.h.
-// Nothing about the Windows surface moved to cause that: the row's counts are
-// unchanged (exit 1, fatal 1, errors 0, template-instantiation tail), and what
-// changed is which header the census reaches first -- xps_page_emitter.h's
-// <d2d1.h> now sits above this file's own <commdlg.h> below. The census stops
-// at the FIRST unresolvable header, so the row has never said anything about
-// the headers underneath it, whichever one is on top. Reading it as "print.cpp
-// needs a print dialog" understated the work by the whole XPS half; d2d1.h
-// understates it less, which is an accident of include order and not a result.
 
 #include <algorithm>
 #include <cstring>
@@ -75,14 +49,17 @@
 // --- Printing (#74) ---
 //
 // No PDF library: the document is re-laid-out at page width in a light
-// print palette and each page is replayed into a D2D command list handed
-// to ID2D1PrintControl. The Windows print pipeline does the rest — pick
-// "Microsoft Print to PDF" and the OS produces the PDF, with font
-// embedding (including CJK) handled by the driver.
+// print palette and each page is painted through the render seam. On Windows the
+// painter reaches ID2D1PrintControl (src/print_win32.cpp), and the print pipeline does the
+// rest — pick "Microsoft Print to PDF" and the OS produces the PDF, with font
+// embedding (including CJK) handled by the driver. On Qt, PDF export goes through
+// QPdfWriter (src/pdf_export_qt.cpp) and printing refuses (src/print_qt.cpp).
 
 namespace {
 
-constexpr float kPageMarginDips = 72.0f;  // 0.75 in
+// Local names for src/print_pages.h's, so the sites below read as they always have.
+using PageGeometry = PrintPageGeometry;
+constexpr float kPageMarginDips = kPrintPageMarginDips;
 
 // Paper-derived palette with a true white page
 D2DTheme printTheme() {
@@ -93,6 +70,34 @@ D2DTheme printTheme() {
 }
 
 using SavedView = App::PrintSavedView;
+
+// Seats printOffscreenTarget() as app.renderTarget for one print entry point when App has
+// no target, and takes it back on the way out. src/print_pages.h says why the Qt stack needs
+// it. On Windows the hook returns nullptr and this does nothing.
+//
+// Every public function below opens one first, so the layout passes inside them see a
+// target too: layout is what creates a document's image bitmaps. Nesting is harmless, since
+// an inner scope finds the target already seated and leaves it alone. The pointer is only
+// BORROWED. The offscreen target's lifetime is the hook's business, and app.renderTargetStorage
+// is never touched, so a paint event that installs the real target later is unaffected.
+class PrintTargetScope {
+public:
+    explicit PrintTargetScope(App& app) : app_(app) {
+        if (!app_.renderTarget) {
+            app_.renderTarget = printOffscreenTarget();
+            seated_ = app_.renderTarget != nullptr;
+        }
+    }
+    ~PrintTargetScope() {
+        if (seated_) app_.renderTarget = nullptr;
+    }
+    PrintTargetScope(const PrintTargetScope&) = delete;
+    PrintTargetScope& operator=(const PrintTargetScope&) = delete;
+
+private:
+    App& app_;
+    bool seated_ = false;
+};
 
 // Saves the screen view state and switches to the print palette at 96 DPI,
 // zoom 1. layoutAtPrintWidth does the actual re-layout; leavePrintLayout
@@ -538,22 +543,15 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
     }
 }
 
-struct PageGeometry {
-    float pageW, pageH;          // full page in DIPs
-    float contentW, contentH;    // inside the margins
-};
-
 // Paper size for previewing before the dialog runs, decided by locale only.
 // Probing the default printer here (CreateDC) initializes third-party
 // drivers and can pop their dialogs (Acrobat Distiller's broken-temp-folder
 // error, for one) just to read a paper size — the real printer is consulted
 // after the user confirms the print dialog, and re-pagination handles any
-// difference.
+// difference. The locale question is a backend hook (src/print_pages.h).
 PageGeometry defaultPageGeometry() {
     PageGeometry geo{794.0f, 1123.0f, 0.0f, 0.0f};  // A4
-    wchar_t measure[2] = L"0";
-    if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IMEASURE, measure, 2) &&
-        measure[0] == L'1') {
+    if (printLocalePrefersLetter()) {
         geo.pageW = 816.0f;   // US customary: Letter
         geo.pageH = 1056.0f;
     }
@@ -565,76 +563,55 @@ PageGeometry defaultPageGeometry() {
 // Rasterizes one page of the active print layout into the preview pixel
 // buffer at display resolution (page DIPs scaled by printPreviewFit), so
 // the preview stays crisp instead of downscaling a 96-DPI rendering.
+//
+// ON THE IMAGE SEAM SINCE 2026-10-06, AND THE EXCLUSION IT ENDS WAS PRICED, NOT ARGUED.
+// This was the last Direct2D target+staging pair in the file. It built a device context off
+// app.deviceContext's device and read the page back with CPU_READ | CANNOT_DRAW.
+// include/render_api.h kept it native because it is a LIVE-UI readback: it re-rasterises
+// on every page flip, paper change and orientation toggle, and the seam's pixel vector
+// costs one more full-buffer copy than the staging map did. The link peek met the same
+// argument and the measurement ended it: 2.68 ms on Direct2D and 4.19 ms on Qt at
+// 1040x920 px, both copies included, against a 25 ms budget. A preview page is smaller
+// than that panel. It is A4 fitted between the bars, about 470x670 px in a 1280x800 window.
+// Timed on its own as well: one page flip, raster plus copy, read 0.76 ms on the Qt arm for a
+// 403x570 page (tests/qt_entry_tests.cpp prints it as flip_ms, Linux, 2026-10-06). The
+// Direct2D arm's figure for this page is not measured. The peek put that arm ahead of Qt.
+//
+// What the move buys is the Qt stack's preview, which had no device context to build one
+// from. The pixels arrive in the format app.printPreviewPixels has always held: premultiplied
+// BGRA, top-down, stride width*4, the contract tinta::rasterizeToImage states.
+//
+// A BEHAVIOUR CHANGE ON WINDOWS, STATED: the old pair rasterised on whatever device
+// app.deviceContext belonged to, which is the GPU once WM_APP_GPU_READY has landed. The
+// seam's WIC target is software unconditionally. That is the same trade printDebugPages
+// made, and for the preview it means the on-screen page is drawn by the same rasteriser as
+// --printpages, which is the instrument this tree checks printing against.
 bool rasterizePreviewPage(App& app, int page) {
     int pageCount = (int)app.printPreviewBounds.size() - 1;
-    if (page < 0 || page >= pageCount || !app.deviceContext) return false;
-    UINT pxW = app.printPreviewPxW, pxH = app.printPreviewPxH;
+    if (page < 0 || page >= pageCount || !app.renderTarget) return false;
+    const unsigned pxW = app.printPreviewPxW, pxH = app.printPreviewPxH;
     if (pxW == 0 || pxH == 0) return false;
 
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    if (!device) return false;
-    ID2D1DeviceContext* dc = nullptr;
-    device->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, &dc);
-    device->Release();
-    if (!dc) return false;
-
-    D2D1_BITMAP_PROPERTIES1 targetProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_TARGET,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-    D2D1_BITMAP_PROPERTIES1 stagingProps = D2D1::BitmapProperties1(
-        D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-    ID2D1Bitmap1* target = nullptr;
-    ID2D1Bitmap1* staging = nullptr;
-    dc->CreateBitmap(D2D1::SizeU(pxW, pxH), nullptr, 0, &targetProps, &target);
-    dc->CreateBitmap(D2D1::SizeU(pxW, pxH), nullptr, 0, &stagingProps, &staging);
-
-    bool ok = false;
-    if (target && staging) {
-        dc->SetTarget(target);
-        dc->BeginDraw();
-        dc->SetTransform(D2D1::Matrix3x2F::Scale(app.printPreviewFit, app.printPreviewFit));
-        dc->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
-        ID2D1SolidColorBrush* brush = nullptr;
-        dc->CreateSolidColorBrush(tinta::colorF(0, 0, 0), &brush);
-        if (brush) {
-            // THE WRAP IS FREE AND IT BORROWS. D2DRenderTarget's constructor stores an
-            // ID2D1RenderTarget* and does nothing else -- no AddRef, no BeginDraw -- and
-            // ID2D1DeviceContext derives from ID2D1RenderTarget, so the print-specific
-            // context goes in as-is. D2DBrush is the same shape. Both must not outlive
-            // what they wrap, which is why they are locals inside the scope that owns
-            // the brush, and the Release below is still this function's job.
-            D2DRenderTarget seamTarget(dc);
-            D2DBrush seamBrush(brush);
-            drawDocumentRange(app, seamTarget, &seamBrush,
-                              app.printPreviewBounds[page],
-                              app.printPreviewBounds[page + 1],
+    const float fit = app.printPreviewFit;
+    const float yStart = app.printPreviewBounds[page];
+    const float yEnd = app.printPreviewBounds[page + 1];
+    tinta::DecodedImage image = tinta::rasterizeToImage(
+        *app.renderTarget, pxW, pxH, tinta::colorF(1.0f, 1.0f, 1.0f),
+        [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+            if (!brush) return;
+            // A scale transform rather than a DPI, for the reason renderPeekBitmap gives:
+            // neither backend's offscreen target takes a DPI, and everything drawn here is
+            // in DIPs. drawDocumentRange composes its shrink bands with this transform
+            // rather than replacing it, which is what its own comment says it does for
+            // "the preview rasterizer".
+            target.SetTransform(tinta::matrixScale(fit, fit));
+            drawDocumentRange(app, target, brush, yStart, yEnd,
                               kPageMarginDips, kPageMarginDips);
-            brush->Release();
-        }
-        dc->SetTransform(D2D1::Matrix3x2F::Identity());
-        if (SUCCEEDED(dc->EndDraw())) {
-            D2D1_POINT_2U zero{0, 0};
-            D2D1_RECT_U all{0, 0, pxW, pxH};
-            D2D1_MAPPED_RECT mapped{};
-            if (SUCCEEDED(staging->CopyFromBitmap(&zero, target, &all)) &&
-                SUCCEEDED(staging->Map(D2D1_MAP_OPTIONS_READ, &mapped))) {
-                app.printPreviewPixels.resize((size_t)pxW * pxH * 4);
-                for (UINT row = 0; row < pxH; row++) {
-                    memcpy(app.printPreviewPixels.data() + (size_t)row * pxW * 4,
-                           mapped.bits + (size_t)row * mapped.pitch,
-                           (size_t)pxW * 4);
-                }
-                staging->Unmap();
-                ok = true;
-            }
-        }
-    }
-    if (staging) staging->Release();
-    if (target) target->Release();
-    dc->Release();
-    return ok;
+            target.SetTransform(tinta::matrixIdentity());
+        });
+    if (!image.ok) return false;
+    app.printPreviewPixels = std::move(image.pixels);
+    return true;
 }
 
 // What renderPages below hands an emitter INSTEAD of a page: a callable that
@@ -709,114 +686,28 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
     return ok ? pages : -1;
 }
 
-// XpsPageEmitter WAS DEFINED HERE, and it is now src/xps_page_emitter.h, included at the
-// top of this file. Nothing about it changed except two parameters: it takes the device
-// context directly instead of an App&, and a page SIZE instead of the print.cpp-local
-// PageGeometry. Both changes exist so the header can stay out of app.h.
+// XpsPageEmitter WAS DEFINED HERE, and it is now src/xps_page_emitter.h. Its only consumer
+// in the print code is printDocument, which moved to src/print_win32.cpp on 2026-10-06,
+// so this file no longer includes it. The other consumer is src/pdf_export_win32.cpp.
+// "One definition, two consumers" is still why it is a header rather than a copy.
 //
-// WHAT MOVED IT: exportPdfFile stopped being its second consumer and the PDF backend
-// became one instead. The struct is still reached from exactly two places, but they are
-// now in two translation units, and "one definition, two consumers" is the whole reason
-// it is a header rather than a copy -- the duplication the renderPages inversion was
-// written to avoid would otherwise have arrived one slice later by a different route.
-//
-// ALL OF THIS FILE'S COMMAND-LIST CODE LEFT WITH IT, WHICH IS MORE THAN THE INVERSION
-// BOUGHT ON ITS OWN. The inversion moved the command list out of the page loop and into
-// the two emitters that address an XPS target; this slice moved it out of the file. What
-// is left here that names Direct2D is printDocument's printer plumbing and the peek
-// bitmap, and printDocument is slice 1c.
+// ALL OF THIS FILE'S DIRECT2D CODE IS GONE NOW. The renderPages inversion moved the command
+// list into the emitters, the PDF seam moved one emitter out, and the 2026-10-06 split
+// moved the printer plumbing out and put the preview raster on the image seam.
 
 } // namespace
 
-bool printDocument(App& app) {
-    // Standard printer picker; PD_RETURNDC so the paper size can be read
-    PRINTDLGW pd{};
-    pd.lStructSize = sizeof(pd);
-    pd.hwndOwner = app.hwnd;
-    pd.Flags = PD_RETURNDC | PD_NOPAGENUMS | PD_NOSELECTION | PD_USEDEVMODECOPIESANDCOLLATE;
-
-    // Preset the preview's paper and orientation; whatever the user picks
-    // in the dialog still wins (the geometry is re-read from the DC)
-    if (app.printPreviewPaper >= 0) {
-        pd.hDevMode = GlobalAlloc(GHND, sizeof(DEVMODEW));
-        if (pd.hDevMode) {
-            auto* dm = (DEVMODEW*)GlobalLock(pd.hDevMode);
-            if (dm) {
-                dm->dmSize = sizeof(DEVMODEW);
-                dm->dmSpecVersion = DM_SPECVERSION;
-                dm->dmFields = DM_ORIENTATION | DM_PAPERSIZE;
-                dm->dmOrientation = app.printPreviewLandscape
-                    ? DMORIENT_LANDSCAPE : DMORIENT_PORTRAIT;
-                dm->dmPaperSize = PRINT_PAPERS[app.printPreviewPaper].dmPaper;
-                GlobalUnlock(pd.hDevMode);
-            }
-        }
-    }
-
-    if (!PrintDlgW(&pd) || !pd.hDC) {
-        if (pd.hDevMode) GlobalFree(pd.hDevMode);
-        if (pd.hDevNames) GlobalFree(pd.hDevNames);
-        return false;  // cancelled
-    }
-
-    float dpiX = (float)GetDeviceCaps(pd.hDC, LOGPIXELSX);
-    float dpiY = (float)GetDeviceCaps(pd.hDC, LOGPIXELSY);
-    PageGeometry geo{};
-    geo.pageW = GetDeviceCaps(pd.hDC, PHYSICALWIDTH) * 96.0f / dpiX;
-    geo.pageH = GetDeviceCaps(pd.hDC, PHYSICALHEIGHT) * 96.0f / dpiY;
-    if (geo.pageW < 200 || geo.pageH < 200) {  // driver returned nonsense
-        geo.pageW = 794.0f;   // A4
-        geo.pageH = 1123.0f;
-    }
-    geo.contentW = geo.pageW - kPageMarginDips * 2;
-    geo.contentH = geo.pageH - kPageMarginDips * 2;
-
-    // Printer name from the DEVNAMES block
-    std::wstring printerName;
-    if (pd.hDevNames) {
-        auto* names = (DEVNAMES*)GlobalLock(pd.hDevNames);
-        if (names) {
-            printerName = (wchar_t*)names + names->wDeviceOffset;
-            GlobalUnlock(pd.hDevNames);
-        }
-    }
-    DeleteDC(pd.hDC);
-    if (pd.hDevMode) GlobalFree(pd.hDevMode);
-    if (pd.hDevNames) GlobalFree(pd.hDevNames);
-    if (printerName.empty()) return false;
-
-    IPrintDocumentPackageTargetFactory* factory = nullptr;
-    if (FAILED(CoCreateInstance(__uuidof(PrintDocumentPackageTargetFactory), nullptr,
-                                CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory)))) {
-        return false;
-    }
-    std::wstring jobName = L"Tinta - " + toWide(app.currentFile);
-    IPrintDocumentPackageTarget* target = nullptr;
-    HRESULT hr = factory->CreateDocumentPackageTargetForPrintJob(
-        printerName.c_str(), jobName.c_str(), nullptr, nullptr, &target);
-    factory->Release();
-    if (FAILED(hr) || !target) return false;
-
-    ID2D1Device* device = nullptr;
-    app.deviceContext->GetDevice(&device);
-    ID2D1PrintControl* printControl = nullptr;
-    if (device) {
-        device->CreatePrintControl(app.wicFactory, target, nullptr, &printControl);
-        device->Release();
-    }
-
-    bool ok = false;
-    if (printControl) {
-        XpsPageEmitter emitter(app.deviceContext, printControl);
-        int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {
-            return emitter.addPage(geo.pageW, geo.pageH, paint);
-        });
-        ok = pages > 0 && SUCCEEDED(printControl->Close());
-        printControl->Release();
-    }
-    target->Release();
-    return ok;
+// The page loop, for src/print_win32.cpp's printDocument. A non-template entry point,
+// because the template above cannot be called from another translation unit. The
+// std::function costs one indirect call per PAGE, not per draw.
+int renderPrintPages(App& app, const PrintPageGeometry& geo,
+                     const std::function<bool(int, const tinta::PagePainter&)>& emitPage) {
+    return renderPages(app, geo, emitPage);
 }
+
+// printDocument IS A BACKEND HOOK NOW, declared in include/print.h as it always was. The
+// Windows arm (printer dialog, XPS print job) is src/print_win32.cpp. The Qt arm refuses
+// (src/print_qt.cpp).
 
 // Lays out, paginates, fits and rasterizes for the currently selected
 // paper format. Assumes enterPrintLayout has already run.
@@ -869,7 +760,11 @@ static void detectDefaultFormat(App& app) {
 }
 
 void openPrintPreview(App& app, HWND hwnd) {
-    if (app.showPrintPreview || !app.root || !app.deviceContext) return;
+    // app.renderTarget, not app.deviceContext: the raster goes through the image seam,
+    // which needs a live tinta::RenderTarget and nothing native. The Qt stack has no
+    // device context at all, so the old guard was what kept its preview shut.
+    PrintTargetScope scope(app);
+    if (app.showPrintPreview || !app.root || !app.renderTarget) return;
     if (app.editMode) {
         editorReparse(app);  // include unsaved edits in the preview and printout
     }
@@ -883,6 +778,7 @@ void openPrintPreview(App& app, HWND hwnd) {
 }
 
 void printPreviewSetFormat(App& app, int paper, bool landscape) {
+    PrintTargetScope scope(app);
     paper = std::max(0, std::min(paper, PRINT_PAPER_COUNT - 1));
     if (!app.showPrintPreview) {
         app.printPreviewPaper = paper;
@@ -897,6 +793,7 @@ void printPreviewSetFormat(App& app, int paper, bool landscape) {
 }
 
 void closePrintPreview(App& app, HWND hwnd) {
+    PrintTargetScope scope(app);
     if (!app.showPrintPreview) return;
     app.showPrintPreview = false;
     leavePrintLayout(app, app.printSaved);
@@ -912,6 +809,7 @@ void closePrintPreview(App& app, HWND hwnd) {
 }
 
 void printPreviewSetPage(App& app, int page) {
+    PrintTargetScope scope(app);
     if (!app.showPrintPreview) return;
     int pageCount = (int)app.printPreviewBounds.size() - 1;
     page = std::max(0, std::min(page, pageCount - 1));
@@ -955,13 +853,14 @@ void printPreviewConfirm(App& app, HWND hwnd) {
 // outright; see the software note below for why that was wrong. Both bodies copy
 // within CPU memory on this path, so the extra copy is the whole delta.
 //
-// THE OTHER PAIR (rasterizePreviewPage) STAYS, AND ITS REASON IS THE ONE THAT DOES
+// THE OTHER PAIR (rasterizePreviewPage) STAYED, AND ITS REASON WAS THE ONE THAT DID
 // SURVIVE: that one re-rasterises on every page flip, paper change and orientation
 // toggle while the preview is open, and it needs the pixels in
 // app.printPreviewPixels to display rather than to encode. Same code shape, live
-// UI, and the exclusion's argument applies to it unweakened. The lesson is not "the
+// UI, and the exclusion's argument applied to it unweakened. The lesson is not "the
 // exclusion was wrong" -- it is that it covered two sites with one sentence, and
-// only one of them was a printer readback.
+// only one of them was a printer readback. (It moved onto the seam on 2026-10-06 anyway,
+// once the live-UI cost was timed rather than argued. Its own comment has the figure.)
 //
 // SOFTWARE RASTERISATION IS A PROPERTY WORTH HAVING HERE, not merely a cost
 // tolerated -- but the version of this paragraph that shipped first got the reason
@@ -980,6 +879,7 @@ void printPreviewConfirm(App& app, HWND hwnd) {
 // in this tree use --printpages page hashes as their falsifier, and an instrument
 // whose readings depend on which GPU took them is a worse instrument.
 int printDebugPages(App& app, const std::wstring& outDir) {
+    PrintTargetScope scope(app);
     if (!app.renderTarget) return -1;
     PageGeometry geo{794.0f, 1123.0f, 794.0f - kPageMarginDips * 2,
                      1123.0f - kPageMarginDips * 2};  // A4
@@ -1021,13 +921,19 @@ int printDebugPages(App& app, const std::wstring& outDir) {
 // changed signature would break that target at LINK time -- an unresolved symbol far
 // from here -- instead of at the call site.
 bool exportPdfFile(App& app, const std::wstring& path) {
-    // app.renderTarget joins the guard because the seam is handed it and would otherwise
-    // be dereferenced null. app.deviceContext stays even though this function no longer
-    // names it: the Windows backend recovers the same context by QueryInterface on the
-    // same native, so a null here still means no device and still means no PDF -- and
-    // dropping the check would have relaxed the guard on a platform assumption rather
-    // than on a platform type.
-    if (!app.root || !app.renderTarget || !app.deviceContext) return false;
+    // app.renderTarget is in the guard because the seam is handed it and would otherwise
+    // be dereferenced null.
+    //
+    // app.deviceContext LEFT THE GUARD ON 2026-10-06, and the paragraph that kept it said
+    // dropping it "would have relaxed the guard on a platform assumption". The assumption
+    // can be read in the code instead. src/pdf_export_win32.cpp's beginPdfDocument
+    // QueryInterfaces the same native for an ID2D1DeviceContext and returns nullptr when
+    // that fails, before it opens a stream. So a Windows build with no device context still
+    // gets no PDF and no file, and the check was a duplicate of the seam's own. On Qt the
+    // check was not a duplicate: app.deviceContext is always null there, so it was the
+    // whole reason this function refused.
+    PrintTargetScope scope(app);
+    if (!app.root || !app.renderTarget) return false;
     if (app.editMode) {
         editorReparse(app);  // include unsaved edits, like the preview
     }
@@ -1067,6 +973,9 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
                                                 float widthDips, float& heightDips) {
     // app.renderTarget rather than app.deviceContext now: the raster goes through the seam,
     // which needs a live tinta::RenderTarget only to reach that backend's own factories.
+    // Declared first so it outlives `borrowed` below, whose destructor lays the screen
+    // document out again.
+    PrintTargetScope scope(app);
     if (!app.renderTarget || !app.root) return nullptr;
     // Named, not inline -- most vexing parse. C58's last site in a portable-destined
     // file; this one is behind a FATAL include in the census, so it was classified
@@ -1176,11 +1085,13 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // cheaper than the threshold, and refusing it further would have been an estimate
     // outranking a reading.
     //
-    // WHAT THIS DOES NOT MAKE TRUE, because the tempting sentence is "the last Direct2D
-    // rasteriser in the tree is gone" and it is still false: this file holds TWO
+    // WHAT THIS DID NOT MAKE TRUE, because the tempting sentence was "the last Direct2D
+    // rasteriser in the tree is gone" and it was still false: this file held TWO
     // CreateBitmap-with-NULL-pixels sites, ONE target+staging pair, in
-    // rasterizePreviewPage above. It builds its own device context and reads the drawing
-    // back with CPU_READ | CANNOT_DRAW.
+    // rasterizePreviewPage above. That pair is gone too since 2026-10-06, so this file
+    // holds none, which is a claim about this FILE. The tree still has offscreen Direct2D
+    // targets in src/image_win32.cpp, which is the backend of the seam everything here
+    // calls.
     //
     // IT SAID FOUR AND TWO PAIRS UNTIL 2026-09-20, and the other pair's departure is why
     // the count moved: the page rasteriser below ALSO drew offscreen into a staging bitmap,

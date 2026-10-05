@@ -163,6 +163,11 @@
 //         src/print.cpp's rasterizePreviewPage. These allocate an ID2D1Bitmap1 to
 //         draw INTO, which is device-lifetime work of the kind this whole list
 //         excludes, not an image handed to the drawing code.
+//         ZERO SITES SINCE 2026-10-06. rasterizePreviewPage draws through
+//         tinta::rasterizeToImage now. The live-UI argument below was priced by a
+//         timing, not settled by a sentence: a page flip reads 0.76 ms on the Qt arm
+//         (Linux, a 403x570 page), and the link peek's figures put Qt as the slower of
+//         the two arms. The entry is kept as the record of why it waited.
 //         THERE WERE FIVE AND THIS ENTRY HAS NOW BEEN WRONG TWICE, IN THE SAME
 //         DIRECTION, ABOUT THE SAME SENTENCE. It first said "a GPU target plus a
 //         CPU staging copy" of all five; that was corrected to "THE FIVE ARE NOT
@@ -236,9 +241,10 @@
 //         two targets holding these assertions do not compile the file at all.
 //         Compiled is not covered, and a count of a file's appearances in CMakeLists'
 //         TEXT says nothing about how many TARGETS consume it.
-//         WHAT THIS DOES NOT BUY: src/print.cpp is still not portable and still
-//         not in basis B's manifest -- ID2D1PrintControl, DEVMODE and the printer
-//         dialog stay. One Direct2D-terminal BODY and this seam's second caller is
+//         WHAT THIS DID NOT BUY, AT THE TIME: src/print.cpp stayed Windows-bound and
+//         outside basis B's manifest -- ID2D1PrintControl, DEVMODE and the printer
+//         dialog stayed. (They moved to src/print_win32.cpp on 2026-10-06, and
+//         print.cpp joined the manifest.) One Direct2D-terminal BODY and this seam's second caller is
 //         the whole of it. (printDebugPages made it TWO bodies and a third caller
 //         on 2026-09-20, and the sentence above still holds for the file: the
 //         printer dialog and the XPS package target are what keep it here.)

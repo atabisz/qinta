@@ -7,6 +7,10 @@
 // (ID2D1PrintControl). The user picks any installed printer — including
 // "Microsoft Print to PDF" — from the standard dialog. Rendering uses a
 // dedicated light print palette regardless of the active theme.
+//
+// A BACKEND HOOK since 2026-10-06: src/print_win32.cpp is the paragraph above, and
+// src/print_qt.cpp refuses with a chip, because there is no QPrinter arm yet. Everything
+// else in this header is defined once, in the portable src/print.cpp.
 bool printDocument(App& app);
 
 // Print preview overlay: Ctrl+P opens it, the user flips through the
@@ -84,7 +88,8 @@ int printDebugPages(App& app, const std::wstring& outDir);
 //
 // PORTABLE BODY, NOT A PORTABLE FILE: the rest of src/print.cpp keeps
 // ID2D1PrintControl, DEVMODE and the printer dialog, so this function no longer
-// holds the file back but nothing else moved with it.
+// holds the file back but nothing else moved with it. (A PORTABLE FILE SINCE 2026-10-06:
+// those three moved to src/print_win32.cpp, and qinta's link peek runs this body.)
 std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
                                                 float widthDips, float& heightDips);
 

@@ -1181,7 +1181,8 @@ qt_launch.cpp
 # CORRECTED 2026-09-22, two claims: "windows.h-fatal files" and "input.cpp has not
 # ported". Both false. input.cpp is an entry in this manifest and compiles at errors 0,
 # fatal 0; so are the callees this paragraph meant. The only file in the closure that
-# genuinely does not compile off Windows is src/print.cpp, which is not listed here.
+# genuinely failed to compile off Windows was src/print.cpp, then not listed here.
+# (It is listed since 2026-10-06, when its Windows half moved to src/print_win32.cpp.)
 # The NO on LINKS and RUNS is correct -- the reason was not.
 # (The closure had a second such file until 2026-09-23. The tear-off pass took
 # src/tabs.cpp to errors 0 and it is listed now, compile-only: it is not linked into qinta.)
@@ -1356,7 +1357,21 @@ theme_qt.cpp
 # links with the key router, and settings_app.cpp is in QINTA_APP_SOURCES beside it.
 settings_app.cpp
 
+# --- print.cpp, compiled AND RUN off Windows, with its Qt arm -------------------
+#
+# 2026-10-06. print.cpp's Windows surface moved to src/print_win32.cpp: the printer
+# dialog, the XPS print job and the locale's paper question. Its preview raster went onto
+# the image seam. What stayed is pagination, the shrink bands, drawDocumentRange, the
+# preview, --printpages, PDF export and the link peek, and none of it names a Windows type.
+# Linked into qinta and asserted by qt_entry_tests: preview pages, a written PDF, a peek
+# bitmap. print_qt.cpp below is now the Qt arm of the three backend hooks only, and its
+# printDocument still refuses. That is the remaining stated gap, a QPrinter arm.
+print.cpp
+
 # --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
+# SUPERSEDED 2026-10-06 by the section above. This file no longer defines the seven
+# refusals described below; it defines printDocument (still a refusal) and
+# printLocalePrefersLetter. The rest of this section is the record.
 #
 # Seven symbols the rest of the tree calls out of src/print.cpp, each refusing visibly (a
 # warning chip plus a stderr line) or, for the link peek, returning the caller's existing

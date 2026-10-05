@@ -176,7 +176,7 @@
 # fstream assumption. This one is worth stating because it ranks files BACKWARDS,
 # and it was measured rather than reasoned about.
 #
-# src/print.cpp's drawDocumentRange was 222 lines that were 100% unportable, for
+# src/print.cpp's drawDocumentRange was 222 lines that were 100% Windows-bound, for
 # one reason: it took an ID2D1DeviceContext*. Every drawing call inside it spelled
 # that coupling `dc->FillRectangle(...)` and `brush->SetColor(...)` -- and neither
 # `dc` nor `brush` matches any pattern an identifier grep can use, because they are

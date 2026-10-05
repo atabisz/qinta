@@ -474,7 +474,10 @@ fi
 # hand-maintained against the to-do TABLE, which the manifest does not drive -- so it
 # is the one row that can rot silently in the *other* direction, by keeping a file the
 # tree has since freed. When a file leaves the to-do set, it leaves here too.
-claim "exports and printing"  "| $(c "$(lines src/print.cpp)") |"
+# print.cpp LEFT ON 2026-10-06, the row's last member, so its claim is gone with it: the file
+# compiles off Windows and joined tests/portable-sources.txt. Its Windows half,
+# src/print_win32.cpp, is a *_win32.cpp file and is counted by the backends row below,
+# which is derived from the to-do set by name shape and needed no edit to pick it up.
 # tabs.cpp is DELIBERATELY absent too, one more file exercising the rule, and this row's last
 # member, so the shell-integration claim that derived from it is gone with it. It left the to-do
 # set on 2026-09-23 by joining tests/portable-sources.txt's compile-only section at errors 0. One

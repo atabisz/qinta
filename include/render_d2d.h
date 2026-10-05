@@ -296,10 +296,12 @@ private:
 // reached the floor. The two app icons left when they became shared_ptr<tinta::Bitmap>
 // members; nativeLinkPeekBitmap was the last and left the same way.
 //
-// WHAT STILL BORROWS IS LOCALS, NOT MEMBERS, and that is a weaker obligation: the two
-// target+staging pairs in src/print.cpp (the preview at :532 and the page raster at :868)
-// create, draw through a borrowed wrapper, read back and release inside one function, so
-// the wrapper cannot outlive the native. Nothing has to be remembered across a call.
+// WHAT STILL BORROWED WAS LOCALS, NOT MEMBERS, and that is a weaker obligation: the two
+// target+staging pairs in src/print.cpp (the preview and the page raster)
+// created, drew through a borrowed wrapper, read back and released inside one function, so
+// the wrapper could not outlive the native. Nothing had to be remembered across a call.
+// Both pairs are gone: the page raster moved to tinta::rasterizeToImage on 2026-09-20 and
+// the preview on 2026-10-06, so src/print.cpp borrows nothing now.
 //
 // The link peek used to be the strongest case for the rule and is now an illustration of
 // the alternative: src/print.cpp hands its bitmap straight to D2DOwnedBitmap, the OWNING

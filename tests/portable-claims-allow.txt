@@ -55,3 +55,4 @@ correction	corrected 2026-09-22, two claims: "windows.h-fatal files" and "input.
 quotation	"deliberately without maths: src/math_render.cpp does not compile off windows and	a closed quotation of the old no-maths claim, followed by both halves are now false
 quotation	more survived -- readme.md's math_render.cpp sentence and this manifest's own description of	the CMakeLists registration comment has to restate the two claims this gate was built to catch in order to say why it exists
 quotation	src/input.cpp as "344 native mentions deep and not portable" -- because the sweep's phrase	the CMakeLists registration comment has to restate the two claims this gate was built to catch in order to say why it exists
+quotation	through them. "and both are files no non-windows compiler can read at all" stood	quotes the 2026-09-23 sentence; the next lines date it as true of print.cpp only until 2026-10-06, when print.cpp joined the manifest

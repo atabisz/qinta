@@ -535,6 +535,11 @@ set(SOURCES
     src/document.cpp
     src/inline_style.cpp
     src/print.cpp
+    # print.cpp's Windows arm: the printer dialog, the XPS print job and the locale's paper
+    # question, split out 2026-10-06 so print.cpp compiles off Windows. In ${SOURCES} for
+    # the reason pdf_export_win32.cpp below is: every target that links print.cpp needs it.
+    # qinta takes src/print_qt.cpp instead, so no target links both.
+    src/print_win32.cpp
     # The Win32 arm of the PDF seam (include/pdf_export.h), named here directly rather
     # than through a PLATFORM_PDF_SOURCE variable like the four seams selected at the top
     # of this file. There is no second arm yet, and a variable with one value is a
@@ -555,6 +560,8 @@ set(SOURCES
     # link src/print.cpp, so it needs no PDF seam implementation at all yet. When the cutover
     # gives qinta the print path, the Qt arm joins QINTA_APP_SOURCES and this line is deleted
     # along with the rest of the Direct2D stack. One list each, no selection anywhere.
+    # THE FIRST HALF OF THAT HAPPENED 2026-10-06: qinta links print.cpp, and
+    # src/pdf_export_qt.cpp is in QINTA_APP_SOURCES. This line stays until Direct2D goes.
     #
     # It sits in ${SOURCES} and therefore compiles into SIX targets: tinta plus the five
     # INPUT_TEST_SOURCES binaries. That is not a choice, it is where src/print.cpp already
@@ -940,7 +947,14 @@ set(QINTA_APP_SOURCES
     src/utils.cpp
     src/export_docx.cpp
     src/export_html.cpp
+    # The print code, PORTABLE since 2026-10-06: preview, pagination, PDF export and the
+    # link peek, with the Qt arms of its three backend hooks (src/print_qt.cpp: the paper
+    # locale, an offscreen render target, and a printDocument that refuses) and the Qt arm of the PDF seam. Until then
+    # this list carried print_qt.cpp alone, and it defined all seven print symbols as
+    # refusals.
+    src/print.cpp
     src/print_qt.cpp
+    src/pdf_export_qt.cpp
     src/settings_app.cpp
     src/theme_apply_app.cpp
     src/theme_qt.cpp
@@ -985,7 +999,8 @@ set(QINTA_APP_SOURCES
 #
 # THERE ARE EXACTLY TWO ROOT BLOCKERS. Everything else in the 14 is transitive
 # through them. "and both are files no non-Windows compiler can read at all" stood
-# in that sentence until 2026-09-23 and is now true of print.cpp only:
+# in that sentence until 2026-09-23 and was then true of print.cpp only, until
+# 2026-10-06, when print.cpp joined the manifest:
 #
 #   src/tabs.cpp   IN the manifest's compile-only section since 2026-09-23, NOT
 #                  linked into qinta. ~~Stops at `#include <shellapi.h>`~~ --
@@ -1005,7 +1020,9 @@ set(QINTA_APP_SOURCES
 #                  tabOpenQuickNote, tabBecomeStartPage, tabBulkCloseStep,
 #                  tabStripBackground) and so blocks drafts.cpp, editor.cpp,
 #                  editrail.cpp, startpage.cpp.
-#   src/print.cpp  not in the manifest. Stops at d2d1.h, reached through
+#   src/print.cpp  [SUPERSEDED 2026-10-06: in the manifest and linked into qinta; its
+#                  Windows half is src/print_win32.cpp.] not in the manifest. Stops at
+#                  d2d1.h, reached through
 #                  include/xps_page_emitter.h:24. ~~Withholds openPrintPreview and
 #                  exportPdfFile, blocking editor.cpp and export_html.cpp.~~ -- print.cpp
 #                  itself is unchanged and still Windows-only, but it blocks nothing
@@ -1021,7 +1038,8 @@ set(QINTA_APP_SOURCES
 #
 # CONSEQUENCE FOR THE FLAGS: all ten refusals in src/main_qt.cpp ~~are behind these
 # two files~~ were behind these two files; since 2026-09-24 they are behind the missing
-# caller, and the three export flags would reach print_qt.cpp's refusal for PDF. That includes --exportpdf, --exporthtml and --exportdocx, which look
+# caller, and the three export flags would reach print_qt.cpp's refusal for PDF (since 2026-10-06
+# they would reach a real QPdfWriter export instead; main_qt.cpp still refuses the flags). That includes --exportpdf, --exporthtml and --exportdocx, which look
 # independent and are not -- export_html.cpp calls exportPdfFile, and
 # export_docx.cpp calls buildDiagramPrims in export_html.cpp.
 #
@@ -1746,14 +1764,15 @@ if(BUILD_TESTING)
         # SUPERSEDED 2026-09-25: input.cpp links off Windows now (the key router), and
         # settings_app.cpp is in QINTA_APP_SOURCES beside it.
         src/settings_app.cpp
-        # src/print_qt.cpp -- COMPILE-ONLY. The Qt arm of src/print.cpp's seven symbols the
-        # rest of the tree calls, every one a visible refusal (the file says why). Not in
-        # QINTA_APP_SOURCES: its callers are input.cpp, editor.cpp and export_html.cpp, none
-        # of which qinta links yet. Not in SOURCES either -- Windows links print.cpp, and
-        # both would be LNK2005.
-        # SUPERSEDED 2026-09-25: all three callers link into qinta now (the key router), and
-        # print_qt.cpp is in QINTA_APP_SOURCES. The SOURCES half still holds.
-        src/print_qt.cpp
+        # src/print.cpp -- portable since 2026-10-06, linked into qinta and run by
+        # qt_entry_tests. It is here as well because this target carries no Qt include path,
+        # so a Qt header creeping into the shared print code fails HERE first. The same
+        # guard scroll.cpp and scrollbar.cpp are under.
+        #
+        # src/print_qt.cpp sat in this slot until the same day, as a compile-only file of
+        # seven refusals. It left because it includes <QLocale> now, and this target
+        # exists to compile without Qt.
+        src/print.cpp
         # src/export_docx.cpp -- COMPILE-ONLY, and it is here for a reason no other entry
         # in this list shares: NOBODY PORTED IT. Its 1,545 lines already compiled off
         # Windows. What kept it out of this target was three includes -- <objbase.h>,
@@ -1774,7 +1793,8 @@ if(BUILD_TESTING)
         # CORRECTED 2026-09-22: this said input.cpp "is windows.h-fatal". FALSE -- input.cpp
         # compiles off Windows at errors 0, fatal 0 and is a manifest entry. It is out of the
         # app target because it needs six symbols only src/print.cpp defines (TRUE until
-        # 2026-09-24; src/print_qt.cpp defines them now, and what is left is that nothing
+        # 2026-09-24; src/print_qt.cpp defined them from then, and src/print.cpp itself since
+        # 2026-10-06; what was left is that nothing
         # calls input.cpp -- the key router). The conclusion
         # above survives; the reason did not, which is the dangerous half, because the old
         # reason pointed at a file that is already ported.
@@ -2193,6 +2213,8 @@ if(BUILD_TESTING)
         #   the seven, each refusing, and the link fixpoint closes (26 of 26 candidates, and
         #   the same run without print_qt drops this file in round 1). Printing off Windows is
         #   still absent -- a stated gap in that file -- but it no longer holds the router.
+        #   (2026-10-06: print.cpp compiles off Windows and defines the seven itself. Preview,
+        #   PDF export and the link peek work on qinta. Only printDocument still refuses.)
         #
         #   What this does NOT claim is a complete blocker list. Attributing all 236 symbols
         #   to defining files over-attributed badly (substring matching invented 32 `*_tests.cpp`
@@ -3407,13 +3429,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=33
+        -DEXPECTED_CHECKS=32
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=33
+        -DEXPECTED_CHECKS=32
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

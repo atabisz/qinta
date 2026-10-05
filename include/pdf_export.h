@@ -14,7 +14,9 @@
 // this seam exists at all is measured rather than assumed: src/print.cpp is absent
 // from QINTA_APP_SOURCES, so the Qt app has no PDF export whatsoever, and tinta's
 // link line carries no Qt while qinta's carries no d2d1. Nothing could be shared by
-// including a file across that boundary even if the code were willing.
+// including a file across that boundary even if the code were willing. (The first
+// clause is out of date since 2026-10-06: print.cpp is in QINTA_APP_SOURCES and qinta
+// exports PDFs through src/pdf_export_qt.cpp. The rest of the reason still holds.)
 //
 // WHAT IS *NOT* BEHIND THIS SEAM, stated because the file it came out of is bigger
 // than what moved. Pagination, print layout and the page painter all stay in

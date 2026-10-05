@@ -25,6 +25,7 @@
 #include "file_utils.h"
 #include "input.h"
 #include "keyboard.h"
+#include "overlays.h"
 #include "paint_document.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
@@ -604,11 +605,29 @@ void QtAppWindow::paintEvent(QPaintEvent* event) {
     // text assertion in the run before it discriminating rather than decorative.
     if (!app_.textFactory) return;
 
+    // The print preview replaces the whole frame, as it does in main_d2d.cpp's render():
+    // while it is open the document is laid out at PAGE width in the print palette, so
+    // painting it here would draw nonsense. The first overlay this window paints, since
+    // 2026-10-06, when src/print.cpp started giving it a page to show.
+    if (app_.showPrintPreview) {
+        renderPrintPreview(app_);
+        return;
+    }
+
     // A document if there is one, the placeholder if there is not. The order matters
     // for the control in tests/qt_entry_tests.cpp: releasing the text factory has to
     // stop BOTH branches drawing, or the control measures nothing.
     documentPainted_ = paintDocument();
-    if (documentPainted_) return;
+    if (documentPainted_) {
+        // The link peek, the second overlay this window paints, and for the same reason:
+        // src/print.cpp's renderPeekBitmap draws a real page on this stack now, and
+        // src/input.cpp's dwell timer calls it. Without this call the hover would lay a
+        // second document out and show nothing. Screen coordinates, as in main_d2d.cpp,
+        // which draws it after resetting the document transform.
+        app_.renderTarget->SetTransform(tinta::matrixIdentity());
+        renderLinkPeek(app_);
+        return;
+    }
 
     std::unique_ptr<tinta::TextFormat> format = app_.textFactory->CreateTextFormat(
         app_.theme.fontFamily, tinta::FontWeight::Normal, tinta::FontStyle::Normal,

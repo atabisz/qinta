@@ -137,10 +137,12 @@
 // makes the call dereference a null app.d2dFactory. This target is the only one that
 // compiles that function with its portable arm live.
 #include "editor.h"
+#include "export.h"  // exportPdfFile, defined in src/print.cpp
 #include "input.h"
 #include "keymap.h"
 #include "paint_document.h"
 #include "platform_paths.h"
+#include "print.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
 // Run 19's whole point: the four functions src/main_qt.cpp calls to place and colour its
@@ -3266,6 +3268,158 @@ int main(int argc, char** argv) {
         }
 #endif
         applyTheme(app, themeBefore);
+    }
+
+    // ---- PRINTING ON THE QT STACK (slice 15) -----------------------------------------
+    //
+    // src/print.cpp compiles off Windows and qinta links it, where src/print_qt.cpp used to
+    // define all seven print symbols as refusals. Four claims, each through the real entry
+    // point the key and mouse routers call, from OUTSIDE a paint event, because that is where
+    // the routers call them:
+    //   the preview rasterises a page, flips and re-paginates, and closing restores the
+    //   screen; a PDF export writes as many pages as the preview paginated; the link peek
+    //   returns a bitmap; and Print itself still refuses.
+    //
+    // OUTSIDE A PAINT EVENT IS THE POINT. On this stack app.renderTarget exists only inside
+    // paintEvent, so every one of these calls finds it null. src/print_pages.h's offscreen
+    // hook is what makes them work at all, and the first check below is the precondition
+    // that keeps that hook under test: a run that happened to sit inside a paint would pass
+    // with the hook deleted.
+    {
+        std::error_code rmEcPrint;
+        QtAppWindow printWindow(app);
+        printWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        printWindow.resize(900, 700);
+        check(printWindow.openDocument(tallUtf8), "print: the tall fixture opens");
+        const QImage screenImage = grabWindow(printWindow);
+        const int screenWidth = app.width;
+        const float screenContentH = app.contentHeight;
+        const qmd::ElementPtr printRootBefore = app.root;
+        const std::string fileBefore = app.currentFile;
+        check(app.renderTarget == nullptr,
+              "print: outside a paint event App has no render target -- the case the "
+              "offscreen hook exists for");
+
+        // A4 portrait, chosen rather than detected, so the page count below does not depend
+        // on the locale of whoever runs the test.
+        app.printPreviewPaper = 0;
+        app.printPreviewLandscape = false;
+
+        // Counts the pixels that are not page-white. A blank page reads 0, which is what
+        // separates "a page was rasterised" from "a white buffer of the right size".
+        auto inkPixels = [](const std::vector<uint8_t>& px) {
+            size_t ink = 0;
+            for (size_t i = 0; i + 3 < px.size(); i += 4) {
+                if (px[i] < 250 || px[i + 1] < 250 || px[i + 2] < 250) ++ink;
+            }
+            return ink;
+        };
+
+        const auto t0 = std::chrono::steady_clock::now();
+        openPrintPreview(app, nullptr);
+        const auto t1 = std::chrono::steady_clock::now();
+        const int pagesA4 = static_cast<int>(app.printPreviewBounds.size()) - 1;
+        const unsigned pxW = app.printPreviewPxW;
+        const unsigned pxH = app.printPreviewPxH;
+        const size_t ink0 = inkPixels(app.printPreviewPixels);
+        const bool sized = app.printPreviewPixels.size() == size_t(pxW) * pxH * 4;
+        const bool cornerWhite = sized && pxW > 4 && app.printPreviewPixels[0] == 255 &&
+                                 app.printPreviewPixels[1] == 255 &&
+                                 app.printPreviewPixels[2] == 255;
+        const std::vector<uint8_t> page0 = app.printPreviewPixels;
+
+        // One page flip, timed on its own: this is the live-UI cost render_api.h priced.
+        const auto t2 = std::chrono::steady_clock::now();
+        printPreviewSetPage(app, 1);
+        const auto t3 = std::chrono::steady_clock::now();
+        const bool flipped = app.printPreviewPage == 1 && app.printPreviewPixels.size() ==
+                             page0.size() && app.printPreviewPixels != page0;
+        const size_t ink1 = inkPixels(app.printPreviewPixels);
+
+        const QImage previewImage = grabWindow(printWindow);
+        const bool previewFrame = !printWindow.documentPainted() && previewImage != screenImage;
+
+        printPreviewSetFormat(app, 1, true);  // Letter, landscape
+        const bool reformatted = app.printPreviewPageW == PRINT_PAPERS[1].h &&
+                                 app.printPreviewPageH == PRINT_PAPERS[1].w &&
+                                 app.printPreviewPxW > app.printPreviewPxH &&
+                                 inkPixels(app.printPreviewPixels) > 0;
+        const int pagesLetterLandscape = static_cast<int>(app.printPreviewBounds.size()) - 1;
+        printPreviewSetFormat(app, 0, false);  // back to A4 portrait for the PDF below
+        const bool backToA4 = static_cast<int>(app.printPreviewBounds.size()) - 1 == pagesA4;
+
+        closePrintPreview(app, nullptr);
+        const bool closed = !app.showPrintPreview && app.printPreviewPixels.empty();
+        const bool restored = app.width == screenWidth && app.contentHeight == screenContentH;
+        const bool targetReturned = app.renderTarget == nullptr;
+
+        const double openMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        const double flipMs = std::chrono::duration<double, std::milli>(t3 - t2).count();
+        std::printf("print_preview pages_a4=%d pages_letter_landscape=%d px=%ux%u ink0=%zu "
+                    "ink1=%zu sized=%d corner_white=%d flipped=%d preview_frame=%d "
+                    "reformatted=%d back_to_a4=%d closed=%d restored=%d open_ms=%.2f "
+                    "flip_ms=%.2f\n",
+                    pagesA4, pagesLetterLandscape, pxW, pxH, ink0, ink1, sized, cornerWhite,
+                    flipped, previewFrame, reformatted, backToA4, closed, restored, openMs,
+                    flipMs);
+        check(pagesA4 >= 3, "print: the tall fixture paginates into several A4 pages");
+        check(sized && ink0 > 0 && cornerWhite,
+              "print: the preview rasterised page 1 -- the buffer is the page's size, the "
+              "margin is white, and there is ink inside it");
+        check(flipped && ink1 > 0, "print: flipping to page 2 rasterises a different page");
+        check(previewFrame,
+              "print: with the preview open the window paints the preview frame, not the "
+              "document");
+        check(reformatted, "print: Letter landscape re-paginates at the new page size");
+        check(backToA4, "print: and A4 portrait gives the A4 page count back");
+        check(closed && restored,
+              "print: closing the preview restores the screen layout (width and content "
+              "height as before it opened)");
+        check(targetReturned,
+              "print: the offscreen target was taken back -- App has no render target after "
+              "the print calls, as before them");
+
+        // PDF EXPORT, through QPdfWriter. The page count is read out of the FILE, so a
+        // writer that produced a valid header and no pages cannot pass.
+        const std::filesystem::path pdfPath =
+            std::filesystem::temp_directory_path() / "qinta_entry_print.pdf";
+        std::filesystem::remove(pdfPath, rmEcPrint);
+        const bool exported = exportPdfFile(app, pdfPath.wstring());
+        std::string pdfBytes;
+        {
+            std::ifstream in(pdfPath, std::ios::binary);
+            pdfBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        int pdfPages = 0;
+        for (size_t at = pdfBytes.find("/Type /Page"); at != std::string::npos;
+             at = pdfBytes.find("/Type /Page", at + 1)) {
+            if (pdfBytes.compare(at, 12, "/Type /Pages") != 0) ++pdfPages;
+        }
+        const bool pdfHeader = pdfBytes.compare(0, 5, "%PDF-") == 0;
+        std::printf("print_pdf exported=%d bytes=%zu header=%d pages=%d\n", exported,
+                    pdfBytes.size(), pdfHeader, pdfPages);
+        check(exported && pdfHeader, "print: exportPdfFile wrote a PDF on the Qt stack");
+        check(pdfPages == pagesA4,
+              "print: and it has exactly as many pages as the A4 preview paginated");
+        std::filesystem::remove(pdfPath, rmEcPrint);
+
+        // THE LINK PEEK. A bitmap for a real file, and App's document handed back after it.
+        float peekH = 300.0f;
+        std::shared_ptr<tinta::Bitmap> peek =
+            renderPeekBitmap(app, tmp.wstring(), 400.0f, peekH);
+        const bool peekBack = app.root == printRootBefore && app.currentFile == fileBefore &&
+                              app.width == screenWidth && app.renderTarget == nullptr;
+        std::printf("print_peek bitmap=%d height=%.1f restored=%d\n", peek != nullptr, peekH,
+                    peekBack);
+        check(peek != nullptr && peekH > 0.0f,
+              "print: renderPeekBitmap returns a bitmap for a real file on the Qt stack");
+        check(peekBack, "print: and the screen document, file and width are restored after it");
+
+        // PRINT ITSELF REFUSES, and says so. A silent false would read as a cancelled dialog.
+        const auto signalsBefore = app.signalIdCounter;
+        const bool printed = printDocument(app);
+        check(!printed && app.signalIdCounter == signalsBefore + 1,
+              "print: printDocument still refuses on the Qt stack, with a chip");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

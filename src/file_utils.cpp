@@ -212,7 +212,8 @@ void populateFolderItems(App& app) {
 // print.cpp's own <commdlg.h>. The census names only the first header it cannot resolve,
 // so the name in a sentence like this one is the perishable part and the fatality is not:
 // print.cpp's row still reads exit 1, fatal 1, errors 0, and the 1 site is still invisible
-// to g++. The export_docx.cpp clause is worth reading twice: that file was NEVER genuinely
+// to g++. (SUPERSEDED 2026-10-06: print.cpp compiles off Windows, so its 1 site is in
+// g++'s view now. The rule this paragraph argues for does not depend on that file.) The export_docx.cpp clause is worth reading twice: that file was NEVER genuinely
 // behind objbase.h -- the header was dead, three lines of text with no caller, and
 // deleting it made the file compile off Windows unchanged. So this paragraph's point
 // stands and gets sharper. A figure read off compiler output could not see those 3 sites,

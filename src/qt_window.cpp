@@ -27,6 +27,7 @@
 #include "keyboard.h"
 #include "overlays.h"
 #include "paint_document.h"
+#include "render_frame.h"
 #include "qt_init.h"
 #include "qt_key_map.h"
 #include "qt_launch.h"
@@ -49,28 +50,11 @@
 
 namespace {
 
-// Deliberately not localised through tr(). The i18n table is keyed by the app's own
-// string ids and this line is only reachable when App holds no document -- adding it
-// to the catalogue would leave a translated string behind for a screen that exists
-// only until a file is opened.
+// THE PLACEHOLDER LINE THAT STOOD HERE ("tinta - no document open.", 18 DIP) IS GONE: since
+// 2026-10-06 the window draws tinta's frame, and with no document that frame is the start page.
+// placeholderRect() below survives as a measurement band -- the centre of the window, where the
+// start page draws -- because tests/qt_entry_tests.cpp samples it.
 //
-// REWORDED, because the old text said the document renderer "is not on this stack
-// yet" and that is no longer true: this window draws documents now, and the line is
-// what an EMPTY window says.
-const wchar_t kPlaceholder[] =
-    L"tinta - no document open.";
-
-// One less than the array extent, which is the terminator. Computed rather than
-// written: the seam takes an explicit length, and a hand-typed count on a string
-// somebody will reword is a defect waiting for the reword.
-constexpr uint32_t kPlaceholderLength =
-    static_cast<uint32_t>(sizeof(kPlaceholder) / sizeof(kPlaceholder[0]) - 1);
-
-// Matches the body size the start page uses. Not read from the theme, because
-// D2DTheme carries font FAMILIES and no sizes -- every size in this tree is a
-// literal at its call site.
-constexpr float kPlaceholderFontSize = 18.0f;
-
 // The half-height of the band the line is centred in. Generous, because the test
 // samples pixels inside it and a band tight to the glyph box would make the test
 // depend on whichever font the platform substituted.
@@ -529,60 +513,6 @@ void QtAppWindow::resizeEvent(QResizeEvent* event) {
     update();
 }
 
-bool QtAppWindow::paintDocument() {
-    if (!app_.root) return false;
-
-    // Synced here as well as in resizeEvent, and that is not redundant: a widget can be
-    // resized before it is shown, in which case no resize event has been delivered yet.
-    // The input handlers call it too, because every scroll maximum is derived from
-    // app_.height and a wheel event before the first paint would clamp against zero.
-    const bool resized = syncViewport();
-
-    // Relayout on a size change, and on the first paint after a document is set --
-    // which is what an empty run list means here, since every document tinta can open
-    // produces at least one text run. Not "always": layoutDocument walks the whole
-    // element tree and this is the paint path.
-    //
-    // app_.layoutDirty is in the test now because resizeEvent sets it. `resized` alone
-    // would still be true in the common case, but only because syncViewport happens to be
-    // called from both places -- a resize followed by anything that syncs first would
-    // have left the flag set and the layout stale.
-    if (resized || app_.layoutDirty || app_.layoutTextRuns.empty()) {
-        layoutDocument(app_);
-    }
-
-    // Nothing to show. Distinguished from "no document" by the caller only in that
-    // both fall back to the placeholder; a document that lays out to nothing is a
-    // layout defect, and drawing a blank window would hide it.
-    if (app_.layoutTextRuns.empty() && app_.layoutRects.empty() &&
-        app_.layoutShapes.empty() && app_.layoutBitmaps.empty() &&
-        app_.layoutLines.empty()) {
-        return false;
-    }
-
-    // AFTER the layout and BEFORE the paint, which is the order main_d2d.cpp uses and the
-    // only order that works: it reads app_.contentHeight, and it latches visibility so an
-    // incremental layout cannot make the right edge blink.
-    updateScrollbarExtent(app_);
-
-    // Held rather than passed inline, because the scrollbars need the same object. Two
-    // prepareDocumentViewport calls would be worse than untidy -- it MUTATES App
-    // (scrollX, scrollY, targetScrollY, pendingScrollRestore), so the second call would
-    // be clamping against state the first one already moved.
-    const DocumentViewport viewport = prepareDocumentViewport(app_);
-    paintDocumentLayout(app_, viewport);
-
-    // The chrome the Windows paint handler drew inline until this slice: the same rounded
-    // thumb, the same 6-to-10 DIP hover swell, the same colour rule. It draws OVER the
-    // document rather than reserving a column, which is why it comes after.
-    //
-    // The hover and drag flags it reads are set by src/input.cpp's mouse handling, which
-    // is Windows-only, so on this stack the thumb is always in its resting form and cannot
-    // be dragged. A missing caller, not a missing implementation -- see include/scrollbar.h.
-    paintDocumentScrollbars(app_, viewport);
-    return true;
-}
-
 void QtAppWindow::paintEvent(QPaintEvent* event) {
     (void)event;
     paintCount_++;
@@ -595,51 +525,32 @@ void QtAppWindow::paintEvent(QPaintEvent* event) {
     renderTargetInstalled_ = target.target() != nullptr;
     if (!renderTargetInstalled_) return;
 
-    // Every line below goes through app_.renderTarget, the pointer the 566 drawing
-    // sites in the tree read. Nothing here names QtRenderTarget.
-    app_.renderTarget->Clear(app_.theme.background);
-
     // No text factory means no text, and it means it QUIETLY. That is not an
     // oversight being tolerated: tests/qt_entry_tests.cpp releases the factory and
-    // grabs again, and the band coming back as flat background is what makes the
-    // text assertion in the run before it discriminating rather than decorative.
-    if (!app_.textFactory) return;
-
-    // The print preview replaces the whole frame, as it does in main_d2d.cpp's render():
-    // while it is open the document is laid out at PAGE width in the print palette, so
-    // painting it here would draw nonsense. The first overlay this window paints, since
-    // 2026-10-06, when src/print.cpp started giving it a page to show.
-    if (app_.showPrintPreview) {
-        renderPrintPreview(app_);
+    // grabs again, and the window coming back as flat background is what makes the
+    // text assertions before it discriminating rather than decorative.
+    if (!app_.textFactory) {
+        app_.renderTarget->Clear(app_.theme.background);
         return;
     }
 
-    // A document if there is one, the placeholder if there is not. The order matters
-    // for the control in tests/qt_entry_tests.cpp: releasing the text factory has to
-    // stop BOTH branches drawing, or the control measures nothing.
-    documentPainted_ = paintDocument();
-    if (documentPainted_) {
-        // The link peek, the second overlay this window paints, and for the same reason:
-        // src/print.cpp's renderPeekBitmap draws a real page on this stack now, and
-        // src/input.cpp's dwell timer calls it. Without this call the hover would lay a
-        // second document out and show nothing. Screen coordinates, as in main_d2d.cpp,
-        // which draws it after resetting the document transform.
-        app_.renderTarget->SetTransform(tinta::matrixIdentity());
-        renderLinkPeek(app_);
-        return;
-    }
+    // WM_SIZE's half, done at paint time because a widget can be resized before it is shown,
+    // when no resize event has been delivered yet. A changed viewport needs a relayout, which
+    // is what WinMain's WM_SIZE asks for with the same flag.
+    if (syncViewport()) app_.layoutDirty = true;
 
-    std::unique_ptr<tinta::TextFormat> format = app_.textFactory->CreateTextFormat(
-        app_.theme.fontFamily, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
-        tinta::FontStretch::Normal, kPlaceholderFontSize, L"en-us");
-    if (!format) return;
-    format->SetTextAlignment(tinta::TextAlignment::Center);
-    format->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
+    // THE WHOLE FRAME, tinta's, since 2026-10-06: src/render_frame.cpp is the body of
+    // main_d2d.cpp's render(), and this function is its Qt bracket. Until then this window drew
+    // the document and its scrollbars itself, and after the print slice the preview and the
+    // link peek -- so the start page, the editor, the tab strip, search and every overlay and
+    // dialog were invisible here while the key and mouse routers drove them. With no document
+    // the frame is tinta's start page, which replaced this window's own placeholder line.
+    renderFrame(app_);
 
-    // Constructed here rather than held as a member: a brush is one colour and the
-    // theme can change under a running window, so caching one would be a cache with
-    // an invalidation rule and nothing to gain.
-    QtBrush brush(app_.theme.text);
-    app_.renderTarget->DrawText(kPlaceholder, kPlaceholderLength, format.get(),
-                                placeholderRect(), &brush);
+    // Which branch the frame took, for tests/qt_entry_tests.cpp: a document, laid out to
+    // something, and not hidden behind the print preview or the editor.
+    documentPainted_ = app_.root && !app_.showPrintPreview && !app_.editMode &&
+                       !(app_.layoutTextRuns.empty() && app_.layoutRects.empty() &&
+                         app_.layoutShapes.empty() && app_.layoutBitmaps.empty() &&
+                         app_.layoutLines.empty());
 }

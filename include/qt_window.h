@@ -235,10 +235,6 @@ private:
     // diagnosed as a scroll-step problem.
     bool syncViewport();
 
-    // Relayouts if App's viewport disagrees with the widget, then draws the cached
-    // layout through the seam. Returns false if there is nothing to draw, which is
-    // what selects the placeholder.
-    bool paintDocument();
 
     App& app_;
     int paintCount_ = 0;

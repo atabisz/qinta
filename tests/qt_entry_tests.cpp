@@ -311,8 +311,43 @@ int nonBackgroundPixels(const QImage& img, const tinta::RectF& band,
 // grab() renders the widget into a pixmap this process can read. The backing store
 // cannot be read under the offscreen platform, and a probe that cannot read its own
 // output is the failure mode this tree keeps catching itself in.
+//
+// AND IT LETS THE LAYOUT FINISH, since 2026-10-06. The window draws tinta's frame now
+// (src/render_frame.cpp), which lays a document out viewport-first and continues in
+// WM_APP_LAYOUT_CHUNK messages through the post sink. A single grab therefore sees a partial
+// layout and a partial contentHeight, exactly as tinta's first frame does. Every reading in this
+// file was taken against a COMPLETE layout, so the helper pumps the queued chunks until App says
+// the layout is done, then grabs again: the frame a user sees once the document has settled.
+// The pumping is also the evidence that the chunks continue on this stack at all -- before the
+// slice the Qt post sink refused WM_APP_LAYOUT_CHUNK, so this loop would have run to its bound.
+App* g_settleApp = nullptr;
+int g_settlePumps = 0;
 QImage grabWindow(QtAppWindow& window) {
-    return window.grab().toImage().convertToFormat(QImage::Format_RGB32);
+    QImage img = window.grab().toImage().convertToFormat(QImage::Format_RGB32);
+    if (g_settleApp && g_settleApp->root && !g_settleApp->layoutComplete) {
+        for (int i = 0; i < 2000 && !g_settleApp->layoutComplete; ++i) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+            ++g_settlePumps;
+        }
+        img = window.grab().toImage().convertToFormat(QImage::Format_RGB32);
+    }
+    return img;
+}
+
+// What src/file_utils.cpp's loadDocumentFromPath does to App when it replaces the document,
+// for the runs that parse a string literal instead of reading a file. tinta's frame draws the
+// START PAGE while currentFile is empty and lays a document out only when layoutDirty says so,
+// so a root assigned on its own is a state no loader produces -- the frame would correctly
+// show the start page and never lay the document out. Until 2026-10-06 this window relaid out
+// whenever its run list was empty, which is why a bare assignment used to be enough.
+void seatDocument(App& app, const qmd::ElementPtr& root, const char* name) {
+    app.root = root;
+    app.currentFile = root ? name : "";
+    app.clearLayoutCache();
+    app.layoutDirty = true;
+    app.layoutComplete = false;
+    app.contentHeight = 0.0f;
+    app.contentWidth = 0.0f;
 }
 
 // Where a document's first lines land: the top quarter of the window. Chosen to be
@@ -469,6 +504,7 @@ int main(int argc, char** argv) {
     check(true, "a font database is present, so a blank text band would be a real finding");
 
     App app;
+    g_settleApp = &app;
     check(app.renderTarget == nullptr, "a fresh App has no render target");
     check(app.textFactory == nullptr, "a fresh App has no text factory");
 
@@ -595,7 +631,9 @@ int main(int argc, char** argv) {
     const tinta::Color& bg = app.theme.background;
     std::printf("theme=%ls background=%d,%d,%d\n", app.theme.name, expect8(bg.r), expect8(bg.g),
                 expect8(bg.b));
-    check(pixelIs(painted, 2, 2, bg, 2),
+    // BOTTOM-left, not top-left, since the window draws tinta's frame: the top rows carry the
+    // tab strip tinta draws in its client area, so (2,2) is chrome and not background.
+    check(pixelIs(painted, 2, 397, bg, 2),
           "a corner pixel carries the theme background, so Clear() reached the window");
     check(pixelIs(painted, 598, 398, bg, 2),
           "the opposite corner does too, so Clear() covered the whole device and not a sub-rect");
@@ -605,15 +643,18 @@ int main(int argc, char** argv) {
     check(paintedDiff > 0,
           "pixels in the band differ from the background, so DrawText through the seam drew glyphs");
 
-    // App holds no document yet, so this is the placeholder branch -- asserted rather
-    // than assumed, because it is the baseline every document assertion below is read
-    // against.
+    // App holds no document yet, so this is the START PAGE, tinta's no-document frame -- it
+    // replaced this window's placeholder line on 2026-10-06. Asserted rather than assumed,
+    // because it is the baseline every document assertion below is read against.
     check(!window.documentPainted(),
-          "with no document in App the window reports the placeholder branch, not a document");
+          "with no document in App the window reports the start page, not a document");
     const int paintedDocBand = nonBackgroundPixels(painted, docBand, bg);
-    std::printf("doc_band_non_background_placeholder=%d\n", paintedDocBand);
-    check(paintedDocBand == 0,
-          "the placeholder leaves the document band flat, so a count there later can only be a document");
+    std::printf("doc_band_non_background_start_page=%d\n", paintedDocBand);
+    // NOT `== 0` ANY MORE, AND THE REASON IS THE CHANGE: the placeholder left the top band
+    // flat, the start page and its tab strip do not. What a later document count needs is
+    // a baseline to differ FROM, and run 5 asserts the frame returns to exactly this count.
+    check(paintedDocBand >= 0,
+          "the start page's document-band count is recorded as the no-document baseline");
 
     // --- Run 2: the control, with no text factory -------------------------------
     releaseQtBackends(app);
@@ -653,7 +694,7 @@ int main(int argc, char** argv) {
     const qmd::ParseResult doc = app.parser.parse(kMarkdown);
     check(doc.success, "the fixture markdown parses");
     check(doc.root != nullptr, "the parse produced a root element");
-    app.root = doc.root;
+    seatDocument(app, doc.root, "qinta_entry_inline.md");
 
     // A DELTA, not an absolute. App::drawCalls is zeroed once per frame by
     // src/main_d2d.cpp:102, which is Windows-only chrome this stack does not run, so the
@@ -676,25 +717,26 @@ int main(int argc, char** argv) {
     std::printf("doc_band_non_background_document=%d\n", documentDocBand);
     check(documentDocBand > 0,
           "the document band carries non-background pixels, which only a document draws there");
-    check(documentDocBand > paintedDocBand,
-          "and it carries MORE than the placeholder run did, which was zero");
+    check(documentDocBand != paintedDocBand,
+          "and it differs from the start page's count, so the band measured the document");
 
     // The strongest single discriminator in the file: if the document branch had somehow
     // produced the placeholder, every count above could still pass.
     check(documentImage != painted,
-          "the document image is not the placeholder image, pixel for pixel");
+          "the document image is not the start-page image, pixel for pixel");
 
     // --- Run 5: the control, document cleared -----------------------------------
-    app.root = nullptr;
+    seatDocument(app, nullptr, "");
     const QImage clearedImage = grabWindow(window);
     check(!window.documentPainted(),
-          "CONTROL: with App::root cleared the window falls back to the placeholder branch");
+          "CONTROL: with App::root cleared the window falls back to the start page");
     const int clearedDocBand = nonBackgroundPixels(clearedImage, docBand, bg);
     std::printf("doc_band_non_background_cleared=%d\n", clearedDocBand);
-    check(clearedDocBand == 0,
-          "CONTROL: the document band is flat again, so the count in run 4 measured the DOCUMENT");
+    check(clearedDocBand == paintedDocBand,
+          "CONTROL: the document band returns to run 1's exact start-page count, so the count in "
+          "run 4 measured the DOCUMENT");
     check(nonBackgroundPixels(clearedImage, band, bg) == paintedDiff,
-          "CONTROL: the placeholder returns at run 1's exact count, so drawing a document left no residue");
+          "CONTROL: the start page returns at run 1's exact count, so drawing a document left no residue");
 
     // --- Run 6: the control, document present and no text factory ----------------
     //
@@ -702,7 +744,7 @@ int main(int argc, char** argv) {
     // in the header: paintEvent's `if (!app_.textFactory) return;` sits BEFORE the branch
     // choice, so this proves the document band's pixels are text drawn through the seam.
     // It does not prove the document branch is itself factory-dependent.
-    app.root = doc.root;
+    seatDocument(app, doc.root, "qinta_entry_inline.md");
     releaseQtBackends(app);
     const QImage documentNoFactory = grabWindow(window);
     check(!window.documentPainted(),
@@ -725,7 +767,15 @@ int main(int argc, char** argv) {
     // read -- parseDocument already had four years of Windows use behind it -- so a test
     // that injected the content would assert everything except the part that is new.
     installQtBackends(app);
+    // A LAYOUT TO INVALIDATE, built here rather than inherited from run 4. Runs 5 and 6 seat
+    // and clear documents the way a loader does (seatDocument), which clears the cache, so the
+    // precondition below would otherwise be false for a reason that has nothing to do with
+    // the loader. The in-memory document is laid out by one settled grab and then dropped from
+    // App WITHOUT clearing its runs -- the stale state the loader has to clean up.
+    seatDocument(app, doc.root, "qinta_entry_inline.md");
+    grabWindow(window);
     app.root = nullptr;
+    app.currentFile.clear();
     app.sourceText.clear();
 
     // THE CACHED LAYOUT HAS TO GO OR THE PIXEL EQUALITY BELOW PROVES NOTHING, and this
@@ -2080,10 +2130,12 @@ int main(int argc, char** argv) {
         check(lightGrab != darkGrab,
               "ISC-12: the same window PAINTS DIFFERENTLY after --light, which is the claim -- a "
               "changed field that reached no pixel would pass the assertion above and fail here");
-        check(pixelIs(lightGrab, 2, 2, app.theme.background, 2),
+        // BOTTOM-left of the 200x150 window, since the window draws tinta's frame and the top rows
+        // are its tab strip -- (2,2) is chrome there, not the theme's background.
+        check(pixelIs(lightGrab, 2, 147, app.theme.background, 2),
               "and the corner pixel carries the LIGHT theme's background specifically, so the "
               "difference is the theme this flag names rather than any repaint");
-        check(!pixelIs(lightGrab, 2, 2, darkBackground, 2),
+        check(!pixelIs(lightGrab, 2, 147, darkBackground, 2),
               "and it no longer carries the dark one, which is what separates 'switched' from "
               "'drew both' in a window that clears before it draws");
 
@@ -3563,6 +3615,103 @@ int main(int argc, char** argv) {
         app.imageCache.clear();
         app.imageCacheBytes = 0;
         std::filesystem::remove_all(facDir, facEc);
+    }
+
+    // ---- TINTA'S FRAME ON THE QT WINDOW (slice 18) -----------------------------------------
+    //
+    // The window draws src/render_frame.cpp, the body of main_d2d.cpp's render(). Two claims.
+    // The LAYOUT CHUNKS: the frame lays a long document out viewport-first and continues in
+    // WM_APP_LAYOUT_CHUNK messages, which the Qt post sink refused until this slice -- so a raw
+    // grab must show an INCOMPLETE layout, and pumping the event loop must complete it. And the
+    // OVERLAYS: help and search are drawn by the shared frame, so switching each on must change
+    // the window's pixels where nothing else changed.
+    {
+        QtAppWindow frameWindow(app);
+        frameWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        frameWindow.resize(700, 500);
+        check(frameWindow.openDocument(tallUtf8), "frame: the tall fixture opens");
+        // window.grab() directly, NOT grabWindow: the point is the state before any chunk ran.
+        const QImage raw = frameWindow.grab().toImage();
+        (void)raw;
+        const bool partialAfterFirstFrame = !app.layoutComplete;
+        const float partialHeight = app.contentHeight;
+        int pumps = 0;
+        for (; pumps < 2000 && !app.layoutComplete; ++pumps) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+        }
+        const bool completedByChunks = app.layoutComplete;
+        const float fullHeight = app.contentHeight;
+
+        const QImage plain = grabWindow(frameWindow);
+        const QImage plainAgain = grabWindow(frameWindow);
+        app.showHelp = true;
+        const QImage withHelp = grabWindow(frameWindow);
+        app.showHelp = false;
+        const QImage helpClosed = grabWindow(frameWindow);
+        app.showSearch = true;
+        const QImage withSearch = grabWindow(frameWindow);
+        app.showSearch = false;
+        const QImage searchClosed = grabWindow(frameWindow);
+        // THE ANIMATED CORNER, MASKED BY MEASUREMENT. Something in the frame animates in the
+        // bottom-right corner (measured: x=675, y=484..485 of 700x500 on Linux), so two UNCHANGED
+        // grabs differ there, and by more the more frames pass -- 2 pixels between consecutive
+        // grabs, 4 a few grabs later on Windows. A count tolerance chased that and lost. So the
+        // region where the two unchanged grabs differ is measured, padded by 12 px, and excluded
+        // from every comparison below; outside it the frames must be identical.
+        int maskL = 1 << 30, maskT = 1 << 30, maskR = -1, maskB = -1;
+        for (int y = 0; y < plain.height() && y < plainAgain.height(); ++y)
+            for (int x = 0; x < plain.width() && x < plainAgain.width(); ++x)
+                if (plain.pixel(x, y) != plainAgain.pixel(x, y)) {
+                    maskL = std::min(maskL, x - 12); maskT = std::min(maskT, y - 12);
+                    maskR = std::max(maskR, x + 12); maskB = std::max(maskB, y + 12);
+                }
+        auto masked = [&](int x, int y) {
+            return x >= maskL && x <= maskR && y >= maskT && y <= maskB;
+        };
+        auto differing = [&](const QImage& a, const QImage& b) {
+            int n = 0;
+            for (int y = 0; y < a.height() && y < b.height(); ++y)
+                for (int x = 0; x < a.width() && x < b.width(); ++x)
+                    if (!masked(x, y) && a.pixel(x, y) != b.pixel(x, y)) ++n;
+            return n;
+        };
+        const int maskArea = maskR < 0 ? 0 : (maskR - maskL + 1) * (maskB - maskT + 1);
+        // THE SECOND PLAIN GRAB IS THE REFERENCE. The first one, taken right after the layout
+        // finished, differs from the next by a couple of pixels (measured: 2 on Linux) with
+        // nothing changed in between, so it is not yet the settled frame. That drift is printed
+        // as frame_control's plain_vs_again and deliberately not asserted.
+        const int helpDiff = differing(plainAgain, withHelp);
+        const int searchDiff = differing(plainAgain, withSearch);
+        // A PIXEL count and not QImage::operator==. The first version used ==, read false, and
+        // the control below showed both closed frames differ from the plain one by 0 sampled
+        // pixels -- so == was judging something other than the pixels this claim is about.
+        // Outside the mask the drift is zero by construction, so the revert is exact there, and
+        // the mask has to be SMALL or it would be hiding the overlays themselves.
+        const int drift = differing(plain, plainAgain);
+        const bool reverts = differing(plainAgain, helpClosed) == 0 &&
+                             differing(plainAgain, searchClosed) == 0 && maskArea < 2500;
+        std::printf("frame_control mask=%d,%d..%d,%d area=%d plain_vs_again=%d "
+                    "help_closed_diff=%d search_closed_diff=%d\n",
+                    maskL, maskT, maskR, maskB, maskArea, drift,
+                    differing(plainAgain, helpClosed), differing(plainAgain, searchClosed));
+        std::printf("frame partial_first=%d partial_h=%.1f pumps=%d completed=%d full_h=%.1f "
+                    "help_diff=%d search_diff=%d reverts=%d\n",
+                    partialAfterFirstFrame, partialHeight, pumps, completedByChunks, fullHeight,
+                    helpDiff, searchDiff, reverts);
+        check(partialAfterFirstFrame && completedByChunks && fullHeight > partialHeight,
+              "frame: the first frame lays the tall document out only in part, and the posted "
+              "WM_APP_LAYOUT_CHUNK messages finish it through the post sink");
+        // ABOVE THE DRIFT, NOT ABOVE ZERO. A first version asserted `> 0`, and with the help
+        // overlay planted out of the frame it stayed green: help_diff read 2, which is the
+        // animated corner's drift and nothing else. So each overlay must move more than ten
+        // times the measured drift plus a floor -- far above it, and far below either reading.
+        check(helpDiff > drift * 10 + 100,
+              "frame: the help overlay draws on the Qt window -- showHelp changes its pixels");
+        check(searchDiff > drift * 10 + 100,
+              "frame: the search box draws on the Qt window -- showSearch changes its pixels");
+        check(reverts,
+              "frame: closing each overlay gives back the identical frame, so the differences "
+              "above are the overlays and not drift between grabs");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

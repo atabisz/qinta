@@ -1051,6 +1051,12 @@ scroll.cpp
 # honour them the moment something sets them -- a missing caller, not a missing half.
 scrollbar.cpp
 
+# --- The frame, compiled AND RUN off Windows -------------------------------------
+#
+# src/main_d2d.cpp's render() body, moved 2026-10-06 so the Qt window draws tinta's whole frame.
+# Linked into qinta and qt_entry_tests; the Windows render() is its Direct2D bracket.
+render_frame.cpp
+
 # --- The Qt frontend: the entry point the whole port is aimed at ---------------
 #
 # These three are a DIFFERENT KIND of entry from everything above. Every other line

@@ -4513,12 +4513,21 @@ bool windowCloseMayProceed(App& app, HWND hwnd) {
 // here -- close(), and the follow-system switch with this arm's own appearance reading.
 bool handlesPostedMessage(unsigned message) {
     return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH ||
-           message == WM_CLOSE || message == WM_SETTINGCHANGE;
+           message == WM_APP_LAYOUT_CHUNK || message == WM_CLOSE || message == WM_SETTINGCHANGE;
 }
 
 void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM lParam) {
     if (message == WM_APP_IMAGE_READY) completeAsyncImage(app, (void*)lParam);
     if (message == WM_APP_FOLDER_SEARCH) completeFolderSearch(app, (void*)lParam);
+    // WinMain's WM_APP_LAYOUT_CHUNK case, moved here on 2026-10-06 when the frame went portable
+    // (src/render_frame.cpp posts it). The Qt post sink refused this message until then, so on
+    // qinta a long document laid out viewport-first would have stopped at its first slice.
+    // Continue an incomplete document layout in ~10ms slices, yielding to input between slices.
+    if (message == WM_APP_LAYOUT_CHUNK && !app.layoutDirty && !app.layoutComplete) {
+        bool done = layoutDocumentContinue(app, 10000);
+        requestRepaint(app.hwnd);  // scrollbar grows as layout fills in
+        if (!done) postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+    }
 }
 
 void handleTimer(App& app, HWND hwnd, unsigned id) {

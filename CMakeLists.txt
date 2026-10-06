@@ -514,6 +514,9 @@ set(SOURCES
     # on the same terms: BOTH platforms, both app targets, so a divergence in the most
     # visible piece of chrome in the product would have to be a divergence in this file.
     src/scrollbar.cpp
+    # The whole frame, out of main_d2d.cpp's render() on 2026-10-06 so the Qt window draws it
+    # too: BOTH platforms, both app targets, for the reason paint_document.cpp is.
+    src/render_frame.cpp
     src/file_utils.cpp
     src/overlays.cpp
     src/context_menu.cpp
@@ -816,6 +819,8 @@ set(QINTA_APP_SOURCES
     # the build-level version is short: this is the SAME file the `tinta` target links, so
     # both stacks draw the identical thumb and neither can restyle it alone.
     src/scrollbar.cpp
+    # The whole frame: the SAME file tinta's render() calls, so the two windows draw one frame.
+    src/render_frame.cpp
     # THE REAL MATHS BACKEND, AND src/math_stub.cpp IS GONE. That file supplied six
     # symbols so this target could link while src/math_render.cpp was Windows-only, and
     # its own header said "DELETING THIS FILE IS THE GOAL. It goes when math_render.cpp
@@ -1900,6 +1905,8 @@ if(BUILD_TESTING)
         # drifting in, it is a Direct2D one that was always there and that nothing had
         # ever asked about. This target is what asks.
         src/scrollbar.cpp
+        # The frame, out of the same file for the same reason, and the same question.
+        src/render_frame.cpp
         # THE LARGEST FILE THIS PORT HAS MOVED -- 4,153 lines, past render.cpp, and the
         # reading it earns is narrower than its size suggests, so state it in the same
         # three parts render.cpp above is stated in:

@@ -103,6 +103,9 @@
 #include <QString>
 #include <QStringList>
 #include <QStyleHints>
+#include <QHostAddress>
+#include <QTcpServer>
+#include <QTcpSocket>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QWheelEvent>
@@ -143,6 +146,8 @@
 #include "paint_document.h"
 #include "platform_paths.h"
 #include "print.h"
+#include "image_api.h"  // encodePng, for the factory probe
+#include "render.h"     // layoutDocument, run outside paint by the factory probe
 #include "qt_init.h"
 #include "qt_key_map.h"
 // Run 19's whole point: the four functions src/main_qt.cpp calls to place and colour its
@@ -485,8 +490,8 @@ int main(int argc, char** argv) {
     installQtBackends(app);
     check(app.textFactory != nullptr,
           "installQtBackends put a Qt text factory in App's storage -- Seated<TextFactory>::install()");
-    check(app.renderTarget == nullptr,
-          "installQtBackends did NOT install a render target: that is one paint event's business");
+    check(app.renderTarget != nullptr && app.renderTarget == qtFactoryTarget(),
+          "installQtBackends seated the FACTORY render target, the one App holds outside paint");
     check(app.brush != nullptr,
           "installQtBackends put a brush in App's storage -- paintDocumentLayout returns early without one");
 
@@ -583,8 +588,9 @@ int main(int argc, char** argv) {
           "constructing QtAppWindow installed the repaint sink, so requestRepaint has somewhere to go");
     check(window.renderTargetInstalled(),
           "the paint got a non-null render target out of App's storage -- Seated<RenderTarget>::install()");
-    check(app.renderTarget == nullptr,
-          "App::renderTarget is null again after the paint, so the QPainter ended with the scope");
+    check(app.renderTarget == qtFactoryTarget() && app.renderTargetStorage.get() == nullptr,
+          "after the paint App holds the factory target again and the paint target is released, "
+          "so the QPainter ended with the scope");
 
     const tinta::Color& bg = app.theme.background;
     std::printf("theme=%ls background=%d,%d,%d\n", app.theme.name, expect8(bg.r), expect8(bg.g),
@@ -3296,9 +3302,9 @@ int main(int argc, char** argv) {
         const float screenContentH = app.contentHeight;
         const qmd::ElementPtr printRootBefore = app.root;
         const std::string fileBefore = app.currentFile;
-        check(app.renderTarget == nullptr,
-              "print: outside a paint event App has no render target -- the case the "
-              "offscreen hook exists for");
+        check(app.renderTarget == qtFactoryTarget(),
+              "print: outside a paint event App holds the factory target, not a paint target "
+              "-- the case every call below runs in");
 
         // A4 portrait, chosen rather than detected, so the page count below does not depend
         // on the locale of whoever runs the test.
@@ -3351,7 +3357,7 @@ int main(int argc, char** argv) {
         closePrintPreview(app, nullptr);
         const bool closed = !app.showPrintPreview && app.printPreviewPixels.empty();
         const bool restored = app.width == screenWidth && app.contentHeight == screenContentH;
-        const bool targetReturned = app.renderTarget == nullptr;
+        const bool targetReturned = app.renderTarget == qtFactoryTarget();
 
         const double openMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
         const double flipMs = std::chrono::duration<double, std::milli>(t3 - t2).count();
@@ -3376,8 +3382,7 @@ int main(int argc, char** argv) {
               "print: closing the preview restores the screen layout (width and content "
               "height as before it opened)");
         check(targetReturned,
-              "print: the offscreen target was taken back -- App has no render target after "
-              "the print calls, as before them");
+              "print: App still holds the factory target after the print calls, as before them");
 
         // PDF EXPORT, through QPdfWriter. The page count is read out of the FILE, so a
         // writer that produced a valid header and no pages cannot pass.
@@ -3408,7 +3413,7 @@ int main(int argc, char** argv) {
         std::shared_ptr<tinta::Bitmap> peek =
             renderPeekBitmap(app, tmp.wstring(), 400.0f, peekH);
         const bool peekBack = app.root == printRootBefore && app.currentFile == fileBefore &&
-                              app.width == screenWidth && app.renderTarget == nullptr;
+                              app.width == screenWidth && app.renderTarget == qtFactoryTarget();
         std::printf("print_peek bitmap=%d height=%.1f restored=%d\n", peek != nullptr, peekH,
                     peekBack);
         check(peek != nullptr && peekH > 0.0f,
@@ -3420,6 +3425,144 @@ int main(int argc, char** argv) {
         const bool printed = printDocument(app);
         check(!printed && app.signalIdCounter == signalsBefore + 1,
               "print: printDocument still refuses on the Qt stack, with a chip");
+    }
+
+    // ---- THE FACTORY TARGET OUTSIDE PAINT (slice 16) -------------------------------------
+    //
+    // Three portable paths that need a render target as a FACTORY and run outside a paint
+    // event on this stack: layout creating a local image's bitmap, a remote download
+    // completing through the post sink, and a .docx export rasterising a diagram. Before
+    // qtFactoryTarget() all three refused silently on qinta: the image was cached as failed,
+    // and the diagram went into the .docx as its Mermaid source.
+    //
+    // THE REMOTE IMAGE IS SERVED FOR REAL, from a QTcpServer on loopback, because the success
+    // path is the one that was broken. The post-sink run above uses a refused port, which
+    // reaches completeAsyncImage on its failure branch only, and that branch never touched
+    // the render target.
+    {
+        QtAppWindow factoryWindow(app);  // its post sink, which the download completes through
+        factoryWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        factoryWindow.resize(600, 400);
+        check(app.renderTarget == qtFactoryTarget(),
+              "factory: outside paint App holds the factory target");
+
+        tinta::DecodedImage pixel;
+        pixel.width = 4;
+        pixel.height = 3;
+        pixel.pixels.assign(4 * 3 * 4, 0);
+        for (size_t i = 0; i < pixel.pixels.size(); i += 4) {
+            pixel.pixels[i + 2] = 255;  // premultiplied BGRA: opaque red
+            pixel.pixels[i + 3] = 255;
+        }
+        pixel.ok = true;
+        const std::string png = tinta::encodePng(pixel);
+
+        std::error_code facEc;
+        const std::filesystem::path facDir =
+            std::filesystem::temp_directory_path() / "qinta_factory_probe";
+        std::filesystem::remove_all(facDir, facEc);
+        std::filesystem::create_directories(facDir, facEc);
+        {
+            std::ofstream img(facDir / "pixel.png", std::ios::binary);
+            img.write(png.data(), static_cast<std::streamsize>(png.size()));
+        }
+
+        QTcpServer server;
+        const bool listening = server.listen(QHostAddress::LocalHost, 0);
+        int served = 0;
+        QObject::connect(&server, &QTcpServer::newConnection, [&server, &png, &served]() {
+            while (QTcpSocket* sock = server.nextPendingConnection()) {
+                QObject::connect(sock, &QTcpSocket::readyRead, sock, [sock, &png, &served]() {
+                    sock->readAll();
+                    const QByteArray head =
+                        QByteArray("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\n"
+                                   "Connection: close\r\nContent-Length: ") +
+                        QByteArray::number(static_cast<qint64>(png.size())) + "\r\n\r\n";
+                    sock->write(head);
+                    sock->write(png.data(), static_cast<qint64>(png.size()));
+                    sock->disconnectFromHost();
+                    ++served;
+                });
+                QObject::connect(sock, &QTcpSocket::disconnected, sock, &QObject::deleteLater);
+            }
+        });
+        const std::string remote = "http://127.0.0.1:" + std::to_string(server.serverPort()) +
+                                   "/pixel.png";
+        {
+            std::ofstream md(facDir / "doc.md", std::ios::binary);
+            md << "# factory probe\n\n![local](pixel.png)\n\n![remote](" << remote << ")\n";
+        }
+        check(loadDocumentFromPath(app, (facDir / "doc.md").u8string()),
+              "factory: the probe document loaded");
+
+        // OUTSIDE PAINT, on purpose: this is the layout an input handler or a timer runs.
+        layoutDocument(app);
+        const bool stillFactory = app.renderTarget == qtFactoryTarget();
+        const App::ImageEntry* local = nullptr;
+        for (const auto& kv : app.imageCache) {
+            if (kv.first.find("pixel.png") != std::string::npos &&
+                kv.first.rfind("http", 0) != 0) {
+                local = &kv.second;
+            }
+        }
+        const bool localOk = local && !local->failed && local->bitmap && local->width == 4 &&
+                             local->height == 3;
+
+        auto remoteEntry = [&app, &remote]() -> const App::ImageEntry* {
+            auto it = app.imageCache.find(remote);
+            return it == app.imageCache.end() ? nullptr : &it->second;
+        };
+        const App::ImageEntry* r0 = remoteEntry();
+        const bool remoteStarted = r0 && r0->pending;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+        while (std::chrono::steady_clock::now() < deadline) {
+            const App::ImageEntry* r = remoteEntry();
+            if (!r || !r->pending) break;
+            QEventLoop loop;
+            QTimer::singleShot(20, &loop, &QEventLoop::quit);
+            loop.exec();
+        }
+        const App::ImageEntry* r1 = remoteEntry();
+        const bool remoteOk = r1 && !r1->pending && !r1->failed && r1->bitmap &&
+                              r1->width == 4 && r1->height == 3;
+
+        // The .docx: a Mermaid diagram becomes a PNG part when the raster succeeds and a code
+        // block of its source when it does not. Zip stores member names uncompressed, so the
+        // part's NAME in the file bytes is the reading.
+        {
+            std::ofstream md(facDir / "diagram.md", std::ios::binary);
+            md << "# diagram\n\n```mermaid\ngraph TD\n  A --> B\n```\n";
+        }
+        check(loadDocumentFromPath(app, (facDir / "diagram.md").u8string()),
+              "factory: the diagram document loaded");
+        const std::filesystem::path docxPath = facDir / "diagram.docx";
+        const bool docxOk = exportDocxFile(app, docxPath.wstring());
+        std::string docxBytes;
+        {
+            std::ifstream in(docxPath, std::ios::binary);
+            docxBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        const bool docxImage = docxBytes.find("word/media/") != std::string::npos;
+
+        std::printf("factory listening=%d served=%d local=%d remote_started=%d remote=%d "
+                    "still_factory=%d docx=%d docx_bytes=%zu docx_image=%d\n",
+                    listening, served, localOk, remoteStarted, remoteOk, stillFactory, docxOk,
+                    docxBytes.size(), docxImage);
+        check(localOk && stillFactory,
+              "factory: a local image laid out outside paint gets a 4x3 bitmap, not a cached "
+              "failure");
+        check(listening && remoteStarted,
+              "factory: layout outside paint starts the remote download");
+        check(remoteOk && served >= 1,
+              "factory: the download completes through the post sink with a 4x3 bitmap -- "
+              "the success path, which a null target used to cache as failed");
+        check(docxOk && docxImage,
+              "factory: a .docx export outside paint embeds the Mermaid diagram as an image "
+              "part, not its source");
+
+        app.imageCache.clear();
+        app.imageCacheBytes = 0;
+        std::filesystem::remove_all(facDir, facEc);
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

@@ -30,11 +30,6 @@ bool printLocalePrefersLetter() {
            measure[0] == L'1';
 }
 
-// nullptr: app.renderTarget is the window's for as long as the window lives, so the print
-// code never finds it missing while there is anything to print. A null here leaves the
-// guards in print.cpp refusing, which is what they did before the hook existed.
-tinta::RenderTarget* printOffscreenTarget() { return nullptr; }
-
 bool printDocument(App& app) {
     // NEW GUARD, AND IT IS THE ONE THE PREVIEW USED TO SUPPLY. The body below dereferences
     // app.deviceContext without checking it. That was safe only because openPrintPreview

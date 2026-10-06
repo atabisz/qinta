@@ -948,8 +948,8 @@ set(QINTA_APP_SOURCES
     src/export_docx.cpp
     src/export_html.cpp
     # The print code, PORTABLE since 2026-10-06: preview, pagination, PDF export and the
-    # link peek, with the Qt arms of its three backend hooks (src/print_qt.cpp: the paper
-    # locale, an offscreen render target, and a printDocument that refuses) and the Qt arm of the PDF seam. Until then
+    # link peek, with the Qt arms of its two backend hooks (src/print_qt.cpp: the paper
+    # locale, and a printDocument that refuses) and the Qt arm of the PDF seam. Until then
     # this list carried print_qt.cpp alone, and it defined all seven print symbols as
     # refusals.
     src/print.cpp

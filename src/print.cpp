@@ -71,33 +71,10 @@ D2DTheme printTheme() {
 
 using SavedView = App::PrintSavedView;
 
-// Seats printOffscreenTarget() as app.renderTarget for one print entry point when App has
-// no target, and takes it back on the way out. src/print_pages.h says why the Qt stack needs
-// it. On Windows the hook returns nullptr and this does nothing.
-//
-// Every public function below opens one first, so the layout passes inside them see a
-// target too: layout is what creates a document's image bitmaps. Nesting is harmless, since
-// an inner scope finds the target already seated and leaves it alone. The pointer is only
-// BORROWED. The offscreen target's lifetime is the hook's business, and app.renderTargetStorage
-// is never touched, so a paint event that installs the real target later is unaffected.
-class PrintTargetScope {
-public:
-    explicit PrintTargetScope(App& app) : app_(app) {
-        if (!app_.renderTarget) {
-            app_.renderTarget = printOffscreenTarget();
-            seated_ = app_.renderTarget != nullptr;
-        }
-    }
-    ~PrintTargetScope() {
-        if (seated_) app_.renderTarget = nullptr;
-    }
-    PrintTargetScope(const PrintTargetScope&) = delete;
-    PrintTargetScope& operator=(const PrintTargetScope&) = delete;
-
-private:
-    App& app_;
-    bool seated_ = false;
-};
+// A PrintTargetScope stood here from 2026-10-06 to the next slice the same day. It seated an
+// offscreen target as app.renderTarget for each print entry point, because on Qt App had a
+// render target only inside paint. src/qt_init.cpp now keeps a factory target seated outside
+// paint for every caller, which is what tinta has always had, so the scope had nothing to do.
 
 // Saves the screen view state and switches to the print palette at 96 DPI,
 // zoom 1. layoutAtPrintWidth does the actual re-layout; leavePrintLayout
@@ -763,7 +740,6 @@ void openPrintPreview(App& app, HWND hwnd) {
     // app.renderTarget, not app.deviceContext: the raster goes through the image seam,
     // which needs a live tinta::RenderTarget and nothing native. The Qt stack has no
     // device context at all, so the old guard was what kept its preview shut.
-    PrintTargetScope scope(app);
     if (app.showPrintPreview || !app.root || !app.renderTarget) return;
     if (app.editMode) {
         editorReparse(app);  // include unsaved edits in the preview and printout
@@ -778,7 +754,6 @@ void openPrintPreview(App& app, HWND hwnd) {
 }
 
 void printPreviewSetFormat(App& app, int paper, bool landscape) {
-    PrintTargetScope scope(app);
     paper = std::max(0, std::min(paper, PRINT_PAPER_COUNT - 1));
     if (!app.showPrintPreview) {
         app.printPreviewPaper = paper;
@@ -793,7 +768,6 @@ void printPreviewSetFormat(App& app, int paper, bool landscape) {
 }
 
 void closePrintPreview(App& app, HWND hwnd) {
-    PrintTargetScope scope(app);
     if (!app.showPrintPreview) return;
     app.showPrintPreview = false;
     leavePrintLayout(app, app.printSaved);
@@ -809,7 +783,6 @@ void closePrintPreview(App& app, HWND hwnd) {
 }
 
 void printPreviewSetPage(App& app, int page) {
-    PrintTargetScope scope(app);
     if (!app.showPrintPreview) return;
     int pageCount = (int)app.printPreviewBounds.size() - 1;
     page = std::max(0, std::min(page, pageCount - 1));
@@ -879,7 +852,6 @@ void printPreviewConfirm(App& app, HWND hwnd) {
 // in this tree use --printpages page hashes as their falsifier, and an instrument
 // whose readings depend on which GPU took them is a worse instrument.
 int printDebugPages(App& app, const std::wstring& outDir) {
-    PrintTargetScope scope(app);
     if (!app.renderTarget) return -1;
     PageGeometry geo{794.0f, 1123.0f, 794.0f - kPageMarginDips * 2,
                      1123.0f - kPageMarginDips * 2};  // A4
@@ -932,7 +904,6 @@ bool exportPdfFile(App& app, const std::wstring& path) {
     // gets no PDF and no file, and the check was a duplicate of the seam's own. On Qt the
     // check was not a duplicate: app.deviceContext is always null there, so it was the
     // whole reason this function refused.
-    PrintTargetScope scope(app);
     if (!app.root || !app.renderTarget) return false;
     if (app.editMode) {
         editorReparse(app);  // include unsaved edits, like the preview
@@ -973,9 +944,6 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
                                                 float widthDips, float& heightDips) {
     // app.renderTarget rather than app.deviceContext now: the raster goes through the seam,
     // which needs a live tinta::RenderTarget only to reach that backend's own factories.
-    // Declared first so it outlives `borrowed` below, whose destructor lays the screen
-    // document out again.
-    PrintTargetScope scope(app);
     if (!app.renderTarget || !app.root) return nullptr;
     // Named, not inline -- most vexing parse. C58's last site in a portable-destined
     // file; this one is behind a FATAL include in the census, so it was classified

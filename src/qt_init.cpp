@@ -4,6 +4,8 @@
 
 #include "app.h"
 #include "render_qt.h"
+
+#include <QImage>
 #include "text_api.h"
 #include "text_formats.h"
 #include "text_qt.h"
@@ -124,8 +126,20 @@ void releaseQtTextFormats(App& app) { releaseDocumentTextFormats(app); }
 
 }  // namespace
 
+tinta::RenderTarget* qtFactoryTarget() {
+    static QtRenderTarget* const target = [] {
+        auto* device = new QImage(1, 1, QImage::Format_ARGB32_Premultiplied);
+        device->fill(Qt::transparent);
+        return new QtRenderTarget(*device);
+    }();
+    return target;
+}
+
 void installQtBackends(App& app) {
     app.textFactory = app.textFactoryStorage.install(std::make_unique<QtTextFactory>());
+    // The factory target, so App has a render target outside paint (see qt_init.h). Only when
+    // nothing else is seated: installing during a paint must not replace the paint target.
+    if (!app.renderTarget) app.renderTarget = qtFactoryTarget();
 
     // THE BRUSH IS PROCESS-LIFETIME HERE AND DEVICE-LIFETIME ON WINDOWS, and the
     // asymmetry is real rather than an oversight. Direct2D's brush is created by the
@@ -259,15 +273,20 @@ void releaseQtBackends(App& app) {
     app.textFactoryStorage.install(nullptr);
     app.brush = nullptr;
     app.brushStorage.install(nullptr);
+    // Borrowed, never owned, so releasing it is forgetting it.
+    if (app.renderTarget == qtFactoryTarget()) app.renderTarget = nullptr;
 }
 
-QtScopedRenderTarget::QtScopedRenderTarget(App& app, QPaintDevice& device) : app_(app) {
+QtScopedRenderTarget::QtScopedRenderTarget(App& app, QPaintDevice& device)
+    : app_(app), previous_(app.renderTarget) {
     target_ = app_.renderTargetStorage.install(std::make_unique<QtRenderTarget>(device));
     app_.renderTarget = target_;
 }
 
 QtScopedRenderTarget::~QtScopedRenderTarget() {
-    app_.renderTarget = nullptr;
+    // Back to what was seated before the paint: the factory target once the backends are
+    // installed, nullptr before that. It used to be nullptr unconditionally.
+    app_.renderTarget = previous_;
     // This is what ends the QPainter: ~QtRenderTarget calls QPainter::end(), and it
     // runs here because the storage releases the wrapper it is holding.
     app_.renderTargetStorage.install(nullptr);

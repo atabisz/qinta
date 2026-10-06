@@ -125,8 +125,26 @@ void ensureQtThemePreviewFormats(App& app);
 // would be measuring a leak rather than a seam.
 void releaseQtBackends(App& app);
 
+// THE RENDER TARGET OUTSIDE PAINT, which tinta has always had and qinta did not until
+// 2026-10-06. On Windows app.renderTarget is the window's target for the whole session, so
+// the portable code treats it as always there: it creates bitmaps and path geometry through
+// it during layout, completes async image downloads through it, and rasterises export images
+// through it, all from input handlers, timers and posted messages. On Qt it existed only
+// inside paintEvent, so every one of those refused silently. A successful remote image was
+// cached as failed, and so was a local image laid out outside paint.
+//
+// installQtBackends seats this as app.renderTarget, and every QtScopedRenderTarget restores
+// it on exit. It is a QtRenderTarget over a 1x1 offscreen image, process-lifetime and
+// DELIBERATELY NEVER DESTROYED, because its QPainter must not end during static destruction.
+// It serves as a FACTORY: on this stack bitmaps, path geometry and layouts are values that
+// belong to no target, so what it creates draws through the paint target unchanged. Anything
+// DRAWN through it lands on that 1x1 image and is shown nowhere, which is the same outcome as
+// a Direct2D draw outside BeginDraw.
+tinta::RenderTarget* qtFactoryTarget();
+
 // One paint event's render target: installs a QtRenderTarget over the device,
-// points App::renderTarget at it, and tears both down on scope exit.
+// points App::renderTarget at it, and on scope exit tears it down and puts back whatever
+// App held before -- the factory target above, once the backends are installed.
 //
 // The pointer this makes non-null is the one every drawing site in the tree reads.
 // That is the whole point -- the call sites do not learn which backend they got.
@@ -148,6 +166,7 @@ public:
 private:
     App& app_;
     tinta::RenderTarget* target_ = nullptr;
+    tinta::RenderTarget* previous_ = nullptr;
 };
 
 #endif // TINTA_QT_INIT_H

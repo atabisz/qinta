@@ -5,7 +5,7 @@
 // beside xps_page_emitter.h for the same reason: no caller outside the print code should see
 // a page loop.
 //
-// print.cpp is portable, and the two hooks below plus printDocument (include/print.h) are
+// print.cpp is portable, and the hook below plus printDocument (include/print.h) are
 // where it reaches a backend. The Windows half
 // (src/print_win32.cpp) is the printer dialog and the XPS print job. The Qt half
 // (src/print_qt.cpp) refuses printing, because a QPrinter arm needs a CJK print fixture
@@ -35,14 +35,5 @@ int renderPrintPages(App& app, const PrintPageGeometry& geo,
 // LOCALE_IMEASURE has no UK value either, so both arms answer the same question.
 bool printLocalePrefersLetter();
 
-// BACKEND HOOK: a render target the print code may seat as app.renderTarget when App has
-// none, or nullptr. Every print entry point runs from an input handler or a timer, and the
-// two stacks differ there. On Windows app.renderTarget is the window's target for the whole
-// session. On Qt it exists only inside a paint event (QtScopedRenderTarget), so Ctrl+P, a
-// PDF export and the link peek's dwell timer would all find it null. The print code needs a
-// target only as a FACTORY -- for tinta::rasterizeToImage, CreateBitmap and
-// beginPdfDocument, and for the bitmaps layout creates -- and never draws on it. So the Qt
-// arm hands back one over an offscreen image.
-tinta::RenderTarget* printOffscreenTarget();
 
 #endif  // TINTA_PRINT_PAGES_H

@@ -1364,7 +1364,7 @@ settings_app.cpp
 # the image seam. What stayed is pagination, the shrink bands, drawDocumentRange, the
 # preview, --printpages, PDF export and the link peek, and none of it names a Windows type.
 # Linked into qinta and asserted by qt_entry_tests: preview pages, a written PDF, a peek
-# bitmap. print_qt.cpp below is now the Qt arm of the three backend hooks only, and its
+# bitmap. print_qt.cpp below is now the Qt arm of the two backend hooks only, and its
 # printDocument still refuses. That is the remaining stated gap, a QPrinter arm.
 print.cpp
 

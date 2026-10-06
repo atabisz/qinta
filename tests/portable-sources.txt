@@ -487,8 +487,8 @@ signals.cpp
 #     same line, so the compiler never got to complain about _wtoi. A per-line error count is
 #     not a cause count, and 29 errors were 6 causes with one hiding behind another.
 #
-# THE SIXTH IS AN #ifdef IN PLACE, AND ITS TWO ARMS ARE NOT EQUIVALENT. isLiveTintaProcess
-# asks "is this pid a running Tinta" so a live sibling's autosave is not offered back as a
+# THE SIXTH IS AN #ifdef IN PLACE, AND ITS TWO ARMS ARE NOT EQUIVALENT. draftOwnerIsLiveSibling
+# asks "is this pid a running copy of this executable" so a live sibling's autosave is not offered back as a
 # crash leftover. OpenProcess/QueryFullProcessImageNameW appear at exactly ONE site in the
 # tree, so a seam would be two files and a declaration for a decision that does not recur --
 # the same trade signals.cpp's parkTimestamp made. Windows asks the kernel; Linux reads

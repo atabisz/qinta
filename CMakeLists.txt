@@ -2061,8 +2061,8 @@ if(BUILD_TESTING)
         # two swprintf_s calls went to tinta::swprintf's array overload; four hardcoded
         # L'\\' path joins went to platform::pathSeparator(); and _wtoi became std::wcstoul.
         #
-        # THE SIXTH HAD NO DESTINATION AND IS AN #ifdef IN PLACE: isLiveTintaProcess asks
-        # "is this pid a running Tinta", so a live sibling's autosave is not offered as a
+        # THE SIXTH HAD NO DESTINATION AND IS AN #ifdef IN PLACE: draftOwnerIsLiveSibling asks
+        # "is this pid a running copy of this executable", so a live sibling's autosave is not offered as a
         # crash leftover. OpenProcess/QueryFullProcessImageNameW appear at exactly one site
         # in the tree, so a seam would be two files and a declaration for a decision that
         # does not recur. The arms are NOT equivalent and the file says so at the site: Linux
@@ -3156,6 +3156,7 @@ if(BUILD_TESTING)
             tinta_qt_app_test(input_tests input_shortcuts tests/input_tests.cpp
                 TINTA_SHORTCUT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shortcuts-layouts.md")
             tinta_qt_app_test(file_path_tests copy_file_path tests/file_path_tests.cpp)
+            tinta_qt_app_test(draft_owner_tests draft_owner tests/draft_owner_tests.cpp)
             tinta_qt_app_test(math_layout_tests math_layout tests/math_layout_tests.cpp
                 TINTA_MATH_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/math-compatibility.md")
             tinta_qt_app_test(theme_tests NONE tests/theme_tests.cpp
@@ -3307,7 +3308,8 @@ if(BUILD_TESTING)
                 # would have bought a third modal "Qt6Core.dll was not found" box and a red with no
                 # output, on a target whose whole job is to make a drawing claim legible.
                 list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt code_block_layout
-                    blockquote_layout inline_code_theme math_layout input_shortcuts copy_file_path)
+                    blockquote_layout inline_code_theme math_layout input_shortcuts copy_file_path
+                    draft_owner)
                 # qinta_cli runs the qinta binary itself, which needs the same DLLs.
                 if(TARGET qinta)
                     list(APPEND TINTA_QT_PATH_TESTS qinta_cli)

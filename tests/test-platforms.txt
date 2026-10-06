@@ -115,6 +115,7 @@ blockquote_layout              both
 code_block_layout              both
 config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
 copy_file_path                 both
+draft_owner                    both
 inline_code_theme              both
 input_shortcuts                both
 math_layout                    both

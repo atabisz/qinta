@@ -23,6 +23,11 @@ void draftsDeleteAll(const App& app);
 // drafts owned by this or any other live Tinta process
 void draftsScanForRecovery(App& app);
 
+// Whether `pid` is a running process of the same executable as this one -- a sibling window,
+// whose drafts are live and must not be offered for recovery. Declared here rather than kept
+// static so tests/draft_owner_tests.cpp can ask it directly.
+bool draftOwnerIsLiveSibling(unsigned long pid);
+
 // Chip click: reopen each recovered draft as a dirty edit tab, then
 // delete the files
 void draftsRecoverAll(App& app, HWND hwnd);

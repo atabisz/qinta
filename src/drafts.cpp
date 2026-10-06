@@ -130,9 +130,16 @@ void draftsDeleteAll(const App& app) {
     }
 }
 
-// True when the pid is a running Tinta process (its drafts are live
-// autosaves, not crash leftovers). Reused pids of other programs fail
-// the image-name check and stay recoverable.
+// True when the pid is a running process of THIS executable (its drafts are live
+// autosaves, not crash leftovers). Reused pids of other programs fail the image-name
+// check and stay recoverable.
+//
+// "This executable" is read from the running process rather than written as a literal,
+// and that is a correction. Until 2026-10-07 both arms compared against the literal
+// "tinta.exe" / "tinta", and the program running them is qinta, so on both hosts every
+// live sibling read as dead and its drafts were offered to the next window as crash
+// leftovers. tests/draft_owner_tests.cpp reproduced it (a second copy of the test
+// binary read as not-a-sibling) before the fix and asserts it after.
 //
 // THE ONE PLACE IN THIS FILE WITH NO PORTABLE DESTINATION, so it is split in place
 // rather than given a seam: file-local, single-use, and OpenProcess /
@@ -160,7 +167,7 @@ void draftsDeleteAll(const App& app) {
 // here because fixing it means a real macOS implementation (proc_pidpath) on a
 // platform this tree does not build for yet, and a stub returning "alive" would be
 // the silent success win32_api.h's header spends twenty lines forbidding.
-static bool isLiveTintaProcess(unsigned long pid) {
+bool draftOwnerIsLiveSibling(unsigned long pid) {
 #ifdef _WIN32
     HANDLE proc =
         OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
@@ -168,13 +175,19 @@ static bool isLiveTintaProcess(unsigned long pid) {
     wchar_t image[MAX_PATH];
     DWORD size = _countof(image);
     bool live = false;
-    if (QueryFullProcessImageNameW(proc, 0, image, &size)) {
-        std::wstring path(image, size);
+    auto lowerBase = [](const wchar_t* full, size_t length) {
+        std::wstring path(full, length);
         size_t slash = path.find_last_of(L'\\');
         std::wstring base =
             slash == std::wstring::npos ? path : path.substr(slash + 1);
         for (wchar_t& c : base) c = (wchar_t)towlower(c);
-        live = (base == L"tinta.exe");
+        return base;
+    };
+    wchar_t self[MAX_PATH];
+    const DWORD selfSize = GetModuleFileNameW(nullptr, self, _countof(self));
+    if (QueryFullProcessImageNameW(proc, 0, image, &size) && selfSize > 0 &&
+        selfSize < _countof(self)) {
+        live = lowerBase(image, size) == lowerBase(self, selfSize);
     }
     CloseHandle(proc);
     return live;
@@ -187,11 +200,10 @@ static bool isLiveTintaProcess(unsigned long pid) {
     const std::filesystem::path exe = std::filesystem::read_symlink(
         std::filesystem::path("/proc") / std::to_string(pid) / "exe", ec);
     if (ec) return false;
-    std::string base = exe.filename().string();
-    for (char& c : base) c = (char)std::tolower((unsigned char)c);
-    // No ".exe" here, and that is the executable's real name rather than an
-    // oversight: the Windows arm's literal is carried, not shared.
-    return base == "tinta";
+    const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec) return false;
+    // Compared case-sensitively, unlike the Windows arm: a POSIX filesystem's names are.
+    return exe.filename() == self.filename();
 #endif
 }
 
@@ -230,7 +242,7 @@ void draftsScanForRecovery(App& app) {
         // future pid with a leading zero cannot be read as octal.
         unsigned long pid = std::wcstoul(name.c_str() + 6, nullptr, 10);
         if (pid == currentProcessId()) continue;
-        if (pid != 0 && isLiveTintaProcess(pid)) continue;
+        if (pid != 0 && draftOwnerIsLiveSibling(pid)) continue;
         app.recoveredDrafts.push_back(dir + platform::pathSeparator() + name);
     }
 

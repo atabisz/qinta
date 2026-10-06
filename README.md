@@ -1648,11 +1648,11 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,130 / 72,130 | **73.7%** |
+| A. Source lines free of the Windows stack | 53,142 / 72,147 | **73.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 97 | 80.4% |
 | C. Files a running test links **off Windows** | 77 / 97 | 79.4% |
-| D. Test targets that *could* move, and do | 49 / 50 | 98.0% |
-| E. All test targets, run off Windows | 49 / 55 | 89.1% |
+| D. Test targets that *could* move, and do | 50 / 51 | 98.0% |
+| E. All test targets, run off Windows | 50 / 56 | 89.3% |
 
 **C MOVES 72 → 73 → 74 ON 2026-10-06. THE FIRST +1 IS `print.cpp`, AND THE SECOND IS `main_qt.cpp`, WHICH THE SENTENCE BELOW SAYS A TEST CANNOT LINK.** That was true of a test binary: it has its own `main`. The `qinta_cli` ctest runs the `qinta` binary itself, so `main()` is now on a running test's link line and executed by it, and the probe counts it. `scripts/probe-portable-linux.sh` derives the figure: 75 files on a running test's link line, minus 1 linked but never called. (Two slices later `src/window_launch_qt.cpp` joined the never-called list: linked into `qt_entry_tests`, and no test started a second application, so C stayed 75 as B rose to 77. It left that list with the tear-off slice's relaunch hook, when the tests started running it. After the print slice alone it read 74 − 1 = 73. A first draft of that paragraph said 74 and blamed a pre-existing gap of one; that came from my own count of `link.txt` files, which has no never-called exclusion, so it was a different instrument disagreeing with the row, not a stale row.)
 
@@ -2164,7 +2164,7 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 58,928 lines of the 72,130,
+can never enter the numerator. With `src/*.cpp` totalling 58,940 lines of the 72,147,
 **basis A's ceiling is 81.7%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into

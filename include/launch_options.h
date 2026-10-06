@@ -116,6 +116,16 @@ LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
 LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
                                  SlashPolicy slashPolicy = kNativeSlashPolicy);
 
+// TWO OF THE THREE SELF-RELAUNCHES, as argument lists, so the window that starts a second
+// window and the parse that reads its command line can be tested against each other.
+// src/quicknote_win32.cpp passes these exact flags through ShellExecuteW as one quoted string;
+// src/window_launch_qt.cpp passes them to QProcess::startDetached as a list. Both carry
+// --cascade, which is what makes WinMain skip the single-instance hand-off -- the reason a Qt
+// relaunch needs no IPC. The third, the torn-off tab, has no builder: its only caller is the
+// Windows tab drag, and the Qt drag never detaches, so a builder would serve no caller.
+std::vector<std::string> quickNoteRelaunchArgs();                            // Ctrl+Shift+N
+std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path);  // a note window
+
 // THE DESTRUCTIVE HALF OF A LAUNCH, AND THE GUARD THE PARSER ALONE CANNOT GIVE IT.
 //
 // Five of the thirteen options WRITE A FILE AND EXIT: --printpages, --dumpchrome, --exporthtml,

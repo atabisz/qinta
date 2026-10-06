@@ -1374,6 +1374,10 @@ settings_app.cpp
 # printDocument refused until the QPrinter slice the same day; it prints through QPrinter now.
 print.cpp
 
+# The Qt arms of two self-relaunches (Ctrl+Shift+N, a note in its own window), 2026-10-06.
+# Linked into qinta; the argument lists they pass are asserted in tests/launch_options_tests.cpp.
+window_launch_qt.cpp
+
 # --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
 # SUPERSEDED 2026-10-06 by the section above. This file no longer defines the seven
 # refusals described below; it defines printDocument (still a refusal) and

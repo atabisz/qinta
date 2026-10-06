@@ -494,6 +494,24 @@ int main() {
               "OUTPUT GUARD: all three refusals carry a message and None carries none");
     }
 
+    // --- THE RELAUNCHES: the builder and the parse are two endpoints of one command line ---
+    //
+    // A window that starts a second window writes a command line; the second process reads it.
+    // Each builder's output goes back through the SAME parse the new process runs, so a flag the
+    // builder writes and the parser does not read (or reads as a filename) fails here.
+    {
+        const tinta::LaunchOptions n = parse(tinta::quickNoteRelaunchArgs());
+        check(n.cascade && n.quickNote && n.inputFile.empty() && n.unknown.empty(),
+              "RELAUNCH: Ctrl+Shift+N's arguments parse as --cascade --new and nothing else");
+        const tinta::LaunchOptions d = parse(tinta::documentRelaunchArgs("notes/a b.md"));
+        check(d.cascade && d.startInEditMode && d.inputFile == "notes/a b.md" && d.unknown.empty(),
+              "RELAUNCH: a note window's arguments parse as --cascade --edit <path>, a path with "
+              "a space intact, because the list form never quotes");
+        // Every relaunch must carry --cascade: it is what skips the single-instance hand-off.
+        check(n.cascade && d.cascade,
+              "RELAUNCH: both carry --cascade, so neither is swallowed by an existing window");
+    }
+
     std::printf("%s%d launch-option assertions run, %d failed\n",
                 failures == 0 ? "all " : "", checks, failures);
     return failures == 0 ? 0 : 1;

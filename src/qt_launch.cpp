@@ -9,6 +9,7 @@
 #include <QWidget>
 
 #include "app.h"
+#include "editor.h"
 #include "settings.h"
 #include "theme_apply.h"
 #include "theme_data.h"
@@ -58,6 +59,19 @@ void applyLightMode(App& app) {
     app.currentThemeIndex = kLightModeThemeIndex;
     app.theme = themeAt(kLightModeThemeIndex);
     app.darkMode = app.theme.isDark;
+}
+
+void applyLaunchFlags(App& app, const LaunchOptions& options) {
+    app.showStats = options.showStats;
+    app.forceTabStrip = options.forceTabStrip;  // drag-out satellites keep the tab row
+}
+
+void enterLaunchMode(App& app, const LaunchOptions& options) {
+    if (options.quickNote) {
+        enterQuickNoteMode(app);
+    } else if (options.startInEditMode) {
+        enterEditMode(app);
+    }
 }
 
 bool systemPrefersLight() {

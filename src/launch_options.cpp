@@ -123,6 +123,12 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
     return parseLaunchOptions(args, slashPolicy);
 }
 
+std::vector<std::string> quickNoteRelaunchArgs() { return {"--cascade", "--new"}; }
+
+std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path) {
+    return {"--cascade", "--edit", utf8Path};
+}
+
 PlannedOutput plannedOutput(const LaunchOptions& options) {
     // Dispatch order, taken from src/main_d2d.cpp: --dumpchrome, then --printpages, then the three
     // exporters. That file returns from the first branch it enters, so the first match here is the

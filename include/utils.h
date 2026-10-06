@@ -48,9 +48,14 @@ void updateWindowTitle(App& app);
 // launchTornOffTabWindow is the FOURTH relaunch, moved out of tabs.cpp's tab drag
 // 2026-09-23, and the same deferral: it passes `--cascade --tabbed --pos X Y "<path>"`.
 // (x, y) is the screen position for the new window; the path is UTF-8.
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
+//
+// THE FIRST TWO ARE UNGUARDED SINCE 2026-10-06: src/window_launch_qt.cpp is their Qt arm, and
+// src/qt_launch.cpp honours --new and --edit, so the deferral above is discharged for them. The
+// tear-off stays guarded -- its only caller is the Windows tab drag, which is also the only
+// drag that detaches.
 void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);
+#if defined(_WIN32) && !defined(TINTA_QT_UI)
 void launchTornOffTabWindow(int x, int y, const std::string& utf8Path);
 #else
 // THE OTHER ARM OF THE SAME GUARD: where the Win32 window stack opens a window, every

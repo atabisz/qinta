@@ -338,6 +338,11 @@ QImage grabWindow(QtAppWindow& window) {
     return img;
 }
 
+// A launch command line, through the parse src/main_qt.cpp runs.
+tinta::LaunchOptions parse_qt_launch(const std::vector<std::string>& args) {
+    return tinta::parseLaunchOptions(args);
+}
+
 // What src/file_utils.cpp's loadDocumentFromPath does to App when it replaces the document,
 // for the runs that parse a string literal instead of reading a file. tinta's frame draws the
 // START PAGE while currentFile is empty and lays a document out only when layoutDirty says so,
@@ -3900,6 +3905,50 @@ int main(int argc, char** argv) {
         std::error_code qpEc;
         std::filesystem::remove(tallOut, qpEc);
         std::filesystem::remove(latinPath, qpEc);
+    }
+
+    // ---- THE FOUR LAUNCH FLAGS (slice 21) ---------------------------------------------------
+    //
+    // --stats, --tabbed, --new and --edit, through the two functions main() calls
+    // (src/qt_launch.cpp), with options from the SAME parse main() runs. --new and --edit are what
+    // the two self-relaunches pass (include/launch_options.h), so this is also where a second
+    // window started by Ctrl+Shift+N, or by a note opened in its own window, ends up.
+    {
+        QtAppWindow launchWindow(app);
+        launchWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        launchWindow.resize(800, 500);
+        const bool statsBefore = app.showStats, tabbedBefore = app.forceTabStrip;
+
+        const tinta::LaunchOptions flags =
+            tinta::parseLaunchOptions(std::vector<std::string>{"--stats", "--tabbed"});
+        tinta::applyLaunchFlags(app, flags);
+        const bool flagsSet = app.showStats && app.forceTabStrip;
+        app.showStats = statsBefore;
+        app.forceTabStrip = tabbedBefore;
+
+        // --new: an untitled editor, even with a document already open in the window.
+        check(launchWindow.openDocument(tmpUtf8), "launch: a document is open before --new");
+        tinta::enterLaunchMode(app, parse_qt_launch({"--cascade", "--new"}));
+        const bool quickNote = app.editMode && app.currentFile.empty();
+        exitEditMode(app);
+
+        // --edit: the loaded document, in the editor.
+        check(launchWindow.openDocument(tmpUtf8), "launch: the document reopens for --edit");
+        tinta::enterLaunchMode(app, parse_qt_launch({"--cascade", "--edit", tmpUtf8}));
+        const bool editing = app.editMode && app.currentFile == tmpUtf8;
+        exitEditMode(app);
+
+        // Neither: nothing changes mode. The counter-case that keeps the two above from passing
+        // because enterLaunchMode always enters the editor.
+        tinta::enterLaunchMode(app, parse_qt_launch({"--cascade"}));
+        const bool untouched = !app.editMode;
+
+        std::printf("launch flags=%d quick_note=%d editing=%d untouched=%d\n", flagsSet,
+                    quickNote, editing, untouched);
+        check(flagsSet, "launch: --stats and --tabbed set App::showStats and App::forceTabStrip");
+        check(quickNote, "launch: --new opens an untitled quick note in the editor");
+        check(editing, "launch: --edit puts the loaded document in the editor");
+        check(untouched, "launch: COUNTER-CASE -- with neither flag the window stays in reading mode");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

@@ -1634,13 +1634,11 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // launchDocumentWindow is src/quicknote_win32.cpp now, beside
                 // launchQuickNoteWindow and for the same reason. What remains in
                 // input.cpp is the guarded CALL, which is what this sentence means.
+                //
+                // ANSWERED 2026-10-06: Ctrl+Shift+N opens a new window on both stacks now --
+                // src/window_launch_qt.cpp is the Qt arm, and qinta honours --new.
                 if (shift) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
                     launchQuickNoteWindow();
-#else
-                    refuseWindowFeature(app, "Ctrl+Shift+N (new window)",
-                                        L"A new window isn't available in the Qt build yet");
-#endif
                 } else {
                     app.swallowCharsUntil =
                         std::chrono::steady_clock::now() +

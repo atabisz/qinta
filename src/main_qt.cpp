@@ -36,7 +36,8 @@
 //     Now: tinta::parseLaunchOptions (one chain, shared with WinMain) does the reading.
 //     --light, --pos and --cascade are honoured here for real, and since 2026-10-06 so are
 //     --printpages, --exporthtml, --exportdocx and --exportpdf, which write and exit without a
-//     window. The other six are refused on
+//     window, and --tabbed, --new, --edit and --stats followed the same day. The other two
+//     (/register, --dumpchrome) are refused on
 //     stderr, by name, and the window still opens -- because a refusal a user can read is
 //     the opposite of the old behaviour, where an unhonourable flag was indistinguishable
 //     from a working one.
@@ -181,8 +182,8 @@ int main(int argc, char** argv) {
         }
     }
 
-    // THE REFUSALS -- TEN UNTIL 2026-10-06, SIX SINCE, when the four harness switches below
-    // started working. Each one is a flag the shared parse understands and this binary
+    // THE REFUSALS -- TEN UNTIL 2026-10-06, then SIX once the four harness switches below started
+    // working, and TWO once the four launch flags did. Each one is a flag the shared parse understands and this binary
     // cannot act on, and each says which missing piece is the reason -- so the list doubles
     // as the port's remaining work, in the place a user actually meets it.
     //
@@ -205,10 +206,10 @@ int main(int argc, char** argv) {
     // question; until it is asked, refusing stays safer than accepting a flag unverified.
     // Deliberately no replacement count: a line count here would rot the same way, and the
     // census that owns these numbers is scripts/check-readme-figures.sh.
-    if (options.forceTabStrip) refuse("--tabbed", "there is no tab strip yet (src/input.cpp)");
-    if (options.quickNote) refuse("--new", "quick notes need the window manager (src/input.cpp)");
-    if (options.startInEditMode) refuse("--edit", "the editor needs input (src/input.cpp)");
-    if (options.showStats) refuse("--stats", "the stats overlay needs input (src/input.cpp)");
+    // --tabbed, --new, --edit AND --stats WERE REFUSED HERE, each citing src/input.cpp, until
+    // 2026-10-06. The note above already said that citation had stopped being a measured blocker;
+    // the flag slice asked the question it set, and all four are honoured below through
+    // src/qt_launch.cpp, the same way WinMain honours them.
     if (options.forceRegister) {
         refuse("/register", "file associations are a Windows-registry feature");
     }
@@ -235,8 +236,12 @@ int main(int argc, char** argv) {
     // theme, so the flag wins, and the close save then persists it, as WinMain's does.
     if (options.lightMode) tinta::applyLightMode(app);
 
+    tinta::applyLaunchFlags(app, options);
+
     QString title = QStringLiteral("tinta");
-    if (!options.inputFile.empty()) {
+    // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
+    // when a path was also given.
+    if (!options.inputFile.empty() && !options.quickNote) {
         if (loadDocumentFromPath(app, options.inputFile)) {
             title = QStringLiteral("%1 - tinta")
                         .arg(QString::fromLocal8Bit(options.inputFile.c_str()));
@@ -300,6 +305,8 @@ int main(int argc, char** argv) {
     tinta::applyPlacement(window, placement);
     window.setWindowTitle(title);
     tinta::showPlaced(window, saved.windowMaximized);
+    // After the window, as WinMain enters these after its first frame.
+    tinta::enterLaunchMode(app, options);
 
     const int rc = QApplication::exec();
 

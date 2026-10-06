@@ -87,6 +87,18 @@ void applyPlacement(QWidget& window, const WindowRect& placement);
 // window into a light window drawn with dark-mode decisions.
 void applyLightMode(App& app);
 
+// --stats and --tabbed: two App fields, set before the window exists, as WinMain sets them right
+// after the parse. Refused by name on this arm until 2026-10-06, each citing src/input.cpp, which
+// had been linked into qinta since the key router (2026-09-25).
+void applyLaunchFlags(App& app, const LaunchOptions& options);
+
+// --new and --edit, entered AFTER the window exists, as WinMain enters them after its first
+// frame: --new opens an untitled quick note, --edit puts the loaded document in the editor.
+// --new wins when both are given, which is WinMain's `if (quickNote) ... else if (edit)`.
+// These are what make the two self-relaunches (src/window_launch_qt.cpp) land where the
+// Windows ones do.
+void enterLaunchMode(App& app, const LaunchOptions& options);
+
 // THE THEME FIELDS settings.ini HOLDS, LOADED BECAUSE THIS ARM WRITES THEM. The theme picker's
 // persistThemeChoice and the close save both read-modify-write these four, so an arm that
 // wrote them without loading them put App's defaults over the user's saved light/dark pair --

@@ -963,6 +963,9 @@ set(QINTA_APP_SOURCES
     src/print.cpp
     src/print_qt.cpp
     src/pdf_export_qt.cpp
+    # Ctrl+Shift+N's new window and the note-in-its-own-window relaunch, the Qt arms of what
+    # src/quicknote_win32.cpp does for tinta (2026-10-06).
+    src/window_launch_qt.cpp
     src/settings_app.cpp
     src/theme_apply_app.cpp
     src/theme_qt.cpp

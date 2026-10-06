@@ -792,7 +792,12 @@ fi
 #
 # Asserted BOTH WAYS on purpose. A subtraction naming a file that is no longer linked
 # is a silent inflation of the gap, and it would never show up in the numerator.
-c_not_called="file_dialog_qt"
+#
+# window_launch_qt.cpp joined the list 2026-10-06 for the same kind of reason: it is linked
+# into qt_entry_tests with the rest of QINTA_APP_SOURCES, and no test calls its two launchers,
+# because each one starts a second copy of the application. What IS asserted is the argument
+# lists they pass, in tests/launch_options_tests.cpp, and that is not this file executing.
+c_not_called="file_dialog_qt window_launch_qt"
 c_subtracted=0
 for f in $c_not_called; do
     if printf '%s\n' "$c_union" | grep -qx "$f"; then

@@ -587,12 +587,10 @@ static void commitFolderBrowserNaming(App& app) {
     // from the folder browser makes the FILE and opens no window for it, because
     // the relaunch has no Qt half. The file exists and is findable; what is
     // missing is said by the refusal rather than silently substituted with a wrong window.
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
+    //
+    // NOT GUARDED SINCE 2026-10-06: the relaunch has a Qt half (src/window_launch_qt.cpp), so
+    // the note's own window opens on both stacks and the refusal that stood here is gone.
     launchDocumentWindow(fullPath);
-#else
-    refuseWindowFeature(app, "opening a new document in its own window",
-                        L"The file is made -- a new window for it isn't available in the Qt build yet");
-#endif
     if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
 }
 
@@ -3850,12 +3848,8 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     // refuses by name. It deliberately does not fall through to the new-tab
                     // branch below -- a new tab where the user asked for a new window is a wrong
                     // picture rather than a gap.
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
+                    // Both stacks since 2026-10-06 (src/window_launch_qt.cpp).
                     launchQuickNoteWindow();
-#else
-                    refuseWindowFeature(app, "Ctrl+Shift+N (new window)",
-                                        L"A new window isn't available in the Qt build yet");
-#endif
                 } else if (app.currentFile.empty()) {
                     // The keystroke's WM_CHAR must not type into the
                     // editor the takeover just opened

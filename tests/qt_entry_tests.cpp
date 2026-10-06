@@ -112,6 +112,7 @@
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QWindow>
 
 #include <algorithm>
 #include <chrono>
@@ -3949,6 +3950,41 @@ int main(int argc, char** argv) {
         check(quickNote, "launch: --new opens an untitled quick note in the editor");
         check(editing, "launch: --edit puts the loaded document in the editor");
         check(untouched, "launch: COUNTER-CASE -- with neither flag the window stays in reading mode");
+    }
+
+    // ---- THE ALWAYS-ON-TOP PIN (slice 22) --------------------------------------------------
+    //
+    // The pin sits at the right end of the tab strip. A click on it goes through the real mouse
+    // router into src/tabs.cpp, which asks the window sink and flips App::alwaysOnTop only when
+    // the window took it. The reading is the NATIVE window's flag, not App's field, because a
+    // field that flipped while the window stayed put is the defect this is here to catch.
+    {
+        QtAppWindow pinWindow(app);
+        pinWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        pinWindow.resize(800, 500);
+        check(pinWindow.openDocument(tmpUtf8), "pin: a document is open, so the strip is up");
+        grabWindow(pinWindow);
+        const bool before = app.alwaysOnTop;
+        const QPointF pin(static_cast<float>(app.width) - dpi(app, 17.0f),
+                          chromeTopHeight(app) * 0.5f);
+        auto click = [&]() {
+            sendMouse(pinWindow, QEvent::MouseButtonPress, pin, Qt::LeftButton, Qt::LeftButton);
+            sendMouse(pinWindow, QEvent::MouseButtonRelease, pin, Qt::LeftButton, Qt::NoButton);
+        };
+        auto nativeOnTop = [&]() {
+            return pinWindow.windowHandle() &&
+                   pinWindow.windowHandle()->flags().testFlag(Qt::WindowStaysOnTopHint);
+        };
+        click();
+        const bool onAfterFirst = app.alwaysOnTop && nativeOnTop();
+        click();
+        const bool offAfterSecond = !app.alwaysOnTop && !nativeOnTop();
+        std::printf("pin before=%d on_after_first=%d off_after_second=%d\n", before,
+                    onAfterFirst, offAfterSecond);
+        check(!before, "pin: the window starts not on top");
+        check(onAfterFirst,
+              "pin: a click on the pin puts the native window on top, and App agrees");
+        check(offAfterSecond, "pin: a second click takes it off again");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

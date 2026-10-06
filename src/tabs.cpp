@@ -30,6 +30,7 @@
 #include "portable_str.h"
 #include "utils.h"
 #include "win32_api.h"
+#include "window_sink.h"  // deliverStayOnTop, the pin's off-Win32 arm
 
 #include <algorithm>
 #include <cstdint>
@@ -1091,9 +1092,10 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             return true;
         }
         if (hit.index == -4) {
-            // Pin: toggle always-on-top for this window. Off the Win32 window stack the click
-            // is consumed and refused by name -- alwaysOnTop is not flipped, so the pin never
-            // draws as set on a window that is not on top.
+            // Pin: toggle always-on-top for this window. Off the Win32 window stack the request
+            // goes through the window sink (include/window_sink.h) since 2026-10-06, and
+            // alwaysOnTop flips only if a window took it -- so the pin never draws as set on a
+            // window that is not on top. With no window to take it, the click is refused by name.
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
             if (!middle) {
                 app.alwaysOnTop = !app.alwaysOnTop;
@@ -1104,9 +1106,15 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
                 requestRepaint(hwnd);
             }
 #else
-            if (!middle)
-                refuseWindowFeature(app, "always on top",
-                                    L"Always on top isn't available in the Qt build yet");
+            if (!middle) {
+                if (tinta::deliverStayOnTop(!app.alwaysOnTop)) {
+                    app.alwaysOnTop = !app.alwaysOnTop;
+                    requestRepaint(hwnd);
+                } else {
+                    refuseWindowFeature(app, "always on top",
+                                        L"Always on top isn't available in this window");
+                }
+            }
 #endif
             return true;
         }

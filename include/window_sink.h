@@ -64,6 +64,10 @@ struct WindowSink {
     // window that forgot it keeps the platform's title bar under every theme, and nothing
     // else about the window looks wrong.
     std::function<void(const WindowChrome&)> chrome;
+    // The tab strip's always-on-top pin (slice 22). Returns whether the window applied it, so
+    // the pin flips App::alwaysOnTop only for a request that landed -- a pin drawn as set on a
+    // window that is not on top is the wrong picture the Win32 branch never shows.
+    std::function<bool(bool)> stayOnTop;
 };
 
 // The single slot. Not part of the surface callers use.
@@ -79,6 +83,12 @@ inline void setWindowSink(WindowSink sink) {
 // A window being destroyed MUST call this: every member captures that window.
 inline void clearWindowSink() {
     windowSinkSlot() = WindowSink{};
+}
+
+// True when a window took the always-on-top request.
+inline bool deliverStayOnTop(bool on) {
+    WindowSink& sink = windowSinkSlot();
+    return sink.stayOnTop && sink.stayOnTop(on);
 }
 
 // True when a quit was delivered to somebody who can act on it.

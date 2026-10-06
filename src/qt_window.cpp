@@ -12,6 +12,7 @@
 #include <QStyleHints>
 #include <QTimer>
 #include <QWheelEvent>
+#include <QWindow>
 
 #include <cstddef>
 #include <cstdint>
@@ -147,6 +148,17 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
 #ifdef _WIN32
         applyDwmWindowChrome(reinterpret_cast<HWND>(winId()), chrome);
 #endif
+    };
+    // The tab strip's pin (slice 22). Set on the NATIVE window rather than through
+    // QWidget::setWindowFlag, which hides a visible widget and needs a show() to come back --
+    // a pin that blinks the window is not SetWindowPos(HWND_TOPMOST). Reports whether the flag
+    // is now what was asked for, so the pin flips only on a request that landed.
+    sink.stayOnTop = [this](bool on) {
+        winId();  // creates the native window if it does not exist yet
+        QWindow* native = windowHandle();
+        if (!native) return false;
+        native->setFlag(Qt::WindowStaysOnTopHint, on);
+        return native->flags().testFlag(Qt::WindowStaysOnTopHint) == on;
     };
     tinta::setWindowSink(std::move(sink));
     // Once now, because the first applyTheme ran in applySavedTheme before this window existed

@@ -361,7 +361,14 @@ void tabOpenQuickNote(App& app, HWND hwnd) {
 
 namespace {
 
-float captionButtonWidth(const App& app) { return dpi(app, 46.0f); }
+// ZERO UNDER A NATIVE CAPTION (App::nativeCaption, set by the Qt window), and that one return is
+// most of the change: every layout site sizes the strip by subtracting three of these, so the
+// tabs, the pin and the caption island all reflow to the right edge with nothing else edited.
+// The draw loop and captionHitTest below check the flag as well, so a zero-width rect can
+// neither paint a hover wash nor take a click.
+float captionButtonWidth(const App& app) {
+    return app.nativeCaption ? 0.0f : dpi(app, 46.0f);
+}
 // Always-on-top pin, left of the caption buttons
 float pinButtonWidth(const App& app) { return dpi(app, 34.0f); }
 tinta::RectF pinButtonRect(const App& app) {
@@ -430,6 +437,7 @@ float captionIslandLeft(const App& app) {
 }
 
 int captionHitTest(const App& app, float x, float y) {
+    if (app.nativeCaption) return 0;  // the native title bar owns minimise/maximise/close
     if (y < 0.0f || y >= chromeTopHeight(app)) return 0;
     for (int i = 0; i < 3; i++) {
         tinta::RectF r = captionButtonRect(app, i);
@@ -806,7 +814,7 @@ void renderTabStrip(App& app) {
             tinta::roundedRect(island, dpi(app, 8.0f), dpi(app, 8.0f)),
             app.brush, 1.0f);
     }
-    for (int b = 0; b < 3; b++) {
+    for (int b = 0; b < (app.nativeCaption ? 0 : 3); b++) {
         tinta::RectF r = captionButtonRect(app, b);
         r.top = islandTop;
         r.bottom = islandBottom;

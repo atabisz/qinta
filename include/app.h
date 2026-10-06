@@ -827,6 +827,11 @@ struct App {
     int tabSwitcherHover = -1;
     int hoveredTab = -1;               // strip hover for close-button reveal
     int captionButtonHover = 0;        // 0 none, 1 min, 2 max, 3 close
+    // The window has a NATIVE title bar with its own minimise/maximise/close, so the tab strip
+    // must not draw or hit-test a second set (src/tabs.cpp). Set by the Qt window, which keeps
+    // the native frame (2026-09-29 coloured it from the theme); tinta's window has no native
+    // frame, its strip is the caption, and it never sets this.
+    bool nativeCaption = false;
     int captionButtonPressed = 0;
     bool tabNewTabIntent = false;      // Ctrl+T: next browser pick -> new tab
 

@@ -3714,6 +3714,49 @@ int main(int argc, char** argv) {
               "above are the overlays and not drift between grabs");
     }
 
+    // ---- ONE ROW OF CAPTION BUTTONS (slice 19) ---------------------------------------------
+    //
+    // tinta's tab strip IS its window's caption and draws minimise, maximise and close. This
+    // window keeps the native title bar, so since the frame went shared it showed two rows. The
+    // window sets App::nativeCaption and the strip leaves the caption to the native frame.
+    {
+        QtAppWindow captionWindow(app);
+        captionWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        captionWindow.resize(800, 500);
+        grabWindow(captionWindow);  // so app.width is this window's
+        const float stripMid = chromeTopHeight(app) * 0.5f;
+        int hits = 0;
+        for (float x = 0.0f; x < static_cast<float>(app.width); x += 2.0f) {
+            if (captionHitTest(app, x, stripMid) != 0) ++hits;
+        }
+        const tinta::RectF closeRect = captionButtonRect(app, 2);
+        const float islandLeft = captionIslandLeft(app);
+        const float islandGap = static_cast<float>(app.width) - islandLeft;
+
+        // COUNTER-CASE, same window, same instrument: with the flag cleared the close button
+        // must be hittable again, so the zero above is a reading and not a dead hit test.
+        app.nativeCaption = false;
+        const int closeHitWithout = captionHitTest(app, static_cast<float>(app.width) - 10.0f,
+                                                   stripMid);
+        const float islandGapWithout = static_cast<float>(app.width) - captionIslandLeft(app);
+        app.nativeCaption = true;
+
+        std::printf("caption native=%d hits=%d close_w=%.1f island_gap=%.1f "
+                    "without: close_hit=%d island_gap=%.1f\n",
+                    app.nativeCaption, hits, closeRect.right - closeRect.left, islandGap,
+                    closeHitWithout, islandGapWithout);
+        check(app.nativeCaption, "caption: the Qt window sets App::nativeCaption");
+        check(hits == 0 && closeRect.right - closeRect.left == 0.0f,
+              "caption: the tab strip neither hit-tests nor sizes a caption button anywhere "
+              "across the window");
+        check(islandGap < islandGapWithout - 100.0f,
+              "caption: the pin and the strip reflow to the right edge, freed of the three "
+              "buttons' width");
+        check(closeHitWithout == 3,
+              "caption: COUNTER-CASE -- with the flag cleared the close button is hittable, "
+              "so the zero above could have read otherwise");
+    }
+
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that
     // made them out of App. Cleared here for the same reason
     // tests/math_layout_tests.cpp:265 clears it before CoUninitialize.

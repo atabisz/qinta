@@ -90,6 +90,9 @@ platform::EventModifierScope modifierScopeFor(const QInputEvent& event) {
 }  // namespace
 
 QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app) {
+    // The native title bar keeps its own caption buttons on this window, so tinta's tab strip
+    // must not draw a second set (include/app.h, App::nativeCaption).
+    app_.nativeCaption = true;
     // WITHOUT THIS THE WINDOW NEVER RECEIVES A KEY EVENT. QWidget defaults to
     // Qt::NoFocus, so keyPressEvent below would compile, be reachable from a test that
     // posts an event directly, pass, and never once fire in the running application.

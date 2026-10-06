@@ -53,7 +53,7 @@
 // painter reaches ID2D1PrintControl (src/print_win32.cpp), and the print pipeline does the
 // rest — pick "Microsoft Print to PDF" and the OS produces the PDF, with font
 // embedding (including CJK) handled by the driver. On Qt, PDF export goes through
-// QPdfWriter (src/pdf_export_qt.cpp) and printing refuses (src/print_qt.cpp).
+// QPdfWriter (src/pdf_export_qt.cpp) and printing goes through QPrinter (src/print_qt.cpp).
 
 namespace {
 

@@ -69,7 +69,10 @@ FetchContent_MakeAvailable(md4c)
 # it is missing, which would silently delete every target in the Qt6_FOUND block
 # rather than reporting the one thing that is absent. So it is asked for optionally
 # and then checked where it is needed, with a message naming it.
-find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS Widgets)
+find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS Widgets PrintSupport)
+# PrintSupport since 2026-10-06: src/print_qt.cpp prints through QPrinter and QPrintDialog. It
+# ships in qtbase on every host this tree builds on (the Windows kit, Debian's qt6-base-dev,
+# Homebrew's qtbase), so it adds no install step; qinta checks for it by name below.
 
 # The platform path seam. Its POSIX half is GONE: src/platform_paths_posix.cpp
 # was replaced by src/platform_paths_qt.cpp, which is written to be correct on all
@@ -954,7 +957,7 @@ set(QINTA_APP_SOURCES
     src/export_html.cpp
     # The print code, PORTABLE since 2026-10-06: preview, pagination, PDF export and the
     # link peek, with the Qt arms of its two backend hooks (src/print_qt.cpp: the paper
-    # locale, and a printDocument that refuses) and the Qt arm of the PDF seam. Until then
+    # locale, and printDocument through QPrinter and QPrintDialog since 2026-10-06) and the Qt arm of the PDF seam. Until then
     # this list carried print_qt.cpp alone, and it defined all seven print symbols as
     # refusals.
     src/print.cpp
@@ -1069,6 +1072,12 @@ if(WIN32 AND NOT (Qt6_FOUND AND Qt6Widgets_FOUND))
         "CMAKE_PREFIX_PATH at a Qt 6 MSVC kit, e.g. -DCMAKE_PREFIX_PATH=C:/Qt/6.8.3/msvc2022_64")
 endif()
 
+if(Qt6_FOUND AND Qt6Widgets_FOUND AND NOT Qt6PrintSupport_FOUND)
+    message(FATAL_ERROR
+        "Qt 6 PrintSupport is required for qinta: src/print_qt.cpp prints through QPrinter. It is "
+        "part of qtbase, so a kit that has Widgets and not PrintSupport is an incomplete install.")
+endif()
+
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
     add_executable(qinta WIN32
         src/main_qt.cpp
@@ -1079,7 +1088,7 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
         ${md4c_SOURCE_DIR}/src
     )
     target_link_libraries(qinta PRIVATE md4c
-        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
+        Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
     # OUTSIDE the if(WIN32) below, deliberately: the version numbers are not a platform
     # fact, and every UNICODE definition in this file is guarded, so the tempting place to
     # add these is the one place they would silently not apply off Windows.
@@ -2221,7 +2230,7 @@ if(BUILD_TESTING)
         #   the same run without print_qt drops this file in round 1). Printing off Windows is
         #   still absent -- a stated gap in that file -- but it no longer holds the router.
         #   (2026-10-06: print.cpp compiles off Windows and defines the seven itself. Preview,
-        #   PDF export and the link peek work on qinta. Only printDocument still refuses.)
+        #   PDF export and the link peek work on qinta. printDocument followed the same day, through QPrinter.)
         #
         #   What this does NOT claim is a complete blocker list. Attributing all 236 symbols
         #   to defining files over-attributed badly (substring matching invented 32 `*_tests.cpp`
@@ -3171,7 +3180,12 @@ if(BUILD_TESTING)
             # residual symbols the fixpoint left. Same two lines as qinta, for the
             # same measured reason.
             target_link_libraries(qt_entry_tests PRIVATE
-                md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network)
+                md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
+            # Where tests/fixtures/ is, for the QPrinter block's CJK fixture (2026-10-06): the
+            # test reads the CHECKED-IN fixture rather than a copy, so editing the fixture is
+            # editing what is printed.
+            target_compile_definitions(qt_entry_tests PRIVATE
+                TINTA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
             # Same stack as qinta, so the same guard answer -- see TINTA_QT_UI at qinta. The
             # version too, because startpage.cpp and overlays.cpp arrive with the key router's
             # closure and both print it; qinta has carried the same line since it had a window.

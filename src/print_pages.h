@@ -8,8 +8,8 @@
 // print.cpp is portable, and the hook below plus printDocument (include/print.h) are
 // where it reaches a backend. The Windows half
 // (src/print_win32.cpp) is the printer dialog and the XPS print job. The Qt half
-// (src/print_qt.cpp) refuses printing, because a QPrinter arm needs a CJK print fixture
-// before anything can tell a correct page from a plausible one.
+// (src/print_qt.cpp) prints through QPrinter; tests/fixtures/print-cjk.md is the CJK fixture
+// that was the stated gate on that arm.
 
 #include "print.h"
 #include "pdf_export.h"  // tinta::PagePainter

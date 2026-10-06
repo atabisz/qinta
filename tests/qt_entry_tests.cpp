@@ -104,6 +104,9 @@
 #include <QStringList>
 #include <QStyleHints>
 #include <QHostAddress>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QPrinter>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -146,6 +149,7 @@
 #include "paint_document.h"
 #include "platform_paths.h"
 #include "print.h"
+#include "print_qt.h"  // printDocumentTo, the testable half of the Qt print arm
 #include "image_api.h"  // encodePng, for the factory probe
 #include "render.h"     // layoutDocument, run outside paint by the factory probe
 #include "qt_init.h"
@@ -3336,7 +3340,7 @@ int main(int argc, char** argv) {
     // the routers call them:
     //   the preview rasterises a page, flips and re-paginates, and closing restores the
     //   screen; a PDF export writes as many pages as the preview paginated; the link peek
-    //   returns a bitmap; and Print itself still refuses.
+    //   returns a bitmap; and (since slice 20) printDocument with no document opens nothing.
     //
     // OUTSIDE A PAINT EVENT IS THE POINT. On this stack app.renderTarget exists only inside
     // paintEvent, so every one of these calls finds it null. src/print_pages.h's offscreen
@@ -3472,11 +3476,18 @@ int main(int argc, char** argv) {
               "print: renderPeekBitmap returns a bitmap for a real file on the Qt stack");
         check(peekBack, "print: and the screen document, file and width are restored after it");
 
-        // PRINT ITSELF REFUSES, and says so. A silent false would read as a cancelled dialog.
-        const auto signalsBefore = app.signalIdCounter;
-        const bool printed = printDocument(app);
-        check(!printed && app.signalIdCounter == signalsBefore + 1,
-              "print: printDocument still refuses on the Qt stack, with a chip");
+        // PRINT NO LONGER REFUSES (slice 20), so this check changed, and it could not stay as
+        // it was: printDocument now opens a MODAL QPrintDialog, and calling it here ran the
+        // dialog under the offscreen platform -- the run ended mid-line. The dialog half is the
+        // part no test reaches; printDocumentTo, its other half, is asserted in the QPrinter
+        // block below. What stays testable here is the guard: with no document, printDocument
+        // returns false before any dialog exists.
+        const qmd::ElementPtr rootForPrint = app.root;
+        app.root = nullptr;
+        const bool printedNothing = printDocument(app);
+        app.root = rootForPrint;
+        check(!printedNothing,
+              "print: with no document printDocument returns false and opens no dialog");
     }
 
     // ---- THE FACTORY TARGET OUTSIDE PAINT (slice 16) -------------------------------------
@@ -3755,6 +3766,140 @@ int main(int argc, char** argv) {
         check(closeHitWithout == 3,
               "caption: COUNTER-CASE -- with the flag cleared the close button is hittable, "
               "so the zero above could have read otherwise");
+    }
+
+    // ---- PRINT THROUGH QPrinter (slice 20) -----------------------------------------------
+    //
+    // printDocumentTo is the half of the Qt printDocument a test can reach: the dialog is the
+    // other half and no test opens it. A QPrinter in PdfFormat needs no printer, so the job's
+    // pages can be read back out of the file, which is the reading this block takes.
+    //
+    // THE CJK FIXTURE is the one include/print.h and src/print_qt.cpp said the QPrinter arm was
+    // waiting for. What it can tell apart: a CJK page printed with a CJK-capable face embeds
+    // that face's font program, and the same document with the CJK lines removed does not
+    // embed it. If this host has no CJK-capable font at all the claim cannot be decided, and
+    // the block says so by name rather than passing.
+    {
+        QtAppWindow printerWindow(app);
+        printerWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        printerWindow.resize(900, 700);
+
+        auto pdfPages = [](const std::string& bytes) {
+            int n = 0;
+            for (size_t at = bytes.find("/Type /Page"); at != std::string::npos;
+                 at = bytes.find("/Type /Page", at + 1)) {
+                if (bytes.compare(at, 12, "/Type /Pages") != 0) ++n;
+            }
+            return n;
+        };
+        auto baseFonts = [](const std::string& bytes) {
+            std::vector<std::string> names;
+            for (size_t at = bytes.find("/BaseFont /"); at != std::string::npos;
+                 at = bytes.find("/BaseFont /", at + 1)) {
+                size_t start = at + 11;
+                const size_t plus = bytes.find('+', start);
+                const size_t end = bytes.find_first_of(" /\r\n>", start);
+                if (plus != std::string::npos && plus < end) start = plus + 1;  // subset tag
+                names.push_back(bytes.substr(start, end - start));
+            }
+            std::sort(names.begin(), names.end());
+            names.erase(std::unique(names.begin(), names.end()), names.end());
+            return names;
+        };
+        auto printToPdf = [&](const std::string& docUtf8, const std::filesystem::path& out,
+                              std::string& bytes) {
+            if (!printerWindow.openDocument(docUtf8)) return false;
+            grabWindow(printerWindow);
+            QPrinter printer(QPrinter::HighResolution);
+            printer.setOutputFormat(QPrinter::PdfFormat);
+            printer.setOutputFileName(QString::fromStdWString(out.wstring()));
+            printer.setPageSize(QPageSize(QPageSize::A4));
+            printer.setPageOrientation(QPageLayout::Portrait);
+            const bool ok = printDocumentTo(app, printer);
+            std::ifstream in(out, std::ios::binary);
+            bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            return ok;
+        };
+
+        // 1. PAGE COUNT against the preview's pagination of the same document on the same paper.
+        std::string tallPdf;
+        const std::filesystem::path tallOut =
+            std::filesystem::temp_directory_path() / "qinta_entry_qprinter_tall.pdf";
+        const bool tallOk = printToPdf(tallUtf8, tallOut, tallPdf);
+        app.printPreviewPaper = 0;
+        app.printPreviewLandscape = false;
+        openPrintPreview(app, nullptr);
+        const int previewPages = static_cast<int>(app.printPreviewBounds.size()) - 1;
+        closePrintPreview(app, nullptr);
+        const int printedPages = pdfPages(tallPdf);
+        // The printed page is the paper: a full-page QPrinter reports the A4 sheet, 595 x 842 pt.
+        const bool a4Box = tallPdf.find("/MediaBox [0 0 595") != std::string::npos;
+
+        // 2. THE CJK FIXTURE against its own CJK-free control.
+        const std::filesystem::path cjkFixture =
+            std::filesystem::path(TINTA_SOURCE_DIR) / "tests" / "fixtures" / "print-cjk.md";
+        std::string cjkText;
+        {
+            std::ifstream in(cjkFixture, std::ios::binary);
+            cjkText.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+        std::string latinText;
+        for (size_t pos = 0; pos < cjkText.size();) {
+            const size_t nl = cjkText.find('\n', pos);
+            const std::string line = cjkText.substr(pos, nl == std::string::npos ? std::string::npos
+                                                                                  : nl - pos + 1);
+            bool ascii = true;
+            for (unsigned char ch : line) ascii = ascii && ch < 0x80;
+            if (ascii) latinText += line;
+            pos = nl == std::string::npos ? cjkText.size() : nl + 1;
+        }
+        const std::filesystem::path latinPath =
+            std::filesystem::temp_directory_path() / "qinta_entry_print_latin.md";
+        {
+            std::ofstream out(latinPath, std::ios::binary);
+            out << latinText;
+        }
+        std::string cjkPdf, latinPdf;
+        const bool cjkOk = printToPdf(cjkFixture.u8string(),
+                                      std::filesystem::temp_directory_path() /
+                                          "qinta_entry_qprinter_cjk.pdf",
+                                      cjkPdf);
+        const bool latinOk = printToPdf(latinPath.u8string(),
+                                        std::filesystem::temp_directory_path() /
+                                            "qinta_entry_qprinter_latin.pdf",
+                                        latinPdf);
+        const std::vector<std::string> cjkFonts = baseFonts(cjkPdf);
+        const std::vector<std::string> latinFonts = baseFonts(latinPdf);
+        std::vector<std::string> cjkOnly;
+        std::set_difference(cjkFonts.begin(), cjkFonts.end(), latinFonts.begin(),
+                            latinFonts.end(), std::back_inserter(cjkOnly));
+        const bool embeds = cjkPdf.find("/FontFile2") != std::string::npos ||
+                            cjkPdf.find("/FontFile3") != std::string::npos;
+        const bool hostHasCjk =
+            !QFontDatabase::families(QFontDatabase::SimplifiedChinese).isEmpty() &&
+            !QFontDatabase::families(QFontDatabase::Japanese).isEmpty();
+        std::string cjkOnlyList;
+        for (const auto& f : cjkOnly) cjkOnlyList += f + " ";
+
+        std::printf("qprinter tall_ok=%d printed=%d preview=%d a4_box=%d cjk_ok=%d latin_ok=%d "
+                    "cjk_fonts=%zu latin_fonts=%zu cjk_only=[%s] embeds=%d host_cjk=%d\n",
+                    tallOk, printedPages, previewPages, a4Box, cjkOk, latinOk, cjkFonts.size(),
+                    latinFonts.size(), cjkOnlyList.c_str(), embeds, hostHasCjk);
+        check(tallOk && printedPages == previewPages && previewPages >= 3,
+              "qprinter: printDocumentTo prints as many pages as the preview paginates for A4");
+        check(a4Box, "qprinter: the printed page is the A4 sheet, not an inset printable area");
+        if (hostHasCjk) {
+            check(cjkOk && latinOk && embeds && !cjkOnly.empty(),
+                  "qprinter: the CJK fixture embeds a font program its CJK-free control does "
+                  "not -- the fallback face that draws the CJK text");
+        } else {
+            std::printf("qprinter SKIP: this host has no CJK-capable font, so the fixture "
+                        "cannot tell a correct page from boxes\n");
+        }
+
+        std::error_code qpEc;
+        std::filesystem::remove(tallOut, qpEc);
+        std::filesystem::remove(latinPath, qpEc);
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

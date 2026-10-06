@@ -9,7 +9,8 @@
 // dedicated light print palette regardless of the active theme.
 //
 // A BACKEND HOOK since 2026-10-06: src/print_win32.cpp is the paragraph above, and
-// src/print_qt.cpp refuses with a chip, because there is no QPrinter arm yet. Everything
+// src/print_qt.cpp prints through QPrinter and QPrintDialog (it refused with a chip until the
+// QPrinter slice, 2026-10-06). Everything
 // else in this header is defined once, in the portable src/print.cpp.
 bool printDocument(App& app);
 

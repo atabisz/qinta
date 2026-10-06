@@ -115,6 +115,8 @@
 #include <QWindow>
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -150,6 +152,7 @@
 #include "paint_document.h"
 #include "platform_paths.h"
 #include "print.h"
+#include "instance_channel_qt.h"  // the single-instance hand-off
 #include "print_qt.h"  // printDocumentTo, the testable half of the Qt print arm
 #include "image_api.h"  // encodePng, for the factory probe
 #include "render.h"     // layoutDocument, run outside paint by the factory probe
@@ -3985,6 +3988,57 @@ int main(int argc, char** argv) {
         check(onAfterFirst,
               "pin: a click on the pin puts the native window on top, and App agrees");
         check(offAfterSecond, "pin: a second click takes it off again");
+    }
+
+    // ---- THE SINGLE-INSTANCE HAND-OFF (slice 23) ------------------------------------------
+    //
+    // A second launch hands its document to the running window over QLocalSocket. The client
+    // blocks on its own socket, so it runs on a SECOND THREAD while this one pumps the server's
+    // events -- the same shape as two processes, and the only way one process can be both ends.
+    // The channel name is this test's own, so a real qinta running on the machine is never
+    // involved.
+    {
+        QtAppWindow joinWindow(app);
+        joinWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        joinWindow.resize(800, 500);
+        check(joinWindow.openDocument(tmpUtf8), "join: the running window has a document open");
+        grabWindow(joinWindow);
+        const QString channel = QStringLiteral("qinta-entry-test-") +
+                                QString::number(QCoreApplication::applicationPid());
+
+        // CONTROL FIRST: nobody listening, so the send must fail and the launch would open its
+        // own window. A send that always reported success would make main() exit with no window.
+        const bool sentToNobody = tinta::sendToRunningInstance(channel, tallUtf8, 300);
+
+        const size_t tabsBefore = app.tabs.size();
+        std::string received;
+        tinta::InstanceServer server([&app, &received](const std::string& path) {
+            received = path;
+            tabOpenPath(app, nullptr, path, true);
+        });
+        const bool listening = server.listen(channel);
+        std::atomic<int> sendResult{-1};
+        std::thread client([&channel, &tallUtf8, &sendResult]() {
+            sendResult = tinta::sendToRunningInstance(channel, tallUtf8, 3000) ? 1 : 0;
+        });
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (sendResult.load() == -1 && std::chrono::steady_clock::now() < deadline) {
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        }
+        client.join();
+        const bool joined = app.tabs.size() > tabsBefore && app.currentFile == tallUtf8;
+        std::printf("join nobody=%d listening=%d sent=%d received_match=%d tabs=%zu->%zu "
+                    "current_is_sent=%d\n",
+                    sentToNobody, listening, sendResult.load(), received == tallUtf8, tabsBefore,
+                    app.tabs.size(), app.currentFile == tallUtf8);
+        check(!sentToNobody,
+              "join: CONTROL -- with nobody listening the send fails, so the launch opens its "
+              "own window");
+        check(listening && sendResult.load() == 1 && received == tallUtf8,
+              "join: a running window receives the second launch's absolute path and "
+              "acknowledges it");
+        check(joined,
+              "join: the handed-over document opens as a new tab and becomes the current file");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

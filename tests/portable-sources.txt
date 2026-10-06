@@ -1378,6 +1378,10 @@ print.cpp
 # Linked into qinta; the argument lists they pass are asserted in tests/launch_options_tests.cpp.
 window_launch_qt.cpp
 
+# The single-instance hand-off over QLocalSocket (2026-10-06); linked into qinta and run by
+# qt_entry_tests, which hands a path from a second thread to a listening window.
+instance_channel_qt.cpp
+
 # --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
 # SUPERSEDED 2026-10-06 by the section above. This file no longer defines the seven
 # refusals described below; it defines printDocument (still a refusal) and

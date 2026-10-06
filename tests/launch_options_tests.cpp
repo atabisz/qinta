@@ -512,6 +512,25 @@ int main() {
               "RELAUNCH: both carry --cascade, so neither is swallowed by an existing window");
     }
 
+    // --- THE SINGLE-INSTANCE RULE: one plain file joins; every exclusion keeps its own window ---
+    {
+        check(tinta::shouldJoinExistingWindow(parse({"a.md"}), true),
+              "JOIN: a plain file launch with tabs on joins the running window");
+        check(!tinta::shouldJoinExistingWindow(parse({"a.md"}), false),
+              "JOIN: not when the user turned tabs off");
+        check(!tinta::shouldJoinExistingWindow(parse({}), true),
+              "JOIN: not with no file -- an empty launch is a new window on the start page");
+        check(!tinta::shouldJoinExistingWindow(parse({"--new", "a.md"}), true) &&
+                  !tinta::shouldJoinExistingWindow(parse({"--cascade", "a.md"}), true),
+              "JOIN: not for a quick note or a cascade relaunch, which ask for their own window");
+        int harness = 0;
+        for (const char* flag :
+             {"--printpages", "--dumpchrome", "--exporthtml", "--exportdocx", "--exportpdf"}) {
+            if (!tinta::shouldJoinExistingWindow(parse({flag, "out", "a.md"}), true)) harness++;
+        }
+        check(harness == 5, "JOIN: not for any of the five harness switches, which write and exit");
+    }
+
     std::printf("%s%d launch-option assertions run, %d failed\n",
                 failures == 0 ? "all " : "", checks, failures);
     return failures == 0 ? 0 : 1;

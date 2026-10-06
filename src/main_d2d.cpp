@@ -988,10 +988,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
     // Single instance: a plain file launch joins the existing window as a
     // new tab (Win11 Notepad model). --new/--cascade windows and the
     // openInTabs=false setting keep the one-window-per-document behavior.
-    if (!inputFile.empty() && !quickNote && !cascadeWindow &&
-        printPagesDir.empty() && dumpChromePath.empty() && exportHtmlPath.empty() &&
-        exportDocxPath.empty() && exportPdfPath.empty() &&
-        savedSettings.openInTabs) {
+    // The condition is tinta::shouldJoinExistingWindow (include/launch_options.h) since
+    // 2026-10-06, so qinta's channel and this one answer it with the same function.
+    if (tinta::shouldJoinExistingWindow(options, savedSettings.openInTabs)) {
         HWND existing = FindWindowW(L"Tinta", nullptr);
         if (existing) {
             // Resolve to an absolute path: the receiving window has its own

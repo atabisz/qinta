@@ -966,6 +966,9 @@ set(QINTA_APP_SOURCES
     # Ctrl+Shift+N's new window and the note-in-its-own-window relaunch, the Qt arms of what
     # src/quicknote_win32.cpp does for tinta (2026-10-06).
     src/window_launch_qt.cpp
+    # The single-instance hand-off: a second launch hands its document to the running window
+    # over QLocalSocket, WinMain's FindWindowW + WM_COPYDATA (2026-10-06).
+    src/instance_channel_qt.cpp
     src/settings_app.cpp
     src/theme_apply_app.cpp
     src/theme_qt.cpp

@@ -88,6 +88,7 @@
 // binary typesets equations. Recorded rather than quietly dropped, because the missing
 // item was one of the limits README.md's basis F measures.
 #include <QApplication>
+#include <QFileInfo>
 
 #include <cstdio>
 #include <string>
@@ -95,6 +96,7 @@
 #include "app.h"
 #include "export.h"          // exportHtmlFile, exportDocxFile, exportPdfFile
 #include "file_utils.h"
+#include "instance_channel_qt.h"
 #include "launch_options.h"
 #include "platform_paths.h"  // regularFileExists, for the output guard
 #include "print.h"           // printDebugPages
@@ -104,6 +106,7 @@
 #include "qt_window.h"
 #include "settings.h"
 #include "settings_data.h"
+#include "tabs.h"  // tabOpenPath, for documents handed over by a second launch
 #include "theme_data.h"
 #include "window_placement.h"
 
@@ -224,6 +227,20 @@ int main(int argc, char** argv) {
 
     const Settings saved = loadSettings();
 
+    // THE SINGLE-INSTANCE HAND-OFF (2026-10-06), WinMain's FindWindowW + WM_COPYDATA. A plain
+    // file launch hands its document to the running window and exits, under the same rule
+    // (tinta::shouldJoinExistingWindow) and with the same fallback: nobody listening, or no
+    // acknowledgement, means this launch opens its own window. The path goes absolute first,
+    // because the running window has its own working directory.
+    if (tinta::shouldJoinExistingWindow(options, saved.openInTabs)) {
+        const std::string absolute =
+            QFileInfo(QString::fromStdString(options.inputFile)).absoluteFilePath().toStdString();
+        if (tinta::sendToRunningInstance(tinta::instanceChannelName(), absolute)) {
+            releaseQtBackends(app);
+            return 0;
+        }
+    }
+
     // THE SAVED THEME, LOADED BECAUSE THIS ARM WRITES IT -- the theme picker and the close save
     // both read-modify-write the four theme fields, so skipping the load wrote defaults over
     // them. With follow-system on the start theme is the system's pick instead. See qt_launch.h.
@@ -307,6 +324,17 @@ int main(int argc, char** argv) {
     tinta::showPlaced(window, saved.windowMaximized);
     // After the window, as WinMain enters these after its first frame.
     tinta::enterLaunchMode(app, options);
+
+    // And this window becomes the one later launches join. A document arriving opens as a tab and
+    // the window comes forward, as WinMain's WM_COPYDATA case restores and foregrounds. If the
+    // name is already held by another live window, this one simply does not listen.
+    tinta::InstanceServer instanceServer([&app, &window](const std::string& path) {
+        if (window.isMinimized()) window.showNormal();
+        window.raise();
+        window.activateWindow();
+        tabOpenPath(app, nullptr, path, true);
+    });
+    instanceServer.listen(tinta::instanceChannelName());
 
     const int rc = QApplication::exec();
 

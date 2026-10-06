@@ -123,6 +123,13 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
     return parseLaunchOptions(args, slashPolicy);
 }
 
+bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs) {
+    return !options.inputFile.empty() && !options.quickNote && !options.cascade &&
+           options.printPagesDir.empty() && options.dumpChromePath.empty() &&
+           options.exportHtmlPath.empty() && options.exportDocxPath.empty() &&
+           options.exportPdfPath.empty() && openInTabs;
+}
+
 std::vector<std::string> quickNoteRelaunchArgs() { return {"--cascade", "--new"}; }
 
 std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path) {

@@ -123,6 +123,12 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
 // --cascade, which is what makes WinMain skip the single-instance hand-off -- the reason a Qt
 // relaunch needs no IPC. The third, the torn-off tab, has no builder: its only caller is the
 // Windows tab drag, and the Qt drag never detaches, so a builder would serve no caller.
+// THE SINGLE-INSTANCE RULE (Win11 Notepad model): a plain file launch joins the running window
+// as a new tab, unless it is a quick note, a cascade relaunch, a harness switch that writes and
+// exits, or the user turned tabs off. WinMain's inline condition, lifted here 2026-10-06 so the
+// Qt arm (src/instance_channel_qt.cpp) and WinMain answer it with one function.
+bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs);
+
 std::vector<std::string> quickNoteRelaunchArgs();                            // Ctrl+Shift+N
 std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path);  // a note window
 

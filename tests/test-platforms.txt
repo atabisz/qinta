@@ -86,6 +86,7 @@ portable_str                   both
 process                        both
 process_control                both
 qt_entry                       both
+qinta_cli                      both
 qt_text                        both
 portable_claims                both
 portable_claims_control        both

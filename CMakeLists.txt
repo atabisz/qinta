@@ -1036,7 +1036,7 @@ set(QINTA_APP_SOURCES
 # for six symbols only src/print.cpp defined until 2026-09-24; now it is absent only
 # because nothing calls it, like every other name in the 14.
 #
-# CONSEQUENCE FOR THE FLAGS: all ten refusals in src/main_qt.cpp ~~are behind these
+# CONSEQUENCE FOR THE FLAGS (four of the ten honoured since 2026-10-06): all ten refusals in src/main_qt.cpp ~~are behind these
 # two files~~ were behind these two files; since 2026-09-24 they are behind the missing
 # caller, and the three export flags would reach print_qt.cpp's refusal for PDF (since 2026-10-06
 # they would reach a real QPdfWriter export instead; main_qt.cpp still refuses the flags). That includes --exportpdf, --exporthtml and --exportdocx, which look
@@ -3187,6 +3187,18 @@ if(BUILD_TESTING)
             # band as a broken seam.
             set_tests_properties(qt_entry PROPERTIES
                 ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+            # qinta's four harness switches, run as the real binary (2026-10-06). A script and not
+            # a C++ test because the subject is main(), which no test can link: the probe's launch
+            # block reaches it on Linux only, and this reaches it on all three CI hosts. It reads
+            # each written file, and its two controls are the output guard and a missing document.
+            if(TARGET qinta)
+                add_test(NAME qinta_cli COMMAND ${CMAKE_COMMAND}
+                    -DQINTA_EXE=$<TARGET_FILE:qinta>
+                    -DWORK_DIR=${CMAKE_CURRENT_BINARY_DIR}/qinta_cli
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_qinta_cli.cmake)
+                set_tests_properties(qinta_cli PROPERTIES
+                    ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+            endif()
         else()
             message(STATUS "Qt6 Widgets not found -- qt_entry test skipped")
         endif()
@@ -3266,6 +3278,10 @@ if(BUILD_TESTING)
                 # would have bought a third modal "Qt6Core.dll was not found" box and a red with no
                 # output, on a target whose whole job is to make a drawing claim legible.
                 list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt)
+                # qinta_cli runs the qinta binary itself, which needs the same DLLs.
+                if(TARGET qinta)
+                    list(APPEND TINTA_QT_PATH_TESTS qinta_cli)
+                endif()
             endif()
             set_tests_properties(${TINTA_QT_PATH_TESTS} PROPERTIES
                 ENVIRONMENT_MODIFICATION

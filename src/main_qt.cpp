@@ -34,7 +34,9 @@
 //     filename was dropped. tests/launch_options_tests.cpp opens with that case.
 //
 //     Now: tinta::parseLaunchOptions (one chain, shared with WinMain) does the reading.
-//     --light, --pos and --cascade are honoured here for real. The other ten are refused on
+//     --light, --pos and --cascade are honoured here for real, and since 2026-10-06 so are
+//     --printpages, --exporthtml, --exportdocx and --exportpdf, which write and exit without a
+//     window. The other six are refused on
 //     stderr, by name, and the window still opens -- because a refusal a user can read is
 //     the opposite of the old behaviour, where an unhonourable flag was indistinguishable
 //     from a working one.
@@ -90,8 +92,12 @@
 #include <string>
 
 #include "app.h"
+#include "export.h"          // exportHtmlFile, exportDocxFile, exportPdfFile
 #include "file_utils.h"
 #include "launch_options.h"
+#include "platform_paths.h"  // regularFileExists, for the output guard
+#include "print.h"           // printDebugPages
+#include "text_utils.h"      // toWide
 #include "qt_init.h"
 #include "qt_launch.h"
 #include "qt_window.h"
@@ -154,7 +160,29 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "tinta: option '%s' needs a value\n", flag.c_str());
     }
 
-    // THE TEN REFUSALS. Each one is a flag the shared parse understands and this binary
+    // THE OUTPUT GUARD, WinMain's, called the same way, because this binary can write files now.
+    // The four harness flags below used to be refused here, so there was nothing to guard; since
+    // 2026-10-06 they write, and `qinta --exportpdf README.md` would otherwise do on this stack
+    // what `tinta --lite --exportpdf README.md` did on 2026-09-20: put a PDF where the document
+    // was, at exit 0. Before any setup, so a refusal is a print and a return.
+    {
+        const tinta::PlannedOutput planned = tinta::plannedOutput(options);
+        if (!planned.flag.empty()) {
+            const bool exists = platform::regularFileExists(toWide(planned.path));
+            const tinta::OutputRefusal refusal = tinta::refuseOutput(options, exists);
+            if (refusal != tinta::OutputRefusal::None) {
+                std::fprintf(stderr, "tinta: refusing to write '%s' -- %s\n",
+                             planned.path.c_str(), tinta::outputRefusalMessage(refusal));
+                std::fprintf(stderr,
+                             "tinta: %s names the file to WRITE, not the file to read\n",
+                             planned.flag.c_str());
+                return 2;
+            }
+        }
+    }
+
+    // THE REFUSALS -- TEN UNTIL 2026-10-06, SIX SINCE, when the four harness switches below
+    // started working. Each one is a flag the shared parse understands and this binary
     // cannot act on, and each says which missing piece is the reason -- so the list doubles
     // as the port's remaining work, in the place a user actually meets it.
     //
@@ -184,47 +212,14 @@ int main(int argc, char** argv) {
     if (options.forceRegister) {
         refuse("/register", "file associations are a Windows-registry feature");
     }
-    if (!options.printPagesDir.empty()) {
-        // The reason changed on 2026-10-06 and the refusal did not. It said "page capture is
-        // still on the Direct2D path". printDebugPages is portable now and qinta links it, so
-        // what is missing is this entry point calling it, which is the same gap as the three
-        // exporters below.
-        refuse("--printpages", "page capture is not wired to this entry point yet");
-    }
     if (!options.dumpChromePath.empty()) {
         refuse("--dumpchrome", "the chrome dump is still on the Direct2D path");
     }
-    if (!options.exportHtmlPath.empty()) {
-        refuse("--exporthtml", "the HTML exporter is not wired to this entry point yet");
-    }
-    if (!options.exportDocxPath.empty()) {
-        refuse("--exportdocx", "the DOCX exporter is not wired to this entry point yet");
-    }
-    if (!options.exportPdfPath.empty()) {
-        // NAMED SEPARATELY, AND NO LONGER AS "THE ONE TO DELETE FIRST" -- that sentence
-        // stood here until 2026-09-22 and it sent a reader at the most expensive of the ten.
-        // It read: "the closest of the ten to honourable: the Qt PDF seam already exists and
-        // has its own passing test target. What is missing is this wiring, not the
-        // capability -- so this refusal is the one to delete first."
-        //
-        // Every clause of that was true and the conclusion was wrong. include/pdf_export.h
-        // says in its own header that pagination, print layout and the page painter all stay
-        // in the print code: the Qt seam is a SINK that renderPages drives, not an exporter.
-        // So exportPdfFile needed that file, which stopped at a fatal d2d1.h off Windows at
-        // the time (through include/xps_page_emitter.h:24).
-        //
-        // MEASURED 2026-09-22: all three exporters are behind the same two files, and
-        // --exporthtml/--exportdocx are not the cheap alternatives they look like either --
-        // export_html.cpp calls exportPdfFile, and export_docx.cpp calls buildDiagramPrims
-        // in export_html.cpp. The blocker map is under QINTA_APP_SOURCES in CMakeLists.txt.
-        // There is no cheapest refusal in this list; there are two files.
-        //
-        // BOTH FILES ARE LINKED NOW. print.cpp left Windows on 2026-10-06 and qinta exports
-        // PDFs interactively through it, which tests/qt_entry_tests.cpp asserts. So this
-        // refusal now has the same reason as --exporthtml and --exportdocx above: the
-        // command-line path to the exporter is not written. It is no longer the expensive one.
-        refuse("--exportpdf", "the PDF exporter is not wired to this entry point yet");
-    }
+    // --printpages, --exporthtml, --exportdocx and --exportpdf WERE REFUSED HERE until
+    // 2026-10-06, the last three behind a long note on why the PDF one looked cheap and was
+    // not: the exporters needed the print code, which was Windows-bound then. It is portable
+    // now, and src/qt_init.cpp keeps a render target outside paint, so all four run below
+    // as headless harness switches, as they do in WinMain.
 
     const Settings saved = loadSettings();
 
@@ -247,6 +242,30 @@ int main(int argc, char** argv) {
                         .arg(QString::fromLocal8Bit(options.inputFile.c_str()));
         } else {
             std::fprintf(stderr, "tinta: cannot open '%s'\n", options.inputFile.c_str());
+        }
+    }
+
+    // THE HARNESS SWITCHES: write and exit, in WinMain's dispatch order, which is also the
+    // order tinta::plannedOutput reports and the guard above checked. No window is created: the
+    // exporters lay the document out at their own page or export width and draw through the
+    // factory render target (include/qt_init.h), so nothing here needs a widget. Exit 0 on a
+    // written file, 1 when the exporter refused -- no document, an unwritable path.
+    {
+        int harnessRc = -1;
+        if (!options.printPagesDir.empty()) {
+            const int pages = printDebugPages(app, toWide(options.printPagesDir));
+            std::fprintf(stderr, "tinta: printpages: %d\n", pages);
+            harnessRc = pages > 0 ? 0 : 1;
+        } else if (!options.exportHtmlPath.empty()) {
+            harnessRc = exportHtmlFile(app, toWide(options.exportHtmlPath)) ? 0 : 1;
+        } else if (!options.exportDocxPath.empty()) {
+            harnessRc = exportDocxFile(app, toWide(options.exportDocxPath)) ? 0 : 1;
+        } else if (!options.exportPdfPath.empty()) {
+            harnessRc = exportPdfFile(app, toWide(options.exportPdfPath)) ? 0 : 1;
+        }
+        if (harnessRc >= 0) {
+            releaseQtBackends(app);
+            return harnessRc;
         }
     }
 

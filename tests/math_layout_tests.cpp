@@ -1,10 +1,17 @@
+// ON THE Qt BACKENDS SINCE 2026-10-06, when the Direct2D stack was retired: the text factory
+// comes from installQtBackends (tests/qt_test_app.h) where it came from DWriteCreateFactory, and
+// the sample sheet rasterises through the image seam where it drew into a WIC bitmap.
+#include "image_api.h"
 #include "math_render.h"
 #include "platform_paths.h"
+#include "qt_test_app.h"
+#include "render_api.h"
+
+#include <QFontDatabase>
 
 #include <cmath>
 #include <fstream>
 #include <iostream>
-#include <wrl/client.h>
 #include <algorithm>
 #include <vector>
 #include <functional>
@@ -77,76 +84,56 @@ void checkMarkdownFixture(App& app, const char* filename, size_t minimumMath,
     std::cout << filename << ": " << equations << " equations\n";
 }
 
-bool rasterize(const std::vector<MathBoxPtr>& boxes, const wchar_t* path = nullptr) {
-    using Microsoft::WRL::ComPtr;
-    UINT width = 32, height = 16;
+bool rasterize(App& app, const std::vector<MathBoxPtr>& boxes, const wchar_t* path = nullptr) {
+    unsigned width = 32, height = 16;
     for (const auto& box : boxes) {
-        width = std::max(width, static_cast<UINT>(std::ceil(mathBoxWidth(box))) + 32);
-        height += static_cast<UINT>(std::ceil(mathBoxHeight(box))) + 24;
+        width = std::max(width, static_cast<unsigned>(std::ceil(mathBoxWidth(box))) + 32);
+        height += static_cast<unsigned>(std::ceil(mathBoxHeight(box))) + 24;
     }
-    ComPtr<IWICImagingFactory> wic;
-    ComPtr<ID2D1Factory> d2d;
-    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                IID_PPV_ARGS(&wic))) ||
-        FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2d.GetAddressOf()))) return false;
-    ComPtr<IWICBitmap> bitmap;
-    if (FAILED(wic->CreateBitmap(width, height, GUID_WICPixelFormat32bppPBGRA, WICBitmapCacheOnLoad, &bitmap))) return false;
-    ComPtr<ID2D1RenderTarget> target;
-    auto props = D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE);
-    if (FAILED(d2d->CreateWicBitmapRenderTarget(bitmap.Get(), props, &target))) return false;
-    ComPtr<ID2D1SolidColorBrush> brush;
-    if (FAILED(target->CreateSolidColorBrush(tinta::colorF(0.0f, 0.0f, 0.0f), &brush))) return false;
-    // mathBoxDrawTo speaks the portable seam now; these two wrappers BORROW, so the
-    // ComPtrs above stay the owners and this function's teardown is unchanged.
-    D2DRenderTarget seamTarget(target.Get());
-    D2DBrush seamBrush(brush.Get());
-    target->BeginDraw();
-    target->Clear(tinta::colorF(1.0f, 1.0f, 1.0f));
-    float y = 16;
-    for (const auto& box : boxes) {
-        mathBoxDrawTo(&seamTarget, &seamBrush, box, 16, y, tinta::colorFromHex(0x17212B));
-        y += std::ceil(mathBoxHeight(box)) + 24;
-    }
-    if (FAILED(target->EndDraw())) return false;
-    std::vector<BYTE> pixels(static_cast<size_t>(width) * height * 4);
-    if (FAILED(bitmap->CopyPixels(nullptr, width * 4, static_cast<UINT>(pixels.size()), pixels.data()))) return false;
+    if (!app.renderTarget) return false;
+    const tinta::DecodedImage image = tinta::rasterizeToImage(
+        *app.renderTarget, width, height, tinta::colorF(1.0f, 1.0f, 1.0f),
+        [&](tinta::RenderTarget& target, tinta::Brush* brush) {
+            if (!brush) return;
+            float y = 16;
+            for (const auto& box : boxes) {
+                mathBoxDrawTo(&target, brush, box, 16, y, tinta::colorFromHex(0x17212B));
+                y += std::ceil(mathBoxHeight(box)) + 24;
+            }
+        });
+    if (!image.ok) return false;
     size_t dark = 0;
-    for (size_t i = 0; i < pixels.size(); i += 4) if (pixels[i] < 200) ++dark;
+    for (size_t i = 0; i < image.pixels.size(); i += 4) if (image.pixels[i] < 200) ++dark;
     if (dark < 20) return false;
     if (!path) return true;
-    ComPtr<IWICStream> stream;
-    ComPtr<IWICBitmapEncoder> encoder;
-    ComPtr<IWICBitmapFrameEncode> frame;
-    if (FAILED(wic->CreateStream(&stream)) || FAILED(stream->InitializeFromFilename(path, GENERIC_WRITE)) ||
-        FAILED(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) ||
-        FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) ||
-        FAILED(encoder->CreateNewFrame(&frame, nullptr)) || FAILED(frame->Initialize(nullptr)) ||
-        FAILED(frame->SetSize(width, height))) return false;
-    WICPixelFormatGUID format = GUID_WICPixelFormat32bppPBGRA;
-    if (FAILED(frame->SetPixelFormat(&format)) || FAILED(frame->WriteSource(bitmap.Get(), nullptr)) ||
-        FAILED(frame->Commit()) || FAILED(encoder->Commit())) return false;
-    return true;
+    const std::string png = tinta::encodePng(image);
+    if (png.empty()) return false;
+    std::ofstream out{std::filesystem::path(path), std::ios::binary};
+    out.write(png.data(), static_cast<std::streamsize>(png.size()));
+    return out.good();
 }
 }
 
 int main(int argc, char** argv) {
-    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    QtTestApp qt(argc, argv);
+    if (!qt.ok()) return 2;
     {
         App app;
-        HRESULT hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
-                                        reinterpret_cast<IUnknown**>(&app.dwriteFactory));
-        if (FAILED(hr)) return 2;
-        // mathParse measures through app.textFactory, so the seam has to be seated
-        // before the first equation. seatTextFactory() rather than a local
-        // D2DTextFactory: this exercises the same seating path d2d_init.cpp uses, and a
-        // test that wired its own factory could pass while the app's route was broken.
-        app.seatTextFactory();
+        // mathParse measures through app.textFactory, so the seam has to be seated before the
+        // first equation -- through installQtBackends, the route qinta itself takes, so a test
+        // that wired its own factory cannot pass while the app's route is broken.
+        QtTestApp::install(app);
         check(app.textFactory != nullptr, "text seam is seated for math measurement");
-        // The seam's new question, both directions, on a host where the answer is known:
-        // Windows ships Segoe UI, and no host has a family by this second name. A
-        // predicate that always says true and one that always says false each pass a
-        // single-direction check, which is why both are here.
-        check(app.textFactory->FontFamilyExists(L"Segoe UI"),
+        // The seam's question, both directions, on a family the HOST lists as installed, where
+        // the Direct2D version asked for Segoe UI, which only Windows ships. Not the host's
+        // default UI face: under the offscreen platform that is an alias the font
+        // database does not list, so it reads as absent -- measured on Linux, 2026-10-06. No host
+        // has a family by the second name. A predicate that always says true and one that always
+        // says false each pass a single-direction check, which is why both are here.
+        const QStringList families = QFontDatabase::families();
+        check(!families.isEmpty(), "the host lists at least one installed font family");
+        const std::wstring installed = families.value(0).toStdWString();
+        check(app.textFactory->FontFamilyExists(installed.c_str()),
               "FontFamilyExists finds an installed family");
         check(!app.textFactory->FontFamilyExists(L"NoSuchFamily QINTA 12345"),
               "FontFamilyExists rejects an absent family");
@@ -231,7 +218,7 @@ int main(int argc, char** argv) {
         mathBoxRetain(app, tall, 5, 10, tinta::colorF(0.0f, 0.0f, 0.0f));
         check(!app.layoutTextRuns.empty() && !app.layoutLines.empty(), "retained viewer receives same primitives");
         app.clearLayoutCache();
-        check(rasterize({simple, tall, nested}), "native Direct2D offscreen drawing produces pixels");
+        check(rasterize(app, {simple, tall, nested}), "offscreen drawing through the image seam produces pixels");
         if (argc > 1) {
             std::ofstream out(argv[1]);
             out << "<!doctype html><meta charset=utf-8><style>body{font:18px Segoe UI;padding:30px}section{margin:25px}</style>";
@@ -259,12 +246,12 @@ int main(int argc, char** argv) {
             if (argc > 2) {
                 std::string filename = argv[2];
                 std::wstring path(filename.begin(), filename.end());
-                check(rasterize(samples, path.c_str()), "native sample sheet exports to PNG");
+                check(rasterize(app, samples, path.c_str()), "native sample sheet exports to PNG");
             }
         }
         mathClearCache();
+        releaseQtBackends(app);
     }
-    CoUninitialize();
     std::cout << "Math layout: " << failures << " failures\n";
     return failures ? 1 : 0;
 }

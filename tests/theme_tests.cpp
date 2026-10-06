@@ -1,4 +1,12 @@
-#include "d2d_init.h"
+// ON THE Qt BACKENDS SINCE 2026-10-06, when the Direct2D stack was retired: the laid-out App
+// comes from installQtBackends, qinta's own call, where it came from initD2D. NOT through
+// tests/qt_test_app.h, which pins a temporary configuration home: this test runs inside the
+// isolated portable folder run_portable_test.cmake stages, and that folder IS its isolation.
+#include <QApplication>
+#include <QCoreApplication>
+
+#include "qt_init.h"
+#include "theme_apply.h"
 #include "export.h"
 #include "render.h"
 #include "settings.h"
@@ -138,11 +146,11 @@ std::string docxRun(const std::string& zip, const std::string& marker) {
 
 int main(int argc, char** argv) {
     namespace fs = std::filesystem;
+    QApplication qapp(argc, argv);
     // CTest stages this executable in an isolated portable folder. Refuse
     // to touch any real configuration if the binary is launched directly.
-    wchar_t exe[MAX_PATH]{};
-    GetModuleFileNameW(nullptr, exe, MAX_PATH);
-    const auto dir = fs::path(exe).parent_path();
+    const auto dir =
+        fs::path(QCoreApplication::applicationFilePath().toStdWString()).parent_path();
     const auto settings = read(dir / "settings.ini");
     if (argc != 2 || std::string(argv[1]) != "--portable-test" ||
         !fs::equivalent(dir, fs::current_path()) ||
@@ -204,7 +212,8 @@ int main(int argc, char** argv) {
     {
         auto state = std::make_unique<App>();
         App& app = *state;
-        if (!initD2D(app)) return 2;
+        installQtBackends(app);
+        if (!app.textFactory) return 2;
         app.height = 900;
         app.readingWidthPct = 100;
         auto doc = app.parser.parse(read(fixture));
@@ -253,8 +262,8 @@ int main(int argc, char** argv) {
               "DOCX fenced code does not acquire the inline color");
         check(docxRun(zip, "linked_code").find("<w:color w:val=\"B85A3C\"/>") != std::string::npos,
               "DOCX linked code preserves the link color");
+        releaseQtBackends(app);
     }
-    CoUninitialize();
     std::cout << "Inline code themes: " << failures << " failures\n";
     return failures ? 1 : 0;
 }

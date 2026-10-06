@@ -1651,8 +1651,8 @@ basis below is measured — Windows and Linux each built and tested in the same 
 | A. Source lines free of the Windows stack | 53,130 / 72,130 | **73.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 97 | 80.4% |
 | C. Files a running test links **off Windows** | 77 / 97 | 79.4% |
-| D. Test targets that *could* move, and do | 43 / 44 | 97.7% |
-| E. All test targets, run off Windows | 43 / 55 | 78.2% |
+| D. Test targets that *could* move, and do | 49 / 50 | 98.0% |
+| E. All test targets, run off Windows | 49 / 55 | 89.1% |
 
 **C MOVES 72 → 73 → 74 ON 2026-10-06. THE FIRST +1 IS `print.cpp`, AND THE SECOND IS `main_qt.cpp`, WHICH THE SENTENCE BELOW SAYS A TEST CANNOT LINK.** That was true of a test binary: it has its own `main`. The `qinta_cli` ctest runs the `qinta` binary itself, so `main()` is now on a running test's link line and executed by it, and the probe counts it. `scripts/probe-portable-linux.sh` derives the figure: 75 files on a running test's link line, minus 1 linked but never called. (Two slices later `src/window_launch_qt.cpp` joined the never-called list: linked into `qt_entry_tests`, and no test started a second application, so C stayed 75 as B rose to 77. It left that list with the tear-off slice's relaunch hook, when the tests started running it. After the print slice alone it read 74 − 1 = 73. A first draft of that paragraph said 74 and blamed a pre-existing gap of one; that came from my own count of `link.txt` files, which has no never-called exclusion, so it was a different instrument disagreeing with the row, not a stale row.)
 
@@ -1758,18 +1758,18 @@ Windows-only targets, as the count of `src/*.cpp` it compiles that are outside
 
 | target | blockers | what they are |
 |---|---|---|
-| `blockquote_layout` | 17 | `render_d2d.cpp`, `text_d2d.cpp`, `zen_mode_win32.cpp`, `tab_tearoff_win32.cpp` + 13 more, via `${INPUT_TEST_SOURCES}` — 16 from 2026-09-24, when `settings_app.cpp` joined the manifest, until 2026-09-29, when `window_chrome_win32.cpp` joined SOURCES; this cell led with `input.cpp` until 2026-09-23, two days after it joined the manifest, and then with `tabs.cpp` for one commit |
-| `code_block_layout` | 17 | the same 17 |
-| `copy_file_path` | 17 | the same 17 |
-| `inline_code_theme` | 17 | the same 17 |
-| `input_shortcuts` | 17 | the same 17 |
 | `pdf_export_win32` | 3 | `pdf_export_win32.cpp`, `render_d2d.cpp`, `text_d2d.cpp` |
 | `render_d2d` | 3 | `image_win32.cpp`, `render_d2d.cpp`, `text_d2d.cpp` |
 | `bitmap_seam` | 2 | `render_d2d.cpp`, `text_d2d.cpp` |
-| `math_layout` | 2 | `render_d2d.cpp`, `text_d2d.cpp`, via `${LEGACY_D2D_SOURCES}` |
 | `text_factory` | 2 | `render_d2d.cpp`, `text_d2d.cpp` |
 | `tab_ghost_win32` | 1 | `tab_ghost_win32.cpp` |
 | `config_paths` | 0 | **nothing** — Windows-only by *subject*: MSIX filesystem virtualization, and its own test includes `<windows.h>` for `CreateFileW` |
+
+**SIX ROWS LEFT THIS TABLE ON 2026-10-06, AND NONE OF THEM BY BECOMING CHEAP.** `blockquote_layout`,
+`code_block_layout`, `copy_file_path`, `inline_code_theme` and `input_shortcuts` (17 blockers each) and
+`math_layout` (2) were rebuilt on qinta's own sources and Qt backends when the Direct2D stack was
+retired, so their blockers did not shrink — the stack holding them stopped being the one under test.
+All six run on both hosts with no expected value recalibrated.
 
 So the cheap count is **zero**. Five of the "seven" are the `input.cpp` port wearing a different hat —
 they reach the entire Windows stack through `${INPUT_TEST_SOURCES}`, which is `${SOURCES}` minus

@@ -2281,42 +2281,13 @@ if(BUILD_TESTING)
     # window, including layout-dependent character sequences (#195).
     set(INPUT_TEST_SOURCES ${SOURCES})
     list(REMOVE_ITEM INPUT_TEST_SOURCES src/main_d2d.cpp)
-    add_executable(input_tests tests/input_tests.cpp ${INPUT_TEST_SOURCES})
-    target_include_directories(input_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(input_tests PRIVATE $<TARGET_PROPERTY:tinta,LINK_LIBRARIES>)
-    target_compile_definitions(input_tests PRIVATE $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>
-        TINTA_SHORTCUT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shortcuts-layouts.md")
-    add_test(NAME input_shortcuts COMMAND input_tests)
+    # input_tests and file_path_tests moved to the Qt backends on 2026-10-06
+    # (tinta_qt_app_test, Qt block below).
 
-    add_executable(file_path_tests tests/file_path_tests.cpp ${INPUT_TEST_SOURCES})
-    target_include_directories(file_path_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(file_path_tests PRIVATE $<TARGET_PROPERTY:tinta,LINK_LIBRARIES>)
-    target_compile_definitions(file_path_tests PRIVATE $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>)
-    add_test(NAME copy_file_path COMMAND file_path_tests)
+    # code_block_layout_tests and blockquote_layout_tests moved to the Qt backends on
+    # 2026-10-06 (tinta_qt_app_test, in the Qt block below).
 
-    add_executable(code_block_layout_tests tests/code_block_layout_tests.cpp ${INPUT_TEST_SOURCES})
-    target_include_directories(code_block_layout_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(code_block_layout_tests PRIVATE $<TARGET_PROPERTY:tinta,LINK_LIBRARIES>)
-    target_compile_definitions(code_block_layout_tests PRIVATE $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>
-        TINTA_CODE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/code-block-spacing.md")
-    add_test(NAME code_block_layout COMMAND code_block_layout_tests)
-
-    add_executable(blockquote_layout_tests tests/blockquote_layout_tests.cpp ${INPUT_TEST_SOURCES})
-    target_include_directories(blockquote_layout_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(blockquote_layout_tests PRIVATE $<TARGET_PROPERTY:tinta,LINK_LIBRARIES>)
-    target_compile_definitions(blockquote_layout_tests PRIVATE $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>
-        TINTA_QUOTE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/blockquote-spacing.md")
-    add_test(NAME blockquote_layout COMMAND blockquote_layout_tests)
-
-    add_executable(theme_tests tests/theme_tests.cpp ${INPUT_TEST_SOURCES})
-    target_include_directories(theme_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(theme_tests PRIVATE $<TARGET_PROPERTY:tinta,LINK_LIBRARIES>)
-    target_compile_definitions(theme_tests PRIVATE $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>
-        TINTA_THEME_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/inline-code-color.md")
-    add_test(NAME inline_code_theme COMMAND ${CMAKE_COMMAND}
-        -DTEST_BINARY=$<TARGET_FILE:theme_tests>
-        -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-test-$<CONFIG>
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
+    # theme_tests moved to the Qt backends on 2026-10-06 (tinta_qt_app_test, Qt block below).
 
     # Needs no display and no render target: D2DBitmap borrows, so the assertions
     # use fake addresses they never dereference.
@@ -2388,26 +2359,7 @@ if(BUILD_TESTING)
     target_include_directories(math_parser_tests PRIVATE src)
     add_test(NAME math_parser COMMAND math_parser_tests)
 
-    if(WIN32)
-    # Through ${LEGACY_D2D_SOURCES}, not the literal file names, and that was a
-    # correction: naming them literally left TINTA_LEGACY_D2D=OFF still COMPILING
-    # both backends through this one target, so the option did not mean what its own
-    # help string said. Found by grepping the OFF build log for the compile lines
-    # rather than by trusting the failing-link list, which looked right.
-    #
-    # It is NOT gated on the flag, unlike bitmap_seam_tests and render_d2d_tests: the
-    # subject here is math layout, which survives the stack change. So under OFF this
-    # target is SUPPOSED to fail at link, and that failure is inventory rather than
-    # noise.
-    add_executable(math_layout_tests tests/math_layout_tests.cpp
-        src/math_parser.cpp src/math_macros.cpp src/math_render.cpp src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
-        ${LEGACY_D2D_SOURCES})
-    target_include_directories(math_layout_tests PRIVATE include src ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(math_layout_tests PRIVATE md4c d2d1 dwrite windowscodecs shell32 ole32)
-    target_compile_definitions(math_layout_tests PRIVATE UNICODE _UNICODE
-        TINTA_MATH_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/math-compatibility.md")
-    add_test(NAME math_layout COMMAND math_layout_tests)
-    endif()  # WIN32
+    # math_layout_tests moved to the Qt backends on 2026-10-06 (tinta_qt_app_test, Qt block below).
 
     add_executable(mermaid_tests
         tests/mermaid_tests.cpp
@@ -3165,6 +3117,56 @@ if(BUILD_TESTING)
         # Qt6_FOUND, for the same reason image_tests' is -- a partial Qt install
         # should lose this target and SAY so, not fail the configure.
         if(Qt6Widgets_FOUND)
+            # A test built on qinta's own app sources and Qt backends -- what the six tests that
+            # used to take their App from the Direct2D stack (initD2D) are built as since that
+            # stack was retired on 2026-10-06. The same libraries, definitions and runtime as
+            # qt_entry_tests below, so a test and the app cannot be built differently. They run
+            # on every host now, not only Windows. The QT_QPA_PLATFORM pin is per platform for
+            # the reason TINTA_QPA_PLATFORM gives, and on Windows the Qt bin directory joins
+            # PATH through TINTA_QT_PATH_TESTS further down.
+            function(tinta_qt_app_test target test_name test_source)
+                add_executable(${target} ${test_source} ${QINTA_APP_SOURCES})
+                target_include_directories(${target} PRIVATE include ${md4c_SOURCE_DIR}/src)
+                target_link_libraries(${target} PRIVATE
+                    md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
+                target_compile_definitions(${target} PRIVATE TINTA_QT_UI
+                    ${TINTA_VERSION_DEFINITIONS} ${ARGN})
+                if(WIN32)
+                    target_compile_definitions(${target} PRIVATE UNICODE _UNICODE)
+                    target_link_libraries(${target} PRIVATE shell32 dwmapi)
+                    target_sources(${target} PRIVATE src/window_chrome_win32.cpp)
+                endif()
+                set_property(TARGET ${target} PROPERTY
+                    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+                # test_name NONE: the caller registers its own test (the theme test runs through
+                # the isolated portable-folder wrapper rather than directly).
+                if(NOT test_name STREQUAL "NONE")
+                    add_test(NAME ${test_name} COMMAND ${target})
+                    set_tests_properties(${test_name} PROPERTIES
+                        ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+                endif()
+            endfunction()
+
+            tinta_qt_app_test(code_block_layout_tests code_block_layout
+                tests/code_block_layout_tests.cpp
+                TINTA_CODE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/code-block-spacing.md")
+            tinta_qt_app_test(blockquote_layout_tests blockquote_layout
+                tests/blockquote_layout_tests.cpp
+                TINTA_QUOTE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/blockquote-spacing.md")
+            tinta_qt_app_test(input_tests input_shortcuts tests/input_tests.cpp
+                TINTA_SHORTCUT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shortcuts-layouts.md")
+            tinta_qt_app_test(file_path_tests copy_file_path tests/file_path_tests.cpp)
+            tinta_qt_app_test(math_layout_tests math_layout tests/math_layout_tests.cpp
+                TINTA_MATH_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/math-compatibility.md")
+            tinta_qt_app_test(theme_tests NONE tests/theme_tests.cpp
+                TINTA_THEME_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/inline-code-color.md")
+            add_test(NAME inline_code_theme COMMAND ${CMAKE_COMMAND}
+                -DTEST_BINARY=$<TARGET_FILE:theme_tests>
+                -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/theme-test-$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
+            set_tests_properties(inline_code_theme PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+
             add_executable(qt_entry_tests
                 tests/qt_entry_tests.cpp
                 # ISC-17's Win32 half: EnumDisplayMonitors/GetMonitorInfoW, the enumeration
@@ -3304,7 +3306,8 @@ if(BUILD_TESTING)
                 # It is Widgets-gated like qt_entry, so it appends in the same place; leaving it out
                 # would have bought a third modal "Qt6Core.dll was not found" box and a red with no
                 # output, on a target whose whole job is to make a drawing claim legible.
-                list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt)
+                list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt code_block_layout
+                    blockquote_layout inline_code_theme math_layout input_shortcuts copy_file_path)
                 # qinta_cli runs the qinta binary itself, which needs the same DLLs.
                 if(TARGET qinta)
                     list(APPEND TINTA_QT_PATH_TESTS qinta_cli)
@@ -3472,13 +3475,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=32
+        -DEXPECTED_CHECKS=26
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=32
+        -DEXPECTED_CHECKS=26
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

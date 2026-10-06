@@ -1,4 +1,10 @@
+// ON THE Qt BUILD SINCE 2026-10-06, when the Direct2D stack was retired: the strokes go to
+// handleKeyDown and handleCharInput with a null window handle, exactly as src/qt_window.cpp
+// delivers them, where they used to go with a message-only HWND. The configuration home is
+// pinned by tests/qt_test_app.h. The cases are unchanged.
 #include "input.h"
+#include "keymap.h"
+#include "qt_test_app.h"
 #include "settings.h"
 
 #include <filesystem>
@@ -7,6 +13,15 @@
 #include <memory>
 #include <sstream>
 #include <system_error>
+
+// keymap.h carries the virtual-key codes a portable source names; these two are named only
+// here. The Windows values, so a Windows build that does see <windows.h> agrees.
+#ifndef VK_F3
+#define VK_F3 0x72
+#endif
+#ifndef VK_OEM_1
+#define VK_OEM_1 0xBA
+#endif
 
 namespace {
 int failures = 0;
@@ -22,13 +37,11 @@ void stroke(App& app, unsigned vk, unsigned character = 0) {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
+    QtTestApp qt(argc, argv);
+    if (!qt.ok()) return 2;
     auto state = std::make_unique<App>();
     App& app = *state;
-    app.hwnd = CreateWindowExW(0, L"STATIC", L"Tinta input tests", 0,
-                              0, 0, 0, 0, HWND_MESSAGE, nullptr, nullptr, nullptr);
-    check(app.hwnd != nullptr, "message-only test window created");
-    if (!app.hwnd) return 1;
     app.currentFile = TINTA_SHORTCUT_FIXTURE;
     app.width = 1050;
     app.height = 900;
@@ -181,8 +194,6 @@ int main() {
         std::filesystem::remove(probe, ec);
     }
 
-    DestroyWindow(app.hwnd);
-    app.hwnd = nullptr;
     std::cout << "Input shortcuts: " << failures << " failures\n";
     return failures ? 1 : 0;
 }

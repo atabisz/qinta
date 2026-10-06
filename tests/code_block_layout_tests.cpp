@@ -1,4 +1,8 @@
-#include "d2d_init.h"
+// ON THE Qt BACKENDS SINCE 2026-10-06, when the Direct2D stack was retired: the App comes
+// from installQtBackends (tests/qt_test_app.h), the same call qinta makes, where it came
+// from initD2D. The cases and the fixture are unchanged.
+#include "qt_test_app.h"
+#include "theme_apply.h"
 #include "document.h"
 #include "render.h"
 #include "utils.h"
@@ -103,11 +107,13 @@ void testMixedFixture(App& app) {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
+    QtTestApp qt(argc, argv);
+    if (!qt.ok()) return 2;
     {
         auto state = std::make_unique<App>();
         App& app = *state;
-        if (!initD2D(app)) return 2;
+        if (!QtTestApp::install(app)) return 2;
         app.height = 900;
         app.readingWidthPct = 100;
         for (int theme : {0, 5}) {
@@ -122,8 +128,8 @@ int main() {
                 }
             }
         }
+        releaseQtBackends(app);
     }
-    CoUninitialize();
     std::cout << "Code block layout: " << failures << " failures\n";
     return failures ? 1 : 0;
 }

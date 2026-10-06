@@ -28,6 +28,9 @@
 // nobody can deliver returns an invalid ZenRestore, which toggleZenMode already reads as
 // "entering failed".
 
+#include "tab_ghost.h"  // TabGhostCard, for the tear-off ghost members
+
+#include <string>
 #include <functional>
 #include <utility>
 
@@ -68,6 +71,17 @@ struct WindowSink {
     // the pin flips App::alwaysOnTop only for a request that landed -- a pin drawn as set on a
     // window that is not on top is the wrong picture the Win32 branch never shows.
     std::function<bool(bool)> stayOnTop;
+    // Tab tear-off (slice 24). tinta's tab drag reads screen coordinates through ClientToScreen
+    // and paints its ghost card in a layered HWND; the Qt window answers the same three
+    // questions here: where a client point is on the screen, whether a screen point is on THIS
+    // window, and show/move/hide of the ghost card (src/tab_ghost_qt.cpp draws it).
+    std::function<void(int x, int y, int& screenX, int& screenY)> toScreen;
+    std::function<bool(int screenX, int screenY)> containsScreen;
+    std::function<void(const TabGhostCard& card, const std::wstring& title, int screenX,
+                       int screenY)>
+        ghostShow;
+    std::function<void(int screenX, int screenY)> ghostMove;
+    std::function<void()> ghostHide;
 };
 
 // The single slot. Not part of the surface callers use.

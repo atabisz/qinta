@@ -152,7 +152,9 @@
 #include "paint_document.h"
 #include "platform_paths.h"
 #include "print.h"
-#include "instance_channel_qt.h"  // the single-instance hand-off
+#include "instance_channel_qt.h"
+#include "window_launch_qt.h"  // the relaunch test hook
+#include "utils.h"            // launchQuickNoteWindow, launchDocumentWindow  // the single-instance hand-off
 #include "print_qt.h"  // printDocumentTo, the testable half of the Qt print arm
 #include "image_api.h"  // encodePng, for the factory probe
 #include "render.h"     // layoutDocument, run outside paint by the factory probe
@@ -4039,6 +4041,90 @@ int main(int argc, char** argv) {
               "acknowledges it");
         check(joined,
               "join: the handed-over document opens as a new tab and becomes the current file");
+    }
+
+    // ---- TAB TEAR-OFF (slice 24), AND THE RELAUNCHES RUN AT LAST --------------------------
+    //
+    // A drag below the strip detaches the tab under the ghost card; back over the strip it
+    // snaps home; a release over this window keeps it, a release anywhere else opens it in a new
+    // window at the drop point. All through the real mouse router. The new window is a RELAUNCH,
+    // and inside this test the relaunched binary would be qt_entry_tests itself, so the hook
+    // (include/window_launch_qt.h) records the argument list instead of starting anything --
+    // which is also what finally lets the two slice-21 launchers be run, not just linked.
+    {
+        std::vector<std::vector<std::string>> relaunches;
+        tinta::setRelaunchHookForTests(
+            [&relaunches](const std::vector<std::string>& args) { relaunches.push_back(args); });
+
+        // The slice-21 launchers, through the hook, parsed back the way the new process would.
+        launchQuickNoteWindow();
+        launchDocumentWindow(L"note.md");
+        const bool quickNoteArgs =
+            relaunches.size() == 2 && parse_qt_launch(relaunches[0]).quickNote &&
+            parse_qt_launch(relaunches[0]).cascade;
+        const bool documentArgs = relaunches.size() == 2 &&
+                                  parse_qt_launch(relaunches[1]).startInEditMode &&
+                                  parse_qt_launch(relaunches[1]).inputFile == "note.md";
+        relaunches.clear();
+
+        QtAppWindow dragWindow(app);
+        dragWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        dragWindow.resize(800, 500);
+        check(dragWindow.openDocument(tmpUtf8), "tearoff: the first tab's document opens");
+        tabOpenPath(app, nullptr, tallUtf8, true);
+        grabWindow(dragWindow);
+        const size_t tabsAtStart = app.tabs.size();
+        const float stripMid = chromeTopHeight(app) * 0.5f;
+        const QPointF onFirstTab(dpi(app, 60.0f), stripMid);
+        const QPointF below(dpi(app, 60.0f), 300.0f);
+        auto move = [&](const QPointF& p) {
+            sendMouse(dragWindow, QEvent::MouseMove, p, Qt::NoButton, Qt::LeftButton);
+        };
+
+        sendMouse(dragWindow, QEvent::MouseButtonPress, onFirstTab, Qt::LeftButton,
+                  Qt::LeftButton);
+        const std::string draggedPath = app.currentFile;  // the press activated the first tab
+        move(below);
+        const bool detached = app.tabDragDetached && dragWindow.ghostShowing();
+        move(onFirstTab);
+        const bool snappedHome = !app.tabDragDetached && !dragWindow.ghostShowing();
+        move(below);
+        sendMouse(dragWindow, QEvent::MouseButtonRelease, below, Qt::LeftButton, Qt::NoButton);
+        const bool keptOnThisWindow =
+            relaunches.empty() && app.tabs.size() == tabsAtStart && !dragWindow.ghostShowing();
+
+        // Again, released well left of the window: a new window at the drop point.
+        sendMouse(dragWindow, QEvent::MouseButtonPress, onFirstTab, Qt::LeftButton,
+                  Qt::LeftButton);
+        const std::string tornPath = app.currentFile;
+        move(below);
+        const QPointF away(-600.0f, 300.0f);
+        move(away);
+        sendMouse(dragWindow, QEvent::MouseButtonRelease, away, Qt::LeftButton, Qt::NoButton);
+        bool tornOff = false;
+        if (relaunches.size() == 1) {
+            const tinta::LaunchOptions torn = parse_qt_launch(relaunches[0]);
+            tornOff = torn.cascade && torn.forceTabStrip && torn.hasPos &&
+                      torn.inputFile == tornPath;
+        }
+        const bool closedLocally = app.tabs.size() == tabsAtStart - 1 && !dragWindow.ghostShowing();
+
+        tinta::setRelaunchHookForTests(nullptr);
+        std::printf("tearoff quick_note_args=%d document_args=%d detached=%d snapped_home=%d "
+                    "kept=%d torn_off=%d closed_locally=%d tabs=%zu->%zu dragged_is_torn=%d\n",
+                    quickNoteArgs, documentArgs, detached, snappedHome, keptOnThisWindow, tornOff,
+                    closedLocally, tabsAtStart, app.tabs.size(), draggedPath == tornPath);
+        check(quickNoteArgs && documentArgs,
+              "relaunch: Ctrl+Shift+N and a note window pass arguments the new process reads as "
+              "--new and --edit <path>");
+        check(detached, "tearoff: a drag below the strip detaches the tab and shows its ghost card");
+        check(snappedHome, "tearoff: back over the strip the tab snaps home and the ghost goes");
+        check(keptOnThisWindow,
+              "tearoff: released over this window, the tab stays and nothing is launched");
+        check(tornOff,
+              "tearoff: released away from the window, it relaunches --cascade --tabbed --pos X Y "
+              "with the dragged document");
+        check(closedLocally, "tearoff: and the torn-off tab leaves this window");
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

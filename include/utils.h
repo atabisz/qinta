@@ -55,9 +55,9 @@ void updateWindowTitle(App& app);
 // drag that detaches.
 void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
+// Unguarded too since slice 24: the Qt tab drag detaches and drops now, so it is a caller.
 void launchTornOffTabWindow(int x, int y, const std::string& utf8Path);
-#else
+#if !(defined(_WIN32) && !defined(TINTA_QT_UI))
 // THE OTHER ARM OF THE SAME GUARD: where the Win32 window stack opens a window, every
 // other stack refuses by name -- a chip and a line on stderr, src/print_qt.cpp's two
 // channels. `what` names the feature on stderr; the chip is English only, for the reason

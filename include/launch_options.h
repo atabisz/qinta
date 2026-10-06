@@ -116,21 +116,23 @@ LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
 LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
                                  SlashPolicy slashPolicy = kNativeSlashPolicy);
 
-// TWO OF THE THREE SELF-RELAUNCHES, as argument lists, so the window that starts a second
-// window and the parse that reads its command line can be tested against each other.
-// src/quicknote_win32.cpp passes these exact flags through ShellExecuteW as one quoted string;
-// src/window_launch_qt.cpp passes them to QProcess::startDetached as a list. Both carry
-// --cascade, which is what makes WinMain skip the single-instance hand-off -- the reason a Qt
-// relaunch needs no IPC. The third, the torn-off tab, has no builder: its only caller is the
-// Windows tab drag, and the Qt drag never detaches, so a builder would serve no caller.
 // THE SINGLE-INSTANCE RULE (Win11 Notepad model): a plain file launch joins the running window
 // as a new tab, unless it is a quick note, a cascade relaunch, a harness switch that writes and
 // exits, or the user turned tabs off. WinMain's inline condition, lifted here 2026-10-06 so the
 // Qt arm (src/instance_channel_qt.cpp) and WinMain answer it with one function.
 bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs);
 
+// THE THREE SELF-RELAUNCHES, as argument lists, so the window that starts a second window and
+// the parse that reads its command line can be tested against each other.
+// src/quicknote_win32.cpp passes these exact flags through ShellExecuteW as one quoted string;
+// src/window_launch_qt.cpp passes them to QProcess::startDetached as a list. All three carry
+// --cascade, which is what makes WinMain skip the single-instance hand-off -- the reason a Qt
+// relaunch needs no IPC. The torn-off tab's builder arrived one slice after the other two, when
+// the Qt tab drag started detaching and became its caller.
 std::vector<std::string> quickNoteRelaunchArgs();                            // Ctrl+Shift+N
 std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path);  // a note window
+std::vector<std::string> tornOffRelaunchArgs(int x, int y,
+                                             const std::string& utf8Path);  // a torn-off tab
 
 // THE DESTRUCTIVE HALF OF A LAUNCH, AND THE GUARD THE PARSER ALONE CANNOT GIVE IT.
 //

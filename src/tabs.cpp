@@ -1481,8 +1481,10 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
     // Clear of the strip: the tab floats as a ghost card until release
     float stripH = chromeTopHeight(app);
     bool outside = tinta::tabGhostShouldDetach(app.contentScale, (float)y, stripH);
-    // Off Windows a tab never detaches: there is no ghost window and no tear-off
-    // (include/tab_tearoff_win32.h), so a drag below the strip keeps reordering.
+    // Off the Win32 window stack the same detach runs through the window sink since
+    // 2026-10-06 (include/window_sink.h): toScreen for the pointer's screen position and the
+    // ghost card's show/move/hide. A window that answers none of them keeps reordering, which
+    // is what every Qt window did before.
 #if defined(_WIN32) && !defined(TINTA_QT_UI)
     if (outside && detachable) {
         POINT screen = {x, y};
@@ -1506,8 +1508,29 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         requestRepaint(hwnd);
     }
 #else
-    (void)outside;
-    (void)detachable;
+    {
+        tinta::WindowSink& sink = tinta::windowSinkSlot();
+        if (outside && detachable && sink.toScreen && sink.ghostShow) {
+            int sx = 0, sy = 0;
+            sink.toScreen(x, y, sx, sy);
+            tinta::TabGhostPlacement at = tinta::tabGhostPlacement(
+                app.contentScale, sx, sy, (int)app.tabDragOffsetX);
+            if (!app.tabDragDetached) {
+                app.tabDragDetached = true;
+                sink.ghostShow(ghostCardFor(app), app.tabs[index].title, at.x, at.y);
+                requestRepaint(hwnd);
+            } else if (sink.ghostMove) {
+                sink.ghostMove(at.x, at.y);
+            }
+            return;
+        }
+        if (app.tabDragDetached) {
+            // Back over the strip: the tab snaps home and reordering resumes
+            app.tabDragDetached = false;
+            if (sink.ghostHide) sink.ghostHide();
+            requestRepaint(hwnd);
+        }
+    }
 #endif
 
     // Reorder: the dragged tab claims the slot under the pointer
@@ -1568,10 +1591,29 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
         }
     }
 #else
-    (void)index;
-    (void)detached;
-    (void)x;
-    (void)y;
+    // THE DROP, OFF THE Win32 STACK (2026-10-06). Over this window: snap home, as Win32's
+    // ThisWindow. Anywhere else: a new window at the drop point, as Win32's Nowhere. Win32's
+    // third answer, OtherWindow -- the tab moves into another running Tinta -- has no portable
+    // question to ask ("which process owns the window under the cursor"), so on this stack a drop
+    // over another qinta window ALSO opens a new one. Stated here, in include/window_sink.h and
+    // in the README rather than discovered.
+    {
+        tinta::WindowSink& sink = tinta::windowSinkSlot();
+        if (detached && sink.ghostHide) sink.ghostHide();
+        if (detached && index < (int)app.tabs.size() && sink.toScreen) {
+            bool active = index == app.activeTab;
+            // A COPY: dragCloseLocal below replaces the tab the reference would point into.
+            const std::string path = active ? app.currentFile : app.tabs[index].path;
+            int sx = 0, sy = 0;
+            sink.toScreen(x, y, sx, sy);
+            const bool overThisWindow = sink.containsScreen && sink.containsScreen(sx, sy);
+            if (!overThisWindow && app.tabs.size() > 1) {
+                launchTornOffTabWindow(sx - (int)dpi(app, 120.0f), sy - (int)dpi(app, 20.0f),
+                                       path);
+                dragCloseLocal(app, hwnd, index);
+            }
+        }
+    }
 #endif
     requestRepaint(hwnd);
 }

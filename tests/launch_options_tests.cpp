@@ -507,9 +507,14 @@ int main() {
         check(d.cascade && d.startInEditMode && d.inputFile == "notes/a b.md" && d.unknown.empty(),
               "RELAUNCH: a note window's arguments parse as --cascade --edit <path>, a path with "
               "a space intact, because the list form never quotes");
+        const tinta::LaunchOptions t = parse(tinta::tornOffRelaunchArgs(-40, 320, "c.md"));
+        check(t.cascade && t.forceTabStrip && t.hasPos && t.posX == -40 && t.posY == 320 &&
+                  t.inputFile == "c.md" && t.unknown.empty(),
+              "RELAUNCH: a torn-off tab's arguments parse as --cascade --tabbed --pos X Y <path>, "
+              "a negative X included -- a window dropped left of the primary screen");
         // Every relaunch must carry --cascade: it is what skips the single-instance hand-off.
-        check(n.cascade && d.cascade,
-              "RELAUNCH: both carry --cascade, so neither is swallowed by an existing window");
+        check(n.cascade && d.cascade && t.cascade,
+              "RELAUNCH: all three carry --cascade, so none is swallowed by an existing window");
     }
 
     // --- THE SINGLE-INSTANCE RULE: one plain file joins; every exclusion keeps its own window ---

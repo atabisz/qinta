@@ -136,6 +136,10 @@ std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path) {
     return {"--cascade", "--edit", utf8Path};
 }
 
+std::vector<std::string> tornOffRelaunchArgs(int x, int y, const std::string& utf8Path) {
+    return {"--cascade", "--tabbed", "--pos", std::to_string(x), std::to_string(y), utf8Path};
+}
+
 PlannedOutput plannedOutput(const LaunchOptions& options) {
     // Dispatch order, taken from src/main_d2d.cpp: --dumpchrome, then --printpages, then the three
     // exporters. That file returns from the first branch it enters, so the first match here is the

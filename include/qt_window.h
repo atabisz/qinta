@@ -125,6 +125,10 @@
 #include "geometry.h"
 #include "window_sink.h"  // tinta::WindowChrome
 
+namespace tinta {
+class TabGhostWidget;
+}
+
 class QCloseEvent;
 class QContextMenuEvent;
 class QKeyEvent;
@@ -184,6 +188,8 @@ public:
     // the DWM attributes on Windows, and alone elsewhere, where nothing paints them -- so the
     // test can tell "delivered and not painted" (Linux, by design) from "never delivered".
     int chromeCount() const { return chromeCount_; }
+    // Whether a detached tab's ghost card is on screen (slice 24), for tests.
+    bool ghostShowing() const { return ghost_ != nullptr; }
     const tinta::WindowChrome& lastChrome() const { return lastChrome_; }
 
     // Load `path` into the App, retitle the window and repaint. Returns false and
@@ -244,6 +250,9 @@ private:
     std::map<unsigned, QTimer*> timers_;
     int chromeCount_ = 0;
     tinta::WindowChrome lastChrome_;
+    // The tab drag's ghost card while a tab is detached (slice 24), owned here because the
+    // window sink's ghostShow/ghostHide are this window's; null when no tab is detached.
+    tinta::TabGhostWidget* ghost_ = nullptr;
 };
 
 #endif // TINTA_QT_WINDOW_H

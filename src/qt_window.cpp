@@ -38,6 +38,7 @@
 #include "repaint_sink.h"
 #include "scroll.h"
 #include "scrollbar.h"
+#include "tab_ghost_qt.h"
 #include "text_api.h"
 #include "text_utils.h"
 #include "theme_apply.h"
@@ -160,6 +161,36 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
         native->setFlag(Qt::WindowStaysOnTopHint, on);
         return native->flags().testFlag(Qt::WindowStaysOnTopHint) == on;
     };
+    // The tab drag's tear-off (slice 24): tinta's ClientToScreen, the drop's "is this point on
+    // this window", and the ghost card, which src/tab_ghost_qt.cpp draws.
+    sink.toScreen = [this](int x, int y, int& screenX, int& screenY) {
+        const QPoint global = mapToGlobal(QPoint(x, y));
+        screenX = global.x();
+        screenY = global.y();
+    };
+    sink.containsScreen = [this](int screenX, int screenY) {
+        return frameGeometry().contains(QPoint(screenX, screenY));
+    };
+    sink.ghostShow = [this](const tinta::TabGhostCard& card, const std::wstring& title,
+                            int screenX, int screenY) {
+        tinta::tabGhostDestroy(ghost_);
+        if (testAttribute(Qt::WA_DontShowOnScreen)) {
+            // A window that is not on screen gets a ghost that is not on screen either --
+            // the test windows are built this way, and on Windows' real platform plugin an
+            // ordinary show() would flash the card onto the desktop of whoever ran ctest.
+            ghost_ = new tinta::TabGhostWidget(card, QString::fromStdWString(title));
+            ghost_->setAttribute(Qt::WA_DontShowOnScreen, true);
+            ghost_->move(screenX, screenY);
+            ghost_->show();
+        } else {
+            ghost_ = tinta::tabGhostCreate(card, QString::fromStdWString(title), screenX,
+                                           screenY);
+        }
+    };
+    sink.ghostMove = [this](int screenX, int screenY) {
+        if (ghost_) tinta::tabGhostMove(ghost_, screenX, screenY);
+    };
+    sink.ghostHide = [this]() { tinta::tabGhostDestroy(ghost_); };
     tinta::setWindowSink(std::move(sink));
     // Once now, because the first applyTheme ran in applySavedTheme before this window existed
     // and delivered to nobody. winId() creates the native window early; that is harmless for a
@@ -260,6 +291,8 @@ QtAppWindow::~QtAppWindow() {
     // and clearing here would then be removing somebody else's.
     tinta::clearRepaintSink();
     tinta::clearWindowSink();
+    // A tab still detached when the window goes: its ghost is a top-level widget, not a child.
+    tinta::tabGhostDestroy(ghost_);
     // The QTimers themselves are children of this widget and go with it.
     tinta::clearTimerSink();
 }

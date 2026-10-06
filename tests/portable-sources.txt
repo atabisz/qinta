@@ -1374,8 +1374,9 @@ settings_app.cpp
 # printDocument refused until the QPrinter slice the same day; it prints through QPrinter now.
 print.cpp
 
-# The Qt arms of two self-relaunches (Ctrl+Shift+N, a note in its own window), 2026-10-06.
-# Linked into qinta; the argument lists they pass are asserted in tests/launch_options_tests.cpp.
+# The Qt arms of the three self-relaunches (Ctrl+Shift+N, a note in its own window, a torn-off
+# tab), 2026-10-06. Linked into qinta and RUN by qt_entry_tests through a hook that records the
+# argument list instead of starting a process (include/window_launch_qt.h).
 window_launch_qt.cpp
 
 # The single-instance hand-off over QLocalSocket (2026-10-06); linked into qinta and run by

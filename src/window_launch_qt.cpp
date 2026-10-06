@@ -1,6 +1,7 @@
 #include "utils.h"
 
 #include "launch_options.h"
+#include "window_launch_qt.h"
 #include "text_utils.h"
 
 #include <QCoreApplication>
@@ -8,10 +9,11 @@
 #include <QString>
 #include <QStringList>
 
+#include <functional>
 #include <string>
 #include <vector>
 
-// THE QT ARMS OF TWO SELF-RELAUNCHES: Ctrl+Shift+N's new window and the folder browser's new
+// THE QT ARMS OF THE THREE SELF-RELAUNCHES (the third, the torn-off tab, since slice 24): Ctrl+Shift+N's new window and the folder browser's new
 // note in its own window. src/quicknote_win32.cpp is the Windows arm and passes the same flags
 // through ShellExecuteW. Until 2026-10-06 both refused on this stack, for a reason the Windows
 // file still records: `--new` was refused by name here, so a relaunch would have started a
@@ -27,7 +29,16 @@
 
 namespace {
 
+std::function<void(const std::vector<std::string>&)>& relaunchHook() {
+    static std::function<void(const std::vector<std::string>&)> hook;
+    return hook;
+}
+
 void relaunch(const std::vector<std::string>& args) {
+    if (relaunchHook()) {
+        relaunchHook()(args);
+        return;
+    }
     QStringList list;
     for (const std::string& a : args) list << QString::fromStdString(a);
     QProcess::startDetached(QCoreApplication::applicationFilePath(), list);
@@ -35,8 +46,18 @@ void relaunch(const std::vector<std::string>& args) {
 
 }  // namespace
 
+void tinta::setRelaunchHookForTests(std::function<void(const std::vector<std::string>&)> hook) {
+    relaunchHook() = std::move(hook);
+}
+
 void launchQuickNoteWindow() { relaunch(tinta::quickNoteRelaunchArgs()); }
 
 void launchDocumentWindow(const std::wstring& fullPath) {
     relaunch(tinta::documentRelaunchArgs(toUtf8(fullPath)));
+}
+
+// The torn-off tab (slice 24): a new window at screen (x, y) holding the dragged document, with
+// the tab row kept, as src/quicknote_win32.cpp's arm passes it.
+void launchTornOffTabWindow(int x, int y, const std::string& utf8Path) {
+    relaunch(tinta::tornOffRelaunchArgs(x, y, utf8Path));
 }

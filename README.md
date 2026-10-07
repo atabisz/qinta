@@ -1058,24 +1058,22 @@ The tests carry these as per-backend expectations, so a future change that accid
 ### The open product decision: the Windows C runtime
 
 This one is not a portability question and it is not mine to settle, so it is written down
-rather than decided. `CMakeLists.txt:20-22` links the whole tree against the **static** CRT,
-on a stated promise: the exe runs on a clean Windows install with no VC++ redistributable,
-which is what keeps Tinta a single file you can copy. **Qt cannot be linked against the
-static CRT.** So the moment `render_qt.cpp` and `text_qt.cpp` stop being a tested seam and
-become the shipping backend, `tinta.exe` faces the choice the two Qt *test* targets already
-had to make, and the single-file promise is what pays for it.
+rather than decided. The `if(MSVC)` block at the top of `CMakeLists.txt` still links the tree
+against the **static** CRT, on upstream Tinta's promise: the exe runs on a clean Windows
+install with no VC++ redistributable, which is what kept Tinta a single file you can copy.
+**Qt cannot be linked against the static CRT**, so every target that links Qt overrides it to
+the dynamic CRT, and `qinta` is one of them.
 
-The options are a dynamic CRT plus a redistributable dependency, shipping the CRT DLLs
-alongside the exe, or a static Qt build — and each trades something real.
+**Since 2026-10-07 that promise covers no shipping binary.** It was intact while `tinta.exe`
+existed, because `tinta` was the product and stayed static. With `tinta` retired, the only
+Windows executable is `qinta.exe`, which is dynamic-CRT and needs the Qt DLLs beside it; the
+CI artifact is already a `windeployqt` folder, not a single file. The static default now only
+applies to the test targets that link no Qt. So by default the decision has already gone to
+"a folder of DLLs", and what is still open is how that folder reaches a user.
 
-**This got sharper rather than staying hypothetical: `qinta` is now a Windows target that
-is not a test, and it carries the dynamic-CRT override.** Until this pass the override touched
-only `qt_text` and `render_api`, which nobody ships, so the promise at `CMakeLists.txt:20-22`
-was intact for every product binary. There are now two Windows executables built from one tree
-under two different C runtimes, and the one that is the future of the stack is the one that
-cannot keep the promise. Nothing breaks today — `tinta.exe` is unchanged and still static —
-but the decision is no longer ahead of the port, it is inside it, and the first person to ship
-a Qt Windows build makes it whether they mean to or not.
+The options are a dynamic CRT plus a VC++ redistributable dependency, shipping the CRT DLLs
+alongside the exe (app-local), or a static Qt build. Each trades something real. A MinGW build
+([below](#planned-mingw-on-windows-once-the-direct2d-code-is-gone)) changes the question again.
 
 ### Planned: MinGW on Windows, once the Direct2D code is gone
 
@@ -1090,10 +1088,10 @@ MinGW-w64 supplies its own headers and import libraries and links against the C 
 itself ships (UCRT); `llvm-mingw` (Clang) and MSYS2's GCC are both
 candidates.
 
-**It waits for the Direct2D and DirectWrite code to be removed, and not before.** MinGW's
-headers have historically lagged Microsoft's for the recent Direct2D and DirectWrite interfaces
-(`d2d1_3`, `dwrite_3`), so tinta is the part most likely to fail to build, and it is the part
-that is being deleted anyway. Once only qinta is left, the switch costs:
+**It waited for the Direct2D and DirectWrite code to be removed, and that happened on
+2026-10-07.** MinGW's headers have historically lagged Microsoft's for the recent Direct2D and
+DirectWrite interfaces (`d2d1_3`, `dwrite_3`), so tinta was the part most likely to fail to
+build, and it was deleted rather than ported. Only qinta is left, so the switch now costs:
 
 - a **MinGW Qt kit** (Qt's `mingw_64`, or MSYS2's `qt6`) in place of `msvc2022_64`, locally and
   in CI;
@@ -1140,7 +1138,9 @@ are the record. This table is only the index.
 | open | Dropping a torn-off tab onto ANOTHER running `qinta` window: no portable "which process owns the window under the cursor"; on Qt that drop opens a new window | Not attempted |
 | 2026-10-06 | `qinta` draws tinta's whole frame: start page, editor, tab strip, search, every overlay and dialog (`src/render_frame.cpp`) | Done |
 | 2026-10-06 | `qinta` shows one row of caption buttons: the tab strip leaves minimise, maximise and close to the native title bar | Done |
-| last | Delete the Direct2D stack: `main_d2d.cpp`, `d2d_init.cpp`, `chrome_dump_d2d.cpp` and every Windows seam half that already has a Qt half | To do |
+| 2026-10-07 | Slice 25: retire `tinta` and delete the Direct2D stack — `main_d2d.cpp`, `d2d_init.cpp`, `chrome_dump_d2d.cpp` and ten more files, 4,821 lines, nothing ported | Done |
+| 2026-10-07 | `/register` on `qinta`: `qinta.exe` owns the `.md`, `.markdown` and `.mmd` association as `Qinta.MarkdownFile` | Done |
+| open | Collapse the four Win32 seam halves that already have a Qt half — `clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`, `platform_process_win32.cpp` — onto `clipboard_qt.cpp`, `keyboard_qt.cpp`, `platform_paths_qt.cpp` and `platform_process_qt.cpp`. Slice 25 deleted only the halves `qinta` did not link; `qinta` still selects these four on Windows | To do |
 | open | `settings_win32.cpp` (file association in the registry) and `window_chrome_win32.cpp` (the DWM title bar `qinta` itself calls) are Windows by nature. Deleting Direct2D does not remove them, so they stay counted below until somebody decides how a Windows-only platform file should be counted | Undecided |
 
 What the **To do** count below is made of is derived, not listed by hand:
@@ -1666,7 +1666,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 > only that `grep` found something, which is why both arms exist and why neither is optional.
 >
 > **The arms read the gate's printed claim COUNT and not only its exit status, and that turned
-> out to be load-bearing rather than cautious.** One of the **eighteen** claims needs PCRE2 and
+> out to be load-bearing rather than cautious.** One of the **twenty** claims needs PCRE2 and
 > sits behind a `command -v rg` guard. Measured on this tree with `rg` off `PATH`, **at a pass
 > when the total was seventeen**: the script checks **sixteen** claims, finds nothing wrong,
 > exits **0**, and prints *"All 16 derived claims are the ones the README states."* Those two
@@ -1674,7 +1674,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 > measurement rewritten to match a later count stops being a measurement — what transfers is the
 > shape, one-claim-short and silent about it, not the literal 16. A bare `add_test` reading the
 > exit code would have recorded that as a clean pass with one published figure silently
-> unasserted — so the arm fails when the count is not **eighteen**, whatever the exit status says.
+> unasserted — so the arm fails when the count is not **twenty**, whatever the exit status says.
 
 | Basis | Measured | |
 |---|---|---|

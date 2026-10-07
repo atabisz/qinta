@@ -16,6 +16,9 @@
 #ifndef _WIN32
 #include <unistd.h>  // getpid, for the draft filename's process id
 #endif
+#ifdef __APPLE__
+#include <libproc.h>  // proc_pidpath: macOS has no /proc, see draftOwnerIsLiveSibling
+#endif
 
 // THE <shlobj.h> THIS FILE OPENED WITH IS GONE, AND IT WAS NEVER USED FOR WHAT ITS
 // NAME SUGGESTS. Nothing here called a shell-folder function: the config directory
@@ -147,8 +150,8 @@ void draftsDeleteAll(const App& app) {
 // reasoning as signals.cpp's parkTimestamp last slice -- a seam is two files and a
 // declaration for a decision that recurs, and this one does not.
 //
-// THE TWO ARMS DO NOT GIVE THE SAME GUARANTEE, and that is written here rather than
-// hidden behind the shared name. Both answer two questions -- is the pid alive, and
+// THE THREE ARMS DO NOT GIVE THE SAME GUARANTEE, and that is written here rather than
+// hidden behind the shared name. All answer two questions -- is the pid alive, and
 // is it us -- but:
 //
 //   Windows asks the kernel directly, and a pid belonging to another user's process
@@ -156,17 +159,16 @@ void draftsDeleteAll(const App& app) {
 //   Linux reads /proc/<pid>/exe, where the symlink resolves only for a live process
 //   and its target names the image. A process owned by another user resolves for
 //   the link's existence but EACCES on the read, so it also reads as NOT ours.
-//   Anywhere without /proc -- macOS, the BSDs -- the read simply fails and EVERY
-//   pid reads as not ours.
-//
-// The last case is the one to know about, and it fails in the direction Windows
-// already fails in when OpenProcess is refused: a draft belonging to a live sibling
-// gets OFFERED for recovery. That is a visible, recoverable annoyance (the user is
-// shown a draft they did not lose), never data loss -- draftsRecoverAll opens the
-// draft as a new dirty tab and the sibling's own file is untouched. It is not fixed
-// here because fixing it means a real macOS implementation (proc_pidpath) on a
-// platform this tree does not build for yet, and a stub returning "alive" would be
-// the silent success win32_api.h's header spends twenty lines forbidding.
+//   macOS asks libproc: proc_pidpath names the image of a live pid and fails for one
+//   that has exited. Until 2026-10-07 macOS took the /proc arm, where every read fails,
+//   so every pid read as not ours -- deferred then "because this tree does not build for
+//   macOS yet". CI had built it since, and tests/draft_owner's first macOS run failed
+//   exactly the two sibling arms, which is what retired the deferral.
+//   Anywhere else without /proc -- the BSDs -- the read fails and EVERY pid reads as not
+//   ours, which fails in the direction Windows already fails in when OpenProcess is
+//   refused: a draft belonging to a live sibling gets OFFERED for recovery. A visible,
+//   recoverable annoyance, never data loss -- draftsRecoverAll opens the draft as a new
+//   dirty tab and the sibling's own file is untouched.
 bool draftOwnerIsLiveSibling(unsigned long pid) {
 #ifdef _WIN32
     HANDLE proc =
@@ -191,6 +193,14 @@ bool draftOwnerIsLiveSibling(unsigned long pid) {
     }
     CloseHandle(proc);
     return live;
+#elif defined(__APPLE__)
+    char image[PROC_PIDPATHINFO_MAXSIZE];
+    char self[PROC_PIDPATHINFO_MAXSIZE];
+    if (proc_pidpath(static_cast<int>(pid), image, sizeof(image)) <= 0) return false;
+    if (proc_pidpath(getpid(), self, sizeof(self)) <= 0) return false;
+    // Case-sensitive, like the /proc arm. APFS is usually case-insensitive, but both names
+    // here come from the kernel's own record of the image, so they agree in case.
+    return std::filesystem::path(image).filename() == std::filesystem::path(self).filename();
 #else
     // read_symlink, not exists(): /proc/<pid> exists for a zombie whose image is
     // gone, and it is the LINK TARGET that names the process. The error_code

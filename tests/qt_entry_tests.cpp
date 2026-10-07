@@ -2778,13 +2778,26 @@ int main(int argc, char** argv) {
         }
         auto entryIt = app.imageCache.find(remote);
         const bool startedPending = entryIt != app.imageCache.end() && entryIt->second.pending;
+        // The arm is RECORDED as it happens, not sampled after the pump. The reflow timer is
+        // 60 ms and the pump runs the loop in 10 ms slices, so a slow slice lets the timer fire
+        // and disarm before a sample can see it. On macOS CI that read reflow_armed=0 on one
+        // attempt of 37568545171 and both attempts of 37571709269 (2026-10-07), while
+        // "the reflow tick disarmed it" passed beside it. The wrapper forwards every call, so
+        // the window's QTimers behave exactly as before.
+        bool reflowArmSeen = false;
+        const auto originalArm = tinta::timerSinkSlot().arm;
+        tinta::timerSinkSlot().arm = [&reflowArmSeen, originalArm](unsigned id, unsigned ms) {
+            if (id == TIMER_IMAGE_REFLOW) reflowArmSeen = true;
+            if (originalArm) originalArm(id, ms);
+        };
         const bool completed = pumpUntil(
             [&app, &remote]() {
                 auto it = app.imageCache.find(remote);
                 return it != app.imageCache.end() && !it->second.pending;
             },
             15000);
-        const bool reflowArmed = postWindow.timerActive(TIMER_IMAGE_REFLOW);
+        const bool reflowArmed = reflowArmSeen;
+        tinta::timerSinkSlot().arm = originalArm;
         {
             QEventLoop loop;
             QTimer::singleShot(200, &loop, &QEventLoop::quit);

@@ -323,7 +323,7 @@ bool QtAppWindow::openDocument(const std::string& path) {
     // AND show mojibake -- one cause, two consistent symptoms, fixed by
     // CommandLineToArgvW at the entry point rather than by guessing here. The dialog
     // path below has no such problem: it arrives as a wstring and is converted once.
-    setWindowTitle(QStringLiteral("%1 - tinta").arg(QString::fromUtf8(path.c_str())));
+    setWindowTitle(QStringLiteral("%1 - Qinta").arg(QString::fromUtf8(path.c_str())));
     update();
     return true;
 }

@@ -91,7 +91,7 @@ int main() {
           "Korean discard confirmation");
 
     // Keys left out of the built-in table fall back to English
-    check(std::wstring(tr(de, "title.no_file")) == L"Tinta",
+    check(std::wstring(tr(de, "title.no_file")) == L"Qinta",
           "untranslated key falls back to English");
 
     // Quick-note strings (Ctrl+N) ship translated too
@@ -170,7 +170,7 @@ int main() {
     // index overload, and an App overload that cached or short-circuited would
     // break it while every present key still looked right.
     app.currentLanguageIndex = de;
-    check(std::wstring(tr(app, "title.no_file")) == L"Tinta",
+    check(std::wstring(tr(app, "title.no_file")) == L"Qinta",
           "an untranslated key still falls back to English through the App overload");
 
     if (failures == 0) {

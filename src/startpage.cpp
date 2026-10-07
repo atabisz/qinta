@@ -28,9 +28,9 @@
 
 // The old bare-launch tutorial, now behind the "Sample document" card
 // (and still the fallback when a requested file cannot be loaded)
-static const char* kSampleDocument = R"(# Welcome to Tinta
+static const char* kSampleDocument = R"(# Welcome to Qinta
 
-**Tinta** is a fast, lightweight Markdown and Mermaid viewer for Windows.
+**Qinta** is a fast, lightweight Markdown and Mermaid viewer for Windows, macOS and Linux.
 
 ## Getting Started
 
@@ -95,7 +95,7 @@ Press **?** at any time to see all shortcuts.
 
 static const char* kMermaidTour = R"(# Mermaid diagrams
 
-Tinta renders **22 diagram families natively** from plain text. A diagram
+Qinta renders **22 diagram families natively** from plain text. A diagram
 is just a fenced code block with the `mermaid` language tag — edit the
 text, save, and the picture follows.
 
@@ -114,11 +114,11 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     participant You
-    participant Tinta
-    You->>Tinta: Save the file
-    Tinta-->>You: Re-renders instantly
-    You->>Tinta: Press : to edit
-    Tinta-->>You: Live preview beside the text
+    participant Qinta
+    You->>Qinta: Save the file
+    Qinta-->>You: Re-renders instantly
+    You->>Qinta: Press : to edit
+    Qinta-->>You: Live preview beside the text
 ```
 
 ## Pie
@@ -152,7 +152,7 @@ as a diagram — no fences needed.
 
 static const char* kMarkdownBasics = R"(# Markdown basics
 
-Everything Tinta renders, in two minutes. Press **:** to open this file
+Everything Qinta renders, in two minutes. Press **:** to open this file
 in the editor and watch the preview follow your keystrokes.
 
 ## Emphasis
@@ -558,7 +558,7 @@ void renderStartPage(App& app) {
 
     // --- Hero: icon, wordmark, version, tagline
     std::unique_ptr<tinta::TextLayout> wm =
-        spLayout(app, L"Tinta", 38.0f, tinta::FontWeight::ExtraBold, 4096.0f,
+        spLayout(app, L"Qinta", 38.0f, tinta::FontWeight::ExtraBold, 4096.0f,
                  false, false, -1.0f);
     tinta::TextMetrics wmM = spMetrics(wm.get());
     float iconSize = dpi(app, 34.0f);

@@ -93,7 +93,7 @@ bool printDocument(App& app) {
         printer.setPageOrientation(app.printPreviewLandscape ? QPageLayout::Landscape
                                                              : QPageLayout::Portrait);
     }
-    printer.setDocName(QStringLiteral("Tinta - ") + QString::fromStdString(app.currentFile));
+    printer.setDocName(QStringLiteral("Qinta - ") + QString::fromStdString(app.currentFile));
 
     QPrintDialog dialog(&printer);
     if (dialog.exec() != QDialog::Accepted) return false;  // cancelled

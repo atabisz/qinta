@@ -1432,7 +1432,7 @@ bool exportHtmlFile(App& app, const std::wstring& path) {
         if (slash != std::wstring::npos) ctx.baseDir = wide.substr(0, slash);
     }
 
-    std::string title = "Tinta export";
+    std::string title = "Qinta export";
     if (!app.currentFile.empty()) {
         size_t slash = app.currentFile.find_last_of("/\\");
         title = slash == std::string::npos ? app.currentFile

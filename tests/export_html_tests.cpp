@@ -238,7 +238,7 @@ int main() {
         std::ostringstream ss;
         ss << in.rdbuf();
         const std::string out = ss.str();
-        checkContains(out, "<title>Tinta export</title>",
+        checkContains(out, "<title>Qinta export</title>",
                       "with no current file the title falls back to a constant");
     }
 

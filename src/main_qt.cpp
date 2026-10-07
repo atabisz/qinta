@@ -116,7 +116,7 @@ namespace {
 // nothing about whether to wait for it or stop asking. The window still opens afterwards:
 // refusing a flag is not a reason to refuse the document.
 void refuse(const char* flag, const char* missing) {
-    std::fprintf(stderr, "tinta: %s is not honoured by this build -- %s\n", flag, missing);
+    std::fprintf(stderr, "qinta: %s is not honoured by this build -- %s\n", flag, missing);
 }
 
 }  // namespace
@@ -158,10 +158,10 @@ int main(int argc, char** argv) {
     // Said out loud before anything is honoured, so the order of the output matches the order
     // of the command line's problems rather than the order this file happens to check them.
     for (const std::string& flag : options.unknown) {
-        std::fprintf(stderr, "tinta: unknown option '%s'\n", flag.c_str());
+        std::fprintf(stderr, "qinta: unknown option '%s'\n", flag.c_str());
     }
     for (const std::string& flag : options.missingValues) {
-        std::fprintf(stderr, "tinta: option '%s' needs a value\n", flag.c_str());
+        std::fprintf(stderr, "qinta: option '%s' needs a value\n", flag.c_str());
     }
 
     // THE OUTPUT GUARD, WinMain's, called the same way, because this binary can write files now.
@@ -175,10 +175,10 @@ int main(int argc, char** argv) {
             const bool exists = platform::regularFileExists(toWide(planned.path));
             const tinta::OutputRefusal refusal = tinta::refuseOutput(options, exists);
             if (refusal != tinta::OutputRefusal::None) {
-                std::fprintf(stderr, "tinta: refusing to write '%s' -- %s\n",
+                std::fprintf(stderr, "qinta: refusing to write '%s' -- %s\n",
                              planned.path.c_str(), tinta::outputRefusalMessage(refusal));
                 std::fprintf(stderr,
-                             "tinta: %s names the file to WRITE, not the file to read\n",
+                             "qinta: %s names the file to WRITE, not the file to read\n",
                              planned.flag.c_str());
                 return 2;
             }
@@ -267,15 +267,15 @@ int main(int argc, char** argv) {
 
     tinta::applyLaunchFlags(app, options);
 
-    QString title = QStringLiteral("tinta");
+    QString title = QStringLiteral("Qinta");
     // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
     // when a path was also given.
     if (!options.inputFile.empty() && !options.quickNote) {
         if (loadDocumentFromPath(app, options.inputFile)) {
-            title = QStringLiteral("%1 - tinta")
+            title = QStringLiteral("%1 - Qinta")
                         .arg(QString::fromLocal8Bit(options.inputFile.c_str()));
         } else {
-            std::fprintf(stderr, "tinta: cannot open '%s'\n", options.inputFile.c_str());
+            std::fprintf(stderr, "qinta: cannot open '%s'\n", options.inputFile.c_str());
         }
     }
 
@@ -288,7 +288,7 @@ int main(int argc, char** argv) {
         int harnessRc = -1;
         if (!options.printPagesDir.empty()) {
             const int pages = printDebugPages(app, toWide(options.printPagesDir));
-            std::fprintf(stderr, "tinta: printpages: %d\n", pages);
+            std::fprintf(stderr, "qinta: printpages: %d\n", pages);
             harnessRc = pages > 0 ? 0 : 1;
         } else if (!options.exportHtmlPath.empty()) {
             harnessRc = exportHtmlFile(app, toWide(options.exportHtmlPath)) ? 0 : 1;

@@ -925,7 +925,7 @@ bool exportPdfFile(App& app, const std::wstring& path) {
     // /Title on a QPdfWriter arm -- the same string either way, which is why it is a seam
     // parameter and not something the backend invents.
     std::unique_ptr<tinta::PdfPageSink> pdf = tinta::beginPdfDocument(
-        *app.renderTarget, path, L"Tinta - " + toWide(app.currentFile));
+        *app.renderTarget, path, L"Qinta - " + toWide(app.currentFile));
     if (!pdf) return false;
 
     int pages = renderPages(app, geo, [&](int, const PagePainter& paint) {

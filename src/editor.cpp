@@ -774,7 +774,7 @@ static void scheduleReparse(App& app) {
         size_t lastSep = wpath.find_last_of(L"\\/");
         std::wstring fname = (lastSep != std::wstring::npos) ? wpath.substr(lastSep + 1) : wpath;
         if (fname.empty()) fname = tr(app, "title.untitled");  // quick note
-        std::wstring title = L"Tinta - * " + fname;
+        std::wstring title = L"Qinta - * " + fname;
         setWindowTitle(app.hwnd, title.c_str());
     }
     // No preview pane — nothing to keep in sync until it's shown again
@@ -953,7 +953,7 @@ void enterQuickNoteMode(App& app) {
     app.currentFile.clear();
     app.startPageEmbeddedOpen = false;  // the note replaces any Learn doc
     enterEditModeWithContent(app, std::string());
-    updateWindowTitle(app);  // "Tinta - Untitled" until the first save
+    updateWindowTitle(app);  // "Qinta - Untitled" until the first save
 }
 
 // Draft recovery: a crash leftover reopens as a dirty edit tab, pointed
@@ -1032,7 +1032,7 @@ void exitEditMode(App& app) {
         // The empty viewer is the start page now; the tab label follows
         if (!app.tabs.empty() && app.activeTab >= 0 &&
             app.activeTab < (int)app.tabs.size()) {
-            app.tabs[app.activeTab].title = L"Tinta";
+            app.tabs[app.activeTab].title = L"Qinta";
         }
     } else if (file) {
         std::stringstream buf;

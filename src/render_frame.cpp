@@ -568,7 +568,7 @@ render_document:
             app.metrics.d2dInitUs / 1000.0,
             app.metrics.dwriteInitUs / 1000.0,
             app.metrics.fileLoadUs / 1000.0);
-        tinta::swprintf(stats, std::size(stats), L"Tinta v%d.%d.%d  |  %ls\n%ls",
+        tinta::swprintf(stats, std::size(stats), L"Qinta v%d.%d.%d  |  %ls\n%ls",
                    TINTA_VERSION_MAJOR, TINTA_VERSION_MINOR,
                    TINTA_VERSION_PATCH, statsLine1, statsLine2);
 

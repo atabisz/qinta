@@ -111,7 +111,7 @@ void tabsInit(App& app) {
     tab.path = app.currentFile;
     tab.title = titleForPath(app, app.currentFile);
     // A pathless viewer tab is the start page, not an untitled note
-    if (app.currentFile.empty() && !app.editMode) tab.title = L"Tinta";
+    if (app.currentFile.empty() && !app.editMode) tab.title = L"Qinta";
     app.tabs.push_back(std::move(tab));
     app.activeTab = 0;
 }
@@ -176,7 +176,7 @@ void tabActivate(App& app, HWND hwnd, int index) {
         // An empty viewer tab in a launcher window shows the start page
         // again; its label follows suit
         if (!tab.editMode && startPageActive(app)) {
-            tab.title = L"Tinta";
+            tab.title = L"Qinta";
         }
     }
     if (tab.editMode) {
@@ -286,7 +286,7 @@ void tabBecomeStartPage(App& app, HWND hwnd) {
     App::DocTab& tab = app.tabs[app.activeTab];
     draftsDeleteForTab(app, tab.id);
     tab.path.clear();
-    tab.title = L"Tinta";
+    tab.title = L"Qinta";
     tab.editMode = false;
     tab.editorDirty = false;
     tab.editorText.clear();
@@ -313,7 +313,7 @@ void tabOpenStartPage(App& app, HWND hwnd) {
     parkActiveEditBuffer(app);
     App::DocTab tab;
     tab.id = ++app.tabIdCounter;
-    tab.title = L"Tinta";
+    tab.title = L"Qinta";
     app.tabs.push_back(std::move(tab));
     app.activeTab = (int)app.tabs.size() - 1;
     app.currentFile.clear();
@@ -569,7 +569,7 @@ void renderTabStrip(App& app) {
     if (tabless) {
         // Single document: the caption shows the plain window title, with
         // the + button right after it so the tab row is discoverable
-        std::wstring title = L"Tinta";
+        std::wstring title = L"Qinta";
         if (!app.tabs.empty() && !app.tabs[0].title.empty() &&
             !startPageActive(app)) {
             title = app.tabs[0].title;

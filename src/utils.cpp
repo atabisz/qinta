@@ -84,17 +84,17 @@ const App::TextRect* findTextRectAt(const App& app, int x, int y) {
 
 
 void updateWindowTitle(App& app) {
-    std::wstring title = L"Tinta";
+    std::wstring title = L"Qinta";
     if (!app.currentFile.empty()) {
         std::wstring wpath = toWide(app.currentFile);
         size_t lastSep = wpath.find_last_of(L"\\/");
         if (lastSep != std::wstring::npos)
-            title = L"Tinta - " + wpath.substr(lastSep + 1);
+            title = L"Qinta - " + wpath.substr(lastSep + 1);
         else
-            title = L"Tinta - " + wpath;
+            title = L"Qinta - " + wpath;
     } else if (app.editMode) {
         // Quick note (Ctrl+N): no backing file until the first save
-        title = L"Tinta - ";
+        title = L"Qinta - ";
         title += tr(app, "title.untitled");
     }
     // win32_api.h's seam, not SetWindowTextW: unchanged on Windows, and off Windows
@@ -192,7 +192,7 @@ void copyFilePath(App& app, HWND hwnd, const std::string& path) {
 }
 
 void refuseWindowFeature(App& app, const char* what, const wchar_t* chip) {
-    std::fprintf(stderr, "tinta: %s is not available in the Qt build yet -- it needs the "
+    std::fprintf(stderr, "qinta: %s is not available in the Qt build yet -- it needs the "
                          "Win32 window stack\n", what);
     signalPush(app, SIG_WARN, SIGI_WARNING, chip);
 }

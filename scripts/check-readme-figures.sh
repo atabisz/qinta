@@ -123,12 +123,36 @@ claim() {
 
 pct() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.1f", (a*100.0)/b}'; }
 
+# The lines of sorted list $1 that are not in sorted list $2, left in $SETDIFF. Through temp
+# files rather than `comm <(...) <(...)`, because process substitution needs /dev/fd and MSYS2's
+# bash has none when ctest starts it -- measured 2026-10-07 in the windows-mingw CI job, where
+# both sets came back EMPTY with "comm: /dev/fd/63: No such file or directory" on stderr, and the
+# to-do header read green because an empty set is "0 files". So a comm that fails is a failure of
+# this run, not an empty answer. A global rather than $(setdiff ...): a subshell would lose the
+# failure count.
+setdiff() {
+    local a b
+    SETDIFF=""
+    a=$(mktemp) && b=$(mktemp) || {
+        printf '  FAIL %-42s %s\n' "set difference" "mktemp failed, so no set was derived"
+        failures=$((failures + 1)); return
+    }
+    printf '%s\n' "$1" > "$a"
+    printf '%s\n' "$2" > "$b"
+    if ! SETDIFF=$(comm -23 "$a" "$b"); then
+        printf '  FAIL %-42s %s\n' "set difference" "comm exited non-zero, so the set is not a reading"
+        failures=$((failures + 1))
+        SETDIFF=""
+    fi
+    rm -f "$a" "$b"
+}
+
 # --- the manifest and the two sets derived from it --------------------------
 manifest=$(grep -vE '^[[:space:]]*(#|$)' tests/portable-sources.txt | sort)
 manifest_count=$(bump "$(printf '%s\n' "$manifest" | grep -c . || true)")
 all_cpp=$(ls src/*.cpp | xargs -n1 basename | sort)
 all_cpp_count=$(bump "$(printf '%s\n' "$all_cpp" | grep -c . || true)")
-nonmanifest=$(comm -23 <(printf '%s\n' "$all_cpp") <(printf '%s\n' "$manifest"))
+setdiff "$all_cpp" "$manifest"; nonmanifest=$SETDIFF
 nonmanifest_count=$(bump "$(printf '%s\n' "$nonmanifest" | grep -c . || true)")
 
 # Windows-only BY DESIGN (tests/windows-only-sources.txt, 2026-10-07): files that are Windows by
@@ -152,7 +176,7 @@ for f in $winonly; do
         failures=$((failures + 1))
     fi
 done
-todo=$(comm -23 <(printf '%s\n' "$nonmanifest") <(printf '%s\n' "$winonly"))
+setdiff "$nonmanifest" "$winonly"; todo=$SETDIFF
 todo_count=$(bump "$(printf '%s\n' "$todo" | grep -c . || true)")
 
 raw_todo_lines=0
@@ -735,8 +759,8 @@ else
         ctest_names=$(grep -oE '^[[:space:]]*add_test\([A-Za-z0-9_]+' "$win_build/CTestTestfile.cmake" \
             | sed -E 's/.*add_test\(//' | sort -u)
         manifest_win=$(printf '%s\n' "$platform_rows" | awk '$2=="both"||$2=="windows-only" {print $1}' | sort -u)
-        only_manifest=$(comm -23 <(printf '%s\n' "$manifest_win") <(printf '%s\n' "$ctest_names") | tr '\n' ' ')
-        only_ctest=$(comm -13 <(printf '%s\n' "$manifest_win") <(printf '%s\n' "$ctest_names") | tr '\n' ' ')
+        setdiff "$manifest_win" "$ctest_names"; only_manifest=$(printf '%s' "$SETDIFF" | tr '\n' ' ')
+        setdiff "$ctest_names" "$manifest_win"; only_ctest=$(printf '%s' "$SETDIFF" | tr '\n' ' ')
         if [ -n "$(printf '%s%s' "$only_manifest" "$only_ctest" | tr -d ' ')" ]; then
             mfail "manifest vs the Windows ctest list" "in manifest only: ${only_manifest:-<none>}| in ctest only: ${only_ctest:-<none>}"
         else

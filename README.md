@@ -1128,8 +1128,22 @@ linked statically) plus the Qt DLLs.
 `windows-mingw` job: MSYS2's UCRT64 GCC and Qt 6, configure, build and the whole `ctest` suite. It
 is `continue-on-error` until it has been green, so a red there is a finding rather than a broken
 `master`, and MSVC stays the build that ships. The switch itself waits for that job to pass and for
-the rendering harnesses to agree under it. Until the job's first run is read, nothing in this
-section is measured: the costs above are the known differences, not a list checked by a build.
+the rendering harnesses to agree under it.
+
+**First reading, 2026-10-07 (run 37585526316 on `160ff18`): MinGW configures and builds the whole
+tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`, clipboard and
+`file_association`. Two failed:
+
+- `copy_file_path`: two of its six Windows path cases resolve differently under libstdc++'s
+  `std::filesystem`, where MSVC's `absolute()` goes through `GetFullPathNameW`. That is product
+  code (`absoluteFilePath` in `src/utils.cpp`, behind Copy file path and Reveal), so it is the
+  one real port finding. The test now prints the failing input, the expected path and the one it
+  got, because the first run could not say which two cases they were.
+- `readme_figures`: not a MinGW defect. MSYS2's bash has no `/dev/fd` when ctest starts it, so
+  the gate's `comm <(...)` calls read nothing, and the to-do header passed on an empty set. The
+  gate now goes through temp files and fails when `comm` does.
+
+The rendering harnesses have not been run under MinGW.
 
 ### Status
 

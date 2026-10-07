@@ -221,7 +221,14 @@ int main(int argc, char** argv) {
             {longPath, toWide(longPath)}}) {
 #endif
         app.currentFile = item.first;
-        check(absoluteFilePath(item.first) == item.second, "full paths resolve without quoting or truncation");
+        const std::wstring resolved = absoluteFilePath(item.first);
+        check(resolved == item.second, "full paths resolve without quoting or truncation");
+        // Name the input on a miss. The windows-mingw CI job (2026-10-07) failed two of these six
+        // with libstdc++'s std::filesystem, and a message with no input could not say which two.
+        if (resolved != item.second) {
+            std::cerr << "  input:    " << item.first << "\n  expected: "
+                      << toUtf8(item.second) << "\n  got:      " << toUtf8(resolved) << '\n';
+        }
         if (!testClipboard) continue;
 #ifdef _WIN32
         documentCopy(app);

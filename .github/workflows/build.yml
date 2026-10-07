@@ -1,8 +1,10 @@
 # Builds every target and runs the whole ctest suite on Windows, macOS and Linux, then
 # uploads the binaries as workflow artifacts.
 #
-# THE ARTIFACTS ARE NOT RELEASES. Only the Windows one is self-contained (windeployqt copies
-# the Qt DLLs beside qinta.exe). The macOS and Linux binaries link against the Qt the runner
+# THE ARTIFACTS ARE NOT RELEASES. Only the Windows one is self-contained: windeployqt copies
+# the Qt DLLs beside qinta.exe, and the Stage step copies the VC++ runtime DLLs beside them, so
+# the folder runs on a Windows 10 or 11 install with no redistributable (the UCRT ships with the
+# OS). The macOS and Linux binaries link against the Qt the runner
 # installed, so they run only where the same Qt is installed -- packaging them as an .app
 # bundle and an AppImage is the release job's work, not this one's.
 #
@@ -60,16 +62,65 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure --repeat until-pass:2
 
+      # App-local VC++ runtime, README's C runtime option B. windeployqt's --compiler-runtime
+      # does NOT do this for MSVC: measured 2026-10-07, it copies vc_redist.x64.exe, the
+      # installer, and with no VCINSTALLDIR it copies nothing. So the runtime DLLs come from
+      # the Visual Studio install's own Redist folder (Microsoft.VC*.CRT, the unit Microsoft
+      # documents for app-local deployment) and windeployqt is told to leave the runtime alone.
       - name: Stage
         run: |
           New-Item -ItemType Directory dist | Out-Null
           Copy-Item build/Release/qinta.exe dist/
-          windeployqt --release --no-translations dist/qinta.exe
+          windeployqt --release --no-translations --no-compiler-runtime dist/qinta.exe
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $crt = Get-ChildItem "$vs\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT" -Directory | Sort-Object FullName | Select-Object -Last 1
+          if (-not $crt) { throw "no Microsoft.VC*.CRT folder under $vs\VC\Redist\MSVC" }
+          Copy-Item "$($crt.FullName)\*.dll" dist/
+          foreach ($dll in 'vcruntime140.dll', 'vcruntime140_1.dll', 'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll') {
+            if (-not (Test-Path "dist/$dll")) { throw "dist/ is missing $dll" }
+          }
 
       - uses: actions/upload-artifact@v4
         with:
           name: qinta-windows-x64
           path: dist/
+
+  # MinGW-w64 on Windows: MSYS2's UCRT64 GCC and Qt 6, the route README's "Planned: MinGW"
+  # section names, because it is the one Windows build that needs no Visual Studio. Added
+  # 2026-10-07 as the measurement that section says does not exist yet, so it is
+  # continue-on-error until it has been green: a red here is a finding, not a broken master.
+  # No artifact, because the MSVC job's folder is the one that ships.
+  windows-mingw:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    continue-on-error: true
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-svg
+            mingw-w64-ucrt-x86_64-ripgrep
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --repeat until-pass:2
 
   macos:
     runs-on: macos-latest

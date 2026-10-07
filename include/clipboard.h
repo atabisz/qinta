@@ -137,9 +137,10 @@
 // rule above and the contradiction is deliberate. utils.cpp:160 frees the HGLOBAL
 // when SetClipboardData fails, with a comment noting ownership transfers only on
 // success. editor.cpp:558 does not, so a failed SetClipboardData there orphans the
-// allocation for the process's lifetime. Both become the one implementation in
-// src/clipboard_win32.cpp, which does what utils.cpp did. The seam cannot preserve
-// both behaviours because they differ only in whether a bug is present.
+// allocation for the process's lifetime. Both became the one implementation in
+// src/clipboard_win32.cpp, which did what utils.cpp did, until that file was deleted on
+// 2026-10-07 for src/clipboard_qt.cpp. The seam could not preserve both behaviours
+// because they differed only in whether a bug was present.
 
 // FORWARD-DECLARED RATHER THAN #include "image_api.h", and the reason is the same one
 // image_api.h itself gives for forward-declaring RenderTarget: a declaration costs
@@ -280,8 +281,8 @@ bool setClipboardImage(const tinta::DecodedImage& image, const std::string& pngB
 //
 // SO THE WIC DECODE DID NOT MOVE HERE; IT WAS DELETED. src/export_docx.cpp's
 // clipboardBitmapToPng -- CreateBitmapFromHBITMAP, an IWICBitmapEncoder and
-// GetHGlobalFromStream, 52 lines -- is gone, and src/clipboard_win32.cpp reads the
-// bitmap with GDI's GetDIBits instead. export_docx.cpp predicted exactly this and called
+// GetHGlobalFromStream, 52 lines -- is gone, and src/clipboard_win32.cpp read the
+// bitmap with GDI's GetDIBits instead (until 2026-10-07, when QClipboard replaced it). export_docx.cpp predicted exactly this and called
 // it "a different slice against a recorded decision", which is what this is. (The line
 // number that used to sit in this sentence is dropped rather than refreshed -- it had
 // already rotted once, and the quoted phrase locates the comment under grep without

@@ -1,7 +1,8 @@
-// The all-platform half of the process seam, and the file src/platform_process_win32.cpp
-// collapses into when the Direct2D backend goes. Named _qt rather than _posix for the
-// reason CMakeLists.txt:74-76 gives about the paths seam: QProcess is correct on Windows
-// too, so there is no third arm to write and no POSIX-only file to keep in step.
+// The process seam on every platform: src/platform_process_win32.cpp collapsed into it on
+// 2026-10-07. Named _qt rather than _posix for the reason CMakeLists.txt gives about the
+// paths seam: QProcess is correct on Windows too, so there is no third arm to write and no
+// POSIX-only file to keep in step. QProcess does its own Windows argument quoting, so
+// include/win32_command_line.h has no production caller now; its tests still run.
 
 #include "platform_process.h"
 

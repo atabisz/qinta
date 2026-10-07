@@ -93,8 +93,8 @@ bool isCtrlDown();
 // the thread's real key state and sees none of them. QGuiApplication::keyboardModifiers() is
 // half right, measured on Qt 6.4.2 with a standalone probe: a sent KEY event updates it, a
 // sent mouse or wheel event does not -- so a wheel after a sent Ctrl+J still reads Ctrl. And
-// qinta on Windows links keyboard_win32.cpp, so a scope only the Qt backend honoured would
-// fix one host of two. The Qt window opens one from event->modifiers() for every event it
+// qinta on Windows linked keyboard_win32.cpp until 2026-10-07, so a scope only the Qt backend
+// honoured would have fixed one host of two. The Qt window opens one from event->modifiers() for every event it
 // routes, which makes the promise above true for sendEvent too; until this existed, slices 2
 // and 3 kept Ctrl+O and the wheel out of the router and dropped the checks that would have
 // measured them.

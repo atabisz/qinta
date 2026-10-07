@@ -285,8 +285,8 @@ bool rasterDimensions(float w, float h, unsigned& outW, unsigned& outH) {
 //
 // That is exactly the slice, and the trap it named is the reason platform::clipboardImage
 // forces the alpha byte to 255 and tests/clipboard_tests.cpp asserts a PIXEL rather than a
-// size. Both halves of the clipboard image path now live in src/clipboard_win32.cpp and
-// src/clipboard_qt.cpp behind include/clipboard.h.
+// size. The clipboard image path lives in src/clipboard_qt.cpp behind include/clipboard.h
+// (src/clipboard_win32.cpp held the Windows half until it was deleted on 2026-10-07).
 //
 // WHAT THIS FILE KEEPS OF WIC IS NOTHING, and what the TREE keeps of it is most of it --
 // stating the second half matters more than the first, because "WIC is gone" is the kind
@@ -1513,7 +1513,8 @@ bool exportDocxFile(App& app, const std::wstring& path) {
 // WHAT IS LEFT IN THIS FUNCTION IS THE PART THAT IS ABOUT DIAGRAMS. The two things it
 // used to also be about -- building a BITMAPINFOHEADER with a bottom-up row flip, and
 // copying a PNG into an HGLOBAL under a registered clipboard format -- moved to
-// src/clipboard_win32.cpp, where a Qt implementation stands beside them.
+// src/clipboard_win32.cpp, and on 2026-10-07 that file was deleted in favour of the Qt
+// implementation beside it, src/clipboard_qt.cpp.
 bool copyDiagramImage(App& app, const std::string& sourceUtf8) {
     mermaidext::Built built = buildDiagramPrims(app, sourceUtf8, kRasterScale);
     if (!built.ok || built.prims.empty()) return false;

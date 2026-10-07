@@ -15,22 +15,23 @@
 
 #include <vector>
 
-// Only executableDirectory reaches a native API, and only because Qt has no
-// instance-free answer for it (see the comment there). Both includes are for that
-// one function; nothing else in this file is platform-specific except a choice
-// between two Qt calls.
+// Native APIs are reached in three places, each because Qt has no answer with the
+// same behaviour: executableDirectory (no instance-free Qt call), and on Windows
+// expandEnvironmentPlaceholders (ExpandEnvironmentStringsW, so %VAR% expands exactly
+// as it always did) and revealInFileManager (ShellExecuteW, so Explorer selects the
+// entry). Everything else is a choice between Qt calls.
 #ifdef _WIN32
 #include <windows.h>
+#include <shellapi.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
 #endif
 
 // Qt implementation of the platform path seam -- the file that REPLACES
-// src/platform_paths_posix.cpp, and that src/platform_paths_win32.cpp is
-// scheduled to collapse into at the Direct2D cutover (CMakeLists.txt says so at
-// the TINTA_LEGACY_D2D block). Nine of the eleven functions have no platform
-// branch at all here, which is what "one stack on every platform" looks like at
-// the file level.
+// src/platform_paths_posix.cpp, and that src/platform_paths_win32.cpp collapsed
+// into on 2026-10-07, once the Direct2D stack had left. Nine of the eleven functions
+// have no platform branch at all here, which is what "one stack on every platform"
+// looks like at the file level.
 //
 // EVERY CHOICE BELOW WAS MEASURED BEFORE IT WAS WRITTEN, on Qt 6.4.2 (Linux) and
 // Qt 6.8.3 (Windows), by a throwaway diagnostic kept outside the tree. That was
@@ -99,7 +100,7 @@ bool pathsEquivalent(const std::wstring& a, const std::wstring& b) {
     //
     // The branch is the same three-way shape this file already uses four times
     // (:118, :245, :355), and the fold reaches past ASCII on both insensitive arms,
-    // matching _wcsicmp in platform_paths_win32.cpp.
+    // matching the _wcsicmp the deleted platform_paths_win32.cpp used.
 #if defined(_WIN32)
     return QString::fromStdWString(a).compare(QString::fromStdWString(b),
                                               Qt::CaseInsensitive) == 0;
@@ -217,12 +218,11 @@ bool createEmptyFileExclusive(const std::wstring& path) {
 std::wstring expandEnvironmentPlaceholders(const std::wstring& path) {
 #ifdef _WIN32
     // The Windows arm is ExpandEnvironmentStringsW, in the same two-call shape
-    // platform_paths_win32.cpp uses, and the duplication is deliberate AND temporary:
-    // this file is the one that file COLLAPSES INTO (CMakeLists.txt:74-83). The Windows
-    // behaviour therefore has to survive the collapse byte for byte, and reimplementing
-    // %VAR% over QProcessEnvironment here would make the cutover a behaviour change in a
-    // box users type paths into -- the one thing a cutover must not be. When the win32
-    // file goes, this becomes the only copy rather than a second one.
+    // platform_paths_win32.cpp used. That file collapsed into this one on 2026-10-07, so
+    // the Windows behaviour had to survive the collapse byte for byte: reimplementing
+    // %VAR% over QProcessEnvironment here would have made the cutover a behaviour change
+    // in a box users type paths into -- the one thing a cutover must not be. This is the
+    // only copy now.
     const DWORD needed = ExpandEnvironmentStringsW(path.c_str(), nullptr, 0);
     if (needed == 0) return path;
     std::wstring buffer(needed, L'\0');
@@ -459,16 +459,26 @@ void openExternalUrl(const std::string& url) {
 }
 
 void revealInFileManager(const std::wstring& path) {
-    // The third Qt Gui call in this file, and the only seam here whose two halves
+#ifdef _WIN32
+    // Windows can SELECT the entry, so it keeps the call platform_paths_win32.cpp made
+    // (moved here when that file collapsed into this one, 2026-10-07), byte for byte:
+    // /select, takes ONE argument and a document path routinely contains spaces, so the
+    // quotes are load-bearing rather than defensive.
+    std::wstring params = L"/select,\"" + path + L"\"";
+    ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
+                  SW_SHOWNORMAL);
+#else
+    // The third Qt Gui call in this file, and the only seam here whose platforms
     // do DIFFERENT amounts of work -- see the header. This opens the containing
     // directory; it does not select the entry, because no portable way to ask for
-    // that exists.
+    // that exists off Windows.
     //
     // QFileInfo::absolutePath, not a manual search for the last separator: the
     // input may be relative, and absolutePath resolves against the working
     // directory rather than returning something the file manager cannot open.
     QFileInfo info(toQString(path));
     QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+#endif
 }
 
 bool documentPathsEqual(const std::string& a, const std::string& b) {

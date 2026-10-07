@@ -42,9 +42,18 @@ if(MSVC)
     add_compile_options(/W4)
     add_compile_options($<$<CONFIG:Release>:/O2>)
     add_compile_definitions(NOMINMAX _CRT_SECURE_NO_WARNINGS)
-    # Static CRT: the exe must run on clean Windows installs without the
-    # VC++ redistributable (costs ~250 KB, keeps the single-file promise)
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    # Dynamic CRT, tree-wide, since 2026-10-07. Upstream Tinta linked the static CRT so
+    # its exe ran on a clean Windows install with no VC++ redistributable, but Qt cannot
+    # be linked against the static CRT, and once the platform seams collapsed onto Qt
+    # nearly every target links Qt. qinta ships as a folder: the Qt DLLs and the VC++
+    # runtime DLLs sit beside qinta.exe (windeployqt --compiler-runtime in CI), so it
+    # still needs no installer. The per-target DLL overrides below predate this line
+    # and now restate the default.
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+elseif(WIN32)
+    # MinGW (the windows-mingw CI job, 2026-10-07) never enters the block above, and without
+    # NOMINMAX <windows.h> defines min and max as macros in every file that includes it.
+    add_compile_definitions(NOMINMAX)
 endif()
 
 # MD4C markdown parser
@@ -76,33 +85,27 @@ find_package(Qt6 QUIET COMPONENTS Core Gui OPTIONAL_COMPONENTS Widgets PrintSupp
 
 # The platform path seam. Its POSIX half is GONE: src/platform_paths_posix.cpp
 # was replaced by src/platform_paths_qt.cpp, which is written to be correct on all
-# three platforms and is the file src/platform_paths_win32.cpp collapses into at
-# the TINTA_LEGACY_D2D cutover below. That is a deletion rather than another seam,
-# which is what the goal -- one stack everywhere -- asks for.
+# three platforms. src/platform_paths_win32.cpp collapsed into it on 2026-10-07, after
+# the Direct2D stack left, so every platform builds the same file: one stack everywhere.
 #
 # Nine of the eleven functions have no platform branch in the Qt file. The two that
 # do are named there: executableDirectory, because every Qt answer needs a
 # QCoreApplication instance and the callers run before one exists, and
 # documentPathsEqual, because Qt has no per-platform path-identity rule.
-if(WIN32)
-    set(PLATFORM_PATHS_SOURCE src/platform_paths_win32.cpp)
-else()
-    if(NOT Qt6_FOUND)
-        message(FATAL_ERROR
-            "Qt 6 (Core and Gui) is required off Windows: the platform path, keyboard and image "
-            "seams all resolve to their Qt implementations there. This is not a new dependency -- "
-            "src/keyboard_qt.cpp and src/image_qt.cpp were already the only non-Windows halves -- "
-            "it is the first one that fails loudly instead of silently dropping test targets.")
-    endif()
-    set(PLATFORM_PATHS_SOURCE src/platform_paths_qt.cpp)
-    set(PLATFORM_PATHS_BACKEND_QT TRUE)
+# revealInFileManager keeps a Windows branch as well, so Explorer still selects the file.
+if(NOT Qt6_FOUND)
+    message(FATAL_ERROR
+        "Qt 6 (Core and Gui) is required: the platform path, keyboard, clipboard, process and "
+        "image seams all resolve to their Qt implementations, on every platform.")
 endif()
+set(PLATFORM_PATHS_SOURCE src/platform_paths_qt.cpp)
+set(PLATFORM_PATHS_BACKEND_QT TRUE)
 
 # THE SEAM'S LIBRARIES TRAVEL WITH THE SEAM, and this variable exists because they
 # did not. Seventeen targets list ${PLATFORM_PATHS_SOURCE}, and twelve of them
 # carried a hand-written `if(WIN32) target_link_libraries(x PRIVATE shell32)` block
-# -- shell32 being there for exactly one reason: SHGetFolderPathW in the Windows
-# half of this seam. The Qt half needs Qt6::Core and Qt6::Gui the same way, and
+# -- shell32 being there for SHGetFolderPathW in the old Windows half of this seam.
+# The Qt half needs Qt6::Core and Qt6::Gui the same way, and
 # adding it without this variable built ONE target (platform_paths_tests, the only
 # one edited by hand) and broke the other sixteen at `QByteArray: No such file or
 # directory` -- 15 of 25 ctest entries Not Run, which is a far louder failure than
@@ -111,10 +114,10 @@ endif()
 # So the dependency is stated once, beside the file selection it belongs to. A new
 # target that lists the source and forgets the libraries still breaks, but it breaks
 # the same way for everyone rather than per-platform, and the fix is one token.
+# shell32 stays on Windows for revealInFileManager's ShellExecuteW.
+set(PLATFORM_PATHS_LIBS Qt6::Core Qt6::Gui)
 if(WIN32)
-    set(PLATFORM_PATHS_LIBS shell32)
-else()
-    set(PLATFORM_PATHS_LIBS Qt6::Core Qt6::Gui)
+    list(APPEND PLATFORM_PATHS_LIBS shell32)
 endif()
 
 # The modifier-key seam (include/keyboard.h), selected the same way and for the same
@@ -126,12 +129,9 @@ endif()
 # GetKeyState did NOT go into win32_api.h, whose preamble reserves it for calls that
 # become honest no-ops or failures off Windows. This one has a real counterpart in
 # QGuiApplication::keyboardModifiers(), so it belongs with the seams that have two
-# working implementations, not with the ones that admit to having one.
-if(WIN32)
-    set(PLATFORM_KEYBOARD_SOURCE src/keyboard_win32.cpp)
-else()
-    set(PLATFORM_KEYBOARD_SOURCE src/keyboard_qt.cpp)
-endif()
+# working implementations, not with the ones that admit to having one. The Windows half
+# (GetKeyState) was deleted on 2026-10-07; Qt's answer is the only one on every platform.
+set(PLATFORM_KEYBOARD_SOURCE src/keyboard_qt.cpp)
 
 # The image seam (include/image_api.h): remote fetch, raster decode, SVG rasterization.
 # Selected the same way, and the reason it exists is narrower than the others. This is
@@ -218,13 +218,10 @@ set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 #
 # So a build off Windows now gets both halves of the clipboard, and src/export_docx.cpp is
 # no longer a Windows-only file at all.
-if(WIN32)
-    set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_win32.cpp)
-    set(PLATFORM_CLIPBOARD_LIBS "")
-else()
-    set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_qt.cpp)
-    set(PLATFORM_CLIPBOARD_LIBS Qt6::Core Qt6::Gui)
-endif()
+# src/clipboard_win32.cpp (CF_UNICODETEXT, CF_DIB, the registered PNG format and the
+# CF_BITMAP read) was deleted on 2026-10-07: QClipboard is the only half on every platform.
+set(PLATFORM_CLIPBOARD_SOURCE src/clipboard_qt.cpp)
+set(PLATFORM_CLIPBOARD_LIBS Qt6::Core Qt6::Gui)
 
 # The PROCESS seam -- the sixth -- added 2026-09-20 for src/pandoc.cpp, which was the
 # last file in the census whose Win32 surface was a set of CALLS rather than a fatal
@@ -242,13 +239,10 @@ endif()
 # empty: CreateProcessW, WaitForSingleObject, TerminateProcess, GetExitCodeProcess and
 # GetCurrentProcessId are all kernel32, which every Windows link gets by default. The
 # variable exists anyway so a target can list it unconditionally.
-if(WIN32)
-    set(PLATFORM_PROCESS_SOURCE src/platform_process_win32.cpp)
-    set(PLATFORM_PROCESS_LIBS "")
-else()
-    set(PLATFORM_PROCESS_SOURCE src/platform_process_qt.cpp)
-    set(PLATFORM_PROCESS_LIBS Qt6::Core)
-endif()
+# src/platform_process_win32.cpp (CreateProcessW over include/win32_command_line.h's
+# quoter) was deleted on 2026-10-07: QProcess is the only half on every platform.
+set(PLATFORM_PROCESS_SOURCE src/platform_process_qt.cpp)
+set(PLATFORM_PROCESS_LIBS Qt6::Core)
 
 # The TINTA_LEGACY_D2D option and its ${LEGACY_D2D_SOURCES} stood here until 2026-10-07,
 # when the Direct2D/DirectWrite backends they selected were deleted.
@@ -305,9 +299,9 @@ file(WRITE ${TINTA_ICON_GENERATED}
 # --- THE QT APPLICATION: the target the whole port is aimed at ------------------
 #
 # One stack on every platform means this target eventually REPLACES `tinta` above
-# rather than joining it, which is why src/render_d2d.cpp, src/text_d2d.cpp,
-# src/settings_win32.cpp and src/platform_paths_win32.cpp are described as scheduled
-# for deletion and not for porting. It is built on WINDOWS TOO wherever Qt is found:
+# rather than joining it, which is why src/render_d2d.cpp, src/text_d2d.cpp and
+# src/platform_paths_win32.cpp were deleted rather than ported (2026-10-07), and why
+# src/settings_win32.cpp stays as a Windows-only-by-design file for /register. It is built on WINDOWS TOO wherever Qt is found:
 # a Qt target that only exists off Windows would let the two stacks drift, and
 # drifting is the thing the goal rules out.
 #
@@ -717,12 +711,8 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
         # targets far below: Qt cannot be linked against the static CRT, and mixing the
         # two debug heaps in one process trips an assertion in Qt's own allocations.
         #
-        # THIS IS WHERE THAT STOPS BEING A TEST-ONLY OVERRIDE. The comment at the top of
-        # this file promises tinta.exe runs on a clean Windows install with no VC++
-        # redistributable, and this target cannot keep that promise. It does not break
-        # it either -- `tinta` above is untouched and still static -- but the two cannot
-        # both survive the cutover, and which one gives way is Alex's call, not this
-        # file's. README.md carries the three options.
+        # Since 2026-10-07 the tree-wide default at the top of this file is the dynamic
+        # CRT too, so this restates it; README.md's C runtime section has the decision.
         set_property(TARGET qinta PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     endif()
@@ -2241,14 +2231,15 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/include
     )
     target_link_libraries(clipboard_tests PRIVATE ${PLATFORM_CLIPBOARD_LIBS})
+    # The test constructs a QGuiApplication under this define, because QClipboard is
+    # null without one and the round trip would otherwise report "refused" on every
+    # run -- a skip that looks like a platform limitation and is actually a missing
+    # object. The transformation checks do NOT need it and run either way. Every
+    # platform since 2026-10-07; on Windows it runs under the real windows QPA plugin,
+    # so the round trip crosses the system clipboard there.
+    target_compile_definitions(clipboard_tests PRIVATE TINTA_CLIPBOARD_BACKEND_QT)
     if(WIN32)
         target_compile_definitions(clipboard_tests PRIVATE UNICODE _UNICODE)
-    else()
-        # The test constructs a QGuiApplication under this define, because QClipboard is
-        # null without one and the round trip would otherwise report "refused" on every
-        # run -- a skip that looks like a platform limitation and is actually a missing
-        # object. The transformation checks do NOT need it and run either way.
-        target_compile_definitions(clipboard_tests PRIVATE TINTA_CLIPBOARD_BACKEND_QT)
     endif()
     add_test(NAME clipboard COMMAND clipboard_tests)
     add_test(NAME clipboard_control COMMAND clipboard_tests --control)
@@ -2326,27 +2317,16 @@ if(BUILD_TESTING)
 
     # --- The modifier-key seam, tested on BOTH backends -----------------------
     #
-    # It sits here, after find_package, purely because the non-Windows half links Qt.
-    # It is not part of the Qt6_FOUND block below, because the Windows half needs no
-    # Qt at all and must still be tested: a seam with two implementations where only
-    # one is ever asserted is the shape include/render_api.h was explicitly criticised
-    # for ("an interface with one implementation -- which is indirection, not
-    # abstraction").
-    #
-    # ${PLATFORM_KEYBOARD_SOURCE} resolves to keyboard_win32.cpp or keyboard_qt.cpp,
-    # so this single target runs the same assertions against whichever backend the
-    # platform selected -- and the assertions that carry the weight are on the pure
-    # predicate in the header, which is identical either way. See the test's own
-    # opening comment for what it can and cannot prove; the honest answer is mixed.
-    #
-    # No user32 line on Windows: GetKeyState is in user32, which CMake's default MSVC
-    # libraries already include. Measured by building, not assumed.
+    # It sits here, after find_package, because the backend links Qt. Since 2026-10-07
+    # ${PLATFORM_KEYBOARD_SOURCE} is keyboard_qt.cpp on every platform (keyboard_win32.cpp
+    # and its GetKeyState were deleted), so this target asserts the one backend there is.
+    # The pure predicate in the header (modifierHeld, GetKeyState's bit layout) is still
+    # asserted and no longer has a production caller. See the test's own opening comment
+    # for what it can and cannot prove; the honest answer is mixed.
     if(WIN32 OR Qt6_FOUND)
         add_executable(keyboard_tests tests/keyboard_tests.cpp ${PLATFORM_KEYBOARD_SOURCE})
         target_include_directories(keyboard_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-        if(NOT WIN32)
-            target_link_libraries(keyboard_tests PRIVATE Qt6::Core Qt6::Gui)
-        endif()
+        target_link_libraries(keyboard_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME keyboard COMMAND keyboard_tests)
         if(NOT WIN32)
             # Same reasoning as qt_text: a Qt binary with no QT_QPA_PLATFORM ABORTS in
@@ -2425,9 +2405,9 @@ if(BUILD_TESTING)
         target_link_libraries(qt_text_tests PRIVATE Qt6::Core Qt6::Gui)
         add_test(NAME qt_text COMMAND qt_text_tests)
 
-        # THE QT TARGETS MUST USE THE DYNAMIC CRT, and the tree-wide setting at the
-        # top of this file uses the static one on purpose. Both halves are deliberate,
-        # so this is an override with a reason and not a contradiction.
+        # THE QT TARGETS MUST USE THE DYNAMIC CRT. The tree-wide setting at the top of
+        # this file was the static one until 2026-10-07, which is why this override
+        # exists; it is now the default as well, and the override restates it.
         #
         # MEASURED 2026-09-16, after both Qt tests on Windows put up a modal
         # "Debug Assertion Failed! ... __acrt_first_block == header" from
@@ -2438,12 +2418,6 @@ if(BUILD_TESTING)
         # and we free (or the reverse) trips that assertion. Nothing to do with the
         # seam under test.
         #
-        # WHAT THIS DOES NOT DECIDE. Qt cannot be linked against the static CRT, so
-        # once render_qt.cpp and text_qt.cpp are the real backend rather than a tested
-        # seam, tinta.exe itself faces the same choice and the "no VC++ redistributable"
-        # promise in the comment at the top of this file is what pays for it. That is a
-        # product decision, it is Alex's, and overriding two TEST targets deliberately
-        # does not pre-empt it.
         set_property(TARGET qt_text_tests PROPERTY
             MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 
@@ -2594,7 +2568,7 @@ if(BUILD_TESTING)
             # qt_entry_tests below, so a test and the app cannot be built differently. They run
             # on every host now, not only Windows. The QT_QPA_PLATFORM pin is per platform for
             # the reason TINTA_QPA_PLATFORM gives, and on Windows the Qt bin directory joins
-            # PATH through TINTA_QT_PATH_TESTS further down.
+            # PATH through the all-tests rule at the end of this file.
             function(tinta_qt_app_test target test_name test_source)
                 add_executable(${target} ${test_source} ${QINTA_APP_SOURCES})
                 target_include_directories(${target} PRIVATE include ${md4c_SOURCE_DIR}/src)
@@ -2768,40 +2742,13 @@ if(BUILD_TESTING)
         # PREPENDED to what the runner already has, not replaced by it. It needs CMake
         # 3.22 and this file only requires 3.15, so it is guarded -- an older CMake gets
         # no property and the same by-hand PATH it needed before.
-        if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
-            # Built as a list because qt_entry only exists where Widgets was found, and
-            # naming a test that does not exist is a configure error -- which would
-            # delete the whole Qt block on a partial install rather than one target.
-            # AND THE PARAGRAPH ABOVE WAS PAID FOR A SECOND TIME, 2026-09-20, by
-            # pdf_export_qt: the target was added to the Qt block and NOT to this list, and
-            # the reading it produced was `***Failed 330.49 sec` with not one line of output
-            # -- 330 seconds because the loader's "Qt6Core.dll was not found" box is MODAL
-            # and waits for a person. So this list is not a detail of the two tests above
-            # it; it is part of what adding a Qt test target means, and the cost of missing
-            # it is a dialog on somebody's desktop plus a red that looks like a broken seam.
-            # file_dialog, export_html and image joined on 2026-10-07: their Windows arms
-            # compiled the Win32 file dialog and WIC backends, which left with the Direct2D stack.
-            set(TINTA_QT_PATH_TESTS qt_text render_api pdf_export_qt file_dialog export_html)
-            if(Qt6Svg_FOUND AND Qt6Network_FOUND)
-                list(APPEND TINTA_QT_PATH_TESTS image)
-            endif()
-            if(Qt6Widgets_FOUND)
-                # tab_ghost_qt is here for the reason the paragraph above was written down TWICE.
-                # It is Widgets-gated like qt_entry, so it appends in the same place; leaving it out
-                # would have bought a third modal "Qt6Core.dll was not found" box and a red with no
-                # output, on a target whose whole job is to make a drawing claim legible.
-                list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt code_block_layout
-                    blockquote_layout inline_code_theme math_layout input_shortcuts copy_file_path
-                    draft_owner file_association)
-                # qinta_cli runs the qinta binary itself, which needs the same DLLs.
-                if(TARGET qinta)
-                    list(APPEND TINTA_QT_PATH_TESTS qinta_cli)
-                endif()
-            endif()
-            set_tests_properties(${TINTA_QT_PATH_TESTS} PROPERTIES
-                ENVIRONMENT_MODIFICATION
-                "PATH=path_list_prepend:$<SHELL_PATH:$<TARGET_FILE_DIR:Qt6::Core>>")
-        endif()
+        # The PATH itself is set for EVERY test at the end of this file. This block used to
+        # keep a hand-written list of the Qt tests, and missing one from it was paid for
+        # twice (pdf_export_qt, then tab_ghost_qt): the loader's "Qt6Core.dll was not found"
+        # box is MODAL, so the reading was a 330-second ***Failed with no output and a
+        # dialog on somebody's desktop. Once the clipboard, keyboard, paths and process
+        # seams collapsed onto Qt (2026-10-07), nearly every test links Qt on Windows too,
+        # so the list became the wrong shape: one rule over all tests cannot miss one.
 
         message(STATUS "Qt6 ${Qt6_VERSION} found -- qt_text and render_api targets enabled")
     else()
@@ -2963,6 +2910,21 @@ else()
         "agree with tests/portable-sources.txt on this configuration. Run it by hand: "
         "bash scripts/check-portable-claims.sh")
 endif()
+endif()
+
+# Every Windows test gets the Qt kit's bin directory prepended to PATH, for the reason
+# the Qt block above gives: since 2026-10-07 the platform seams are Qt on every platform,
+# so a test binary without the DLLs on PATH cannot start, and on Windows the loader says
+# so in a modal box rather than on stderr. ENVIRONMENT_MODIFICATION (CMake 3.22) prepends
+# rather than replacing PATH; an older CMake gets no property and needs Qt on PATH by hand.
+# Children inherit it, so the cmake -P drivers and qinta_cli are covered too.
+if(WIN32 AND Qt6_FOUND AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+    get_property(TINTA_ALL_TESTS DIRECTORY PROPERTY TESTS)
+    if(TINTA_ALL_TESTS)
+        set_tests_properties(${TINTA_ALL_TESTS} PROPERTIES
+            ENVIRONMENT_MODIFICATION
+            "PATH=path_list_prepend:$<SHELL_PATH:$<TARGET_FILE_DIR:Qt6::Core>>")
+    endif()
 endif()
 
 # Install

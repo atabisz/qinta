@@ -4,7 +4,7 @@
 // makes -- runs on every host; its path table has a POSIX twin, because "C:\\..." is a
 // RELATIVE path to std::filesystem off Windows. --clipboard-test stays Windows-only: it
 // inspects the clipboard through Win32 so that it reads the system clipboard and not the seam
-// it is testing, and on Windows qinta's clipboard backend is clipboard_win32.cpp.
+// it is testing, and since 2026-10-07 that seam is clipboard_qt.cpp on Windows too.
 #include "clipboard.h"
 #include "input.h"
 #include "overlays.h"

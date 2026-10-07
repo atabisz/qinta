@@ -142,8 +142,8 @@ void handleLinkClick(App& app) {
     }
 }
 
-// copyToClipboard IS GONE. Its body moved to src/clipboard_win32.cpp UNCHANGED and is
-// now the seam's only Windows write -- including the GlobalFree that editor.cpp's
+// copyToClipboard IS GONE. Its body moved to src/clipboard_win32.cpp UNCHANGED and was
+// the seam's only Windows write until that file was deleted on 2026-10-07 -- including the GlobalFree that editor.cpp's
 // near-copy was missing, so this function's careful version is the one that survived.
 // The paragraph at the top of this file still lists "the clipboard" among what is left
 // here; it no longer is, and that sentence is corrected there rather than here.

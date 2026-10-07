@@ -150,8 +150,8 @@ tinta::DecodedImage clipboardImage() {
     const QImage src = qvariant_cast<QImage>(mime->imageData());
     if (src.isNull()) return image;
     // tinta::kMaxImageDimension's bound, EXCLUSIVE, matching src/image_qt.cpp's
-    // dimensionsAcceptable and src/clipboard_win32.cpp's copy of the same test. The seam
-    // enforces it in every backend so the two cannot drift.
+    // dimensionsAcceptable. src/clipboard_win32.cpp carried a copy of the same test until it
+    // was deleted on 2026-10-07; this is now the only clipboard backend.
     if (src.width() <= 0 || src.height() <= 0 ||
         static_cast<unsigned>(src.width()) >= tinta::kMaxImageDimension ||
         static_cast<unsigned>(src.height()) >= tinta::kMaxImageDimension) {

@@ -1,0 +1,19 @@
+# Windows-only BY DESIGN: src/*.cpp files that are Windows by their subject, not by being
+# the unported half of a seam. They are counted in no to-do figure, because there is
+# nothing to port them TO, and they are reported as their own row in README.md instead.
+#
+# scripts/check-readme-figures.sh reads this file and refuses an entry that does not exist
+# in src/, is not named *_win32.cpp, or is also on tests/portable-sources.txt. So a file
+# cannot be parked here to make the to-do count shrink: it has to be a Windows backend by
+# name, and the name shape is what a reviewer reads.
+#
+# Added 2026-10-07, once the clipboard, keyboard, paths and process seams collapsed onto
+# their Qt halves and these two were the only non-portable files left.
+
+# File association: /register writes qinta's ProgID and capabilities under HKCU. The
+# registry has no counterpart off Windows.
+settings_win32.cpp
+
+# The DWM caption colours qinta's Qt window paints from the theme. DWM is the only
+# caption-colour API Windows has; Qt exposes no equivalent.
+window_chrome_win32.cpp

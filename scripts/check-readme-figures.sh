@@ -128,7 +128,31 @@ manifest=$(grep -vE '^[[:space:]]*(#|$)' tests/portable-sources.txt | sort)
 manifest_count=$(bump "$(printf '%s\n' "$manifest" | grep -c . || true)")
 all_cpp=$(ls src/*.cpp | xargs -n1 basename | sort)
 all_cpp_count=$(bump "$(printf '%s\n' "$all_cpp" | grep -c . || true)")
-todo=$(comm -23 <(printf '%s\n' "$all_cpp") <(printf '%s\n' "$manifest"))
+nonmanifest=$(comm -23 <(printf '%s\n' "$all_cpp") <(printf '%s\n' "$manifest"))
+nonmanifest_count=$(bump "$(printf '%s\n' "$nonmanifest" | grep -c . || true)")
+
+# Windows-only BY DESIGN (tests/windows-only-sources.txt, 2026-10-07): files that are Windows by
+# subject -- the registry, DWM -- and have nothing to be ported to. They leave the to-do set and are
+# reported as their own row. Each entry is checked HERE, before it may subtract anything, because a
+# list that can shrink the to-do count is a list somebody will be tempted to park a file in: it must
+# exist in src/, be named *_win32.cpp, and not also be on the portable manifest. A violation is a
+# failure of this run, not a skipped entry.
+winonly=$(grep -vE '^[[:space:]]*(#|$)' tests/windows-only-sources.txt | sort)
+for f in $winonly; do
+    reason=""
+    [ -f "src/$f" ] || reason="does not exist in src/"
+    if [ -z "$reason" ] && ! printf '%s' "$f" | grep -qE '_win32\.cpp$'; then
+        reason="is not named *_win32.cpp"
+    fi
+    if [ -z "$reason" ] && printf '%s\n' "$manifest" | grep -qxF "$f"; then
+        reason="is also on tests/portable-sources.txt"
+    fi
+    if [ -n "$reason" ]; then
+        printf '  FAIL %-42s %s\n' "windows-only-sources.txt entry" "$f $reason"
+        failures=$((failures + 1))
+    fi
+done
+todo=$(comm -23 <(printf '%s\n' "$nonmanifest") <(printf '%s\n' "$winonly"))
 todo_count=$(bump "$(printf '%s\n' "$todo" | grep -c . || true)")
 
 raw_todo_lines=0
@@ -312,7 +336,7 @@ claim "to-do header"     "**To do — $todo_count files, $(c "$todo_lines") line
 # wholly stale against the compiler -- 3 + 0 + 16 = 19 would pass this gate and be false. The
 # README says so where the figure is published, rather than only here, because the person about to
 # trust the number is reading the README.
-claim "census denominator"  "that fail out of a census of **$todo_count**"
+claim "census denominator"  "that fail out of a census of **$nonmanifest_count**"
 
 # A parse that finds nothing must FAIL rather than become three zeros. Against a bumped
 # denominator three zeros would sum wrong and look like a working check, but against the real one
@@ -356,12 +380,12 @@ else
     c_vac=$(printf   '%s' "$census_line" | sed -E 's/.*vacuous: ([0-9]+).*/\1/')
     c_fail=$(printf  '%s' "$census_line" | sed -E 's/.*fails: ([0-9]+).*/\1/')
     c_sum=$((c_clean + c_vac + c_fail))
-    if [ "$c_sum" -eq "$todo_count" ]; then
+    if [ "$c_sum" -eq "$nonmanifest_count" ]; then
         printf '  ok   %-42s %s\n' "census decomposition sums" \
-            "$c_clean + $c_vac + $c_fail = $c_sum, the $todo_count non-manifest src/*.cpp this script derives"
+            "$c_clean + $c_vac + $c_fail = $c_sum, the $nonmanifest_count non-manifest src/*.cpp this script derives"
     else
         printf '  MISS %-42s %s\n' "census decomposition sums" \
-            "README publishes $c_clean + $c_vac + $c_fail = $c_sum, but the tree has $todo_count non-manifest src/*.cpp"
+            "README publishes $c_clean + $c_vac + $c_fail = $c_sum, but the tree has $nonmanifest_count non-manifest src/*.cpp"
         failures=$((failures + 1))
     fi
 fi
@@ -572,7 +596,10 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # Direct2D stack on 2026-10-07, the "is NOT in the to-do set" FAIL fired on the next run, and a
 # hand-named exclusion that matches nothing is exactly the silent failure the guard existed for.
 # The row is name-shape only, with no exception, and every member is a *_win32.cpp qinta builds.
-backends=$( printf '%s\n' $todo | grep -E '(_win32|_d2d)\.cpp$' | sed 's/\.cpp$//' | sort )
+# Since 2026-10-07 the row is the Windows-only-by-design set, which the guard near the top holds to
+# the same *_win32.cpp shape: the four seam halves that had a Qt half were deleted, so what is left
+# is exactly what tests/windows-only-sources.txt names.
+backends=$( printf '%s\n' $winonly | grep -E '(_win32|_d2d)\.cpp$' | sed 's/\.cpp$//' | sort )
 expr_backends=""
 raw_backend_lines=0
 for f in $backends; do

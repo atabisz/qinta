@@ -101,8 +101,8 @@ cd qinta
 **Prerequisites**
 
 - **Visual Studio 2019 or newer** with the **Desktop development with C++** workload, which
-  installs MSVC and the Windows SDK, which qinta's Win32 backends (clipboard, keyboard, paths,
-  process, title-bar chrome) build against.
+  installs MSVC and the Windows SDK, which qinta's two Windows-only files (the file association
+  and the title-bar chrome) and the Windows branches of the Qt backends build against.
 - **CMake 3.15+.** The copy Visual Studio bundles is fine, but it is not necessarily on `PATH`
   in an ordinary shell: it lives under
   `Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
@@ -482,7 +482,7 @@ deprecated-backend flag" below for the link failure that established the differe
 "transitional" column is what keeps Windows working today and is scheduled for deletion;
 the "target" column is where every platform ends up:
 
-| Seam | Replaces | Transitional (Windows, to be removed) | Target (all platforms) |
+| Seam | Replaces | Transitional (Windows; every one deleted by 2026-10-07) | Target (all platforms) |
 |---|---|---|---|
 | `include/text_api.h` | DirectWrite text layout and formats | `src/text_d2d.cpp` | `src/text_qt.cpp` |
 | `include/render_api.h` | Direct2D render target, brushes, bitmaps | `src/render_d2d.cpp` | `src/render_qt.cpp` |
@@ -573,8 +573,9 @@ thing is worse than one that does nothing.
 `qt_text`, `render_api` and `qt_entry` exist *only* where Qt does. `keyboard` is the exception and
 deliberately so: it is configured under `if(WIN32 OR Qt6_FOUND)`, because the seam has two
 backends and a seam whose Windows half is never asserted is precisely the shape this repo
-has criticised elsewhere. Off Windows it links `keyboard_qt.cpp` and Qt; on Windows it links
-`keyboard_win32.cpp` and no Qt at all.
+has criticised elsewhere. Off Windows it linked `keyboard_qt.cpp` and Qt; on Windows it linked
+`keyboard_win32.cpp` and no Qt at all, until 2026-10-07, when `keyboard_win32.cpp` was deleted and
+every platform links `keyboard_qt.cpp`.
 
 CI runs ctest but not this probe, so the probe is green only if somebody ran it. The regression guard is
 a probe that compares what the build actually compiled against a manifest of what it is
@@ -684,7 +685,12 @@ along, is worth distinguishing from `scroll.cpp`, which is still here — though
 
 | Cause | Files | |
 |---|---|---|
-| `windows.h` | 5 | `clipboard_win32`, `keyboard_win32`, `platform_paths_win32`, `platform_process_win32`, `settings_win32` |
+| `windows.h` | 1 | `settings_win32` |
+
+**RE-TAKEN AGAIN THE SAME EVENING, 2026-10-07, controls 11/11, AFTER THE FOUR SEAM HALVES COLLAPSED
+ONTO QT:** `clipboard_win32`, `keyboard_win32`, `platform_paths_win32` and `platform_process_win32`
+left the row with their files, 5 → 1. The cause was predicted before the run (one `windows.h`,
+one empty translation unit) and the reading matched it.
 
 **ONE ROW, RE-TAKEN 2026-10-07 FROM `scripts/census-nonportable-linux.sh` AFTER THE DIRECT2D STACK
 WAS DELETED, controls 11/11.** The five rows that stood here before it — `d2d1.h` (`pdf_export_win32`,
@@ -719,8 +725,10 @@ gate derives the census denominator from the tree and fails when the published
 below that the table is "re-derived from one census run rather than edited row by row" is refuted
 further down this section, and the `WM_SETTINGCHANGE` row is one more instance of it.
 
-Those 5 are the 5 that fail out of a census of **6**, and the sixth is `window_chrome_win32.cpp`,
-which compiles to an empty translation unit off Windows. Until 2026-10-07 it read: 13 files, plus
+`settings_win32.cpp` is now the only one of the files that fail out of a census of **2**, and the second is `window_chrome_win32.cpp`,
+which compiles to an empty translation unit off Windows. Both are Windows-only by design
+(`tests/windows-only-sources.txt`). Earlier on 2026-10-07 it read 5 of 6, before the clipboard,
+keyboard, paths and process halves were deleted. Before that it read: 13 files, plus
 the two deliberate `#error` guards in `render_d2d.cpp` and `text_d2d.cpp`, were the 15 that failed
 out of a census of 19 (18 from 2026-09-24, when `settings_app.cpp` joined the
 manifest, until 2026-09-29, when `window_chrome_win32.cpp` arrived wholly guarded). (It was 14 of 16 out of 19 until 2026-09-23, when the
@@ -739,8 +747,8 @@ in its compile-only section now. But `tab_ghost_win32.cpp`, `tab_tearoff_win32.c
 line 3 and `#endif` on the last line, so off Windows each is an empty translation unit. For those four, "compiles off Windows" was a reading that the file is maximally
 *un*portable — there is no portable code in it, because there is no code in it — and one word was
 carrying both that and `settings_app.cpp`'s genuine pass. **The census now reports what the compile
-emitted and `clean` excludes the empty ones:** `clean: 0   vacuous: 1   fails: 5`, controls 11/11,
-`control failures: 0`, measured 2026-10-07. Three of the four empty files above —
+emitted and `clean` excludes the empty ones:** `clean: 0   vacuous: 1   fails: 1`, controls 11/11,
+`control failures: 0`, measured 2026-10-07 after the seam collapse (it read `fails: 5` that morning). Three of the four empty files above —
 `tab_ghost_win32.cpp`, `tab_tearoff_win32.cpp` and `zen_mode_win32.cpp` — were deleted with the
 Direct2D stack that day, and `window_chrome_win32.cpp` is the one left.
 
@@ -1055,25 +1063,37 @@ The tests carry these as per-backend expectations, so a future change that accid
   breaking seam that `render.cpp` still lacks, and asserting a behaviour before the seam
   exists would pin the wrong thing.
 
-### The open product decision: the Windows C runtime
+### The Windows C runtime: dynamic, with the DLLs beside the exe
 
-This one is not a portability question and it is not mine to settle, so it is written down
-rather than decided. The `if(MSVC)` block at the top of `CMakeLists.txt` still links the tree
-against the **static** CRT, on upstream Tinta's promise: the exe runs on a clean Windows
-install with no VC++ redistributable, which is what kept Tinta a single file you can copy.
-**Qt cannot be linked against the static CRT**, so every target that links Qt overrides it to
-the dynamic CRT, and `qinta` is one of them.
+**Decided 2026-10-07: option B below, app-local runtime DLLs.** Upstream Tinta linked the
+**static** CRT so its exe ran on a clean Windows install with no VC++ redistributable, which is
+what kept it a single file you can copy. **Qt cannot be linked against the static CRT**, and once
+the clipboard, keyboard, paths and process seams collapsed onto Qt nearly every target in the tree
+linked Qt on Windows too. So the `if(MSVC)` block at the top of `CMakeLists.txt` now selects the
+**dynamic** CRT for the whole tree, and `qinta` ships as a folder rather than a file.
 
-**Since 2026-10-07 that promise covers no shipping binary.** It was intact while `tinta.exe`
-existed, because `tinta` was the product and stayed static. With `tinta` retired, the only
-Windows executable is `qinta.exe`, which is dynamic-CRT and needs the Qt DLLs beside it; the
-CI artifact is already a `windeployqt` folder, not a single file. The static default now only
-applies to the test targets that link no Qt. So by default the decision has already gone to
-"a folder of DLLs", and what is still open is how that folder reaches a user.
+The options were:
 
-The options are a dynamic CRT plus a VC++ redistributable dependency, shipping the CRT DLLs
-alongside the exe (app-local), or a static Qt build. Each trades something real. A MinGW build
-([below](#planned-mingw-on-windows-once-the-direct2d-code-is-gone)) changes the question again.
+- **A. Dynamic CRT plus the VC++ redistributable as a prerequisite.** Smallest folder, but the
+  folder no longer runs where you copy it: it needs an installer step first.
+- **B. App-local runtime DLLs** (chosen). The CI Stage step copies Visual Studio's
+  `Microsoft.VC*.CRT` folder (2.0 MB, measured against VS 18's 14.51 redist) beside `qinta.exe` and
+  the Qt DLLs, and fails if `vcruntime140.dll`, `vcruntime140_1.dll`, `msvcp140.dll`,
+  `msvcp140_1.dll` or `msvcp140_2.dll` is missing; those five are what `qinta.exe`, `Qt6Core`,
+  `Qt6Gui` and `Qt6Widgets` import. The UCRT itself ships with Windows 10 and 11. So the folder
+  runs where you copy it, which is as close to the single-file promise as a Qt app gets.
+- **C. A static Qt build.** One exe again, but it means building Qt from source in CI, and static
+  linking under Qt's LGPL obliges the project to let users relink. Not pursued.
+
+**`windeployqt --compiler-runtime` does not do B for MSVC**, which is easy to assume. Measured
+2026-10-07 with Qt 6.8.3: with `VCINSTALLDIR` set it copies `vc_redist.x64.exe`, the installer,
+and without it it copies nothing. So CI passes `--no-compiler-runtime` and copies the DLLs itself.
+
+**Not yet witnessed:** `qinta.exe` starting from that folder on a machine with no VC++ runtime
+installed. This machine and the CI runners both have one, so a launch here cannot tell an
+app-local DLL from the system copy. A MinGW build
+([below](#planned-mingw-on-windows-once-the-direct2d-code-is-gone)) would change the question
+again: it uses the UCRT and no VC++ runtime at all.
 
 ### Planned: MinGW on Windows, once the Direct2D code is gone
 
@@ -1096,16 +1116,20 @@ build, and it was deleted rather than ported. Only qinta is left, so the switch 
 - a **MinGW Qt kit** (Qt's `mingw_64`, or MSYS2's `qt6`) in place of `msvc2022_64`, locally and
   in CI;
 - GCC-style equivalents of the `if(MSVC)` block in `CMakeLists.txt`, which MinGW does not enter:
-  `/W4`, `NOMINMAX`, `_CRT_SECURE_NO_WARNINGS` and the static-CRT setting;
-- re-running the full `ctest` suite and the rendering harnesses under the new toolchain, since
-  none of them has been built with MinGW yet.
+  `/W4`, `NOMINMAX` and `_CRT_SECURE_NO_WARNINGS` (the CRT setting does not apply, because MinGW
+  links the UCRT). `NOMINMAX` is in place since 2026-10-07, as an `elseif(WIN32)` arm of that block;
+- re-running the full `ctest` suite and the rendering harnesses under the new toolchain.
 
 It also changes the C runtime question above: a MinGW build does not use the VC++ runtime, so
-"no VC++ redistributable" is no longer the constraint, and what ships next to the exe becomes
-the MinGW runtime (or links statically) plus the Qt DLLs.
+what ships next to the exe becomes the MinGW runtime (`libstdc++`, `libgcc`, `libwinpthread`, or
+linked statically) plus the Qt DLLs.
 
-Nothing in this section is measured yet. No MinGW build of this tree exists, so the costs above
-are the known differences, not a list checked by a build.
+**Started 2026-10-07 as a CI job, not a switch.** `.github/workflows/build.yml` has a
+`windows-mingw` job: MSYS2's UCRT64 GCC and Qt 6, configure, build and the whole `ctest` suite. It
+is `continue-on-error` until it has been green, so a red there is a finding rather than a broken
+`master`, and MSVC stays the build that ships. The switch itself waits for that job to pass and for
+the rendering harnesses to agree under it. Until the job's first run is read, nothing in this
+section is measured: the costs above are the known differences, not a list checked by a build.
 
 ### Status
 
@@ -1140,8 +1164,8 @@ are the record. This table is only the index.
 | 2026-10-06 | `qinta` shows one row of caption buttons: the tab strip leaves minimise, maximise and close to the native title bar | Done |
 | 2026-10-07 | Slice 25: retire `tinta` and delete the Direct2D stack — `main_d2d.cpp`, `d2d_init.cpp`, `chrome_dump_d2d.cpp` and ten more files, 4,821 lines, nothing ported | Done |
 | 2026-10-07 | `/register` on `qinta`: `qinta.exe` owns the `.md`, `.markdown` and `.mmd` association as `Qinta.MarkdownFile` | Done |
-| open | Collapse the four Win32 seam halves that already have a Qt half — `clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`, `platform_process_win32.cpp` — onto `clipboard_qt.cpp`, `keyboard_qt.cpp`, `platform_paths_qt.cpp` and `platform_process_qt.cpp`. Slice 25 deleted only the halves `qinta` did not link; `qinta` still selects these four on Windows | To do |
-| open | `settings_win32.cpp` (file association in the registry) and `window_chrome_win32.cpp` (the DWM title bar `qinta` itself calls) are Windows by nature. Deleting Direct2D does not remove them, so they stay counted below until somebody decides how a Windows-only platform file should be counted | Undecided |
+| 2026-10-07 | Collapse the four Win32 seam halves that had a Qt half — `clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`, `platform_process_win32.cpp` — onto `clipboard_qt.cpp`, `keyboard_qt.cpp`, `platform_paths_qt.cpp` and `platform_process_qt.cpp`, on every platform. Explorer still selects the file on reveal; the tree-wide CRT is dynamic | Done |
+| 2026-10-07 | `settings_win32.cpp` (the registry, for `/register`) and `window_chrome_win32.cpp` (DWM caption colours) are Windows by subject. They are listed in `tests/windows-only-sources.txt`, counted in their own row and in no to-do figure, and the figure gate refuses an entry that is not an existing `*_win32.cpp` off the portable manifest | Done |
 
 What the **To do** count below is made of is derived, not listed by hand:
 `scripts/check-readme-figures.sh` takes every `src/*.cpp` that is not in
@@ -1196,7 +1220,19 @@ What the **To do** count below is made of is derived, not listed by hand:
 | The single-instance hand-off on `qinta` | Done 2026-10-06. tinta hands a plain file launch to the running window (`FindWindowW` + `WM_COPYDATA` → `tabOpenPath`), and `qinta` opened a new window every time. The rule is now one function, `tinta::shouldJoinExistingWindow`, which `WinMain` calls in place of its inline condition. It joins unless the launch is a quick note, a cascade relaunch or a harness switch, or `openInTabs` is off. `launch_options_tests` asserts each exclusion and the join case, 59 → 64. The Qt channel is `src/instance_channel_qt.cpp`, `QLocalServer`/`QLocalSocket` (a named pipe on Windows, a Unix socket elsewhere), named per user from a hash of the home directory. It speaks a one-line protocol with an acknowledgement, so the second process exits only after a window has taken its document. Nobody listening, or no answer, means the launch opens its own window: `WinMain`'s fallback when `FindWindowW` returns null. A stale Unix socket left by a crash is removed only after a probe finds nobody answering on it. `qt_entry_tests` 356 → 360 on Linux and 355 → 359 on Windows. The client runs on a second thread while the GUI thread pumps the server, the only way one process can be both ends, on a channel name of its own so a running `qinta` is never involved. Control: with nobody listening, the send fails. Plants, each predicted: the rule ignoring `openInTabs`, **1**, read 1; the server acknowledging without handing the path on, **2**, read 2. Run for real later that evening: the second launch exited 0, one qinta process remained, and its window showed both documents as tabs |
 | Tab tear-off on `qinta` | Done 2026-10-06. On tinta, a tab dragged below the strip detaches under a ghost card. Back over the strip it snaps home, and a release away from every Tinta window opens it in a new window at the drop point. On `qinta` the drag only ever reordered. The Win32 code reads screen coordinates through `ClientToScreen` and paints the ghost in a layered HWND, so `include/window_sink.h` gains the same answers for the Qt window: `toScreen`, `containsScreen`, and ghost show/move/hide drawn by the existing `src/tab_ghost_qt.cpp`. `tabs.cpp`'s off-Win32 branches use them. The torn-off relaunch (`--cascade --tabbed --pos X Y <path>`) gets its builder and a Qt arm. **The relaunches got a test hook** (`include/window_launch_qt.h`), because inside a test the relaunched binary is the test itself, and a drop would have started the whole suite again. With the hook all three launchers are RUN by `qt_entry_tests`, not just linked, so `window_launch_qt.cpp` leaves the probe's never-called list and basis C rises 76 → 77. A window that is not on screen gets a ghost that is not on screen either, so ctest on Windows flashes nothing onto the desktop. `qt_entry_tests` 360 → 367 on Linux and 359 → 366 on Windows, all through the real mouse router: detach and ghost, snap home, a drop over the window keeps the tab, a drop away relaunches with the dragged document and closes the local tab. Plants, each predicted: no ghost, **3**, read 3; drop ignored, **2**, read 2. **Not done, and said where the code is:** a drop onto another running `qinta` window. Win32 finds that window by HWND and hands the tab over with `WM_COPYDATA`. The portable equivalent would need every window to own a channel, plus a broker to ask which one is under the cursor, so on `qinta` that drop opens a new window instead. Done for real later that evening with the mouse: the ghost card followed the drag, and the release opened a second qinta window holding the torn-off document, leaving the source window with its other tab |
 
-**To do — 6 files, 1,006 lines**
+**To do — 0 files, 0 lines**
+
+**THE FOUR SEAM HALVES COLLAPSE ONTO QT AND THE LAST TWO ARE WINDOWS BY DESIGN, 2026-10-07 — 6 → 0
+FILES, 1,006 → 0.** `clipboard_win32.cpp` (321), `keyboard_win32.cpp` (29), `platform_paths_win32.cpp`
+(284) and `platform_process_win32.cpp` (69) were the Win32 halves of seams whose Qt halves already ran
+on Linux and macOS. `qinta` builds the Qt halves on Windows now, and the four files are deleted: 703
+lines, nothing ported, because there was nothing left to port. Two files remain and both are Windows
+by subject: `settings_win32.cpp` writes the file association to the registry and
+`window_chrome_win32.cpp` colours the title bar through DWM. Neither has anything to be ported to, so
+they are listed in `tests/windows-only-sources.txt` and counted in the Windows-backends row below
+instead of here: 2 files, 303 lines. The figure gate refuses an entry on that list unless it exists, is named
+`*_win32.cpp` and is not on the portable manifest, so the list cannot be used to hide a file. Bases
+A to C keep their full denominators, so this changes no basis by definition.
 
 **SETTINGS_WIN32.CPP GROWS 224 → 253, 2026-10-07 — 6 → 6 FILES, 977 → 1,006, +29.** `/register`
 came back on qinta, so the Windows backend gained qinta's registry identity and the interactive
@@ -1575,7 +1611,7 @@ better reading but a rising one is not the surprising one.
 | Modifier-key sites still native | — | The seam is built (see Done) and took 2 of the 17 `GetKeyState` sites. **The clause that stood here is now HALF DISCHARGED, and the two halves came apart for exactly the reason it gave.** It read: "The other 15 — 7 in `editor.cpp`, 8 in `input.cpp` — sit behind fatal `imm.h` and `windowsx.h` includes, so they cannot be *measured* yet, let alone rewired." The `imm.h` half is gone: `editor.cpp` is readable, **the 7 was CONFIRMED at exactly 7** rather than inherited, and all 7 are routed — so the seam now holds **9 of 17**. Every one of the seven was the identical `& 0x8000` predicate, which is what makes `platform::isShiftDown`/`isCtrlDown` the right shape: the decode lives in the seam's Windows backend and no call site repeats it. **The `input.cpp` 8 stays UNMEASURED and this row keeps saying so**, because `windowsx.h` is still fatal there and `errors=1, fatal=1` means not-measured rather than one-error-away — the 8 is a number carried from a grep, not a reading, and the `editor.cpp` half is the reason to distrust it: the count that *was* checkable came back right, while the family table around it was wrong in four places. **One of the seven is worth naming because a rule nearly ate it.** The predicate appears in four spellings — `!= 0`, negated, compared against a mask, and one **bare** `(GetKeyState(VK_SHIFT) & 0x8000)` inside an `&&` at `:2744` — and the assertion script's rule for the negated form was written expecting 2 and read 1, because the bare site had been miscounted as negated while predicting. The fix was ordering the bare-form rule **last** so it could not consume the three `!= 0` sites or the negated one; the miss was caught by reading the actual sites instead of trusting the pattern |
 | Qt entry point | — | **Built. This row used to read "`Seated::install()` still has zero callers; blocked behind `render.cpp`", and half of that was wrong: the entry point was blocked behind nothing.** It needed a *measurement* — which objects a Qt `main()` actually pulls — and the measurement came back as nine files rather than the whole tree, because `App` reaches its backends through pointers now. **The sentence that ended this row — "What is still blocked behind `render.cpp` is the document, not the window" — is DISCHARGED: the document is drawn, by a test, on both platforms.** **`qinta` shows one as of this pass, and the estimate that closed this row — "that is now four lines in `src/main_qt.cpp` that read `argv[1]` and assign `app.root`" — was WRONG, which is the third wrong claim this row has recorded about itself.** There were no four lines to write, because there was no loadable function to call: the Windows side keeps that logic in two lambdas inside `WinMain`, one of them using an `ifstream` spelling that does not compile off Windows. The cost was a portable `loadDocumentFromPath` in `src/file_utils.cpp`, plus two files the linker demanded that nobody had predicted. The twelve-cause list above no longer explains the placeholder at all; it explains why the binary is not yet *tinta*, and **the one-word version this row ended on — "input" — is now the wrong word, which is a sharper correction than a stale one.** The window handles input: `wheelEvent` and `keyPressEvent` are wired, eight keys and the wheel scroll the document, Ctrl+O opens another. What it does not have is *the rest of the application* — no menus, tabs, selection, search or editing — and the scroll numbers were **copied** into `src/scroll.cpp` rather than routed out of `src/input.cpp` — a duplication that is now closed from the other end, since the key and mouse routers made `input.cpp` the code the Qt window runs and the copy was deleted on 2026-09-25. **THIS CLAUSE READ "`src/input.cpp` is untouched, all 344 native mentions of it", AND BOTH HALVES ARE NOW FALSE, FOR TWO UNRELATED REASONS.** The file compiles off Windows at 0 errors as of 2026-09-21 and is on the manifest's compile-only list, so "untouched" is out of date — and **the 344 was never a defensible figure even on the day it was written**: it is a source-text census, and against it the compiler finds **15** lines, with 16 of the 17 sites the census saw and `g++` did not turning out to be COMMENTS. A figure that overstates a file's depth by more than twenty times is what made this the scariest name in the port, and it is corrected at its source in `src/main_qt.cpp:58-64` as well as here. So the one word was wrong in both directions at once: input arrived without `input.cpp` being routed to at all, and the file it named is no longer the largest thing left — it has left the to-do set, where `main_d2d.cpp`'s 2,002 lines are now the biggest single entry. The honest short version is two words: **everything else** |
 | macOS | — | ~~Not attempted. Nothing platform-specific to macOS has been written or measured~~ **Stale since 2026-09-19, corrected 2026-10-06.** The first macOS build was measured that day: it configures, builds, launches, and passes every ctest entry once four macOS-specific test gaps were fixed (`3cc9736`). CI has built and tested macOS on every push since 2026-09-29. Two things are still unrecorded: anyone scrolling a document on a Mac, and any macOS-only code. Qt has needed none so far. The row carries no figure because no file is macOS-only |
-| The Windows backends themselves | 321 + 29 + 284 + 69 + 253 + 50 | `clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`, `platform_process_win32.cpp`, `settings_win32.cpp`, `window_chrome_win32.cpp` — since 2026-10-07 every member is a Win32 half that `qinta` itself builds on Windows, and none is Direct2D. Seventeen files read 3,976 lines the day before; the eleven that left were deleted with the stack, and `settings_win32.cpp` stays for `/register`. |
+| The Windows backends themselves — Windows-only by design since 2026-10-07 | 253 + 50 | `settings_win32.cpp` (the registry, for `/register`) and `window_chrome_win32.cpp` (DWM caption colours), the two files `tests/windows-only-sources.txt` names. Seventeen files read 3,976 lines on 2026-10-06; the eleven that left were deleted with the Direct2D stack, and four more (`clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`, `platform_process_win32.cpp`) were deleted on 2026-10-07 when their seams collapsed onto the Qt halves. |
 
 The font-fallback query is the one place where the obvious tidy-up is the wrong move, and
 it is worth a note because the reasoning is not visible from the code. Folding
@@ -1589,11 +1625,13 @@ answer ever changes.
 
 That last row is the change of goal made arithmetic. These files used to be listed
 separately as "will never move", excluded from the count on the grounds that they were
-the Windows half of a permanent pair. Under one stack there is no permanent Windows half,
-so they are work — **1,006 lines of it today**, across **six** files, every one a Win32 half `qinta`
-builds on Windows: `clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_paths_win32.cpp`,
-`platform_process_win32.cpp`, `settings_win32.cpp` and `window_chrome_win32.cpp` (2026-10-07,
-after the Direct2D stack was deleted). The day before it read **3,976 lines across seventeen**: four
+the Windows half of a permanent pair. Under one stack there is no permanent Windows half
+*of a seam*, so they were work, and on 2026-10-07 the last four such halves were deleted. What is
+left is not a seam half at all — **303 lines of it today**, across **two** files that are Windows by
+subject: `settings_win32.cpp` (the registry) and `window_chrome_win32.cpp` (DWM). So the "will
+never move" category is back, but by name in `tests/windows-only-sources.txt` and checked, rather
+than as a figure excluded on argument. Earlier that day it read **1,006 lines across six**, after
+the Direct2D stack was deleted, and the day before **3,976 lines across seventeen**: four
 of the five originally
 excluded (`render_d2d.cpp`, `text_d2d.cpp`, `settings_win32.cpp`, `platform_paths_win32.cpp`; the
 fifth, `settings_app.cpp`, joined the manifest on 2026-09-24 — all five named here for the first time, because a partition whose first term is a bare
@@ -1678,9 +1716,9 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 52,995 / 65,643 | **80.7%** |
-| B. `src/*.cpp` files compiling without Windows headers | 78 / 84 | 92.9% |
-| C. Files a running test links **off Windows** | 77 / 84 | 91.7% |
+| A. Source lines free of the Windows stack | 53,008 / 64,956 | **81.6%** |
+| B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
+| C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
 | D. Test targets that *could* move, and do | 50 / 51 | 98.0% |
 | E. All test targets, run off Windows | 50 / 52 | 96.2% |
 
@@ -1789,7 +1827,7 @@ Windows-only targets, as the count of `src/*.cpp` it compiles that are outside
 | target | blockers | what they are |
 |---|---|---|
 | `config_paths` | 0 | **nothing** — Windows-only by *subject*: MSIX filesystem virtualization, and its own test includes `<windows.h>` for `CreateFileW` |
-| `file_association` | 5 | `settings_win32.cpp` — the registry code under test, which has no non-Windows form — plus the four Win32 seam halves every Qt app target links on Windows (`clipboard_win32.cpp`, `keyboard_win32.cpp`, `platform_process_win32.cpp`, `window_chrome_win32.cpp`). Added 2026-10-07: `/register` run for real against a redirected HKCU |
+| `file_association` | 2 | `settings_win32.cpp` — the registry code under test, which has no non-Windows form — plus `window_chrome_win32.cpp`, the DWM title bar every Qt app target links on Windows. Both are Windows-only by design. It read 5 until the clipboard, keyboard and process seam halves were deleted the same day. Added 2026-10-07: `/register` run for real against a redirected HKCU |
 
 **SIX ROWS LEFT THIS TABLE ON 2026-10-06, AND NONE OF THEM BY BECOMING CHEAP.** `blockquote_layout`,
 `code_block_layout`, `copy_file_path`, `inline_code_theme` and `input_shortcuts` (17 blockers each) and
@@ -2196,8 +2234,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 54,001 lines of the 65,643,
-**basis A's ceiling is 82.3%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
+can never enter the numerator. With `src/*.cpp` totalling 53,311 lines of the 64,956,
+**basis A's ceiling is 82.1%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into
 `include/theme_data.h` and a net 4 into `src/themes.cpp` — so the numerator rose **4** against a
@@ -2723,8 +2761,8 @@ longer ahead in the sense the clause meant — `input.cpp` compiles — so what 
 `main_d2d.cpp`'s 2,021 lines, which is not a port at all but a rewrite, since a Win32 message loop
 has no Qt translation. **A fraction is the most quotable thing on this page and the only figure here
 with no gate behind it**, which is the whole reason it drifted by half the port. Note also that the
-finish line moved out, not in: **1,006 lines of Windows backend are
-now work rather than furniture** (3,976 until the Direct2D stack was deleted on 2026-10-07), they grow with every seam before they leave in one piece,
+finish line moved out, not in: **303 lines of Windows backend are
+now furniture by name rather than by argument** (3,976 until the Direct2D stack was deleted on 2026-10-07, then 1,006 until the last four seam halves collapsed onto Qt the same day), seam halves grow with every seam before they leave in one piece,
 and re-verifying Windows on a new stack is effort that appears in no line count here.
 
 **THAT FIGURE READ 2,129 UNTIL 2026-09-18 AND IT IS THE THIRD QUOTATION OF A NUMBER THE GATE

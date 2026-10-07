@@ -13,7 +13,9 @@
 // command-line string is parsed back into argv. That is not a call and not a type, it is
 // an algorithm over characters, so it can be implemented EXACTLY on any platform and
 // tested on any platform -- which is the whole reason it is a header of its own rather
-// than a static function inside src/platform_process_win32.cpp.
+// than a static function inside src/platform_process_win32.cpp. That file was deleted on
+// 2026-10-07 (QProcess quotes for itself), so this header has no production caller now; it
+// is kept because tests/process_tests.cpp asserts it, and deleting it is a separate call.
 //
 // The rule is CommandLineToArgvW's, which is also what CreateProcessW's child sees
 // through the CRT's startup parsing:

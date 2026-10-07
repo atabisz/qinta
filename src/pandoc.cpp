@@ -169,7 +169,8 @@ void pandocResolve(App& app) {
     }
 
     // 2. PATH. The bare name is the seam's contract -- `.exe` is a Windows
-    // convention and belongs in platform_paths_win32.cpp, not here.
+    // convention and belongs in the platform seam (QStandardPaths::findExecutable applies
+    // PATHEXT), not here.
     std::wstring found = platform::findExecutableOnPath(L"pandoc");
     if (!found.empty()) {
         app.pandocExe = found;

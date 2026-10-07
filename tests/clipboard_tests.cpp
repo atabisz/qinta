@@ -45,7 +45,10 @@
 
 #ifdef TINTA_CLIPBOARD_BACKEND_QT
 #include <QGuiApplication>
-#else
+#endif
+// The raw-DIB producer below talks to the Windows clipboard directly, on purpose, whichever
+// backend the seam uses. Since 2026-10-07 that backend is Qt on Windows too.
+#ifdef _WIN32
 #include <windows.h>
 
 #include <cstring>
@@ -213,7 +216,7 @@ tinta::DecodedImage makeTestImage() {
     return img;
 }
 
-#ifndef TINTA_CLIPBOARD_BACKEND_QT
+#ifdef _WIN32
 // A PRODUCER THE SEAM NEVER IS: a raw CF_DIB carrying the fixture's colours with ZERO in
 // every fourth byte, published without going through platform::setClipboardImage. It
 // exists because the round trip alone cannot measure what the read's forced alpha is for.
@@ -230,9 +233,9 @@ tinta::DecodedImage makeTestImage() {
 // any other application publishing a 32bpp BI_RGB DIB, where the fourth byte is documented
 // as undefined and nothing had a reason to write 255 into it.
 //
-// The open retries for the same measured reason src/clipboard_win32.cpp's writes do -- that
-// helper is file-local there, deliberately, so this repeats the loop rather than widening
-// the seam's surface for a test's benefit.
+// The open retries for the same measured reason src/clipboard_win32.cpp's writes did. That
+// file was deleted on 2026-10-07; the loop stays here because another process holding the
+// clipboard is still the race it answers.
 bool publishZeroAlphaDib() {
     const size_t stride = (size_t)kImgW * 4;
     const size_t bytes = stride * kImgH;
@@ -382,12 +385,13 @@ void testImageSeam() {
         platform::setClipboardImage(wrote, std::string());
     }
 
-#ifndef TINTA_CLIPBOARD_BACKEND_QT
+#ifdef _WIN32
     // THE FORCED ALPHA, MEASURED AGAINST A PRODUCER THAT DOES NOT COOPERATE. Windows only,
-    // and not because the Qt arm is exempt from the question: Qt's read converts to
-    // Format_RGB32, which sets the fourth byte itself, so the alpha loop there is
-    // belt-and-braces by the backend's own documentation rather than load-bearing. There is
-    // no equivalent raw publish to write here -- QMimeData carries a QImage, not a DIB.
+    // because the producer is a raw CF_DIB through the Win32 clipboard. Off Windows there is
+    // no equivalent raw publish to write -- QMimeData carries a QImage, not a DIB. Since
+    // 2026-10-07 the seam reading it back is clipboard_qt.cpp, so this now measures Qt's
+    // windows-plugin DIB read plus its Format_RGB32 conversion, where it used to measure
+    // GetDIBits plus the forced-alpha loop in the deleted clipboard_win32.cpp.
     if (publishZeroAlphaDib()) {
         const tinta::DecodedImage zeroed = platform::clipboardImage();
         if (zeroed.ok && zeroed.pixels.size() == (size_t)kImgW * kImgH * 4) {

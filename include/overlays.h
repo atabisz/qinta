@@ -145,6 +145,14 @@ void renderLightbox(App& app);
 // Where the image currently draws, in screen coordinates
 tinta::RectF lightboxImageRect(const App& app);
 
+// The search bar's rectangle as renderSearchOverlay draws it this frame: below the tab strip,
+// sliding with app.searchAnimation, centred over the editor pane in edit mode. The ONE source
+// for its neighbours -- the folder-search toggle, the folder results panel and the field's
+// I-beam region. Until 2026-10-07 each recomputed the bar with a bare 20 dip and no tab strip,
+// so with the strip showing all three sat 40 dip above it (tests/qt_entry_tests.cpp's search
+// probe, read off the pixels).
+tinta::RectF searchBarRect(const App& app);
+
 // Folder-wide search results beside the search bar; the toggle button sits
 // at the bar's right edge (geometry shared with input hit-testing)
 void renderFolderSearchResults(App& app);

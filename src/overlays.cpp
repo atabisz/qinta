@@ -30,17 +30,8 @@ static float promptKeycap(App& app, const wchar_t* label, float rightX,
 #include <memory>
 #include <utility>
 
-void renderSearchOverlay(App& app) {
-    // Animate in (only invalidate if animation is still progressing)
-    if (app.searchAnimation < 1.0f) {
-        float prev = app.searchAnimation;
-        app.searchAnimation = std::min(1.0f, app.searchAnimation + 0.2f);
-        if (app.searchAnimation != prev)
-            requestRepaint(app.hwnd);
-    }
+tinta::RectF searchBarRect(const App& app) {
     float anim = app.searchAnimation;
-
-    // Search bar dimensions
     float barWidth = std::min(dpi(app, 500.0f), app.width - dpi(app, 40.0f));
     float barHeight = dpi(app, 44.0f);
     float barCenterWidth = (float)app.width;
@@ -53,6 +44,25 @@ void renderSearchOverlay(App& app) {
     float barX = (barCenterWidth - barWidth) / 2;
     float barY = chromeTopHeight(app) + dpi(app, 20.0f) * anim -
                  barHeight * (1.0f - anim);  // Slide down from under the strip
+    return tinta::rectF(barX, barY, barX + barWidth, barY + barHeight);
+}
+
+void renderSearchOverlay(App& app) {
+    // Animate in (only invalidate if animation is still progressing)
+    if (app.searchAnimation < 1.0f) {
+        float prev = app.searchAnimation;
+        app.searchAnimation = std::min(1.0f, app.searchAnimation + 0.2f);
+        if (app.searchAnimation != prev)
+            requestRepaint(app.hwnd);
+    }
+    float anim = app.searchAnimation;
+
+    // Search bar dimensions -- searchBarRect is the one place they are computed
+    const tinta::RectF bar = searchBarRect(app);
+    float barX = bar.left;
+    float barY = bar.top;
+    float barWidth = bar.right - bar.left;
+    float barHeight = bar.bottom - bar.top;
 
     // Background with rounded corners
     tinta::RoundedRect barRect = tinta::roundedRect(
@@ -2343,15 +2353,13 @@ void renderContextMenu(App& app) {
 
 namespace {
 
-// The toggle button hangs off the right edge of the search bar
+// The toggle button hangs off the right edge of the search bar -- the bar as drawn, through
+// searchBarRect, so it sits below the tab strip and slides in with the bar
 void folderToggleGeometry(const App& app, float& btnX, float& btnY, float& btnSize) {
-    float barWidth = std::min(dpi(app, 500.0f), app.width - dpi(app, 40.0f));
-    float barHeight = dpi(app, 44.0f);
-    float barX = ((float)app.width - barWidth) / 2;
-    float barY = dpi(app, 20.0f);
+    const tinta::RectF bar = searchBarRect(app);
     btnSize = dpi(app, 30.0f);
-    btnX = barX + barWidth + dpi(app, 8.0f);
-    btnY = barY + (barHeight - btnSize) / 2;
+    btnX = bar.right + dpi(app, 8.0f);
+    btnY = bar.top + (bar.bottom - bar.top - btnSize) / 2;
 }
 
 } // namespace
@@ -2408,7 +2416,7 @@ void renderFolderSearchResults(App& app) {
 
     float panelW = std::min(dpi(app, 460.0f), app.width * 0.35f);
     float panelX = app.width - panelW - dpi(app, 16.0f);
-    float panelY = dpi(app, 20.0f) + dpi(app, 44.0f) + dpi(app, 12.0f);
+    float panelY = searchBarRect(app).bottom + dpi(app, 12.0f);
     float pad = dpi(app, 12.0f);
     float headerH = dpi(app, 24.0f);
     float lineH = dpi(app, 20.0f);

@@ -217,21 +217,13 @@ static void setFolderBrowserCursor(const App& app, float x, float y) {
     setCursorShape(CursorShape::Arrow);
 }
 
+// The field's I-beam region, over the bar as renderSearchOverlay draws it (searchBarRect).
+// This used to recompute the bar with no tab strip, so below the strip it read as the arrow.
 static void setSearchCursor(const App& app, float x, float y) {
-    float barWidth = std::min(dpi(app, 500.0f), app.width - dpi(app, 40.0f));
-    float barHeight = dpi(app, 44.0f);
-    float centerWidth = (float)app.width;
-    if (app.editMode) {
-        float paneWidth = editorPaneWidth(app);
-        barWidth = std::min(barWidth, paneWidth - dpi(app, 40.0f));
-        centerWidth = paneWidth;
-    }
-    float barX = (centerWidth - barWidth) / 2.0f;
-    float barY = dpi(app, 20.0f) * app.searchAnimation -
-                 barHeight * (1.0f - app.searchAnimation);
-    float textX = barX + dpi(app, 42.0f);
-    float textRight = barX + barWidth - dpi(app, 120.0f);
-    if (x >= textX && x <= textRight && y >= barY && y <= barY + barHeight) {
+    const tinta::RectF bar = searchBarRect(app);
+    float textX = bar.left + dpi(app, 42.0f);
+    float textRight = bar.right - dpi(app, 120.0f);
+    if (x >= textX && x <= textRight && y >= bar.top && y <= bar.bottom) {
         setCursorShape(CursorShape::IBeam);
     } else {
         setCursorShape(CursorShape::Arrow);

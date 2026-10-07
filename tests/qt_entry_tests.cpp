@@ -157,6 +157,7 @@
 #include "utils.h"            // launchQuickNoteWindow, launchDocumentWindow  // the single-instance hand-off
 #include "print_qt.h"  // printDocumentTo, the testable half of the Qt print arm
 #include "image_api.h"  // encodePng, for the factory probe
+#include "overlays.h"   // folderSearchToggleAt, the search probe's hit test
 #include "render.h"     // layoutDocument, run outside paint by the factory probe
 #include "qt_init.h"
 #include "qt_key_map.h"
@@ -4142,6 +4143,82 @@ int main(int argc, char** argv) {
               "tearoff: released away from the window, it relaunches --cascade --tabbed --pos X Y "
               "with the dragged document");
         check(closedLocally, "tearoff: and the torn-off tab leaves this window");
+    }
+
+    // THE SEARCH BAR'S NEIGHBOURS FOLLOW THE BAR (slice 27). The bar slides down below the tab
+    // strip -- chromeTopHeight + 20 -- while the folder-search toggle beside it, the folder
+    // results panel under it and the I-beam region over its text field each recomputed the
+    // bar's geometry with a bare 20 and no strip, so with the strip showing the toggle sat 40
+    // dip above the bar it belongs to, and hovering the field gave the arrow.
+    //
+    // THE WITNESS IS PIXELS, because a formula checked against a copy of itself cannot fail.
+    // The window is grabbed with search hidden and again with it shown: the rows that change
+    // down the window's centre column are the drawn BAR, and the rows that change down the
+    // toggle's column are the drawn TOGGLE. Both bands come from the paint; neither from the
+    // geometry under test. (A first version read the bar from searchReplaceHits, which the paint
+    // records only in edit mode -- where the toggle is disabled -- so it measured nothing.)
+    {
+        QtAppWindow searchWindow(app);
+        sendResize(searchWindow, 900, 600);
+        check(loadDocumentFromPath(app, tmp.u8string()), "search probe: the document loaded");
+        app.zenMode = false;
+        app.editMode = false;
+        app.folderSearchEnabled = false;
+        app.showSearch = false;
+        const QImage hidden = grabWindow(searchWindow);
+        app.showSearch = true;
+        app.searchActive = true;
+        app.searchAnimation = 1.0f;
+        const QImage shown = grabWindow(searchWindow);
+        const double dpr = shown.devicePixelRatio() > 0 ? shown.devicePixelRatio() : 1.0;
+        // Rows (in app coordinates) where the two grabs differ down device column `col`.
+        auto changedBand = [&](int col, float& top, float& bottom) {
+            int first = -1, last = -1;
+            for (int y = 0; y < shown.height() && y < hidden.height(); ++y) {
+                if (shown.pixel(col, y) != hidden.pixel(col, y)) {
+                    if (first < 0) first = y;
+                    last = y;
+                }
+            }
+            top = (float)(first / dpr);
+            bottom = (float)(last / dpr);
+            return first >= 0;
+        };
+        float barTop = 0, barBottom = 0;
+        const bool barSeen =
+            changedBand((int)(shown.width() / 2), barTop, barBottom);
+        check(barSeen, "search probe: showing search changed the centre column, so the bar is drawn");
+        check(chromeTopHeight(app) > 0.0f &&
+                  barTop >= chromeTopHeight(app),
+              "search probe: the drawn bar sits below the tab strip");
+        if (barSeen) {
+            const float midY = (barTop + barBottom) * 0.5f;
+            // The bar is centred and dpi(500) wide here (900 > 540), so its right edge is known
+            // from the window alone; the toggle's column is 8 + 15 dip past it.
+            const float barRight = (app.width + std::min(dpi(app, 500.0f), app.width - dpi(app, 40.0f))) * 0.5f;
+            const float toggleX = barRight + dpi(app, 8.0f) + dpi(app, 15.0f);
+            float toggleTop = 0, toggleBottom = 0;
+            const bool toggleSeen = changedBand((int)(toggleX * dpr), toggleTop, toggleBottom);
+            const float toggleMid = (toggleTop + toggleBottom) * 0.5f;
+            std::printf("search_bar drawn=%.1f..%.1f mid=%.1f strip=%.1f toggle_drawn=%.1f..%.1f "
+                        "toggle_hit_at_bar_mid=%d\n",
+                        barTop, barBottom, midY, chromeTopHeight(app), toggleTop, toggleBottom,
+                        folderSearchToggleAt(app, toggleX, midY) ? 1 : 0);
+            check(toggleSeen && std::abs(toggleMid - midY) <= dpi(app, 3.0f),
+                  "the folder-search toggle is DRAWN centred on the drawn bar, below the tab strip");
+            check(folderSearchToggleAt(app, toggleX, midY),
+                  "and its hit box is where it is drawn: a click at the bar's middle hits it");
+            const QPointF field((app.width - dpi(app, 500.0f)) * 0.5f + dpi(app, 60.0f), midY);
+            searchWindow.setCursor(Qt::ArrowCursor);
+            sendMouse(searchWindow, QEvent::MouseMove, field);
+            std::printf("search_field_hover cursor=%d\n",
+                        static_cast<int>(searchWindow.cursor().shape()));
+            check(searchWindow.cursor().shape() == Qt::IBeamCursor,
+                  "hovering the search field's text, below the tab strip, gives the I-beam");
+        }
+        app.showSearch = false;
+        app.searchActive = false;
+        app.searchAnimation = 0.0f;
     }
 
     // The cache holds Qt text layouts, and releaseQtBackends below takes the factory that

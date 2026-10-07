@@ -1,6 +1,6 @@
 #include "overlays.h"
 #include "utils.h"
-#include "d2d_init.h"
+#include "theme_apply.h"
 // FOR ensureThemePreviewFormats, WHICH USED TO ARRIVE VIA d2d_init.h ABOVE. The function
 // did not change name or signature when it was ported -- only its home -- so
 // renderThemeChooser's call site below is untouched and this one line is the whole cost of

@@ -6,7 +6,12 @@
 # command line, and that is the whole decision -- but it is not the whole defect. The defect was
 # that src/main_d2d.cpp collected every fact needed to refuse, printed one of them, and exported
 # anyway. A unit test over the parser cannot fail on that, because the parser was never wrong.
-# Only running tinta.exe can, which is what this script is.
+# Only running the binary can, which is what this script is.
+#
+# IT RUNS qinta SINCE 2026-10-07. It was written against tinta.exe, the Direct2D app, which was
+# deleted that day; qinta's src/main_qt.cpp carries the same guard (tinta::refuseOutput, the same
+# messages), so every arm below asks qinta the question it asked tinta. --dumpchrome is no longer
+# among the flags: it read DirectWrite's chrome formats back out and went with them.
 #
 # THE INCIDENT, verbatim, is arm 1. On 2026-09-20, from the repo root:
 #
@@ -24,14 +29,16 @@
 # sidesteps MSYS path translation on the way into a Windows binary.
 #
 # Run from anywhere:  scripts/probe-output-guard.sh
-# Override the exe:   TINTA_EXE=/path/to/tinta.exe scripts/probe-output-guard.sh
+# Override the exe:   QINTA_EXE=/path/to/qinta.exe scripts/probe-output-guard.sh
+# Qt's DLLs:          QT_BIN=/c/Qt/6.8.3/msvc2022_64/bin (the default), prepended to PATH
 #
 # Exit 0 only if every assertion below holds.
 
 set -u -o pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TINTA_EXE="${TINTA_EXE:-$SOURCE_DIR/build-win-split/Release/tinta.exe}"
+TINTA_EXE="${QINTA_EXE:-$SOURCE_DIR/build-win-split/Release/qinta.exe}"
+QT_BIN="${QT_BIN:-/c/Qt/6.8.3/msvc2022_64/bin}"
 
 failures=0
 note() { printf '\n== %s\n' "$1"; }
@@ -45,15 +52,27 @@ check() {
 }
 
 note 'Instrument'
-# REFUSE BEFORE LAUNCHING, rather than launching and giving up. A tinta.exe that cannot start --
+# REFUSE BEFORE LAUNCHING, rather than launching and giving up. A qinta.exe that cannot start --
 # a missing DLL, a half-written link -- puts a modal error box on the desktop and waits for a
 # human to dismiss it, so a "run it and time out" shape costs an interruption rather than a
 # reading. Measured on this tree once already with a Qt rig.
 if [ ! -f "$TINTA_EXE" ]; then
-    echo "FAIL : tinta.exe not found at $TINTA_EXE"
-    echo "       Build it first, then re-run. Set TINTA_EXE to point elsewhere."
+    echo "FAIL : qinta.exe not found at $TINTA_EXE"
+    echo "       Build it first, then re-run. Set QINTA_EXE to point elsewhere."
     exit 1
 fi
+# The same refusal for Qt itself: a qinta.exe with no Qt6Core.dll on PATH is the modal-box case.
+if [ ! -f "$QT_BIN/Qt6Core.dll" ]; then
+    echo "FAIL : Qt6Core.dll not found in $QT_BIN -- set QT_BIN to the kit's bin directory."
+    exit 1
+fi
+PATH="$QT_BIN:$PATH"
+# QT_HASH_SEED=0, or arm 5's masked comparison is a coin toss. qinta's PDF writer emits its fonts
+# in QHash order, and Qt seeds QHash randomly per process, so a document with more than one font
+# comes out with its font objects in a different order on each run: two exports of this script's
+# fixture differed in their FontDescriptor objects after every date and id was masked, and three
+# with the seed pinned were identical (2026-10-07). tinta never needed this; its fonts were DirectWrite's.
+export QT_HASH_SEED=0
 for tool in sha256sum mktemp; do
     if ! command -v "$tool" > /dev/null 2>&1; then
         echo "FAIL : $tool is required and was not found on PATH."
@@ -140,7 +159,7 @@ fi
 
 # ---------------------------------------------------------------------------
 note 'Arm 2: THE DISCRIMINATOR -- the same binary exporting the same document correctly'
-# Without this arm, every assertion above is satisfied by a tinta.exe that cannot export at all.
+# Without this arm, every assertion above is satisfied by a qinta.exe that cannot export at all.
 # "The file did not change" and "the program is broken" produce identical readings, and this is
 # the only thing here that separates them.
 "$TINTA_EXE" --exportpdf out.pdf probe.md > arm2.out 2> arm2.err
@@ -283,10 +302,10 @@ else
     check 1 "CONTROL: and the raw bytes do differ (they are identical -- the PDF has become deterministic, so pdfmask.py's premise needs re-reading)"
 fi
 
-# The other three destructive flags at existing non-document targets, because the guard is
-# written once and applies to all five. Naming only --exportpdf would leave four flags whose
+# The other two destructive flags at existing non-document targets, because the guard is
+# written once and applies to all of them. Naming only --exportpdf would leave two flags whose
 # behaviour is asserted by the unit test's enum and by nothing that runs.
-for pair in "--exporthtml out.html" "--exportdocx out.docx" "--dumpchrome chrome.txt"; do
+for pair in "--exporthtml out.html" "--exportdocx out.docx"; do
     flag="${pair% *}"
     path="${pair#* }"
     : > "$path"
@@ -301,9 +320,9 @@ for pair in "--exporthtml out.html" "--exportdocx out.docx" "--dumpchrome chrome
 done
 
 # And the document test applies to every one of them, not just the PDF exporter. Same loop,
-# output pointed at the document: all four must refuse and probe.md must survive all four.
+# output pointed at the document: all three must refuse and probe.md must survive all three.
 refused=0
-for flag in --exportpdf --exporthtml --exportdocx --dumpchrome; do
+for flag in --exportpdf --exporthtml --exportdocx; do
     "$TINTA_EXE" "$flag" probe.md > /dev/null 2> "arm6-$flag.err"
     rc=$?
     if [ "$rc" != "0" ] && grep -q 'refusing to write' "arm6-$flag.err"; then
@@ -313,10 +332,10 @@ for flag in --exportpdf --exporthtml --exportdocx --dumpchrome; do
     fi
 done
 final="$(sha256sum probe.md | awk '{print $1}')"
-if [ "$refused" = "4" ]; then
-    check 0 "all FOUR file-writing exporters refuse an existing document, not just the one the incident used"
+if [ "$refused" = "3" ]; then
+    check 0 "all THREE file-writing exporters refuse an existing document, not just the one the incident used"
 else
-    check 1 "all four file-writing exporters refuse an existing document (only $refused did)"
+    check 1 "all three file-writing exporters refuse an existing document (only $refused did)"
 fi
 if [ "$final" = "$before" ]; then
     check 0 "and probe.md is byte-identical after every arm in this script"

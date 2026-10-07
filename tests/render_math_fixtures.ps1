@@ -1,7 +1,10 @@
 param(
     [Parameter(Mandatory = $true)][string]$Binary,
     [string]$BaselineBinary,
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    # qinta.exe needs Qt's DLLs. Prepended to PATH for the runs, and refused before any launch
+    # when missing, because a Qt binary that cannot find Qt6Core.dll stops at a modal dialog.
+    [string]$QtBin = 'C:\Qt\6.8.3\msvc2022_64\bin'
 )
 
 # Run on Windows with a graphics session. Outputs are review artifacts;
@@ -15,11 +18,17 @@ if (!$OutputDirectory) {
 if (Test-Path -LiteralPath $OutputDirectory) {
     throw 'Use a new output directory so old pages cannot mask a missing export.'
 }
+if (!(Test-Path -LiteralPath (Join-Path $QtBin 'Qt6Core.dll'))) {
+    throw "Qt6Core.dll not found in $QtBin -- pass -QtBin with the kit's bin directory."
+}
+$env:PATH = "$QtBin;" + $env:PATH
 $output = [IO.Directory]::CreateDirectory($OutputDirectory).FullName
 
 function New-PortableRunner([string]$Source, [string]$Name) {
     $folder = [IO.Directory]::CreateDirectory((Join-Path $output $Name)).FullName
-    $exe = Join-Path $folder 'tinta.exe'
+    # The binary keeps its own name. This was 'tinta.exe' until the Direct2D app was retired on
+    # 2026-10-07; the portable settings.ini beside it works for qinta.exe the same way.
+    $exe = Join-Path $folder (Split-Path -Leaf $Source)
     Copy-Item -LiteralPath $Source -Destination $exe
     # Isolate settings, recent files and drafts from the user's installation.
     @'

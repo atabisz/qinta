@@ -75,11 +75,7 @@
 // repaint_sink.h's header comment holds that measurement and why the sink therefore
 // takes no argument.
 inline void requestRepaint([[maybe_unused]] HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    InvalidateRect(hwnd, nullptr, FALSE);
-#else
     tinta::deliverRepaintRequest();
-#endif
 }
 
 // Whether a repaint requested now would reach a window. Nine callers used to ask
@@ -91,11 +87,7 @@ inline void requestRepaint([[maybe_unused]] HWND hwnd) {
 // on the desktop. Off that stack the question is whether the Qt window installed its
 // repaint sink.
 inline bool canRepaint([[maybe_unused]] HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    return hwnd != nullptr;
-#else
     return tinta::repaintSinkInstalled();
-#endif
 }
 
 // --- Window title -------------------------------------------------------------
@@ -124,12 +116,8 @@ inline bool canRepaint([[maybe_unused]] HWND hwnd) {
 // const wchar_t* rather than const std::wstring& on purpose: it keeps this header
 // free of <string>, and every caller already has a c_str() to hand.
 inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    SetWindowTextW(hwnd, title);
-#else
     (void)hwnd;
     (void)title;
-#endif
 }
 
 // --- Timers -------------------------------------------------------------------
@@ -154,19 +142,11 @@ inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
 // Ctrl+wheel zoom could not be routed. Tense corrected 2026-09-25, when the arm landed.
 // With no sink installed (a test binary, a console run) the request is still nothing.
 inline void armTimer([[maybe_unused]] HWND hwnd, unsigned id, unsigned intervalMs) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    SetTimer(hwnd, id, intervalMs, nullptr);
-#else
     tinta::deliverTimerArm(id, intervalMs);
-#endif
 }
 
 inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    KillTimer(hwnd, id);
-#else
     tinta::deliverTimerDisarm(id);
-#endif
 }
 
 // Whether a timer armed now would reach something. The guard the policy helpers in
@@ -179,11 +159,7 @@ inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
 // id it was armed with. Off that stack the question is whether a sink is installed,
 // which the Qt window's constructor does.
 inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    return hwnd != nullptr;
-#else
     return tinta::timerSinkInstalled();
-#endif
 }
 
 // --- Posted messages ----------------------------------------------------------
@@ -227,12 +203,8 @@ inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
 // false exactly as before.
 inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPARAM wParam,
                               LPARAM lParam) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    return PostMessageW(hwnd, message, wParam, lParam) != 0;
-#else
     return tinta::deliverPostedMessage(message, static_cast<std::uintptr_t>(wParam),
                                        static_cast<std::intptr_t>(lParam));
-#endif
 }
 
 // Whether a post made now could be received -- canArmTimer's question, asked of the
@@ -242,11 +214,7 @@ inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPAR
 // sink is installed. A sink that is installed can still refuse a given message; this
 // answers for the queue, and the return of postWindowMessage answers for the message.
 inline bool canPostWindowMessage([[maybe_unused]] HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    return hwnd != nullptr;
-#else
     return tinta::postSinkInstalled();
-#endif
 }
 
 // --- Quit ---------------------------------------------------------------------
@@ -278,12 +246,7 @@ inline bool canPostWindowMessage([[maybe_unused]] HWND hwnd) {
 // so the gap stays greppable -- with no sink installed (a test binary, a console build) it is false,
 // where a void no-op would be indistinguishable from a working quit.
 inline bool requestQuit() {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    PostQuitMessage(0);
-    return true;
-#else
     return tinta::deliverQuitRequest();
-#endif
 }
 
 // --- Mouse cursor shape -------------------------------------------------------
@@ -344,23 +307,7 @@ inline bool requestQuit() {
 enum class CursorShape { Arrow, Hand, IBeam, SizeWE };
 
 inline void setCursorShape(CursorShape shape) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    // Loaded once per shape. See the note above on why this is safe: these are
-    // shared system handles, not owned resources.
-    static HCURSOR arrow = LoadCursor(nullptr, IDC_ARROW);
-    static HCURSOR hand = LoadCursor(nullptr, IDC_HAND);
-    static HCURSOR ibeam = LoadCursor(nullptr, IDC_IBEAM);
-    static HCURSOR sizewe = LoadCursor(nullptr, IDC_SIZEWE);
-    switch (shape) {
-        case CursorShape::Hand: SetCursor(hand); break;
-        case CursorShape::IBeam: SetCursor(ibeam); break;
-        case CursorShape::SizeWE: SetCursor(sizewe); break;
-        case CursorShape::Arrow:
-        default: SetCursor(arrow); break;
-    }
-#else
     tinta::deliverCursorShape(shape);
-#endif
 }
 
 // --- Mouse capture ------------------------------------------------------------
@@ -447,17 +394,10 @@ inline void setCursorShape(CursorShape shape) {
 // what makes input.cpp unreadable off Windows -- the guarded form gets its own
 // entry below. It qualifies on the first arm of this header's rule at 6 sites.
 inline void captureMouse(HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    SetCapture(hwnd);
-#else
     (void)hwnd;
-#endif
 }
 
 inline void releaseMouse() {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    ReleaseCapture();
-#endif
 }
 
 // Release the capture only if THIS window holds it.
@@ -479,11 +419,7 @@ inline void releaseMouse() {
 // written at that site, where the reader deciding what to do has the callers in
 // front of them, and not only here.
 inline void releaseMouseIfCaptured(HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    if (GetCapture() == hwnd) ReleaseCapture();
-#else
     (void)hwnd;
-#endif
 }
 
 #endif  // TINTA_WIN32_API_H

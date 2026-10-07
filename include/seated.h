@@ -45,7 +45,10 @@
 // a std::vector that render.cpp resizes and push_backs, and the old seam() handed
 // out the address of a SIBLING member, which a reallocation invalidated. A heap
 // wrapper's address survives the move.
-template <class Seam, class Native>
+// Native defaults to void for a storage that only ever install()s: App's three, since the
+// Direct2D natives they used to borrow were retired on 2026-10-07. seat() is a member
+// template, so it is never instantiated for a void Native unless something calls it.
+template <class Seam, class Native = void>
 struct Seated {
     std::unique_ptr<Seam> wrapper;
     Native* seated = nullptr;

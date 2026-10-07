@@ -56,6 +56,16 @@
 // So this is a hard requirement rather than a convention, and it fails at the
 // point that would cause the mismatch rather than somewhere downstream. Off
 // Windows there is no macro and nothing to reconcile.
+//
+// <windows.h> IS INCLUDED HERE since 2026-10-07. Until then every Windows TU met the
+// requirement by accident: geometry.h, included first, pulled <d2d1.h>, which pulls
+// <windows.h>. That include left with the Direct2D stack, and 13 targets tripped the
+// #error below on the next build -- so the header that owns the requirement now meets
+// it itself, plainly (not WIN32_LEAN_AND_MEAN) as <d2d1.h> did. The #error stays as
+// the backstop for a TU that somehow defines the macro away.
+#ifdef _WIN32
+#include <windows.h>
+#endif
 #if defined(_WIN32) && !defined(DrawText)
 #error "On Windows, include <windows.h> before render_api.h: the DrawText macro must be visible here and at every call site, or RenderTarget::DrawText and ::DrawTextW become different virtual functions in different translation units."
 #endif

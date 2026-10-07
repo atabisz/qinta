@@ -143,11 +143,8 @@ endif()
 #
 # The Qt half needs Svg and Network on top of Core and Gui, which is the first time
 # this port has needed a Qt module beyond the two.
-if(WIN32)
-    set(PLATFORM_IMAGE_SOURCE src/image_win32.cpp)
-else()
-    set(PLATFORM_IMAGE_SOURCE src/image_qt.cpp)
-endif()
+# One implementation since 2026-10-07: src/image_win32.cpp (WIC) left with the Direct2D stack.
+set(PLATFORM_IMAGE_SOURCE src/image_qt.cpp)
 
 # The file-picker seam (include/file_dialog.h): the Open and Save dialogs. Selected
 # like the three above, and it is the FIRST seam in this port whose non-Windows half
@@ -164,20 +161,17 @@ endif()
 # target each, so a partial Qt install loses a test and says so. This seam has no
 # other non-Windows half at all, so a build without Widgets would fail at link with
 # undefined platform::requestSavePath -- a worse error, further from the cause.
-if(WIN32)
-    set(PLATFORM_FILE_DIALOG_SOURCE src/file_dialog_win32.cpp)
-    set(PLATFORM_FILE_DIALOG_LIBS comdlg32)
-else()
-    if(NOT Qt6Widgets_FOUND)
-        message(FATAL_ERROR
-            "Qt 6 Widgets is required off Windows: src/file_dialog_qt.cpp is the only "
-            "non-Windows implementation of the include/file_dialog.h seam, and QFileDialog "
-            "lives in QtWidgets. On Debian and Ubuntu the package is qt6-base-dev, which "
-            "also provides the Core and Gui components already required above.")
-    endif()
-    set(PLATFORM_FILE_DIALOG_SOURCE src/file_dialog_qt.cpp)
-    set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
+# One implementation since 2026-10-07: src/file_dialog_win32.cpp (comdlg32) left with the
+# Direct2D stack, so Widgets is now required on every platform.
+if(NOT Qt6Widgets_FOUND)
+    message(FATAL_ERROR
+        "Qt 6 Widgets is required: src/file_dialog_qt.cpp is the only "
+        "implementation of the include/file_dialog.h seam, and QFileDialog "
+        "lives in QtWidgets. On Debian and Ubuntu the package is qt6-base-dev, which "
+        "also provides the Core and Gui components already required above.")
 endif()
+set(PLATFORM_FILE_DIALOG_SOURCE src/file_dialog_qt.cpp)
+set(PLATFORM_FILE_DIALOG_LIBS Qt6::Core Qt6::Gui Qt6::Widgets)
 
 # The clipboard seam (include/clipboard.h): the system clipboard, text AND image,
 # selected like the four above.
@@ -256,85 +250,8 @@ else()
     set(PLATFORM_PROCESS_LIBS Qt6::Core)
 endif()
 
-# The Direct2D and DirectWrite backends are TRANSITIONAL. The goal is one stack
-# on every platform, so src/render_d2d.cpp and src/text_d2d.cpp are scheduled for
-# DELETION, not for porting -- and neither is src/settings_win32.cpp (becomes
-# QSettings) or src/platform_paths_win32.cpp (becomes QStandardPaths).
-#
-# The option DEFAULTS ON, but BOTH of the reasons originally written here have
-# since expired, and they are corrected in place rather than deleted so the
-# argument that moved them stays on the record.
-#
-# It used to say that turning the option off "does not produce a Qt Windows build,
-# it produces no Windows build at all". That is now FALSE, and measurably so: with
-# -DTINTA_LEGACY_D2D=OFF the qinta target compiles, links with zero LNK2019 and
-# produces a binary that launches and stays up (negative-controlled by taking the Qt
-# DLLs off PATH, which turns the same binary into a 127). So a Windows build without
-# a line of Direct2D in it EXISTS. What fails with the option off is the `tinta`
-# target -- the Direct2D app -- and that is a different sentence entirely.
-#
-# It also used to say that flipping the default "requires Qt on Windows, which is
-# not installed here". Also now false: Qt 6.8.3 is installed at
-# C:/Qt/6.8.3/msvc2022_64 and configure finds it.
-#
-# So the reason the default stays ON is no longer a missing dependency, it is
-# FEATURE PARITY: qinta renders and scrolls a document but has no input
-# handling, no editor and no search, so deleting the backend today would delete the
-# working product to keep the more portable one. That is a product call, not a
-# build-system one.
-#
-# The option's other job is unchanged and is why it is worth keeping even after the
-# cutover argument is settled: it is a MEASURING INSTRUMENT. Configure with
-# -DTINTA_LEGACY_D2D=OFF and the `tinta` link errors are an exact inventory of what
-# still depends on the stack being replaced.
-#
-# THE FIGURES THAT USED TO BE WRITTEN HERE WERE "57 unresolved externals, of which only
-# 24 are real app-code leaks; the other 33 are referenced solely by d2d_init.obj" -- AND
-# THIS WAS THE MISSED SITE OF A CORRECTION ALREADY MADE ONE COMMIT AGO. The 57 -> 30 fall
-# was measured and written into the README at bd681c0, whose own message says so; this
-# block held the identical stale 57 and nothing pointed at it, because a correction that
-# reaches the document a grep was aimed at is not the same as a correction of the tree.
-# Two of the three numbers have moved, and they are replaced rather than deleted because
-# WHICH one held still is the useful part. Measured 2026-09-19: `tinta` reports 30, of which 6
-# are referenced solely by d2d_init.obj -- whose entire job is constructing the D2D device
-# and factories, so those die WITH the backend instead of blocking it -- leaving 24 with a
-# real app-code referencer. So the headline nearly halved, 57 -> 30, while the number that
-# actually gates the cutover did not move at all. Re-derive rather than quote; 6 + 24 = 30
-# is the check that the split still sums to the linker's own LNK1120 total, and a
-# decomposition that does not sum is catching the classifier and not the code.
-#
-# AND THE INSTRUMENT IS BLIND TO ONE WHOLE HALF OF THIS PORT, WHICH IS WHY A FLAT READING
-# IS NOT A WASTED SLICE. A raw Direct2D call site (`bitmap->Release()`, `bitmap->GetSize()`)
-# is virtual dispatch through a COM vtable and emits NO external symbol at all, so excluding
-# the backend cannot produce an unresolved external for it. The seam's wrappers are ordinary
-# C++ classes whose out-of-line methods DO emit symbols. So moving a call site from raw
-# Direct2D onto the seam -- the exact work this port consists of -- can only leave this
-# number flat or push it UP, and it falls only when an entire D2D* wrapper class loses every
-# referencer. Measured on the link-peek slice, which did precisely that move: the unresolved
-# symbol sets are byte-identical across all 8 failing targets, base to head, while print.obj
-# newly pulls `??1D2DOwnedBitmap@@UEAA@XZ` and `?GetSize@D2DBitmap@@UEBA?AUSizeF@tinta@@XZ`
-# because the boundary wrap moved into it -- and src/input.cpp and src/overlays.cpp, the two
-# files the slice actually cleaned of `ID2D1Bitmap*`, contribute ZERO entries to this
-# inventory in BOTH arms. Do not read this number as the port's progress in either
-# direction; it measures what still LINKS against the backend, not what still NAMES it.
-option(TINTA_LEGACY_D2D
-    "Build the transitional Direct2D/DirectWrite backends (DEPRECATED -- to be deleted once Qt covers Windows)"
-    ON)
-
-if(TINTA_LEGACY_D2D)
-    set(LEGACY_D2D_SOURCES src/render_d2d.cpp src/text_d2d.cpp)
-    if(WIN32)
-        message(STATUS
-            "TINTA_LEGACY_D2D=ON -- building the transitional Direct2D/DirectWrite backends. "
-            "These are scheduled for deletion; the target stack is Qt 6 on all three platforms.")
-    endif()
-else()
-    set(LEGACY_D2D_SOURCES)
-    message(STATUS
-        "TINTA_LEGACY_D2D=OFF -- the Direct2D/DirectWrite backends are excluded. On Windows the "
-        "app will COMPILE and fail to LINK, and those link errors are the point: they inventory "
-        "what still depends on the stack being replaced.")
-endif()
+# The TINTA_LEGACY_D2D option and its ${LEGACY_D2D_SOURCES} stood here until 2026-10-07,
+# when the Direct2D/DirectWrite backends they selected were deleted.
 
 # ── The embedded app icon, generated for BOTH backends ────────────────────────────────
 #
@@ -381,347 +298,9 @@ file(WRITE ${TINTA_ICON_GENERATED}
 "\n"
 "}  // namespace tinta\n")
 
-# Source files
-set(SOURCES
-    ${TINTA_ICON_GENERATED}
-    src/main_d2d.cpp
-    src/markdown.cpp
-    src/themes.cpp
-    src/settings.cpp
-    # settings.cpp is the portable ini reader/writer. Its two Windows halves were
-    # split off: settings_app.cpp (the four functions that touch App) and
-    # settings_win32.cpp (the file-association feature). Both are listed here
-    # unconditionally because SOURCES is only ever consumed inside if(WIN32) --
-    # the app target and the input-test variants. A non-Windows build reaches
-    # settings.cpp through the test targets below, never through this list.
-    src/settings_app.cpp
-    src/settings_win32.cpp
-    # The window-placement decision, lifted out of WinMain so something can call it. Listed
-    # here rather than only in its test target because BOTH arms consume it: WinMain hands it
-    # the rectangles MonitorFromRect/GetMonitorInfoW produced, and src/main_qt.cpp hands it
-    # the ones QScreen produced. One decision, two enumerations.
-    src/window_placement.cpp
-    # The launch-option parse, for the same reason and with a sharper one: WinMain parses
-    # thirteen named options inline and src/main_qt.cpp parses NONE of them, so the two arms
-    # were not two parsers that agree -- they were one parser and one file that had never been
-    # told the options exist. Here so there is exactly one chain to edit.
-    src/launch_options.cpp
-    # The drag ghost's convention -- card size, corner shape, placement relative to the cursor,
-    # detach threshold, opacity. Lifted out of src/tabs.cpp, where it was seven literals inside a
-    # layered-window function plus four more at its call site, none of them reachable by a test.
-    # src/tab_ghost_win32.cpp is the layered window itself, re-parameterised off a card instead of
-    # App&, which is what makes it something a test can create.
-    src/tab_ghost.cpp
-    src/tab_ghost_win32.cpp
-    # Tear-off's Windows arm: which Tinta window a dragged tab was released over, and the
-    # WM_COPYDATA hand-off to it. Lifted out of src/tabs.cpp so that file compiles off Windows;
-    # include/tab_tearoff_win32.h says why there is no Qt arm.
-    src/tab_tearoff_win32.cpp
-    # Zen mode's Windows arm. The DECISION half needed no new file -- "which monitor does this
-    # window belong to and what covers it" is arithmetic over rectangles, so it went into
-    # src/window_placement.cpp above, which both arms already link. Only the ACTING half is
-    # two-armed: WS_POPUP + SetWindowPos here, showFullScreen() in src/zen_mode_qt.cpp. That is
-    # why this seam costs four files where tab_ghost cost six.
-    src/zen_mode_win32.cpp
-    src/keymap.cpp
-    src/config_dir.cpp
-    ${PLATFORM_PATHS_SOURCE}
-    ${PLATFORM_KEYBOARD_SOURCE}
-    ${PLATFORM_IMAGE_SOURCE}
-    ${PLATFORM_FILE_DIALOG_SOURCE}
-    # The clipboard seam. On Windows this resolves to src/clipboard_win32.cpp, which holds
-    # the ONLY remaining raw clipboard calls in the tree, with NO exception -- the clause
-    # that used to end "outside the image half in src/export_docx.cpp" is gone, because
-    # that file's two sites are platform::setClipboardImage and platform::clipboardImage
-    # and nothing else. src/utils.cpp's copyToClipboard, src/input.cpp's clipboardLine and
-    # src/editor.cpp's two file-local helpers were already gone.
-    #
-    # Measured 2026-09-20 by grepping for the five Win32 entry points and then discarding
-    # every COMMENT hit: five files still NAME them (annotations.cpp, editor.cpp,
-    # export_docx.cpp, clipboard.h, export.h) and none of the five CALLS them. A seam this
-    # narrow is asserted with a name grep at everyone's peril -- the comments explaining
-    # the port outnumber the calls that remain.
-    ${PLATFORM_CLIPBOARD_SOURCE}
-    # The process seam. src/pandoc.cpp is its only caller in the app and there is no
-    # second one planned -- the mermaid and math paths render in-process.
-    ${PLATFORM_PROCESS_SOURCE}
-    src/signals.cpp
-    src/tableedit.cpp
-    src/d2d_init.cpp
-    # The four DWM title-bar calls, out of d2d_init.cpp's applyWindowChrome so qinta's window
-    # on Windows can make the same ones on its winId(). Linked by qinta and qt_entry_tests
-    # under WIN32 below, with dwmapi.
-    src/window_chrome_win32.cpp
-    # The chrome falsifier: --dumpchrome reads all forty chrome text formats back off
-    # DirectWrite. Its own file rather than lines in d2d_init.cpp, because it is an
-    # INSTRUMENT on that file and will outlive the creation code it measures -- it reads
-    # through the seam pointer and resolves to the native, so it works both before and
-    # after the chrome formats stop being created natively. Listed only here, in the
-    # WIN32-only SOURCES: every line in it is a DirectWrite getter.
-    src/chrome_dump_d2d.cpp
-    # The Direct2D/DirectWrite implementations of the drawing and text seams.
-    # These used to be compiled only by render_d2d_tests, because nothing in the
-    # app referenced tinta::RenderTarget -- the app called Direct2D directly. Now
-    # the drawing sites go through the seam, so leaving them out of this list
-    # produces a clean COMPILE and 25 unresolved externals at link: the reason
-    # the app target needs them is exactly the reason the rewire is real.
-    #
-    # Now behind TINTA_LEGACY_D2D (see the option above). They are listed through
-    # a variable rather than removed from this list conditionally, so the "clean
-    # compile, unresolved at link" shape above stays exactly what OFF produces --
-    # that shape is the inventory the flag exists to print.
-    ${LEGACY_D2D_SOURCES}
-    src/syntax.cpp
-    src/utils.cpp
-    # The relaunch out of utils.cpp: Ctrl+N re-launching this executable with
-    # `--cascade --new`. Its own file because it is the one piece of utils.cpp with no
-    # portable answer yet, and utils.cpp compiles off Windows now that it has left.
-    #
-    # IN SOURCES RATHER THAN BESIDE ITS PARSER, and that was measured rather than
-    # preferred. The flags are parsed only in src/main_d2d.cpp's WinMain, which looks
-    # like the obvious home -- but INPUT_TEST_SOURCES below is ${SOURCES} minus
-    # main_d2d.cpp, and two of the five targets built from it reach this symbol through
-    # editor.cpp and input.cpp. Putting it next to its parser would break all five.
-    # Here it is inherited by every one of them for this single line.
-    src/quicknote_win32.cpp
-    # The text helpers out of utils.cpp that never needed Windows. Split off so a
-    # non-Windows compiler can build them and text_utils_tests can run them; the
-    # Windows feature half (title bar, shell handoff, clipboard, path
-    # canonicalisation) stayed in utils.cpp.
-    src/text_utils.cpp
-    # The App-taking, backend-free half: one function, measureText's seam overload. Same
-    # split and same naming as src/i18n_app.cpp. It is its own file rather than part of
-    # text_utils.cpp above because that file's whole property is needing no app.h -- see
-    # src/text_utils_app.cpp, which records the linker reading that forced the move.
-    src/text_utils_app.cpp
-    # The sixteen cached document text formats, created through tinta::TextFactory. Same
-    # split and same naming as the two above, and the reason it is shared rather than
-    # per-backend is a measurement: src/qt_init.cpp already held a second copy of the
-    # same table of families, sizes and weights, and nothing would have noticed the two
-    # drifting apart. WINDOWS COMPILES THIS TOO -- that is the point of the entry, not an
-    # oversight; updateTextFormats calls it and creates no format of its own.
-    src/text_formats_app.cpp
-    # applyTheme and updateTextFormats, out of src/d2d_init.cpp. Portable, and in ${SOURCES}
-    # because every target that links d2d_init.cpp links its callers too. The Windows arms of
-    # the hooks it calls stay in d2d_init.cpp; the Qt arms are src/theme_qt.cpp, which is
-    # named on qt_entry_tests only.
-    src/theme_apply_app.cpp
-    src/search.cpp
-    src/render.cpp
-    # The document paint pass, lifted out of main_d2d.cpp's WM_PAINT handler so a Qt
-    # window can run the same 332 lines. Listed for BOTH platforms and both app
-    # targets, which is the property that makes the extraction checkable: if Windows
-    # and Qt ever draw a document differently, they are not sharing this file.
-    src/paint_document.cpp
-    # The two scrollbars, cut out of main_d2d.cpp's paint handler for the same reason and
-    # on the same terms: BOTH platforms, both app targets, so a divergence in the most
-    # visible piece of chrome in the product would have to be a divergence in this file.
-    src/scrollbar.cpp
-    # The whole frame, out of main_d2d.cpp's render() on 2026-10-06 so the Qt window draws it
-    # too: BOTH platforms, both app targets, for the reason paint_document.cpp is.
-    src/render_frame.cpp
-    src/file_utils.cpp
-    src/overlays.cpp
-    src/context_menu.cpp
-    src/input.cpp
-    src/editor.cpp
-    src/mermaid.cpp
-    src/mermaid_ext.cpp
-    src/mermaid_seq.cpp
-    src/mermaid_pie.cpp
-    src/mermaid_uml.cpp
-    src/mermaid_git.cpp
-    src/mermaid_gantt.cpp
-    src/mermaid_charts.cpp
-    src/mermaid_narrative.cpp
-    src/mermaid_grid.cpp
-    src/mermaid_charts2.cpp
-    src/mermaid_block.cpp
-    src/mermaid_c4.cpp
-    src/document.cpp
-    src/inline_style.cpp
-    src/print.cpp
-    # print.cpp's Windows arm: the printer dialog, the XPS print job and the locale's paper
-    # question, split out 2026-10-06 so print.cpp compiles off Windows. In ${SOURCES} for
-    # the reason pdf_export_win32.cpp below is: every target that links print.cpp needs it.
-    # qinta takes src/print_qt.cpp instead, so no target links both.
-    src/print_win32.cpp
-    # The Win32 arm of the PDF seam (include/pdf_export.h), named here directly rather
-    # than through a PLATFORM_PDF_SOURCE variable like the four seams selected at the top
-    # of this file. There is no second arm yet, and a variable with one value is a
-    # selection nobody makes.
-    #
-    # THAT PARAGRAPH USED TO END WITH A PREDICTION AND THE PREDICTION WAS WRONG. It said
-    # that when src/pdf_export_qt.cpp landed this would become an `if(WIN32)` selection up
-    # there with the other four, "the same shape and one line of diff". src/pdf_export_qt.cpp
-    # has landed and that edit was never made, because it would compile the Qt arm in NO
-    # CONFIGURATION: ${SOURCES} feeds `tinta` and the five INPUT_TEST_SOURCES binaries, and
-    # every one of those six is a Windows target, so an `else()` branch here has no consumer
-    # to reach. The four seams at the top of the file are selected per-platform because their
-    # variables feed targets on both sides; this list does not, and the prediction read the
-    # SPELLING of those four rather than what they feed.
-    #
-    # Where the Qt arm actually goes: named directly on pdf_export_qt_tests, which is the
-    # only target that wants it today -- `qinta` builds from QINTA_APP_SOURCES and does not
-    # link src/print.cpp, so it needs no PDF seam implementation at all yet. When the cutover
-    # gives qinta the print path, the Qt arm joins QINTA_APP_SOURCES and this line is deleted
-    # along with the rest of the Direct2D stack. One list each, no selection anywhere.
-    # THE FIRST HALF OF THAT HAPPENED 2026-10-06: qinta links print.cpp, and
-    # src/pdf_export_qt.cpp is in QINTA_APP_SOURCES. This line stays until Direct2D goes.
-    #
-    # It sits in ${SOURCES} and therefore compiles into SIX targets: tinta plus the five
-    # INPUT_TEST_SOURCES binaries. That is not a choice, it is where src/print.cpp already
-    # is -- print.cpp calls the seam, so the definition has to reach every target that
-    # links print.cpp or they fail at link time rather than at compile time.
-    src/pdf_export_win32.cpp
-    src/i18n.cpp
-    src/i18n_app.cpp
-    src/selection.cpp
-    src/math_render.cpp
-    src/math_parser.cpp
-    src/math_macros.cpp
-    src/tabs.cpp
-    src/export_html.cpp
-    src/export_docx.cpp
-    src/annotations.cpp
-    src/drafts.cpp
-    src/startpage.cpp
-    src/editrail.cpp
-    src/pandoc.cpp
-)
-
-set(HEADERS
-    include/markdown.h
-    include/types.h
-    include/geometry.h
-    include/app.h
-    include/settings.h
-    include/settings_data.h
-    include/theme_data.h
-    include/platform_paths.h
-    include/config_dir.h
-    include/keymap.h
-    include/d2d_init.h
-    include/syntax.h
-    include/utils.h
-    include/text_utils.h
-    include/search.h
-    include/render.h
-    include/file_utils.h
-    include/overlays.h
-    include/input.h
-    include/editor.h
-    include/mermaid.h
-    include/mermaid_ext.h
-    include/document.h
-    include/inline_style.h
-    include/print.h
-    include/i18n.h
-    include/selection.h
-    include/math_render.h
-)
-
-# The app itself is Windows-only (Direct2D/DirectWrite/Win32). Guarding it lets
-# the platform-independent test targets below configure and run on Linux/macOS.
-# That is the mechanism for keeping the portable core honest, and it IS enforced:
-# scripts/probe-portable-linux.sh builds this file with g++ and asserts, in both
-# directions, that exactly the files in tests/portable-sources.txt were compiled.
-# (An earlier version of this comment said nothing enforced it, which stayed here
-# after the probe was written and was itself read as evidence that the portable
-# targets were idle. A comment claiming an absence needs re-checking as much as
-# one claiming a presence.)
-if(WIN32)
-
-# Windows resource file (icon)
-set(RESOURCES
-    resources/tinta.rc
-)
-
-# Main executable -- the transitional Direct2D app, OUT OF THE DEFAULT BUILD. qinta is the
-# Windows app now, as on the other two platforms; `cmake --build <dir> --target tinta` still
-# builds this one on request, as the reference binary scripts/probe-output-guard.sh and
-# scripts/pdfmask.py compare against. EXCLUDE_FROM_ALL rather than deleting the target,
-# because five test targets below read $<TARGET_PROPERTY:tinta,...> and the Direct2D and
-# DirectWrite code it links stays until the Qt port covers it -- see TINTA_LEGACY_D2D.
-add_executable(tinta WIN32 EXCLUDE_FROM_ALL ${SOURCES} ${HEADERS} ${RESOURCES})
-
-target_include_directories(tinta PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${md4c_SOURCE_DIR}/src
-)
-
-target_link_libraries(tinta PRIVATE
-    md4c
-    d2d1
-    dwrite
-    shell32
-    windowscodecs
-    urlmon
-    ole32
-    imm32
-    d3d11
-    dwmapi
-    comdlg32
-    shlwapi
-    winspool
-)
-
-target_compile_definitions(tinta PRIVATE UNICODE _UNICODE
-    ${TINTA_VERSION_DEFINITIONS})
-
-# TINTA_D2D_BACKEND: "this target links the Direct2D/DirectWrite backend", which is a
-# DIFFERENT QUESTION from _WIN32 and the difference is now load bearing.
-#
-# FOUND BY A LINK FAILURE, not by design. src/paint_document.cpp guarded its two native
-# spots with #ifdef _WIN32, which was correct for every target that existed when it was
-# written, because Windows and Direct2D were the same thing here. qinta broke that: it
-# is a WINDOWS target with NO D2D backend, so _WIN32 was defined, the colour-emoji branch
-# compiled, and the link came back
-#
-#   paint_document.obj : error LNK2019: unresolved external symbol nativeTextLayout
-#
-# out of src/text_d2d.cpp, which qinta correctly does not compile. The dashed-stroke
-# block was worse and would NOT have shown up at link at all -- it resolves through
-# d2d1.lib and app.d2dFactory, so under qinta it would have dereferenced a null
-# factory at the first dashed mermaid connector.
-#
-# This is the shape of the whole port's endgame, arriving early: every `#ifdef _WIN32` in
-# a file that BOTH stacks compile is asking about the OS when it means to ask about the
-# backend. When src/render_d2d.cpp and src/text_d2d.cpp are deleted, this definition and
-# both of its branches go with them.
-#
-# TWO FILES ARE CONVERTED NOW, not one. This comment used to claim paint_document.cpp was
-# "the only such file with native spots inside it today", which was already false when it
-# was written: include/app.h's three bitmap accessors -- titleIconBitmap,
-# startPageIconBitmap, linkPeekBitmap -- had the same _WIN32 guard around a
-# `seat<D2DBitmap>` call, and being in a HEADER they leaked the mistake into every
-# translation unit that called them. Four objects with no Direct2D in them (tabs, overlays,
-# startpage, editrail) each came back with `unresolved external symbol D2DBitmap::GetSize`.
-# Corrected in place rather than deleted, because the wrong sentence is the useful part: a
-# stale count in a comment reads as a considered decision about the files it excludes, which
-# is strictly worse than reading as an omission. Nothing in this tree greps a prose count,
-# so the next one will go stale the same way.
-#
-# NONE OF THOSE THREE ACCESSORS EXISTS ANY MORE, and the prediction in the line above is what
-# came true -- not about a count this time, but about the nouns. All three are plain
-# `std::shared_ptr<tinta::Bitmap>` members, so there is no `seat<D2DBitmap>` call left to put
-# a guard around and no header-leaked symbol for the linker to want. The paragraph is kept in
-# the past tense it is already written in, because the LESSON is the live part: the guard was
-# spelled `_WIN32` when it meant this macro, and that mistake is available to any file, not
-# just to the ones that happened to make it.
-#
-# Gated on TINTA_LEGACY_D2D so OFF turns the macro off too -- otherwise the flag would
-# leave paint_document.cpp still compiling calls into backends the flag just removed, and
-# the flag's whole job is to make that inventory honest.
-#
-# The INPUT_TEST_SOURCES targets inherit this through
-# $<TARGET_PROPERTY:tinta,COMPILE_DEFINITIONS>, which is why it is set here rather than
-# repeated on each of them.
-if(TINTA_LEGACY_D2D)
-    target_compile_definitions(tinta PRIVATE TINTA_D2D_BACKEND)
-endif()
-
-endif()  # WIN32 — app target
+# The `tinta` target -- the Direct2D/DirectWrite Windows app -- and its ${SOURCES},
+# ${HEADERS} and ${RESOURCES} lists stood here until 2026-10-07, when the Direct2D stack was
+# retired. qinta is the application on every platform; its sources are ${QINTA_APP_SOURCES}.
 
 # --- THE QT APPLICATION: the target the whole port is aimed at ------------------
 #
@@ -1246,34 +825,8 @@ if(BUILD_TESTING)
     target_include_directories(tab_ghost_tests PRIVATE include)
     add_test(NAME tab_ghost COMMAND tab_ghost_tests)
 
-    if(WIN32)
-        # THE WIN32 GHOST, CREATED WITH NO `App`, and that is the whole reason this target exists
-        # rather than a line in an ISA saying the arm was moved and looks fine.
-        #
-        # Before the seam, the layered window read app.contentScale, app.theme,
-        # tabStripBackground(app) and app.tabGhostWnd directly, so exercising it meant a real
-        # window, a theme, a loaded document and a message loop. Nobody was going to write that, so
-        # the honest status was "not reachable from a test". Handing the arm a TabGhostCard and two
-        # integers instead is what turned the deferral into a reading.
-        #
-        # It creates a real window, asks the OS what it got -- GetClassNameW, GetWindowLongW,
-        # GetWindowRect -- moves it, and destroys it. A window does briefly exist on the desktop at
-        # 100,100; it is WS_EX_NOACTIVATE, WS_EX_TRANSPARENT and WS_EX_TOOLWINDOW, so it cannot take
-        # focus, cannot take a click and never reaches the taskbar, and every arm destroys its
-        # window whether or not the assertions held.
-        #
-        # src/tab_ghost_win32.cpp is in ${SOURCES}, so the app already compiles it; this is what
-        # RUNS it.
-        add_executable(tab_ghost_win32_tests
-            tests/tab_ghost_win32_tests.cpp
-            src/tab_ghost.cpp
-            src/tab_ghost_win32.cpp
-        )
-        target_include_directories(tab_ghost_win32_tests PRIVATE include)
-        target_compile_definitions(tab_ghost_win32_tests PRIVATE UNICODE _UNICODE)
-        target_link_libraries(tab_ghost_win32_tests PRIVATE user32 gdi32)
-        add_test(NAME tab_ghost_win32 COMMAND tab_ghost_win32_tests)
-    endif()
+    # tab_ghost_win32_tests left with src/tab_ghost_win32.cpp on 2026-10-07; the ghost
+    # window's Qt arm is asserted by tab_ghost_qt in the Qt block.
 
     # The platform path seam, plus config_dir.cpp itself. config_dir.cpp is in
     # this target deliberately: it is the first file moved off app.h, and the
@@ -2276,84 +1829,9 @@ if(BUILD_TESTING)
         target_compile_definitions(portable_compile_only PRIVATE UNICODE _UNICODE)
     endif()
 
-    if(WIN32)
-    # Exercise the real input handlers and editor with a message-only test
-    # window, including layout-dependent character sequences (#195).
-    set(INPUT_TEST_SOURCES ${SOURCES})
-    list(REMOVE_ITEM INPUT_TEST_SOURCES src/main_d2d.cpp)
-    # input_tests and file_path_tests moved to the Qt backends on 2026-10-06
-    # (tinta_qt_app_test, Qt block below).
-
-    # code_block_layout_tests and blockquote_layout_tests moved to the Qt backends on
-    # 2026-10-06 (tinta_qt_app_test, in the Qt block below).
-
-    # theme_tests moved to the Qt backends on 2026-10-06 (tinta_qt_app_test, Qt block below).
-
-    # Needs no display and no render target: D2DBitmap borrows, so the assertions
-    # use fake addresses they never dereference.
-    #
-    # IT STAYS HERE, and not for the reason it used to give. The old comment said it
-    # linked the two backend sources "for the same reason context_menu_tests does --
-    # App holds wrappers BY VALUE, so any target that instantiates App needs their
-    # vtables", and that reason expired when App's storage moved to pointers to the
-    # abstract seam. context_menu_tests has moved out above on the strength of that.
-    # This one is Windows-only by SUBJECT: it asserts on D2DBitmap, the Direct2D
-    # wrapper itself, and reseat-on-read is a property of that wrapper. Its Qt
-    # counterpart would be a different set of assertions, not this set run elsewhere.
-    # The next two are gated on TINTA_LEGACY_D2D because their SUBJECT is the
-    # Direct2D backend -- D2DBitmap's reseat-on-read, and the DirectWrite factory
-    # wrapper. When the backends are deleted these two are deleted with them; their
-    # Qt counterparts are a different set of assertions, not this set run elsewhere.
-    #
-    # The distinction matters and is deliberate. Targets that link the backends only
-    # INCIDENTALLY -- math_layout_tests, and everything built from INPUT_TEST_SOURCES
-    # -- are NOT gated. Their subjects survive the stack change, so under
-    # TINTA_LEGACY_D2D=OFF they are supposed to fail to link, and those failures are
-    # the inventory the flag exists to print. Gating them would hide it.
-    if(TINTA_LEGACY_D2D)
-    add_executable(bitmap_seam_tests tests/bitmap_seam_tests.cpp
-        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
-        src/render_d2d.cpp src/text_d2d.cpp)
-    target_include_directories(bitmap_seam_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(bitmap_seam_tests PRIVATE md4c shell32 d2d1 dwrite)
-    # TINTA_D2D_BACKEND because this target COMPILES src/render_d2d.cpp two lines up, so the
-    # macro's own definition -- "this target links the Direct2D/DirectWrite backend" -- is
-    # simply true of it. It was missing, and that only became visible when include/app.h's
-    # three bitmap accessors moved off #ifdef _WIN32 onto this macro: the accessors then took
-    # the null branch here and the test reported exactly 10 failures, predicted in advance and
-    # itemised -- the three "holds the native it was given", the three "follows a replaced
-    # native", the three "keeps its own native", and the distinct-ADDRESS check, which fails
-    # because three nullptrs compare equal. Worth recording that the four assertions in
-    # nullNativeYieldsNullSeam kept PASSING throughout, trivially, everything being null: they
-    # read like coverage of this seam and would not have noticed its removal.
-    #
-    # THAT DETECTION NO LONGER WORKS, AND THE WHOLE TEST IS NOW IN THE POSITION THE LAST
-    # SENTENCE DESCRIBES. include/app.h contains ZERO live `#ifdef TINTA_D2D_BACKEND` -- the
-    # accessors those ten failures came from are gone, and every remaining mention of the
-    # macro in that header is a comment about their departure. So removing this line would
-    # no longer change a single branch bitmap_seam_tests compiles, and the target would go
-    # on passing 12/12. The definition STAYS because its own stated meaning is still simply
-    # true of this target (it compiles src/render_d2d.cpp, two lines up) and because
-    # src/paint_document.cpp is where the macro is load-bearing today -- but it is kept on a
-    # correctness argument, not on a measurement, and the itemised ten above should be read
-    # as history rather than as something still reachable from here.
-    # nullNativeYieldsNullSeam is itself renamed to unsetHandlesReadAsNull, for the same
-    # reason: there are no accessors left for a null check to be forgotten in.
-    target_compile_definitions(bitmap_seam_tests PRIVATE UNICODE _UNICODE TINTA_D2D_BACKEND)
-    add_test(NAME bitmap_seam COMMAND bitmap_seam_tests)
-
-    # Unlike bitmap_seam_tests, this one uses REAL DirectWrite objects -- it can,
-    # because DWriteCreateFactory is device-independent and needs no HWND or display.
-    # Same link set and the same reason: App holds the seam wrappers BY VALUE.
-    add_executable(text_factory_tests tests/text_factory_tests.cpp
-        src/markdown.cpp src/themes.cpp src/config_dir.cpp ${PLATFORM_PATHS_SOURCE}
-        src/render_d2d.cpp src/text_d2d.cpp)
-    target_include_directories(text_factory_tests PRIVATE include ${md4c_SOURCE_DIR}/src)
-    target_link_libraries(text_factory_tests PRIVATE md4c shell32 d2d1 dwrite)
-    target_compile_definitions(text_factory_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME text_factory COMMAND text_factory_tests)
-    endif()  # TINTA_LEGACY_D2D
-    endif()  # WIN32
+    # The Windows-only test block that stood here built input_tests, file_path_tests and the
+    # Direct2D backend tests (bitmap_seam, text_factory) from ${SOURCES}. The first two moved to
+    # the Qt backends on 2026-10-06; the rest left with the Direct2D stack on 2026-10-07.
 
     add_executable(math_parser_tests tests/math_parser_tests.cpp src/math_parser.cpp src/math_macros.cpp)
     target_include_directories(math_parser_tests PRIVATE src)
@@ -2910,32 +2388,19 @@ if(BUILD_TESTING)
     # configure with -DTINTA_LEGACY_D2D=OFF and this target joins the link-error
     # inventory of what still depends on the stack being replaced, instead of quietly
     # building a backend the flag says is excluded.
-    if(WIN32 OR (Qt6_FOUND AND Qt6Svg_FOUND AND Qt6Network_FOUND))
+    if(Qt6_FOUND AND Qt6Svg_FOUND AND Qt6Network_FOUND)
         add_executable(image_tests tests/image_tests.cpp ${PLATFORM_IMAGE_SOURCE})
         target_include_directories(image_tests PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/include)
+        # The Windows arm that stood here compiled image_win32.cpp (WIC) and the Direct2D
+        # backends; since 2026-10-07 this test asserts the Qt image backend qinta uses on
+        # every platform.
+        target_sources(image_tests PRIVATE src/render_qt.cpp src/text_qt.cpp)
+        target_link_libraries(image_tests PRIVATE Qt6::Core Qt6::Gui Qt6::Svg Qt6::Network)
         if(WIN32)
             target_compile_definitions(image_tests PRIVATE UNICODE _UNICODE)
-            # text_utils.cpp and the path seam are a WINDOWS-ONLY dependency here, and
-            # listing them per-branch rather than in the target's own source list is
-            # the honest spelling: image_win32.cpp calls toWide to widen a UTF-8 URL,
-            # which reaches platform::fromUtf8, while image_qt.cpp converts through
-            # QString and needs neither. shell32 is what platform_paths_win32.cpp
-            # wants, the same line text_utils_tests carries.
-            target_sources(image_tests PRIVATE
-                src/text_utils.cpp ${PLATFORM_PATHS_SOURCE} ${LEGACY_D2D_SOURCES})
-            # windowscodecs for WIC, d2d1 for the SVG device context, shlwapi for
-            # SHCreateMemStream, urlmon for the fetch, ole32 for CoInitializeEx.
-            # These are the libs render.cpp's image code needed; they moved with it.
-            # dwrite arrives with ${LEGACY_D2D_SOURCES} -- text_d2d.cpp calls
-            # DWriteCreateFactory, the same one line render_d2d_tests carries.
-            target_link_libraries(image_tests PRIVATE
-                windowscodecs d2d1 dwrite shlwapi urlmon ole32 shell32)
-        else()
-            target_sources(image_tests PRIVATE
-                src/render_qt.cpp src/text_qt.cpp)
-            target_link_libraries(image_tests PRIVATE
-                Qt6::Core Qt6::Gui Qt6::Svg Qt6::Network)
+            target_sources(image_tests PRIVATE src/text_utils.cpp ${PLATFORM_PATHS_SOURCE})
+            target_link_libraries(image_tests PRIVATE shell32)
         endif()
         add_test(NAME image COMMAND image_tests)
         if(NOT WIN32)
@@ -3301,7 +2766,12 @@ if(BUILD_TESTING)
             # and waits for a person. So this list is not a detail of the two tests above
             # it; it is part of what adding a Qt test target means, and the cost of missing
             # it is a dialog on somebody's desktop plus a red that looks like a broken seam.
-            set(TINTA_QT_PATH_TESTS qt_text render_api pdf_export_qt)
+            # file_dialog, export_html and image joined on 2026-10-07: their Windows arms
+            # compiled the Win32 file dialog and WIC backends, which left with the Direct2D stack.
+            set(TINTA_QT_PATH_TESTS qt_text render_api pdf_export_qt file_dialog export_html)
+            if(Qt6Svg_FOUND AND Qt6Network_FOUND)
+                list(APPEND TINTA_QT_PATH_TESTS image)
+            endif()
             if(Qt6Widgets_FOUND)
                 # tab_ghost_qt is here for the reason the paragraph above was written down TWICE.
                 # It is Widgets-gated like qt_entry, so it appends in the same place; leaving it out
@@ -3360,87 +2830,6 @@ if(BUILD_TESTING)
     target_link_libraries(config_path_tests PRIVATE ${PLATFORM_PATHS_LIBS})
     target_compile_definitions(config_path_tests PRIVATE UNICODE _UNICODE)
     add_test(NAME config_paths COMMAND config_path_tests)
-
-    # The Direct2D side of the drawing seam, running the SAME assertions as
-    # render_api_tests via tests/render_api_shared.cpp. This is what turns
-    # include/render_api.h from an interface with one implementation -- which is
-    # indirection, not abstraction -- into a measured two-backend contract: the seam
-    # was shaped by the Qt backend, and this checks it back against the API it was
-    # modelled on. It renders to a WIC bitmap (software target, no display, no
-    # message loop), the same recipe tests/math_layout_tests.cpp already uses.
-    #
-    # NOT in tests/portable-sources.txt, deliberately: src/render_d2d.cpp is
-    # Windows-only by design, so it must never appear in a non-Windows build's object
-    # set. The manifest lists what the PORTABLE build compiles.
-    # Gated on TINTA_LEGACY_D2D for the same reason as bitmap_seam_tests: the
-    # subject IS the backend. render_api_tests runs these same assertions against
-    # the Qt backend, so what this target proves survives its own deletion.
-    if(TINTA_LEGACY_D2D)
-    add_executable(render_d2d_tests
-        tests/render_d2d_tests.cpp
-        tests/render_api_shared.cpp
-        src/render_d2d.cpp
-        src/text_d2d.cpp
-        # The image-seam families' other half -- the icon decode AND the offscreen raster.
-        # Unconditional here, unlike the Qt target:
-        # image_win32.cpp needs no optional component, only import libraries this target
-        # is already close to carrying. src/text_utils.cpp travels with it for the reason
-        # image_tests spells out -- toWide reaches platform::fromUtf8 -- and the path seam
-        # with that.
-        src/image_win32.cpp
-        src/text_utils.cpp
-        ${PLATFORM_PATHS_SOURCE}
-        ${TINTA_ICON_GENERATED}
-    )
-    target_include_directories(render_d2d_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    target_compile_definitions(render_d2d_tests PRIVATE TINTA_HAVE_IMAGE_SEAM)
-    # dwrite for DWriteCreateFactory, which the harness calls to build the factory
-    # src/text_d2d.cpp then borrows. Everything else text_d2d.cpp does is a COM
-    # method call through that pointer and needs no import library at all -- which
-    # is why this line is the whole cost of adding the text backend here.
-    # shlwapi for SHCreateMemStream, urlmon for the fetch, shell32 for the path seam --
-    # the three that arrived with src/image_win32.cpp, the same line image_tests carries.
-    target_link_libraries(render_d2d_tests PRIVATE
-        d2d1 dwrite windowscodecs ole32 shlwapi urlmon shell32)
-    target_compile_definitions(render_d2d_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME render_d2d COMMAND render_d2d_tests)
-
-    # The Windows side of the PDF seam, running the SAME assertions as
-    # pdf_export_qt_tests via tests/pdf_export_shared.cpp. Same purpose as the target
-    # above it: include/pdf_export.h had one implementation, and one implementation is
-    # indirection rather than abstraction.
-    #
-    # WHAT THIS TARGET NEEDS THAT render_d2d_tests DOES NOT: a D3D11 device and a DXGI
-    # interface. beginPdfDocument recovers an ID2D1DeviceContext from its target and asks
-    # it for the device the print control is created on, and a render target from a plain
-    # ID2D1Factory has no device behind it -- so the harness builds the app's own stack
-    # (D3D11 -> ID2D1Device -> context) instead of the WIC-bitmap recipe. Nothing is drawn
-    # into that context; XpsPageEmitter makes a second one off the same device.
-    #
-    # Gated on TINTA_LEGACY_D2D like render_d2d_tests and for the identical reason: the
-    # SUBJECT is the backend being deleted. pdf_export_qt_tests runs these same assertions
-    # against the arm that survives, so what this target proves outlives it.
-    add_executable(pdf_export_win32_tests
-        tests/pdf_export_win32_tests.cpp
-        tests/pdf_export_shared.cpp
-        src/pdf_export_win32.cpp
-        src/render_d2d.cpp
-        src/text_d2d.cpp
-    )
-    target_include_directories(pdf_export_win32_tests PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-    )
-    # d3d11/dxgi are this target's own (the harness builds the device); d2d1 for the
-    # factory, windowscodecs and ole32 for the WIC factory and the print-document target
-    # factory the seam CoCreateInstances, shlwapi for SHCreateStreamOnFileEx, dwrite
-    # because src/text_d2d.cpp travels with src/render_d2d.cpp.
-    target_link_libraries(pdf_export_win32_tests PRIVATE
-        d2d1 d3d11 dxgi dwrite windowscodecs ole32 shlwapi)
-    target_compile_definitions(pdf_export_win32_tests PRIVATE UNICODE _UNICODE)
-    add_test(NAME pdf_export_win32 COMMAND pdf_export_win32_tests)
-    endif()  # TINTA_LEGACY_D2D
     endif()  # WIN32
 
 # The README figure gate, as two ctest arms. OUTSIDE the WIN32 block on purpose: the
@@ -3477,13 +2866,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=26
+        -DEXPECTED_CHECKS=19
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=26
+        -DEXPECTED_CHECKS=19
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

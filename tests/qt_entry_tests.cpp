@@ -2744,7 +2744,13 @@ int main(int argc, char** argv) {
         const std::string remote = "http://127.0.0.1:9/qinta-post-probe.png";
         {
             std::ofstream a(postDir / "a.md", std::ios::binary);
-            a << "# post probe\n\n![remote](" << remote << ")\n";
+            a << "# post probe\n\n![remote](" << remote << ")\n\n![local svg](local.svg)\n";
+            // A LOCAL SVG beside the remote image. loadSvgBitmap refused until 2026-10-07
+            // unless App's Direct2D and WIC factories were set, and on qinta they never
+            // were, so every SVG image drew as its alt-text placeholder.
+            std::ofstream svg(postDir / "local.svg", std::ios::binary);
+            svg << "<svg xmlns='http://www.w3.org/2000/svg' width='200' height='120'>"
+                   "<rect x='20' y='20' width='160' height='60' fill='#E040FB'/></svg>";
             std::ofstream b(postDir / "b.md", std::ios::binary);
             b << "# sibling\n\nThe word zyxneedle is here.\n";
             // Holds the query too, and must NOT be returned: the scan reads .md and
@@ -2758,6 +2764,17 @@ int main(int argc, char** argv) {
         // Layout happens inside paint, which is the only time app.renderTarget is set, and
         // getOrLoadImage starts the download only with a render target.
         grabWindow(postWindow);
+        {
+            auto svgIt = app.imageCache.find("local.svg");
+            const bool svgLoaded = svgIt != app.imageCache.end() && !svgIt->second.failed &&
+                                   svgIt->second.bitmap != nullptr;
+            std::printf("local_svg loaded=%d width=%d height=%d\n", svgLoaded ? 1 : 0,
+                        svgLoaded ? svgIt->second.width : -1,
+                        svgLoaded ? svgIt->second.height : -1);
+            check(svgLoaded && svgIt->second.width == 200 && svgIt->second.height == 120,
+                  "a local SVG image loads at its intrinsic 200x120 (it was always an alt-text "
+                  "placeholder on qinta until 2026-10-07)");
+        }
         auto entryIt = app.imageCache.find(remote);
         const bool startedPending = entryIt != app.imageCache.end() && entryIt->second.pending;
         const bool completed = pumpUntil(

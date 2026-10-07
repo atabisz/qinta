@@ -388,20 +388,10 @@ echo "-- to-do table rows, as the additive expressions they are written in"
 # instance: the next departure moves this row on its own. An empty set is a loud FAIL and never
 # a silent pass -- when main_d2d.cpp follows, this block gets deleted the way every other
 # departure's did, and the gate says so rather than asserting an empty expression.
-wml_files=$(printf '%s\n' $todo | grep -xE 'input\.cpp|main_d2d\.cpp' || true)
-expr_wml=""
-for f in $wml_files; do
-    if [ -n "$expr_wml" ]; then expr_wml="$expr_wml + "; fi
-    expr_wml="$expr_wml$(c "$(lines "src/$f")")"
-done
-if [ -n "$expr_wml" ]; then
-    claim "window + message loop" "| $expr_wml |"
-else
-    checks=$((checks + 1))
-    printf '  FAIL %-42s %s\n' "window + message loop" \
-        "both files have left the to-do set -- delete this block, do not assert an empty row"
-    failures=$((failures + 1))
-fi
+# THE BLOCK IS DELETED, AS ITS OWN EMPTY-SET BRANCH ASKED. main_d2d.cpp followed input.cpp out of
+# the to-do set on 2026-10-07 -- not by being ported but by being deleted with the Direct2D stack --
+# and the branch fired its FAIL ("delete this block, do not assert an empty row") on the first run
+# after. The README's "Window and message loop" row went with it.
 # editor.cpp is now DELIBERATELY absent, the EIGHTH file to exercise the rule the
 # export_html.cpp note below states -- it compiles off Windows and joined the manifest, so its
 # 3,207 lines left the to-do set and therefore left here. It is the largest single departure this
@@ -541,7 +531,8 @@ fi
 # port rather than the size of the file -- this pass had two that needed real argument (a
 # reentrant local-time seam and a signed FILETIME intermediate), so it grew more than editor.cpp's
 # 3,135 lines did on eight routed families.
-claim "device and factory"    "| Device and factory creation | $(c "$(lines src/d2d_init.cpp)") |"
+# The "device and factory" claim derived from src/d2d_init.cpp and is gone with that file
+# (2026-10-07); the README's "Device and factory creation" row went with it.
 
 # THE MEMBERSHIP OF THIS ROW IS DERIVED NOW, AND THE REASON IS A MISS THIS SCRIPT OWNS.
 # It used to be a hand-written list of seven names:
@@ -576,16 +567,12 @@ claim "device and factory"    "| Device and factory creation | $(c "$(lines src/
 # there is one exclusion, by name, and it gets the guard the one inclusion used to get: it is
 # asserted to still be in the to-do set, because a hand-written name that silently stops
 # matching is precisely the failure this whole comment is about.
-backends_excluded="main_d2d.cpp"
-backends=$( { printf '%s\n' $todo | grep -E '(_win32|_d2d)\.cpp$' \
-                | grep -vxF "$backends_excluded"; } \
-            | sed 's/\.cpp$//' | sort )
-for hand in $backends_excluded; do
-    if ! printf '%s\n' $todo | grep -qx "$hand"; then
-        echo "  FAIL backends list       $hand is hand-named here and is NOT in the to-do set"
-        failures=$((failures + 1))
-    fi
-done
+#
+# THAT EXCLUSION IS GONE, and its own guard is what said so: main_d2d.cpp was deleted with the
+# Direct2D stack on 2026-10-07, the "is NOT in the to-do set" FAIL fired on the next run, and a
+# hand-named exclusion that matches nothing is exactly the silent failure the guard existed for.
+# The row is name-shape only, with no exception, and every member is a *_win32.cpp qinta builds.
+backends=$( printf '%s\n' $todo | grep -E '(_win32|_d2d)\.cpp$' | sed 's/\.cpp$//' | sort )
 expr_backends=""
 raw_backend_lines=0
 for f in $backends; do

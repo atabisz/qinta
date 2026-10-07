@@ -92,11 +92,12 @@ Mixed-document fixtures exercise the surrounding Markdown as well as the equatio
 The automated layout suite checks all 49 equations across the three math fixtures, their enclosing Markdown structures, table column counts and literal code. On Windows with a graphics session, generate native print pages and HTML from the actual application:
 
 ```powershell
-tests/render_math_fixtures.ps1 -Binary out/math-compat/Release/tinta.exe
+tests/render_math_fixtures.ps1 -Binary out/math-compat/Release/qinta.exe
 # Optional: compare control PNGs and HTML byte-for-byte with a baseline build.
-tests/render_math_fixtures.ps1 -Binary out/math-compat/Release/tinta.exe -BaselineBinary path/to/baseline/tinta.exe
+tests/render_math_fixtures.ps1 -Binary out/math-compat/Release/qinta.exe -BaselineBinary path/to/baseline/qinta.exe
+# Qt's DLLs come from -QtBin, which defaults to C:\Qt\6.8.3\msvc2022_64\bin.
 ```
 
-The script creates a fresh ignored output directory and a portable copy of Tinta with isolated settings. It checks export completion and equation counts. Inspect its PNGs and HTML, then open the fixtures in the viewer at normal and narrow widths and in light and dark themes. Verify table borders, the text before and after tall formulas, link clicks, code literals and the final block. Export success alone is not visual validation.
+The script creates a fresh ignored output directory and a portable copy of the binary with isolated settings. It checks export completion and equation counts. Inspect its PNGs and HTML, then open the fixtures in the viewer at normal and narrow widths and in light and dark themes. Verify table borders, the text before and after tall formulas, link clicks, code literals and the final block. Export success alone is not visual validation.
 
 Tall inline equations currently expand every line in their paragraph uniformly. This avoids overlap but can leave substantial vertical space in long paragraphs; display math is more compact for large matrices. Native print pagination can continue table borders and quotes onto the next page.

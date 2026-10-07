@@ -7,8 +7,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# DISABLED: this packs tinta.exe under upstream Tinta's Store identity, and tinta.exe is no
-# longer in the default build (qinta is the Windows app). Remove this line once the manifest
+# DISABLED: this packs tinta.exe under upstream Tinta's Store identity, and tinta.exe was
+# deleted with the Direct2D stack on 2026-10-07 (qinta is the Windows app). Remove this line once the manifest
 # and this script package qinta.exe and its Qt runtime.
 throw "MSIX packaging is disabled until it is re-pointed at qinta -- see packaging/msix/README.md"
 

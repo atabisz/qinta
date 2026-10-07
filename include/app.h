@@ -53,129 +53,8 @@
 // with fake backends -- see seated.h and tests/seated_tests.cpp.
 #include "seated.h"
 
-#ifdef _WIN32
-#include <d2d1.h>
-#include <d2d1_1.h>
-#include <dwrite.h>
-#include <dwrite_2.h>
-#include <wincodec.h>
-#else
-// Left incomplete on purpose. No native appears BY VALUE anywhere below, so a
-// declaration is enough, and an inline dereference added later fails here rather
-// than compiling into a portable build. That property is the load-bearing part;
-// the count that used to be written beside it was not.
-//
-// IT SAID "45 NATIVE MEMBERS" and the measurement is 10 -- seven raw `Native*`
-// members and three `Seated<Seam, Native>`, whose only native-typed data is its own
-// cached `Native*`. The figure was true before the text formats went through the
-// seam and no longer described anything; it is replaced with the command rather
-// than with a new number, because a bare number here has now gone stale twice --
-// and it has gone stale AGAIN since, from 14 to 12, when the link peek's
-// `ID2D1Bitmap*` member and its Seated storage became one
-// `shared_ptr<tinta::Bitmap>`, and AGAIN from 12 to 10 the slice after that, when the
-// dashed stroke style's `ID2D1StrokeStyle*` member and its Seated storage became one
-// `unique_ptr<tinta::StrokeStyle>`. That is four times, twice by the same move on
-// consecutive slices, which is the argument for the command and against the number:
-//
-//   rg -n "(ID2D1|IDWrite|IWIC)[A-Za-z0-9]+" include/app.h | grep -vE "^[0-9]+: *//"
-//
-// stripping this block's own `struct` lines. Read it as MEMBERS, not occurrences:
-// the two conventions differ and the old figure did not say which it used.
-//
-// THIS BLOCK DECLARES WHAT THIS HEADER NAMES, AND THAT IS NEW. `ID2D1RenderTarget` is
-// named live at :340 and used to be absent here, arriving instead from
-// include/render_d2d.h's own `#else` because that header is included at :184, before App
-// is declared. It is declared here now -- TWO names below are already in both blocks, so
-// the redundancy is the existing convention rather than a new one.
-//
-// THAT NUMBER IS MEASURED, HAS SURVIVED A WRONG CORRECTION ONCE AND HAS SINCE MOVED FOR
-// REAL, which between them are the whole argument for writing the command instead of the
-// figure. It read THREE until this slice. Removing ID2D1Bitmap from this block, one slice
-// ago, looked like it had to take the overlap with it and did not -- that name is declared
-// by render_d2d.h and was never one of the three. Removing ID2D1StrokeStyle, this slice,
-// looked like the same non-event and was not: it WAS one of the three. Nothing about the
-// two edits told them apart from the outside, which is why the rule here is do not adjust
-// it by arithmetic -- re-run the command. Measured 2026-09-19 after the deletion: the
-// overlap is FOUR names across two siblings, ID2D1RenderTarget/ID2D1SolidColorBrush with
-// render_d2d.h and IDWriteFactory/IDWriteFontFallback with text_d2d.h, and it is one
-// command:
-//
-//   comm -12 <(awk '/^#else/{f=1} /^#endif/{f=0} f && /^struct [A-Z]/{print $2}' \
-//   include/app.h | tr -d ';' | sort -u) <(same over include/render_d2d.h)
-//
-// THE REASON IS A DEFECT THIS SLICE CAUSED AND THE PORTABLE PROBE CAUGHT. The census
-// that swept four declarations out of this block asked "is this name used anywhere else
-// in THIS header", and for IDWriteTextAnalyzer the answer was no and the answer was
-// irrelevant: include/text_d2d.h named it and had no declaration of its own, relying on
-// this block, because app.h declares before it includes that header. g++ said
-// "'IDWriteTextAnalyzer' does not name a type" and the fix went into text_d2d.h, where
-// the member had already moved. A header that leans on a sibling's forward declarations
-// breaks from an edit that never mentions it, so both ends were made to stand alone.
-struct ID2D1Factory;
-struct ID2D1HwndRenderTarget;
-struct ID2D1RenderTarget;
-struct ID2D1DeviceContext;
-struct ID2D1SolidColorBrush;
-struct IDWriteFactory;
-struct IDWriteFontFallback;
-struct IWICImagingFactory;
-// FOUR DECLARATIONS LEFT TOGETHER, and they were found as a class rather than one at a
-// time. IDWriteTextFormat went out with the thirteen chrome text-format storages, which
-// were the last things in this header to name it. ID2D1PathGeometry, IDWriteTextLayout
-// and IDWriteTextAnalyzer had ALREADY outlived their last member and were still declared
-// here -- nothing in this slice touched them, and nothing was going to notice them either.
-//
-// IDWriteTypography's own note used to stand here alone, saying the same thing about a
-// fifth, and that is what suggested looking for siblings. The census was "a name declared
-// in this block with no live use anywhere else in this header", it returned five, and
-// ID2D1Bitmap -- two live uses -- was the control proving the census can answer no.
-//
-// THAT CONTROL HAS EXPIRED, AND ITS EXPIRY IS WHY ID2D1Bitmap IS NOT DECLARED HERE ANY
-// MORE. Both of its live uses were the link peek's: an `ID2D1Bitmap*` member and a
-// `Seated<tinta::Bitmap, ID2D1Bitmap>` storage, now one `shared_ptr<tinta::Bitmap>`. The
-// census returns ZERO for it, so the name that used to demonstrate a no became the sixth
-// yes. Worth stating as a lesson rather than a bookkeeping note: a census whose only
-// negative control is a subject of the port under way will keep losing its control to the
-// port, and the honest replacement is the census's own command above, re-run, not another
-// hand-picked name.
-//
-// AND THE PORTABLE PROBE CANNOT WITNESS THIS PARTICULAR DELETION -- measured, not assumed,
-// and it is the paragraph above seen from its other end. Deleting the line and planting a
-// live `ID2D1Bitmap*` member inside App left the probe GREEN, 0 FAIL, when it should have
-// failed: include/render_d2d.h declares `struct ID2D1Bitmap;` in its OWN #else, and this
-// header includes it at :184, BEFORE App is declared at :317, so the name is in scope
-// whether or not this block supplies it. Nothing can separate the two copies while both
-// exist and the sibling is included first. Above, leaning on a sibling's declarations is
-// what BREAKS a header from an edit that never mentions it; here the same coupling breaks
-// nothing and blinds the instrument instead.
-//
-// THE INSTRUMENT IS LIVE, WHICH IS THE ONLY REASON THE GREEN IS WORTH ANYTHING. Replanting
-// the same member as `ID2D1Bitmap1*` -- a name no #else block in this tree declares --
-// turned the probe RED: 53 FAILs, `'ID2D1Bitmap1' does not name a type`. So it does compile
-// this branch and would say so; what it cannot do is attribute the declaration. This
-// deletion therefore rests on the convention stated above rather than on a measurement,
-// and what the green does buy is the bound: nothing reaching this block needs THIS block's
-// copy.
-//
-// THREE OF THE FOUR WERE ACTUALLY DEAD, and that sentence is the correction: the census
-// question was wrong, not merely narrow. "Nowhere else in this header" says nothing about
-// the headers this one FEEDS -- app.h forward-declares at the top and includes render_d2d.h
-// and text_d2d.h below, so any name it declares is in scope for both of them. IDWriteTextAnalyzer
-// was live in include/text_d2d.h, which had no declaration of its own, and the removal broke
-// it. The right question is "is this name used anywhere that reaches this block", and the only
-// thing that can answer it is a compiler. See the paragraph above the declarations for the fix.
-//
-// REMOVING ONE IS ONLY WITNESSED OFF WINDOWS, which is the part worth reading twice, and is
-// how the break above was found rather than shipped. This entire branch is the #else, so a
-// green MSVC build says nothing about it: <dwrite.h> declares every one of these names, so
-// the Windows build compiles identically whether the line is here or not.
-// scripts/probe-portable-linux.sh is the only endpoint that reads this branch. Before its
-// pass was accepted, a use of IDWriteTextFormat was planted here with the declaration gone to
-// confirm the branch is compiled at all -- otherwise a green is indistinguishable from a
-// branch nothing ever includes -- and the run AFTER the plant came out is what failed on
-// text_d2d.h. Two arms and a control, and the control is the reason the second arm was run at
-// all instead of being assumed from the first.
-#endif
+// The Direct2D, DirectWrite and WIC SDK headers, and the forward declarations that stood in
+// for them off Windows, left with the Direct2D stack on 2026-10-07. App names no native type.
 
 #include <string>
 #include <vector>
@@ -190,47 +69,15 @@ struct IWICImagingFactory;
 #include "settings_data.h"
 #include "theme_data.h"
 #include "window_placement.h"  // tinta::ZenRestore, the state zen mode gives back
-// Brings tinta::RenderTarget/Brush/Bitmap/StrokeStyle and their borrowed
-// Direct2D wrappers, which App now holds alongside the natives. This is the
-// commit that first makes a production translation unit include the seam at
-// all -- before it, render_api.h reached only the two backend headers and the
-// test harness, so 96.6% "coverage" described methods that existed rather
-// than calls that used them.
+// The drawing and text seams App holds. These arrived through render_d2d.h until the
+// Direct2D stack was retired on 2026-10-07.
 #include <memory>
 
-#include "render_d2d.h"
+#include "render_api.h"
+#include "text_api.h"
 
 using namespace qmd;
 
-// COM teardown, in one place because it is the only thing in this header that
-// dereferences a native pointer inline -- 21 sites, in three shapes: a bare
-// `if (p) p->Release();`, the same across four lines, and the same again with a
-// `p = nullptr;` after it.
-//
-// Those 21 sites sit INSIDE functions that are otherwise portable: they clear
-// caches, adjust byte accounting and erase map entries alongside the Release.
-// Guarding the whole function off Windows would have thrown that away and left a
-// Qt path with no cache management at all, and guarding 21 individual statements
-// would have been 21 places for the two branches to drift. One helper is one
-// guard.
-//
-// Off Windows this is not a stub that pretends to work. There is nothing to
-// release, because nothing can create one of these objects -- the interfaces are
-// forward-declared and incomplete above. Forgetting the pointer is the whole of
-// the correct behaviour, and it is spelled out rather than left to a comment
-// because the alternative reading (a silently skipped Release, i.e. a leak) is
-// the one a reader will assume.
-template <class T>
-inline void releaseNative(T*& p) {
-#ifdef _WIN32
-    if (p) {
-        p->Release();
-        p = nullptr;
-    }
-#else
-    p = nullptr;
-#endif
-}
 
 // Timing helpers
 using Clock = std::chrono::high_resolution_clock;
@@ -338,23 +185,9 @@ struct App {
     int height = 768;
     bool running = true;
 
-    // Direct2D
-    //
-    // THE NAMING RULE FOR EVERY PAIR BELOW, because it is what keeps this a
-    // ~110-edit change instead of a ~1,600-edit one: the WRAPPER keeps the
-    // original member name and the native COM pointer takes a `native` prefix.
-    // So the ~1,500 sites that merely PASS a member to a drawing call bind to
-    // the seam with no edit at all, and only the sites that call a COM method
-    // on it, or take its address to create it, had to move to the native name.
-    //
-    // The wrappers BORROW (render_d2d.h says so at length): they neither AddRef
-    // nor Release, the natives below are still the owners, and every existing
-    // Release() site still runs against the native. A wrapper is refreshed --
-    // reseated onto whatever native currently exists -- by the seat* helpers in
-    // d2d_init.cpp, never by a drawing call.
-    ID2D1Factory* d2dFactory = nullptr;
-    ID2D1HwndRenderTarget* nativeRenderTarget = nullptr;
-    Seated<tinta::RenderTarget, ID2D1RenderTarget> renderTargetStorage;
+    // The render target the drawing sites call through. The native Direct2D factory and
+    // hwnd target that stood beside it went with the stack on 2026-10-07.
+    Seated<tinta::RenderTarget> renderTargetStorage;
     // What the 566 drawing sites call. Null until seatRenderTarget() runs, and
     // null again the moment the native goes -- callers already null-check it.
     tinta::RenderTarget* renderTarget = nullptr;
@@ -425,8 +258,7 @@ struct App {
         editorLineLayoutCache.clear();
         editorLayoutUseClock = 0;
     }
-    ID2D1SolidColorBrush* nativeBrush = nullptr;
-    Seated<tinta::Brush, ID2D1SolidColorBrush> brushStorage;
+    Seated<tinta::Brush> brushStorage;
     // The scratch brush every draw call passes. Census below is of `fc9ceb0^` -- the tree
     // the seam sweep operated ON, which is what the past tense in the last sentence is
     // about -- via `git grep -o -e '<pattern>' 'fc9ceb0^' -- src include tests | wc -l`.
@@ -449,28 +281,6 @@ struct App {
     // the pattern is now written into the comment beside every number: a figure whose probe
     // is elided cannot be re-run, so it cannot be corrected -- only deleted or believed.
     tinta::Brush* brush = nullptr;
-    // STAYS NATIVE, and the reason is print.cpp -- NOT colour emoji, which is what this
-    // comment said until 2026-09-19 and was wrong about.
-    //
-    // Measured: 15 code lines name it across 17 occurrences -- comment lines excluded, which
-    // matters because the comments written on 2026-09-19 mention the member too and an
-    // unfiltered `rg -n deviceContext src include` now returns 19. ELEVEN of the 15 are in
-    // src/print.cpp (the other four: 2 in src/d2d_init.cpp, 2 here), which reaches the
-    // device via GetDevice -> CreateDeviceContext, carries no preprocessor guards at all,
-    // and is absent from tests/portable-sources.txt. That file is why this member cannot
-    // go. The old comment read "9 sites ... colour-emoji work with no seam equivalent";
-    // its "6 GetDevice" are in fact print.cpp's six, which is how the print and preview
-    // path came to be described as colour-emoji work.
-    //
-    // There is no colour-emoji claim here any more. The seam has carried
-    // tinta::DrawTextOptions::EnableColorFont since it was built, src/paint_document.cpp's
-    // duplicate native branch is deleted, and the on-screen colour-emoji path now goes
-    // through tinta::RenderTarget like every other DrawTextLayout. Obtained by
-    // QueryInterface off the native target, not through the seam.
-    ID2D1DeviceContext* deviceContext = nullptr;  // For src/print.cpp's device access
-
-    // WIC (Windows Imaging Component) for image loading
-    IWICImagingFactory* wicFactory = nullptr;
 
     // Image cache
     struct ImageEntry {
@@ -589,26 +399,9 @@ struct App {
     float lightboxDragPanY = 0.0f;
     bool lightboxDragMoved = false;
 
-    // DirectWrite
-    IDWriteFactory* dwriteFactory = nullptr;
-    IDWriteFontFallback* fontFallback = nullptr;  // For emoji font fallback
-    // textAnalyzer is GONE: UAX#14 line-break analysis moved behind
-    // tinta::TextFactory::AnalyzeLineBreaks, and D2DTextFactory owns its own analyzer,
-    // created on first use rather than on every start.
-
-    // The factory's wrapper is SEATED, unlike the four bitmaps' read-time accessors,
-    // and the discriminator is a replacement count of ZERO: dwriteFactory is created
-    // once by out-parameter in d2d_init.cpp and released once in shutdown(), with no
-    // assignment anywhere else in the tree. The bitmaps had 8 mutation sites, which is
-    // what made reseat-on-read the only shape there that could not be forgotten.
-    //
-    // Ownership is identical on both sides -- D2DTextFactory borrows the DWrite
-    // factory exactly as D2DBitmap borrows a bitmap -- so it is the LIFETIME that
-    // decides the access shape here, not the ownership. That is the sharper form of
-    // what the bitmap slice taught: reseat-on-read is the answer to a native that gets
-    // REPLACED, not to a borrowed wrapper as such. Rebuilding this one on every read
-    // would rewrap at each of the 36 layout-creation sites and buy nothing.
-    Seated<tinta::TextFactory, IDWriteFactory> textFactoryStorage;
+    // The text factory every layout is created through. The DirectWrite factory and font
+    // fallback it used to wrap went with the Direct2D stack on 2026-10-07.
+    Seated<tinta::TextFactory> textFactoryStorage;
     tinta::TextFactory* textFactory = nullptr;
     // EVERY TEXT FORMAT IN THIS STRUCT IS NOW A WRAPPER AND A STORAGE, WITH NO NATIVE.
     // The pair rule this block used to open with is gone along with its subject; it read
@@ -1759,21 +1552,14 @@ struct App {
         clearLayoutCache();
         releaseOverlayFormats();
         releaseImageCache();
-        releaseNative(wicFactory);
-        releaseNative(nativeBrush);
         brushStorage.reset();
         brush = nullptr;
         // One reset() where three lines stood: a releaseNative on the native, a storage
         // reset and a null of the read pointer. ~D2DOwnedStrokeStyle does the Release now,
         // which is the same trade the two bitmap handles above made.
         dashedStrokeStyle.reset();
-        releaseNative(deviceContext);
-        releaseNative(nativeRenderTarget);
         renderTargetStorage.reset();
         renderTarget = nullptr;
-        releaseNative(fontFallback);
-        // No releaseNative(textAnalyzer): the analyzer is now owned by D2DTextFactory
-        // and released by ~D2DTextFactory when textFactoryStorage resets below.
         // A FOURTH hand-written copy of the eleven-format release pairing stood here, and
         // the compiler is what found it -- not the census and not the read of
         // updateTextFormats, both of which had already been through this file. It was
@@ -1790,125 +1576,14 @@ struct App {
         // tinta::Typography values now and own nothing; deliberately not replaced
         // with a clear(), because they hold the feature sets the app always wants
         // and there is no device to lose them with.
-        if (dwriteFactory) {
-            releaseNative(dwriteFactory);
-            // The wrapper borrows, so it has nothing to release -- but leaving the
-            // seated pointer non-null would hand a post-shutdown caller a factory
-            // wrapping a released COM object, which is the stale-wrapper failure the
-            // bitmap accessors exist to prevent, arriving by the other door.
-            textFactoryStorage.reset();
-            textFactory = nullptr;
-        }
-        releaseNative(d2dFactory);
+        // The text factory is NOT reset here, and that is unchanged rather than new: the
+        // reset that stood here ran only when a DirectWrite factory existed, so on qinta it
+        // never ran. releaseQtBackends (include/qt_init.h) is what releases it.
     }
 
-    // --- seam wrapper seating ------------------------------------------------
-    // The tinta::* pointers above are what the drawing sites call; these reseat
-    // them onto whatever natives currently exist.
-    //
-    // NO TEXT FORMAT IS SEATED ANY MORE. seatFormat and seatTextFormats are both
-    // deleted, and so are the thirteen native chrome members they read -- there is
-    // no IDWriteTextFormat* left in this struct. Every text format in the tree is
-    // now CREATED through tinta::TextFactory and handed back already owning itself,
-    // by installDocumentTextFormats and installChromeFormats in
-    // include/text_formats.h, so there is nothing to wrap in place.
-    //
-    // THE DELETION HAD TO HAPPEN IN THE SAME COMMIT AS THE CHROME PORT, and this is
-    // the note the next person moving a format family should read first. seatFormat's
-    // first act on a NULL native was storage.reset(), so once installChromeFormats
-    // owns creation, a single surviving seatTextFormats() call would have destroyed
-    // all twenty chrome formats immediately after they were built -- on the path that
-    // runs after every theme change, every zoom step and every DPI change. It would
-    // not have failed loudly: the formats would simply be null, chrome would stop
-    // drawing, and no test in the tree renders chrome.
-    //
-    // What makes that a caught bug rather than a shipped one is mechanical and worth
-    // stating: the natives went WITH the function, so the compiler rejects any
-    // surviving seat call by name. The same paragraph stood here for the document
-    // formats one slice ago and it was load-bearing then too. A comment would not
-    // have caught it; the missing member does.
-    //
-    // The idempotence argument that used to live here belonged to seatFormat and left
-    // with it: D2DTextFormat OWNS its native and Releases in its destructor, so a
-    // blind reset-then-rewrap of an unchanged native would have Released the very
-    // pointer the new wrapper was about to hold, which is why seatFormat compared
-    // first. That property now lives in Seated<>::seat itself (include/seated.h),
-    // where the render-target, brush and stroke-style seats below still rely on it.
-
-    // The one seat function that needs a guard, and the reason is narrow: the
-    // member is an ID2D1HwndRenderTarget* while D2DRenderTarget takes the base
-    // ID2D1RenderTarget*, and a derived-to-base pointer conversion needs COMPLETE
-    // types -- forward declarations cannot express the inheritance. (C++ has no
-    // syntax for `struct Derived : Base;`.)
-    //
-    // The alternative was to make ID2D1HwndRenderTarget an alias OF
-    // ID2D1RenderTarget off Windows, which needs no guard here at all. Rejected:
-    // it would silently accept a device context where an hwnd target is required,
-    // in the one build where the compiler is the only check there is.
-    void seatRenderTarget() {
-#ifdef _WIN32
-        renderTargetStorage.seat<D2DRenderTarget>(nativeRenderTarget);
-        renderTarget = renderTargetStorage.get();
-#else
-        // nativeRenderTarget is unconditionally null here -- the interface is
-        // incomplete, so nothing can produce one -- and the storage is already
-        // default-constructed empty. Stating the postcondition rather than
-        // assuming it.
-        renderTargetStorage.reset();
-        renderTarget = nullptr;
-#endif
-    }
-
-    // Plain assignment, like seatRenderTarget and unlike seatFormat: D2DTextFactory
-    // borrows, so it has no destructor to Release the pointer a new wrapper is about
-    // to hold, and the compare-first guard seatFormat needs would be dead weight here.
-    void seatTextFactory() {
-#ifdef _WIN32
-        textFactoryStorage.seat<D2DTextFactory>(dwriteFactory);
-        textFactory = textFactoryStorage.get();
-#else
-        textFactoryStorage.reset();
-        textFactory = nullptr;
-#endif
-    }
-
-    void seatBrush() {
-#ifdef _WIN32
-        brushStorage.seat<D2DBrush>(nativeBrush);
-        brush = brushStorage.get();
-#else
-        brushStorage.reset();
-        brush = nullptr;
-#endif
-    }
-
-    // seatDashedStrokeStyle() STOOD HERE AND IS DELETED, along with its one caller at
-    // src/d2d_init.cpp. Removing it is a hazard removal and not tidying, which is worth
-    // saying because the call looked inert: d2d_init runs on device RECREATION as well as
-    // creation, the stroke style is a factory object that survives recreation (see its
-    // member above), so today that call re-seats a still-valid native and does nothing
-    // visible. After this change there is no native to seat, and a surviving
-    // seatDashedStrokeStyle() would have RESET the installed style on every device
-    // recreation -- silently rebuilding it through the create-once latch, or leaving it
-    // null for any caller that reads before the next ensureDashedStrokeStyle.
-
-    // TWO SEATS AND A FACTORY, down from three and a factory, and down from four before
-    // that: seatTextFormats() went with its function, and seatDashedStrokeStyle() has now
-    // gone with its member. What is left wraps a native that really is created and really
-    // is borrowed by its wrapper -- the render target, the brush and the DWrite factory.
-    //
-    // THE DASHED STROKE STYLE IS THE FIRST DEPARTURE FROM THIS LIST THAT WAS NOT A
-    // BITMAP, and that matters more than the count. The note below this function argues
-    // that the remaining storages cannot follow the bitmaps because a bitmap is data
-    // while these wrap a real borrowed native. The stroke style met that description
-    // exactly and left anyway -- not by becoming data, but by having its wrapper take
-    // OWNERSHIP of the native instead of borrowing it. So "the native is real and
-    // borrowed" was never the barrier; who releases it was.
-    void seatSeamWrappers() {
-        seatRenderTarget();
-        seatBrush();
-        seatTextFactory();
-    }
+    // The seat* functions that stood here wrapped a Direct2D render target, brush and
+    // DirectWrite factory in their borrowing seam wrappers. They left with those natives on
+    // 2026-10-07; on qinta every storage is filled by install() (src/qt_init.cpp).
 
     // NO BITMAP IN THIS STRUCT IS REACHED THROUGH AN ACCESSOR ANY MORE, and the count
     // that used to stand here is gone rather than decremented, because it reached zero.

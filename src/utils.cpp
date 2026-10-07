@@ -191,10 +191,8 @@ void copyFilePath(App& app, HWND hwnd, const std::string& path) {
         signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
 }
 
-#if !(defined(_WIN32) && !defined(TINTA_QT_UI))
 void refuseWindowFeature(App& app, const char* what, const wchar_t* chip) {
     std::fprintf(stderr, "tinta: %s is not available in the Qt build yet -- it needs the "
                          "Win32 window stack\n", what);
     signalPush(app, SIG_WARN, SIGI_WARNING, chip);
 }
-#endif

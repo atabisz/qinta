@@ -2454,10 +2454,12 @@ static const float kSvgRasterScale = 2.0f;
 
 static bool loadSvgBitmap(App& app, const std::wstring& path,
                           App::ImageEntry& entry) {
-    // All three checks are the original's, kept even though the seam now owns its own
-    // D2D and WIC factories: the app having failed to create either is a state where
-    // rendering an image is not going to work regardless of who holds the factory.
-    if (!app.d2dFactory || !app.wicFactory || !app.renderTarget) return false;
+    // The render target only. This also refused when App's Direct2D or WIC factory was
+    // null, which on qinta it always was -- so until 2026-10-07 no SVG image ever loaded
+    // there, and every one drew as its alt-text placeholder. The seam owns its own
+    // rasteriser; the factories left with the Direct2D stack, and
+    // tests/fixtures/svg-image-mixed.md is the document that showed it.
+    if (!app.renderTarget) return false;
 
     float svgW = 0.0f, svgH = 0.0f;
     tinta::DecodedImage raster =

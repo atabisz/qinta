@@ -110,7 +110,6 @@ window_placement               both
 
 platform_paths_bare_locale     linux-only     subject: preferredUiLanguages dropping the C/POSIX locale, steered by LANGUAGE; no Windows meaning and macOS cannot steer it either
 
-bitmap_seam                    windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp
 blockquote_layout              both
 code_block_layout              both
 config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
@@ -119,7 +118,3 @@ draft_owner                    both
 inline_code_theme              both
 input_shortcuts                both
 math_layout                    both
-pdf_export_win32               windows-only   sources: 3 -- pdf_export_win32.cpp, render_d2d.cpp, text_d2d.cpp
-render_d2d                     windows-only   sources: 3 -- image_win32.cpp, render_d2d.cpp, text_d2d.cpp
-tab_ghost_win32                windows-only   sources: 1 -- tab_ghost_win32.cpp
-text_factory                   windows-only   sources: 2 -- render_d2d.cpp, text_d2d.cpp

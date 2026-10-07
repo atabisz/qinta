@@ -38,6 +38,20 @@
 #   bytes=378862 dates_masked=2 pages=2 page_tree_nodes=1
 #   sha256=e28528c23fba6c4304cf2a805106c4da3946d3875f3405c41eb01ce6142aa409
 #
+# QT'S PDF HAS FIVE MORE PER-RUN FIELDS, measured 2026-10-07 when this script's first caller
+# moved from tinta.exe to qinta.exe with the Direct2D stack's deletion. Two qinta exports of one
+# document, a second apart, differ in 44 byte spans, and every one falls inside one of four
+# kinds: the two `(D:` dates above, three XMP dates (`xmp:CreateDate`, `ModifyDate`,
+# `MetadataDate`, ISO 8601), the XMP `xmpMM:DocumentID` uuid, and the trailer `/ID` pair. The
+# last three are masked here too, length-preserving like the dates, and counted separately as
+# `qt_fields_masked` so `dates_masked` still means what probe-output-guard.sh asserts. A tinta PDF
+# carried none of them, so its digests are unchanged by this; the reading above is tinta's.
+#
+# AND MASKING IS NOT ENOUGH FOR qinta ON ITS OWN: run it with QT_HASH_SEED=0. Its PDF writer emits
+# fonts in QHash order and Qt seeds QHash per process, so with two or more fonts the FontDescriptor
+# objects swap places between runs -- a structural difference no mask can normalise. Pinned, three
+# exports of one document masked to one digest; unpinned, two did not.
+#
 # Watch the fixture argument: a path that does not exist exits 0 and writes ONE BLANK PAGE
 # of about 858 bytes, which reads as a confident small baseline rather than as an error.
 
@@ -46,6 +60,22 @@ import re
 import sys
 
 DATE = re.compile(rb"\(D:\d{14}")
+XMP_DATE = re.compile(rb'xmp:[A-Za-z]+Date="[^"]+"')
+XMP_UUID = re.compile(rb"uuid:[0-9a-fA-F-]{36}")
+TRAILER_ID = re.compile(rb"/ID\s*\[\s*<[0-9a-fA-F]+>\s*<[0-9a-fA-F]+>\s*\]")
+DIGIT = re.compile(rb"[0-9]")
+HEX = re.compile(rb"[0-9a-fA-F]")
+
+
+def zero_digits(match):
+    return DIGIT.sub(b"0", match.group(0))
+
+
+def zero_hex(match):
+    head, _, tail = match.group(0).partition(b"<")
+    return head + b"<" + HEX.sub(b"0", tail)
+
+
 PAGE = re.compile(rb"/Type\s*/Page(?![^\s()<>\[\]{}/%])")
 PAGES = re.compile(rb"/Type\s*/Pages\b")
 
@@ -56,15 +86,22 @@ def main(paths):
             raw = handle.read()
         spans = DATE.findall(raw)
         masked = DATE.sub(b"(D:00000000000000", raw)
+        qt_fields = (len(XMP_DATE.findall(masked)) + len(XMP_UUID.findall(masked))
+                     + len(TRAILER_ID.findall(masked)))
+        masked = XMP_DATE.sub(zero_digits, masked)
+        masked = XMP_UUID.sub(lambda m: b"uuid:" + HEX.sub(b"0", m.group(0)[5:]), masked)
+        masked = TRAILER_ID.sub(zero_hex, masked)
         if len(masked) != len(raw):
             print("%s: LENGTH CHANGED -- refusing to report a digest" % path)
             continue
         print(
-            "%s\n  bytes=%d dates_masked=%d pages=%d page_tree_nodes=%d\n  sha256=%s"
+            "%s\n  bytes=%d dates_masked=%d qt_fields_masked=%d pages=%d page_tree_nodes=%d\n"
+            "  sha256=%s"
             % (
                 path,
                 len(raw),
                 len(spans),
+                qt_fields,
                 len(PAGE.findall(raw)),
                 len(PAGES.findall(raw)),
                 hashlib.sha256(masked).hexdigest(),

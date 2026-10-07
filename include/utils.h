@@ -57,13 +57,11 @@ void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);
 // Unguarded too since slice 24: the Qt tab drag detaches and drops now, so it is a caller.
 void launchTornOffTabWindow(int x, int y, const std::string& utf8Path);
-#if !(defined(_WIN32) && !defined(TINTA_QT_UI))
 // THE OTHER ARM OF THE SAME GUARD: where the Win32 window stack opens a window, every
 // other stack refuses by name -- a chip and a line on stderr, src/print_qt.cpp's two
 // channels. `what` names the feature on stderr; the chip is English only, for the reason
 // print_qt.cpp gives. Declared only here so tinta cannot reach it.
 void refuseWindowFeature(App& app, const char* what, const wchar_t* chip);
-#endif
 // openUrl IS GONE. Its ShellExecuteA body is platform::openExternalUrl in
 // include/platform_paths.h, with both halves already written; handleLinkClick below
 // is the only thing that ever called it.

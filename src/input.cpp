@@ -12,7 +12,7 @@
 #include "file_utils.h"
 #include "utils.h"
 #include "search.h"
-#include "d2d_init.h"
+#include "theme_apply.h"
 #include "settings.h"
 #include "render.h"
 #include "overlays.h"
@@ -34,9 +34,6 @@
 // file holds an `HWND`, so it can only name the arm that takes one. Including the Qt arm here would
 // pull QWidget into every target that compiles input.cpp -- including the compile-only portable ones
 // that link no Qt -- to reach a function nothing here can call.
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-#include "zen_mode_win32.h"
-#endif
 
 // INT_MIN, for themeChooserHitAt's "nothing" sentinel below. NOT a consequence of
 // this pass -- that sentinel is older than the port, and it compiled here only
@@ -3448,17 +3445,6 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 // rather than drawing a reading column for a window that never went fullscreen.
 static void toggleZenMode(App& app, HWND hwnd) {
     app.zenMode = !app.zenMode;
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    if (app.zenMode) {
-        app.zenRestore = tinta::zenModeEnter(hwnd);
-        // Entering failed, so there is no mode to be in. Reported rather than swallowed: a true
-        // zenMode flag with a normal window would make the next F11 restore a rectangle nothing
-        // captured, and the reading column would draw for a width the window does not have.
-        if (!app.zenRestore.valid) app.zenMode = false;
-    } else {
-        tinta::zenModeLeave(hwnd, app.zenRestore);
-    }
-#else
     (void)hwnd;
     if (app.zenMode) {
         app.zenRestore = tinta::deliverZenEnter();
@@ -3466,7 +3452,6 @@ static void toggleZenMode(App& app, HWND hwnd) {
     } else {
         tinta::deliverZenLeave(app.zenRestore);
     }
-#endif
     app.layoutDirty = true;
     requestRepaint(hwnd);
 }

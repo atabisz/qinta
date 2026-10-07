@@ -30,7 +30,6 @@
 
 namespace {
 
-#ifndef TINTA_D2D_BACKEND
 // THE PORTABLE DASHED STROKE STYLE, and it is a marker object rather than a dash
 // pattern.
 //
@@ -51,7 +50,6 @@ namespace {
 // deliberate deferral of work nothing in the tree needs yet, not an oversight --
 // Direct2D's side builds exactly one stroke style too.
 struct MarkerStrokeStyle final : tinta::StrokeStyle {};
-#endif
 
 }  // namespace
 
@@ -74,53 +72,6 @@ struct MarkerStrokeStyle final : tinta::StrokeStyle {};
 // has to be TINTA_D2D_BACKEND -- see this file's opening note for what _WIN32 cost.
 void ensureDashedStrokeStyle(App& app) {
     if (app.dashedStrokeStyle) return;
-#ifdef TINTA_D2D_BACKEND
-    D2D1_STROKE_STYLE_PROPERTIES properties = {
-        D2D1_CAP_STYLE_FLAT,
-        D2D1_CAP_STYLE_FLAT,
-        D2D1_CAP_STYLE_FLAT,
-        D2D1_LINE_JOIN_MITER,
-        10.0f,
-        D2D1_DASH_STYLE_DASH,
-        0.0f,
-    };
-    // THE NATIVE IS A LOCAL NOW, AND THAT IS THE WHOLE FIX. It used to be
-    // &app.nativeDashedStrokeStyle, a member, with a sibling member holding the seam
-    // wrapper and a third holding the read pointer.
-    //
-    // WHAT THAT COST, recorded because the shape is what carried it rather than the
-    // typo. Commit fc9ceb0 ("Route the app's drawing calls through the portable render
-    // seam") changed this out-parameter from app.dashedStrokeStyle to
-    // app.nativeDashedStrokeStyle and changed the local at the call site from
-    // ID2D1StrokeStyle* to tinta::StrokeStyle* -- and never added the line that seated
-    // the wrapper over the new native. So from that commit on, on Windows:
-    // app.dashedStrokeStyle stayed null forever, every dashed mermaid connector drew
-    // SOLID, and because the null check above is the "create once" latch,
-    // CreateStrokeStyle ran again on every frame that had a dashed connector,
-    // overwriting the previous pointer without a Release. A silent behaviour regression
-    // plus a per-frame COM leak, from a seam whose entire contract is that behaviour
-    // does not change.
-    //
-    // A SEATING CALL FIXED IT AND A SINGLE OWNING MEMBER RETIRES IT. The compiler could
-    // not see the original defect because both spellings existed, both type-checked, and
-    // the wrong one was merely never read. There is now one spelling: this function is
-    // the only writer, app.dashedStrokeStyle is the only member, and forgetting the
-    // wrap is a compile error rather than a silent solid line. The call this used to
-    // end with -- app.seatDashedStrokeStyle() -- is deleted along with the method, and
-    // so is its caller in src/d2d_init.cpp; see app.h's note where the method stood for
-    // why that caller was a latent hazard rather than merely redundant.
-    //
-    // THE HRESULT IS CHECKED, WHERE IT WAS DISCARDED, and the behaviour on failure is
-    // deliberately the same as before: leave the member null, so the latch above retries
-    // on the next frame and DrawLine draws solid in the meantime. What changes is that a
-    // failed create can no longer install a wrapper over a null native, which WOULD have
-    // been a new failure -- a non-null member satisfying the latch forever while every
-    // connector draws solid, which is the fc9ceb0 outcome reached by a different door.
-    ID2D1StrokeStyle* native = nullptr;
-    HRESULT hr = app.d2dFactory->CreateStrokeStyle(properties, nullptr, 0, &native);
-    if (FAILED(hr) || !native) return;
-    app.dashedStrokeStyle = std::make_unique<D2DOwnedStrokeStyle>(native);
-#else
     // No factory and no native pointer without the Direct2D backend, so the marker
     // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
     // "non-Windows" arm any more, and reading it as one is how the guard came to be
@@ -141,7 +92,6 @@ void ensureDashedStrokeStyle(App& app) {
     // the first time: it would leave App holding a pointer whose lifetime no member
     // records, which is the shape the Seated refactor removed.
     app.dashedStrokeStyle = std::make_unique<MarkerStrokeStyle>();
-#endif
 }
 
 DocumentViewport prepareDocumentViewport(App& app) {

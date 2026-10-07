@@ -12,7 +12,7 @@
 #include "utils.h"
 #include "file_utils.h"
 #include "render.h"
-#include "d2d_init.h"
+#include "theme_apply.h"
 #include "search.h"
 #include "print.h"
 #include "i18n.h"
@@ -38,9 +38,6 @@
 // file end to end and reported 55 errors on 40 lines -- so for as long as this
 // include was unguarded, every published figure about this file's portability
 // was a proxy for a number nobody had. A fatal include stops the read.
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-#include <imm.h>
-#endif
 
 #define TIMER_EDITOR_REPARSE 2
 
@@ -2501,44 +2498,8 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
 // makes it the same blocker win32_api.h records twice -- no window object on the Qt
 // side -- and writing a Qt arm here would put the code in a place Qt never calls.
 void editorPositionImeWindow(App& app, HWND hwnd) {
-#if defined(_WIN32) && !defined(TINTA_QT_UI)
-    if (!app.editMode || app.editorLineStarts.empty()) return;
-    HIMC himc = ImmGetContext(hwnd);
-    if (!himc) return;
-
-    size_t line = getLineFromPos(app, app.editorCursorPos);
-    size_t lineStart = app.editorLineStarts[line];
-    size_t lineLen = getLineLength(app, line);
-    size_t col = std::min(app.editorCursorPos - lineStart, lineLen);
-
-    auto layout = createEditorLineLayout(app, lineStart, lineLen);
-    float xOff = 0, yOff = 0;
-    editorCaretXY(layout.get(), col, xOff, yOff);
-
-    float lineHeight = app.editorTextFormat ? app.editorTextFormat->GetFontSize() * 1.5f : 20.0f;
-    float padding = dpi(app, 8.0f);
-
-    float lineTop;
-    if (editorWrapOn(app)) {
-        ensureEditorRowMetrics(app);
-        size_t rowStart = (line < app.editorRowStarts.size()) ? app.editorRowStarts[line] : line;
-        lineTop = padding + rowStart * lineHeight;
-    } else {
-        lineTop = padding + line * lineHeight;
-    }
-
-    COMPOSITIONFORM cf{};
-    cf.dwStyle = CFS_POINT;
-    cf.ptCurrentPos.x = (LONG)(editorTextX(app) + xOff -
-                               (editorWrapOn(app) ? 0.0f : app.editorScrollX));
-    cf.ptCurrentPos.y = (LONG)(chromeTopHeight(app) + lineTop + yOff -
-                               app.editorScrollY + lineHeight);
-    ImmSetCompositionWindow(himc, &cf);
-    ImmReleaseContext(hwnd, himc);
-#else
     (void)app;
     (void)hwnd;
-#endif
 }
 
 // --- Mouse handling ---

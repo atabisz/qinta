@@ -1138,7 +1138,11 @@ tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`
   `std::filesystem`, where MSVC's `absolute()` goes through `GetFullPathNameW`. That is product
   code (`absoluteFilePath` in `src/utils.cpp`, behind Copy file path and Reveal), so it is the
   one real port finding. The test now prints the failing input, the expected path and the one it
-  got, because the first run could not say which two cases they were.
+  got, and the second run (37590610492, on `553c998`, 51 of 52) named them: the UNC path
+  `\\server\share\folder name\document.md` came back as `D:\server\share\folder name\document.md`,
+  and the `\\?\C:\...` long path as `D:\?\C:\...`. libstdc++ reads a leading `\\` as a root
+  directory with no root name and puts the current drive in front, so a MinGW build would copy a
+  wrong path for any document on a network share. Not yet fixed.
 - `readme_figures`: not a MinGW defect. MSYS2's bash has no `/dev/fd` when ctest starts it, so
   the gate's `comm <(...)` calls read nothing, and the to-do header passed on an empty set. The
   gate now goes through temp files and fails when `comm` does.

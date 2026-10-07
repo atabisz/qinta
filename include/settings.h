@@ -61,6 +61,9 @@ void persistOpenInTabs(const App& app);
 // Resolve the selected profile and custom [Keys] bindings.
 void applyKeymap(App& app, const Settings& settings);
 bool registerFileAssociation();
+// `/register`: registerFileAssociation, then a confirmation or failure box, then Default apps.
+// Windows only (src/settings_win32.cpp).
+bool registerFileAssociationAndReport(const Settings& settings);
 void openDefaultAppsSettings();
 void askAndRegisterFileAssociation(Settings& settings);
 

@@ -18,11 +18,11 @@
 // point of the slice. One array is read identically by both, so startPageEnsureIcon has no
 // conditional compilation left in it at all.
 //
-// resources/tinta.rc HAS NO CONSUMER since 2026-10-07 and is kept anyway. Its one reader was
-// main_d2d.cpp's WNDCLASSEX::hIcon, an HICON from LoadIconW, and main_d2d.cpp was deleted with
-// the Direct2D stack. It stays because the Windows file association names the EXECUTABLE's
-// icon resource (`qinta.exe,0`), which only a linked .rc provides and qinta.exe does not carry
-// yet -- so the file is the starting point for that, not a leftover. It is linked into nothing.
+// resources/qinta.rc (resources/tinta.rc until 2026-10-07) is the OTHER consumer of the same
+// .ico, by a route these bytes cannot serve: the Windows file association names the
+// EXECUTABLE's icon resource (`qinta.exe,0`), and only a linked .rc puts one there. Its first
+// reader, main_d2d.cpp's WNDCLASSEX::hIcon, went with the Direct2D stack; qinta.exe links the
+// .rc on Windows for the DefaultIcon. Two consumers by two routes is still correct here.
 //
 // The array is the .ico CONTAINER, not decoded pixels -- 4 frames at 256/48/32/16. Decode it
 // through tinta::decodeIconBytesToBitmap, which owns the frame-selection policy; picking a

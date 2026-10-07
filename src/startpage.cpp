@@ -36,7 +36,7 @@ static const char* kSampleDocument = R"(# Welcome to Tinta
 
 - **Drag & drop** a `.md` or `.mmd` file onto this window
 - Press **B** to browse and open files from a folder
-- Or run `tinta.exe readme.md` from the command line
+- Or run `qinta.exe readme.md` from the command line
 - Press **?** for all available keyboard shortcuts
 
 ## Features

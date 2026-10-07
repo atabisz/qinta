@@ -33,6 +33,16 @@
 #include <appmodel.h>
 #include <string>
 
+// QINTA'S OWN IDENTITY IN THE REGISTRY, since 2026-10-07, when /register came back on qinta.
+// This file registered tinta.exe as `Tinta.MarkdownFile` under `Software\Tinta\Capabilities`;
+// qinta is a separate binary, so it registers under its own names. An upstream Tinta installed
+// beside it keeps its registration, and neither overwrites the other's open command. The
+// RegisteredApplications value name is what Settings > Default apps lists.
+static const wchar_t* const kProgId = L"Qinta.MarkdownFile";
+static const wchar_t* const kProgIdKey = L"Software\\Classes\\Qinta.MarkdownFile";
+static const wchar_t* const kCapabilitiesKey = L"Software\\Qinta\\Capabilities";
+static const wchar_t* const kAppName = L"Qinta";
+
 // settingsLanguageIndex came across with this block: its only caller is
 // askAndRegisterFileAssociation below, for the MessageBoxW strings.
 static int settingsLanguageIndex(const Settings& settings) {
@@ -52,9 +62,10 @@ static bool isRunningPackaged() {
 
 static bool hasRegisteredFileAssociation(std::wstring_view extension) {
     HKEY hKey;
+    const std::wstring associations = std::wstring(kCapabilitiesKey) + L"\\FileAssociations";
     LONG result = RegOpenKeyExW(
         HKEY_CURRENT_USER,
-        L"Software\\Tinta\\Capabilities\\FileAssociations",
+        associations.c_str(),
         0, KEY_READ, &hKey);
     if (result != ERROR_SUCCESS) return false;
 
@@ -67,7 +78,7 @@ static bool hasRegisteredFileAssociation(std::wstring_view extension) {
     RegCloseKey(hKey);
     return result == ERROR_SUCCESS &&
         type == REG_SZ &&
-        wcscmp(value, L"Tinta.MarkdownFile") == 0;
+        wcscmp(value, kProgId) == 0;
 }
 
 bool registerFileAssociation() {
@@ -77,18 +88,20 @@ bool registerFileAssociation() {
 
     HKEY hKey;
     LONG result;
-    const wchar_t* progId = L"Tinta.MarkdownFile";
+    const wchar_t* progId = kProgId;
+    const std::wstring progIdKey = kProgIdKey;
 
     // Create ProgID entry in Classes
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile", 0, nullptr,
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, progIdKey.c_str(), 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
-    const wchar_t* desc = L"Tinta Document";
+    const wchar_t* desc = L"Qinta Document";
     RegSetValueExW(hKey, nullptr, 0, REG_SZ, (BYTE*)desc, (DWORD)((wcslen(desc) + 1) * sizeof(wchar_t)));
     RegCloseKey(hKey);
 
-    // Create DefaultIcon entry
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile\\DefaultIcon", 0, nullptr,
+    // Create DefaultIcon entry. `,0` is the executable's first icon resource, which is
+    // resources/qinta.rc's IDI_ICON1, linked into qinta.exe on Windows for exactly this.
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, (progIdKey + L"\\DefaultIcon").c_str(), 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
     std::wstring iconPath = exePath;
@@ -97,7 +110,7 @@ bool registerFileAssociation() {
     RegCloseKey(hKey);
 
     // Create shell\open\command entry
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Classes\\Tinta.MarkdownFile\\shell\\open\\command", 0, nullptr,
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, (progIdKey + L"\\shell\\open\\command").c_str(), 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
     std::wstring command = L"\"";
@@ -107,17 +120,17 @@ bool registerFileAssociation() {
     RegCloseKey(hKey);
 
     // Register app capabilities (required for Windows 10/11)
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tinta\\Capabilities", 0, nullptr,
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, kCapabilitiesKey, 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
-    const wchar_t* appName = L"Tinta";
+    const wchar_t* appName = kAppName;
     const wchar_t* appDesc = L"A fast, lightweight Markdown and Mermaid reader";
     RegSetValueExW(hKey, L"ApplicationName", 0, REG_SZ, (BYTE*)appName, (DWORD)((wcslen(appName) + 1) * sizeof(wchar_t)));
     RegSetValueExW(hKey, L"ApplicationDescription", 0, REG_SZ, (BYTE*)appDesc, (DWORD)((wcslen(appDesc) + 1) * sizeof(wchar_t)));
     RegCloseKey(hKey);
 
     // Register file associations in capabilities
-    result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\Tinta\\Capabilities\\FileAssociations", 0, nullptr,
+    result = RegCreateKeyExW(HKEY_CURRENT_USER, (std::wstring(kCapabilitiesKey) + L"\\FileAssociations").c_str(), 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
     for (std::wstring_view extension : DOCUMENT_FILE_EXTENSIONS) {
@@ -135,8 +148,8 @@ bool registerFileAssociation() {
     result = RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\RegisteredApplications", 0, nullptr,
                               REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hKey, nullptr);
     if (result != ERROR_SUCCESS) return false;
-    const wchar_t* capPath = L"Software\\Tinta\\Capabilities";
-    RegSetValueExW(hKey, L"Tinta", 0, REG_SZ, (BYTE*)capPath, (DWORD)((wcslen(capPath) + 1) * sizeof(wchar_t)));
+    const wchar_t* capPath = kCapabilitiesKey;
+    RegSetValueExW(hKey, kAppName, 0, REG_SZ, (BYTE*)capPath, (DWORD)((wcslen(capPath) + 1) * sizeof(wchar_t)));
     RegCloseKey(hKey);
 
     for (std::wstring_view extension : DOCUMENT_FILE_EXTENSIONS) {
@@ -160,6 +173,22 @@ bool registerFileAssociation() {
 
 void openDefaultAppsSettings() {
     ShellExecuteW(nullptr, L"open", L"ms-settings:defaultapps", nullptr, nullptr, SW_SHOWNORMAL);
+}
+
+// `/register`, moved here from src/main_d2d.cpp's WinMain when that file was deleted, so qinta
+// and any later entry point run the same three steps: register, say so, and open Default apps
+// (Windows 10 and 11 let only the user pick the default handler; registering only offers it).
+bool registerFileAssociationAndReport(const Settings& settings) {
+    int lang = settingsLanguageIndex(settings);
+    if (registerFileAssociation()) {
+        MessageBoxW(nullptr, tr(lang, "fileassoc.done_body"), tr(lang, "fileassoc.done_title"),
+                    MB_OK | MB_ICONINFORMATION);
+        openDefaultAppsSettings();
+        return true;
+    }
+    MessageBoxW(nullptr, tr(lang, "fileassoc.register_failed_body"), tr(lang, "error.title"),
+                MB_OK | MB_ICONWARNING);
+    return false;
 }
 
 void askAndRegisterFileAssociation(Settings& settings) {

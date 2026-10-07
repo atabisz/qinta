@@ -707,6 +707,12 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
         # caption-colour API Windows has, so this stays after the path seam collapses.
         target_sources(qinta PRIVATE src/window_chrome_win32.cpp)
         target_link_libraries(qinta PRIVATE dwmapi)
+        # The file association (slice 26, 2026-10-07): /register and the first-run question,
+        # in src/settings_win32.cpp, and the icon resource its DefaultIcon (`qinta.exe,0`)
+        # names, with the version metadata, in resources/qinta.rc. The registry calls are
+        # advapi32 and kernel32, which every Windows link already gets; SHChangeNotify and
+        # ShellExecuteW are shell32, linked above.
+        target_sources(qinta PRIVATE src/settings_win32.cpp resources/qinta.rc)
         # Dynamic CRT, the same override and the same measured reason as the Qt test
         # targets far below: Qt cannot be linked against the static CRT, and mixing the
         # two debug heaps in one process trips an assertion in Qt's own allocations.
@@ -2622,6 +2628,13 @@ if(BUILD_TESTING)
                 TINTA_SHORTCUT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shortcuts-layouts.md")
             tinta_qt_app_test(file_path_tests copy_file_path tests/file_path_tests.cpp)
             tinta_qt_app_test(draft_owner_tests draft_owner tests/draft_owner_tests.cpp)
+            if(WIN32)
+                # /register, run for real against a redirected HKCU (see the test's header).
+                # Windows-only by source: src/settings_win32.cpp is the registry code itself.
+                tinta_qt_app_test(file_association_tests file_association
+                    tests/file_association_tests.cpp)
+                target_sources(file_association_tests PRIVATE src/settings_win32.cpp)
+            endif()
             tinta_qt_app_test(math_layout_tests math_layout tests/math_layout_tests.cpp
                 TINTA_MATH_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/math-compatibility.md")
             tinta_qt_app_test(theme_tests NONE tests/theme_tests.cpp
@@ -2779,7 +2792,7 @@ if(BUILD_TESTING)
                 # output, on a target whose whole job is to make a drawing claim legible.
                 list(APPEND TINTA_QT_PATH_TESTS qt_entry tab_ghost_qt code_block_layout
                     blockquote_layout inline_code_theme math_layout input_shortcuts copy_file_path
-                    draft_owner)
+                    draft_owner file_association)
                 # qinta_cli runs the qinta binary itself, which needs the same DLLs.
                 if(TARGET qinta)
                     list(APPEND TINTA_QT_PATH_TESTS qinta_cli)
@@ -2866,13 +2879,13 @@ if(BASH_EXECUTABLE)
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=19
+        -DEXPECTED_CHECKS=20
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
-        -DEXPECTED_CHECKS=19
+        -DEXPECTED_CHECKS=20
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     # LABELLED because these two are the slowest arms in the suite by more than an order of

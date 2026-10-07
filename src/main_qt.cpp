@@ -213,9 +213,14 @@ int main(int argc, char** argv) {
     // 2026-10-06. The note above already said that citation had stopped being a measured blocker;
     // the flag slice asked the question it set, and all four are honoured below through
     // src/qt_launch.cpp, the same way WinMain honours them.
+#ifndef _WIN32
+    // /register IS HONOURED ON WINDOWS since 2026-10-07 (below, after the settings load); it
+    // stays refused elsewhere, where there is no registry and xdg-mime / LaunchServices are
+    // different models rather than another implementation of this one.
     if (options.forceRegister) {
         refuse("/register", "file associations are a Windows-registry feature");
     }
+#endif
     if (!options.dumpChromePath.empty()) {
         refuse("--dumpchrome", "the chrome dump is still on the Direct2D path");
     }
@@ -226,6 +231,13 @@ int main(int argc, char** argv) {
     // as headless harness switches, as they do in WinMain.
 
     const Settings saved = loadSettings();
+
+#ifdef _WIN32
+    // `/register`: WinMain's block, moved into src/settings_win32.cpp so this is one call. It
+    // registers, says so in a message box, opens Default apps and exits -- before the
+    // single-instance hand-off below, so a running window cannot swallow it.
+    if (options.forceRegister) return registerFileAssociationAndReport(saved) ? 0 : 1;
+#endif
 
     // THE SINGLE-INSTANCE HAND-OFF (2026-10-06), WinMain's FindWindowW + WM_COPYDATA. A plain
     // file launch hands its document to the running window and exits, under the same rule
@@ -314,6 +326,19 @@ int main(int argc, char** argv) {
 
     const tinta::WindowRect placement =
         choosePlacement(tinta::placementRequestFrom(options, saved), tinta::monitorsFromQt());
+
+#ifdef _WIN32
+    // The first-run question WinMain asked: offer to register once, remember the answer. HERE
+    // and not with /register above, because every return before this line is headless (the
+    // four harness switches, the hand-off) and a modal box there would hang a scripted run --
+    // tests/run_qinta_cli.cmake runs this binary on CI with a fresh configuration. It reads and
+    // saves its own copy of the settings; every other writer in the tree loads fresh before it
+    // saves, so the answer it records survives them.
+    {
+        Settings asked = loadSettings();
+        askAndRegisterFileAssociation(asked);
+    }
+#endif
 
     QtAppWindow window(app);
     // The size, and the position only if there is one -- the sentinel branch is inside

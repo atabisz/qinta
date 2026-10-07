@@ -36,8 +36,10 @@ tinta::RectF searchBarRect(const App& app) {
     float barHeight = dpi(app, 44.0f);
     float barCenterWidth = (float)app.width;
     if (app.editMode) {
-        // Center over editor pane (left side)
-        float paneWidth = app.width * app.editorSplitRatio - 3;
+        // Center over the editor pane: the left side, or the whole window when the preview is
+        // hidden. editorPaneWidth knows both; until 2026-10-07 this used width * split - 3,
+        // which put the bar over the left half of a full-width editor and overlapped the seam.
+        float paneWidth = editorPaneWidth(app);
         barWidth = std::min(barWidth, paneWidth - dpi(app, 40.0f));
         barCenterWidth = paneWidth;
     }

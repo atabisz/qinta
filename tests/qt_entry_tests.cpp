@@ -4215,6 +4215,44 @@ int main(int argc, char** argv) {
                         static_cast<int>(searchWindow.cursor().shape()));
             check(searchWindow.cursor().shape() == Qt::IBeamCursor,
                   "hovering the search field's text, below the tab strip, gives the I-beam");
+
+            // EDIT MODE WITH THE PREVIEW HIDDEN: the editor takes the whole window, so the bar
+            // centres over all of it. It used to centre over width * split - 3 regardless --
+            // the left half -- because only editorPaneWidth knows the preview can be off.
+            //
+            // Read off the pixels along the bar's middle row, and from the RIGHT end of the
+            // longest changed run. Not the left end: the first run of this probe read 11..427
+            // where the bar was 20..427, because the editor's own gutter changes in columns
+            // 11..19 when search opens and merges into the bar's run. The right end met the
+            // model to the pixel, so it is the edge that measures the bar.
+            const bool previewBefore = app.editorShowPreview;
+            app.editMode = true;
+            app.editorShowPreview = false;
+            app.showSearch = false;
+            const QImage editHidden = grabWindow(searchWindow);
+            app.showSearch = true;
+            app.searchAnimation = 1.0f;
+            const QImage editShown = grabWindow(searchWindow);
+            const int rowDev = (int)(midY * dpr);
+            int bestStart = -1, bestEnd = -1, runStart = -1;
+            for (int x = 0; x <= editShown.width(); ++x) {
+                const bool diff = x < editShown.width() && x < editHidden.width() &&
+                                  editShown.pixel(x, rowDev) != editHidden.pixel(x, rowDev);
+                if (diff && runStart < 0) runStart = x;
+                if (!diff && runStart >= 0) {
+                    if (x - 1 - runStart > bestEnd - bestStart) { bestStart = runStart; bestEnd = x - 1; }
+                    runStart = -1;
+                }
+            }
+            const float barRightDrawn = (float)((bestEnd + 1) / dpr);
+            const float expectedRight =
+                (app.width + std::min(dpi(app, 500.0f), app.width - dpi(app, 40.0f))) * 0.5f;
+            std::printf("search_edit_nopreview run=%d..%d bar_right=%.1f expected=%.1f\n", bestStart,
+                        bestEnd, barRightDrawn, expectedRight);
+            check(bestEnd >= 0 && std::abs(barRightDrawn - expectedRight) <= dpi(app, 3.0f),
+                  "in edit mode with the preview hidden, the search bar centres over the whole editor");
+            app.editMode = false;
+            app.editorShowPreview = previewBefore;
         }
         app.showSearch = false;
         app.searchActive = false;

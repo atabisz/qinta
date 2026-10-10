@@ -19,6 +19,9 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  # Weekly, for the windows-mingw job only (see its comment); the other three jobs skip it.
+  schedule:
+    - cron: '0 18 * * 0'
 
 # Superseded runs are cancelled on pull requests only. On master every commit keeps its run:
 # the Windows build takes over 15 minutes, and with cancel-in-progress on pushes, commits
@@ -29,6 +32,7 @@ concurrency:
 
 jobs:
   windows:
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
     timeout-minutes: 60
     # /MP compiles a project's files in parallel; --parallel alone only runs projects in
@@ -90,7 +94,12 @@ jobs:
   # 2026-10-07 as the measurement that section says does not exist yet, so it is
   # continue-on-error until it has been green: a red here is a finding, not a broken master.
   # No artifact, because the MSVC job's folder is the one that ships.
+  #
+  # Weekly and on manual dispatch only, not on every push (2026-10-11). It had failed its tests
+  # on every run since it was added, and at ~37 minutes on a 2x-billed runner it cost about as
+  # much per push as the MSVC job while nothing acted on the red. Put it back on push once green.
   windows-mingw:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     timeout-minutes: 60
     continue-on-error: true
@@ -123,6 +132,7 @@ jobs:
         run: ctest --test-dir build --output-on-failure --repeat until-pass:2
 
   macos:
+    if: github.event_name != 'schedule'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -154,6 +164,7 @@ jobs:
   linux:
     # Pinned rather than -latest: 24.04 ships Qt 6.4.2, the version the Linux build was
     # measured against, and a runner-image bump would change Qt minor underneath the suite.
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4

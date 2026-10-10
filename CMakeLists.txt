@@ -658,20 +658,32 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND AND NOT Qt6PrintSupport_FOUND)
 endif()
 
 if(Qt6_FOUND AND Qt6Widgets_FOUND)
-    add_executable(qinta WIN32
-        src/main_qt.cpp
-        ${QINTA_APP_SOURCES}
-    )
-    target_include_directories(qinta PRIVATE
+    # THE CLOSURE IS COMPILED ONCE, HERE, and every target that needs the app links these
+    # objects: qinta, qt_entry_tests and each tinta_qt_app_test. Until 2026-10-11 each of them
+    # listed ${QINTA_APP_SOURCES} itself and compiled its own copy -- ten copies on Windows,
+    # nine elsewhere -- which was nearly all of CI's build time. An OBJECT library and not a
+    # STATIC one, so every consumer still links every object exactly as before: a static archive
+    # would let the linker drop objects nothing references, and the link line would stop being
+    # the measured closure the comments above describe.
+    #
+    # Everything below is PUBLIC so the consumers' own files (main_qt.cpp, the test sources)
+    # compile with the same definitions and includes as the closure, as they did when each
+    # target set them itself. A per-test fixture definition stays on that test's target, where
+    # only its own source sees it -- no file in src/ or include/ reads one.
+    add_library(qinta_app OBJECT ${QINTA_APP_SOURCES})
+    target_include_directories(qinta_app PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${md4c_SOURCE_DIR}/src
     )
-    target_link_libraries(qinta PRIVATE md4c
+    target_link_libraries(qinta_app PUBLIC md4c
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
     # OUTSIDE the if(WIN32) below, deliberately: the version numbers are not a platform
     # fact, and every UNICODE definition in this file is guarded, so the tempting place to
     # add these is the one place they would silently not apply off Windows.
-    target_compile_definitions(qinta PRIVATE ${TINTA_VERSION_DEFINITIONS})
+    target_compile_definitions(qinta_app PUBLIC ${TINTA_VERSION_DEFINITIONS})
+
+    add_executable(qinta WIN32 src/main_qt.cpp)
+    target_link_libraries(qinta PRIVATE qinta_app)
     # TINTA_QT_UI: "this target's window is a QWidget", which is a DIFFERENT QUESTION from
     # _WIN32, the same split TINTA_D2D_BACKEND makes for the renderer. On Windows qinta is
     # a Win32 OS with a Qt window, and `#ifdef _WIN32` could only answer the first: linking
@@ -688,19 +700,23 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
     # off Windows too, where it changes nothing (_WIN32 is already false) but keeps the
     # definition a fact about the target rather than the host. qt_entry_tests carries it
     # as well and asserts it arrived: requestQuit() must return false there on both hosts.
-    target_compile_definitions(qinta PRIVATE TINTA_QT_UI)
+    # It arrives through qinta_app, like everything else the closure is compiled with.
+    target_compile_definitions(qinta_app PUBLIC TINTA_QT_UI)
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
         # go away at the cutover this target exists to reach: the path seam collapses
         # onto src/platform_paths_qt.cpp, which is written to be correct on all three.
-        target_compile_definitions(qinta PRIVATE UNICODE _UNICODE)
-        target_link_libraries(qinta PRIVATE shell32)
+        target_compile_definitions(qinta_app PUBLIC UNICODE _UNICODE)
+        target_link_libraries(qinta_app PUBLIC shell32)
         # The title bar (slice 13): the Qt window paints applyTheme's caption colours through
         # the same DWM file as tinta. Not a cutover leftover like shell32 -- DWM is the only
-        # caption-colour API Windows has, so this stays after the path seam collapses.
-        target_sources(qinta PRIVATE src/window_chrome_win32.cpp)
-        target_link_libraries(qinta PRIVATE dwmapi)
+        # caption-colour API Windows has, so this stays after the path seam collapses. In the
+        # library because every consumer linked it on this host.
+        target_sources(qinta_app PRIVATE src/window_chrome_win32.cpp)
+        target_link_libraries(qinta_app PUBLIC dwmapi)
+        set_property(TARGET qinta_app PROPERTY
+            MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
         # The file association (slice 26, 2026-10-07): /register and the first-run question,
         # in src/settings_win32.cpp, and the icon resource its DefaultIcon (`qinta.exe,0`)
         # names, with the version metadata, in resources/qinta.rc. The registry calls are
@@ -2569,18 +2585,13 @@ if(BUILD_TESTING)
             # on every host now, not only Windows. The QT_QPA_PLATFORM pin is per platform for
             # the reason TINTA_QPA_PLATFORM gives, and on Windows the Qt bin directory joins
             # PATH through the all-tests rule at the end of this file.
+            # The app arrives as qinta_app's objects, compiled once, so a test adds only its own
+            # source to the build. ${ARGN} is the test's fixture definitions, which reach only
+            # that source.
             function(tinta_qt_app_test target test_name test_source)
-                add_executable(${target} ${test_source} ${QINTA_APP_SOURCES})
-                target_include_directories(${target} PRIVATE include ${md4c_SOURCE_DIR}/src)
-                target_link_libraries(${target} PRIVATE
-                    md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
-                target_compile_definitions(${target} PRIVATE TINTA_QT_UI
-                    ${TINTA_VERSION_DEFINITIONS} ${ARGN})
-                if(WIN32)
-                    target_compile_definitions(${target} PRIVATE UNICODE _UNICODE)
-                    target_link_libraries(${target} PRIVATE shell32 dwmapi)
-                    target_sources(${target} PRIVATE src/window_chrome_win32.cpp)
-                endif()
+                add_executable(${target} ${test_source})
+                target_link_libraries(${target} PRIVATE qinta_app)
+                target_compile_definitions(${target} PRIVATE ${ARGN})
                 set_property(TARGET ${target} PROPERTY
                     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
                 # test_name NONE: the caller registers its own test (the theme test runs through
@@ -2635,33 +2646,16 @@ if(BUILD_TESTING)
                 # Slice 13's DWM readback: a test instrument for the same reason, and in its own
                 # TU for the same reason.
                 tests/win32_chrome_readback.cpp
-                ${QINTA_APP_SOURCES}
             )
-            target_include_directories(qt_entry_tests PRIVATE
-                include ${md4c_SOURCE_DIR}/src)
-            # Svg and Network arrive with the closure, not with the test: image_qt.cpp's
-            # QSvgRenderer and QNetworkAccessManager carry fourteen of the twenty
-            # residual symbols the fixpoint left. Same two lines as qinta, for the
-            # same measured reason.
-            target_link_libraries(qt_entry_tests PRIVATE
-                md4c Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Svg Qt6::Network Qt6::PrintSupport)
+            # The closure, its libraries (Svg and Network for image_qt.cpp's QSvgRenderer and
+            # QNetworkAccessManager), TINTA_QT_UI, the version and the Windows chrome file all
+            # arrive through qinta_app -- the same objects qinta links, not a second compile.
+            target_link_libraries(qt_entry_tests PRIVATE qinta_app)
             # Where tests/fixtures/ is, for the QPrinter block's CJK fixture (2026-10-06): the
             # test reads the CHECKED-IN fixture rather than a copy, so editing the fixture is
             # editing what is printed.
             target_compile_definitions(qt_entry_tests PRIVATE
                 TINTA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-            # Same stack as qinta, so the same guard answer -- see TINTA_QT_UI at qinta. The
-            # version too, because startpage.cpp and overlays.cpp arrive with the key router's
-            # closure and both print it; qinta has carried the same line since it had a window.
-            target_compile_definitions(qt_entry_tests PRIVATE TINTA_QT_UI
-                ${TINTA_VERSION_DEFINITIONS})
-            if(WIN32)
-                target_compile_definitions(qt_entry_tests PRIVATE UNICODE _UNICODE)
-                target_link_libraries(qt_entry_tests PRIVATE shell32)
-                # Same as qinta: the chrome sink paints through DWM on this host.
-                target_sources(qt_entry_tests PRIVATE src/window_chrome_win32.cpp)
-                target_link_libraries(qt_entry_tests PRIVATE dwmapi)
-            endif()
             add_test(NAME qt_entry COMMAND qt_entry_tests)
             # Dynamic CRT, same reason and same measurement as qt_text_tests above.
             set_property(TARGET qt_entry_tests PROPERTY

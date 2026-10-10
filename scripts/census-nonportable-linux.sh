@@ -223,8 +223,8 @@ set -u -o pipefail
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_DIR="${TINTA_LINUX_BUILD_DIR:-${HOME}/.cache/tinta-linux-build}"
 MANIFEST="$SOURCE_DIR/tests/portable-sources.txt"
-TEMPLATE_SOURCE="src/markdown.cpp"   # on the manifest, compiled by qinta
-TEMPLATE_OBJECT="CMakeFiles/qinta.dir/src/markdown.cpp.o"
+TEMPLATE_SOURCE="src/markdown.cpp"   # on the manifest, compiled once into qinta_app
+TEMPLATE_OBJECT="CMakeFiles/qinta_app.dir/src/markdown.cpp.o"
 
 mode="census"
 only_file=""

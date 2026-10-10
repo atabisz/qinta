@@ -149,14 +149,14 @@ void breakCases(App& app, const std::string& where) {
 void imageRowCases(App& app, const std::string& where) {
     const float scale = app.contentScale * app.zoomFactor;
     const float space = app.spaceWidthText;
-    auto near = [](float a, float b) { return std::abs(a - b) < 0.5f; };
+    auto closeTo = [](float a, float b) { return std::abs(a - b) < 0.5f; };
 
     layout(app, "![a](svg-image-sample.svg) ![b](svg-image-sample.svg)\n");
     check(app.layoutBitmaps.size() == 2, where + ": two Markdown images laid out");
     if (app.layoutBitmaps.size() == 2) {
         const auto& a = app.layoutBitmaps[0].destRect;
         const auto& b = app.layoutBitmaps[1].destRect;
-        check(near(a.top, b.top) && near(b.left, a.right + space),
+        check(closeTo(a.top, b.top) && closeTo(b.left, a.right + space),
               where + ": two Markdown images sit side by side, one space apart");
     }
 
@@ -170,14 +170,14 @@ void imageRowCases(App& app, const std::string& where) {
         const auto& r0 = app.layoutBitmaps[0].destRect;
         const auto& r1 = app.layoutBitmaps[1].destRect;
         const auto& r2 = app.layoutBitmaps[2].destRect;
-        check(near(r0.bottom, r1.bottom) && near(r1.bottom, r2.bottom), where + ": row is bottom-aligned");
-        check(near(r1.bottom - r1.top, 40 * scale) && near(r0.bottom - r0.top, 20 * scale),
+        check(closeTo(r0.bottom, r1.bottom) && closeTo(r1.bottom, r2.bottom), where + ": row is bottom-aligned");
+        check(closeTo(r1.bottom - r1.top, 40 * scale) && closeTo(r0.bottom - r0.top, 20 * scale),
               where + ": row keeps each image's own height");
-        check(near(r1.left, r0.right + space) && near(r2.left, r1.right + space), where + ": row is one space apart");
+        check(closeTo(r1.left, r0.right + space) && closeTo(r2.left, r1.right + space), where + ": row is one space apart");
         bool linkMoved = false;
         for (const auto& link : app.linkRects)
-            if (link.url == "https://example.com/1" && near(link.bounds.left, r0.left) &&
-                near(link.bounds.top, r0.top) && near(link.bounds.bottom, r0.bottom)) linkMoved = true;
+            if (link.url == "https://example.com/1" && closeTo(link.bounds.left, r0.left) &&
+                closeTo(link.bounds.top, r0.top) && closeTo(link.bounds.bottom, r0.bottom)) linkMoved = true;
         check(linkMoved, where + ": a lowered, centered linked image keeps its link rect on it");
         // Centered as one row: equal margins either side of the whole row
         layout(app, "# Box\n");
@@ -206,7 +206,7 @@ void imageRowCases(App& app, const std::string& where) {
         const auto& r = app.layoutBitmaps[i].destRect;
         check(r.right <= boxRight + 0.5f, where + ": a wide image stays inside the box");
         if (i && r.top >= app.layoutBitmaps[i - 1].destRect.bottom) rows++;
-        else if (i) check(near(r.top, app.layoutBitmaps[i - 1].destRect.top), where + ": same-row images share a top");
+        else if (i) check(closeTo(r.top, app.layoutBitmaps[i - 1].destRect.top), where + ": same-row images share a top");
     }
     check(rows >= 2, where + ": four 300px images wrap onto more than one row (" + std::to_string(rows) + ")");
 }
@@ -228,10 +228,15 @@ void docxCases(App& app) {
     app.currentFile = (dir / L"readme.md").u8string();
     const fs::path out = dir / L"readme.docx";
     check(exportDocxFile(app, out.wstring()), "the aligned document exports to DOCX");
-    std::ifstream in(out, std::ios::binary);
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    const std::string bytes = ss.str();
+    // Read and CLOSED before remove_all below: Windows will not delete an open file, and the
+    // throwing overload then terminated the process with no FAIL line printed.
+    std::string bytes;
+    {
+        std::ifstream in(out, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        bytes = ss.str();
+    }
     auto count = [&](const std::string& needle) {
         size_t n = 0;
         for (size_t at = bytes.find(needle); at != std::string::npos; at = bytes.find(needle, at + 1)) n++;
@@ -244,7 +249,8 @@ void docxCases(App& app) {
     check(bytes.find("cx=\"762000\"") != std::string::npos, "DOCX sizes the image at width=80 (762000 EMU)");
     app.root = savedRoot;
     app.currentFile = savedFile;
-    fs::remove_all(dir);
+    std::error_code ignored;  // a leftover temp folder is not a test failure
+    fs::remove_all(dir, ignored);
 }
 
 // Inline code sits on the surrounding text's baseline, and its chip wraps the code's own
@@ -260,19 +266,26 @@ void codeSpanCases(App& app, const std::string& where) {
                                "Text with **bold `code_span`** and *italic `code_span`*.\n",
                                "A [`code_span`](https://example.com) link.\n"}) {
         layout(app, source);
-        const App::LayoutTextRun* text = nullptr;
-        const App::LayoutTextRun* code = nullptr;
+        std::vector<const App::LayoutTextRun*> texts, codes;
         for (const auto& run : app.layoutTextRuns) {
             if (!run.layout || !run.docLength) continue;
             std::wstring t = app.docText.substr(run.docStart, run.docLength);
-            if (t == L"code_span") code = &run;
-            else if (!text) text = &run;
+            (t == L"code_span" ? codes : texts).push_back(&run);
         }
-        check(text && code, where + ": text and code runs laid out: " + source);
-        if (!text || !code) continue;
-        check(std::abs(baselineOf(*text) - baselineOf(*code)) < 0.5f,
-              where + ": inline code shares the text baseline (" +
-              std::to_string(baselineOf(*code) - baselineOf(*text)) + "): " + source);
+        check(!texts.empty() && !codes.empty(), where + ": text and code runs laid out: " + source);
+        if (texts.empty() || codes.empty()) continue;
+        // Each code run against the NEAREST text baseline, not the first text run: at a narrow
+        // width the paragraph wraps, and a code run on line 2 sits one line height (40.8 at 1.5x)
+        // below line 1's text by design. A shifted chip is a few pixels off; the next line is 40.
+        for (const App::LayoutTextRun* c : codes) {
+            float offset = baselineOf(*texts[0]) - baselineOf(*c);
+            for (const App::LayoutTextRun* t : texts)
+                if (std::abs(baselineOf(*t) - baselineOf(*c)) < std::abs(offset))
+                    offset = baselineOf(*t) - baselineOf(*c);
+            check(std::abs(offset) < 0.5f,
+                  where + ": inline code shares the text baseline (" + std::to_string(-offset) + "): " + source);
+        }
+        const App::LayoutTextRun* code = codes.back();
         const tinta::RectF* chip = nullptr;
         for (const auto& r : app.layoutRects)
             if (r.rect.left <= code->bounds.left && r.rect.right >= code->bounds.right &&

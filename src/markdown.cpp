@@ -1140,6 +1140,7 @@ struct HtmlTag {
     std::string href;
     std::string title;
     std::string id;
+    std::string align;
 };
 
 static std::string toLower(const std::string& s) {
@@ -1195,8 +1196,28 @@ static HtmlTag parseTag(const std::string& tagStr) {
     tag.href = extractAttribute(tagStr, "href");
     tag.title = extractAttribute(tagStr, "title");
     tag.id = extractAttribute(tagStr, "id");
+    tag.align = toLower(extractAttribute(tagStr, "align"));
 
     return tag;
+}
+
+// Element::align codes, shared with table cells: 0=default, 1=left, 2=center, 3=right
+static int alignCode(const std::string& align) {
+    if (align == "left") return 1;
+    if (align == "center") return 2;
+    if (align == "right") return 3;
+    return 0;
+}
+
+static bool isInlineElement(ElementType type) {
+    switch (type) {
+        case ElementType::Text: case ElementType::Link: case ElementType::Strong:
+        case ElementType::Emphasis: case ElementType::Code: case ElementType::Ruby:
+        case ElementType::RubyText:
+            return true;
+        default:
+            return false;
+    }
 }
 
 void parseHtmlIntoElements(const std::string& html, Element* parent) {
@@ -1207,14 +1228,45 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
 
     size_t pos = 0;
     std::string textBuffer;
+    int preDepth = 0;
+    // align= on <div>/<center> is inherited by the paragraphs and headings inside
+    std::vector<int> alignStack{0};
 
-    auto flushText = [&]() {
-        std::string trimmed = trim(textBuffer);
-        if (!trimmed.empty() && !elementStack.empty()) {
+    // HTML whitespace rules rather than a trim: a run of whitespace collapses to one
+    // space, and only the whitespace at a block's edges is dropped. Trimming every
+    // text node ate the space in "a fork of <a>Tinta</a>".
+    auto flushText = [&](bool blockBoundary) {
+        if (elementStack.empty()) { textBuffer.clear(); return; }
+        Element* parent = elementStack.top();
+        std::string text;
+        if (preDepth > 0) {
+            text = trim(textBuffer);
+        } else {
+            bool pendingSpace = false;
+            for (char c : textBuffer) {
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                    pendingSpace = true;
+                    continue;
+                }
+                if (pendingSpace) text += ' ';
+                pendingSpace = false;
+                text += c;
+            }
+            if (pendingSpace) text += ' ';
+            bool atLineStart = parent->children.empty() ||
+                               !isInlineElement(parent->children.back()->type);
+            if (!atLineStart && parent->children.back()->type == ElementType::Text) {
+                const std::string& prev = parent->children.back()->text;
+                atLineStart = !prev.empty() && prev.back() == ' ';
+            }
+            if (atLineStart && !text.empty() && text.front() == ' ') text.erase(0, 1);
+            if (blockBoundary && !text.empty() && text.back() == ' ') text.pop_back();
+        }
+        if (!text.empty()) {
             auto textElem = std::make_shared<Element>(ElementType::Text);
-            textElem->text = trimmed;
-            textElem->parent = elementStack.top();
-            elementStack.top()->children.push_back(textElem);
+            textElem->text = text;
+            textElem->parent = parent;
+            parent->children.push_back(textElem);
         }
         textBuffer.clear();
     };
@@ -1244,36 +1296,41 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
 
         std::string tagStr = html.substr(tagStart, tagEnd - tagStart + 1);
         HtmlTag tag = parseTag(tagStr);
+        // Text before an inline tag keeps its trailing space; a block edge drops it
+        const bool blockTag = !(tag.name == "a" || tag.name == "strong" || tag.name == "b" ||
+                                tag.name == "em" || tag.name == "i" || tag.name == "code" ||
+                                tag.name == "span" || tag.name == "ruby" || tag.name == "rt" ||
+                                tag.name == "rp");
 
         // Handle different tags
         if (tag.name == "ul" || tag.name == "ol") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::List);
                 elem->ordered = (tag.name == "ol");
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "li") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::ListItem);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "a") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Link);
                 elem->url = tag.href;
                 elem->title = tag.title;
@@ -1281,143 +1338,159 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "strong" || tag.name == "b") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Strong);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "em" || tag.name == "i") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Emphasis);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "code") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Code);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "p") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Paragraph);
+                elem->align = alignCode(tag.align);
+                if (!elem->align) elem->align = alignStack.back();
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "h1" || tag.name == "h2" || tag.name == "h3" ||
                  tag.name == "h4" || tag.name == "h5" || tag.name == "h6") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Heading);
                 elem->level = tag.name[1] - '0';
+                elem->align = alignCode(tag.align);
+                if (!elem->align) elem->align = alignStack.back();
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "br") {
-            flushText();
+            flushText(blockTag);
             auto elem = std::make_shared<Element>(ElementType::HardBreak);
             elem->parent = elementStack.top();
             elementStack.top()->children.push_back(elem);
         }
         else if (tag.name == "hr") {
-            flushText();
+            flushText(blockTag);
             auto elem = std::make_shared<Element>(ElementType::HorizontalRule);
             elem->parent = elementStack.top();
             elementStack.top()->children.push_back(elem);
         }
         else if (tag.name == "pre") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::CodeBlock);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
+                preDepth++;
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
+                if (preDepth > 0) preDepth--;
             }
         }
         else if (tag.name == "blockquote") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::BlockQuote);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "ruby") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::Ruby);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "rt") {
             if (!tag.isClosing) {
-                flushText();
+                flushText(blockTag);
                 auto elem = std::make_shared<Element>(ElementType::RubyText);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
                 elementStack.push(elem.get());
             } else if (elementStack.size() > 1) {
-                flushText();
+                flushText(blockTag);
                 elementStack.pop();
             }
         }
         else if (tag.name == "rp") {
             // Discard <rp> content (fallback parens for non-ruby renderers)
             if (!tag.isClosing) {
-                flushText(); // Flush any preceding text before discarding
+                flushText(blockTag); // Flush any preceding text before discarding
             } else {
                 textBuffer.clear(); // Discard rp content (e.g. parentheses)
             }
         }
-        // Ignore div, span, and other container tags but process their content
-        else if (tag.name == "div" || tag.name == "span") {
-            // Just continue processing content
+        // div and center are block boundaries that only carry alignment; span is
+        // transparent
+        else if (tag.name == "div" || tag.name == "center") {
+            flushText(blockTag);
+            if (!tag.isClosing) {
+                int align = tag.name == "center" ? 2 : alignCode(tag.align);
+                alignStack.push_back(align ? align : alignStack.back());
+            } else if (alignStack.size() > 1) {
+                alignStack.pop_back();
+            }
+        }
+        else if (tag.name == "span") {
+            flushText(blockTag);
         }
         // Skip comments
         else if (tagStr.substr(0, 4) == "<!--") {
@@ -1430,7 +1503,7 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
         pos = tagEnd + 1;
     }
 
-    flushText();
+    flushText(true);
 }
 
 } // namespace qmd

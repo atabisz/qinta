@@ -2598,6 +2598,9 @@ if(BUILD_TESTING)
             tinta_qt_app_test(blockquote_layout_tests blockquote_layout
                 tests/blockquote_layout_tests.cpp
                 TINTA_QUOTE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/blockquote-spacing.md")
+            tinta_qt_app_test(html_layout_tests html_layout
+                tests/html_layout_tests.cpp
+                TINTA_HTML_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/html-align-links.md")
             tinta_qt_app_test(input_tests input_shortcuts tests/input_tests.cpp
                 TINTA_SHORTCUT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/shortcuts-layouts.md")
             tinta_qt_app_test(file_path_tests copy_file_path tests/file_path_tests.cpp)

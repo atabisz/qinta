@@ -235,51 +235,65 @@ static void rollbackTo(App& app, const LayoutSnapshot& s) {
     app.taskRects.resize(s.tasks);
 }
 
-static void shiftLayoutItems(App& app, const LayoutSnapshot& from, float dx) {
+// [top, bottom) limits the shift to the items anchored on one laid-out line, which
+// is how aligned paragraphs move each line by its own amount
+static void shiftLayoutItems(App& app, const LayoutSnapshot& from, float dx,
+                             float top = std::numeric_limits<float>::lowest(),
+                             float bottom = std::numeric_limits<float>::max()) {
     if (dx == 0.0f) return;
+    auto inRow = [&](float y) { return y >= top && y < bottom; };
     for (size_t i = from.textRuns; i < app.layoutTextRuns.size(); i++) {
         auto& r = app.layoutTextRuns[i];
+        if (!inRow(r.bounds.top)) continue;
         r.pos.x += dx;
         r.bounds.left += dx;
         r.bounds.right += dx;
     }
     for (size_t i = from.rects; i < app.layoutRects.size(); i++) {
         auto& r = app.layoutRects[i];
+        if (!inRow(r.rect.top)) continue;
         r.rect.left += dx;
         r.rect.right += dx;
     }
     for (size_t i = from.lines; i < app.layoutLines.size(); i++) {
         auto& r = app.layoutLines[i];
+        if (!inRow(std::min(r.p1.y, r.p2.y))) continue;
         r.p1.x += dx;
         r.p2.x += dx;
     }
     for (size_t i = from.shapes; i < app.layoutShapes.size(); i++) {
         auto& shape = app.layoutShapes[i];
+        if (!inRow(shape.rect.top)) continue;
         shape.rect.left += dx;
         shape.rect.right += dx;
     }
     for (size_t i = from.connectors; i < app.layoutConnectors.size(); i++) {
         auto& connector = app.layoutConnectors[i];
+        if (!inRow(connector.bounds.top)) continue;
         connector.bounds.left += dx;
         connector.bounds.right += dx;
         for (auto& point : connector.points) point.x += dx;
     }
     for (size_t i = from.bitmaps; i < app.layoutBitmaps.size(); i++) {
         auto& bitmap = app.layoutBitmaps[i].destRect;
+        if (!inRow(bitmap.top)) continue;
         bitmap.left += dx;
         bitmap.right += dx;
     }
     for (size_t i = from.links; i < app.linkRects.size(); i++) {
         auto& r = app.linkRects[i];
+        if (!inRow(r.bounds.top)) continue;
         r.bounds.left += dx;
         r.bounds.right += dx;
     }
     for (size_t i = from.textRects; i < app.textRects.size(); i++) {
         auto& r = app.textRects[i];
+        if (!inRow(r.rect.top)) continue;
         r.rect.left += dx;
         r.rect.right += dx;
     }
     for (size_t i = from.tasks; i < app.taskRects.size(); i++) {
+        if (!inRow(app.taskRects[i].rect.top)) continue;
         app.taskRects[i].rect.left += dx;
         app.taskRects[i].rect.right += dx;
     }
@@ -304,6 +318,45 @@ static void shiftLayoutItems(App& app, const LayoutSnapshot& from, float dx) {
             bucket.maxX = std::max(bucket.maxX, rect.right);
         }
     }
+}
+
+// Center or right-align every line laid out since `from` within [startX, startX +
+// maxWidth] (align uses Element::align's codes). Lines are found from the word rects,
+// and each moves by its own slack; a line wider than the box stays where it is.
+static void alignLaidOutLines(App& app, const LayoutSnapshot& from, float startX,
+                              float maxWidth, int align) {
+    if (align != 2 && align != 3) return;
+    struct Row { float top, bottom, minX, maxX; };
+    std::vector<Row> rows;
+    for (size_t i = from.textRects; i < app.textRects.size(); i++) {
+        const auto& r = app.textRects[i].rect;
+        auto row = std::find_if(rows.begin(), rows.end(),
+                                [&](const Row& w) { return std::abs(w.top - r.top) < 0.5f; });
+        if (row == rows.end()) {
+            rows.push_back({r.top, r.bottom, r.left, r.right});
+        } else {
+            row->bottom = std::max(row->bottom, r.bottom);
+            row->minX = std::min(row->minX, r.left);
+            row->maxX = std::max(row->maxX, r.right);
+        }
+    }
+    for (const auto& row : rows) {
+        float slack = maxWidth - (row.maxX - row.minX);
+        if (slack <= 0) continue;
+        float target = align == 2 ? startX + slack / 2 : startX + slack;
+        shiftLayoutItems(app, from, target - row.minX, row.top - 0.5f, row.bottom);
+    }
+}
+
+// Distance from the top of a laid-out line of `format` to its baseline
+static float textBaseline(App& app, tinta::TextFormat* format) {
+    float baseline = format->GetFontSize() * 0.8f;
+    if (auto probe = app.textFactory->CreateTextLayout(L"Ag", 2, format, 1000, 1000)) {
+        tinta::LineMetrics metrics{};
+        uint32_t count = 1;
+        if (probe->GetLineMetrics(&metrics, 1, &count)) baseline = metrics.baseline;
+    }
+    return baseline;
 }
 
 static float getSpaceWidth(App& app, tinta::TextFormat* format) {
@@ -381,13 +434,19 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     float maxX = startX + maxWidth;
     float spaceWidth = getSpaceWidth(app, baseFormat);
 
+    // Links are marked by colour alone. textTop is where the run's text was drawn, so
+    // the .md reference dash sits under the glyphs' baseline rather than at the foot
+    // of the 1.7x line box, which left a visible gap under every link.
     auto addLinkSegment = [&](float lineStartX, float lineEndX, float lineY,
-                              const std::string& linkUrl, tinta::Color color) {
+                              const std::string& linkUrl, tinta::Color color,
+                              tinta::TextFormat* format, float textTop) {
         if (lineEndX <= lineStartX) return;
         bool refLive = linkUrl.rfind("fileref-ok:", 0) == 0;
         bool refMissing = linkUrl.rfind("fileref-missing:", 0) == 0;
-        float underlineY = lineY + mathTextOffset + normalLineHeight - 2;
         if (refLive || refMissing) {
+            tinta::TextFormat* f = format ? format : baseFormat;
+            float underlineY = textTop + textBaseline(app, f) +
+                               std::max(1.0f, f->GetFontSize() * 0.12f);
             // .md references underline dashed; a missing target keeps a
             // faint ghost of the same treatment, and its click offers to
             // create the file (#127)
@@ -401,10 +460,6 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                                            tinta::pointF(ex, underlineY),
                                            dashColor, 1.0f});
             }
-        } else {
-            app.layoutLines.push_back({tinta::pointF(lineStartX, underlineY),
-                                       tinta::pointF(lineEndX, underlineY),
-                                       color, 1.0f});
         }
         App::LinkRect lr;
         lr.bounds = tinta::rectF(lineStartX, lineY, lineEndX, lineY + lineHeight);
@@ -437,16 +492,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         float size = format->GetFontSize();
         mathBoxes[i] = mathParse(app, toWide(run.elem->text), size, false);
         if (!mathBoxes[i]) continue;
-        float baseline = size * 0.8f;
-        // The cheapest site in the whole text surface to move: `format` was ALREADY
-        // a tinta::TextFormat* two lines up, so nativeTextFormat() here was an
-        // adapter call that existed only to feed a native factory. Wiring it makes
-        // the adapter disappear rather than move.
-        if (auto probe = app.textFactory->CreateTextLayout(L"Ag", 2, format, 1000, 1000)) {
-            tinta::LineMetrics metrics{};
-            uint32_t count = 1;
-            if (probe->GetLineMetrics(&metrics, 1, &count)) baseline = metrics.baseline;
-        }
+        float baseline = textBaseline(app, format);
         mathBaselines[i] = baseline;
         mathExpandLine(mathBoxes[i], baseline + run.style.drawYOffset, normalLineHeight, mathTextOffset, mathBelow);
     }
@@ -502,7 +548,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                            codeDocStart, text.length(), true);
 
                 app.docText += text;
-                if (isLink) addLinkSegment(x, x + textWidth, y, linkUrl, color);
+                if (isLink) addLinkSegment(x, x + textWidth, y, linkUrl, color, format, y + verticalOffset);
                 // Advance by the pill's own padding only: the surrounding text
                 // already carries the source's spacing, so a full space width
                 // here would double it and shove a following comma off the span
@@ -543,7 +589,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                                                tinta::pointF(x + w, strikeY), color, 1.0f});
                 }
                 mathBoxRetain(app, box, x, boxTop, color);
-                if (isLink) addLinkSegment(x, x + w, y, linkUrl, color);
+                if (isLink) addLinkSegment(x, x + w, y, linkUrl, color, format, y + drawYOffset);
 
                 size_t docStart = app.docText.size();
                 std::wstring source = L"$" + latex + L"$";
@@ -805,7 +851,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 // Unit wraps: flush the current line's segment first
                 flushSegment(lastWordEnd);
                 if (isLink && lastWordEndX > linkLineStartX) {
-                    addLinkSegment(linkLineStartX, lastWordEndX, linkLineY, linkUrl, color);
+                    addLinkSegment(linkLineStartX, lastWordEndX, linkLineY, linkUrl, color,
+                                   format, linkLineY + drawYOffset);
                 }
                 x = startX;
                 y += lineHeight;
@@ -876,7 +923,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         app.docText += text;
 
         if (isLink && lastWordEndX > linkLineStartX) {
-            addLinkSegment(linkLineStartX, lastWordEndX, linkLineY, linkUrl, color);
+            addLinkSegment(linkLineStartX, lastWordEndX, linkLineY, linkUrl, color,
+                           format, linkLineY + drawYOffset);
         }
     }
 
@@ -942,7 +990,9 @@ static void layoutParagraph(App& app, const ElementPtr& elem, float& y, float in
         layoutMathBlock(app, *math, y, indent, maxWidth);
         return;
     }
+    LayoutSnapshot start = takeSnapshot(app);
     layoutInlineContent(app, elem->children, indent, y, maxWidth, app.textFormat, app.theme.text);
+    alignLaidOutLines(app, start, indent, maxWidth, elem->align);
     app.docText += L"\n\n";
     float scale = app.contentScale * app.zoomFactor;
     y += 14 * scale;
@@ -976,7 +1026,9 @@ static void layoutHeading(App& app, const ElementPtr& elem, float& y, float inde
         app.headings.push_back({headingText, elem->level, y, id});
     }
 
+    LayoutSnapshot start = takeSnapshot(app);
     layoutInlineContent(app, elem->children, indent, y, maxWidth, format, app.theme.heading);
+    alignLaidOutLines(app, start, indent, maxWidth, elem->align);
 
     if (elem->level <= 2 && app.headingRules) {
         y += 6 * scale;

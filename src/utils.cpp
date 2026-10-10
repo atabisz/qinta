@@ -177,13 +177,15 @@ void handleLinkClick(App& app) {
 //
 // src/inline_style.cpp:69 already normalises this way, so this is the tree's
 // existing spelling rather than a new one.
+//
+// SINCE 2026-10-11 THE RESOLUTION IS platform::absolutePath, and this function only converts
+// the encoding. The formula above is still the POSIX answer, but on Windows libstdc++'s
+// absolute() prepends the current drive to `\\server\share` and `\\?\` paths (the MinGW build
+// found it), so the Windows answer moved into the paths seam as GetFullPathNameW. The paragraph
+// above about MSVC calling GetFullPathNameW is why that changes nothing for MSVC builds.
 std::wstring absoluteFilePath(const std::string& path) {
     if (path.empty()) return {};
-    std::error_code ec;
-    std::filesystem::path resolved =
-        std::filesystem::absolute(std::filesystem::path(toWide(path)), ec);
-    if (ec) return {};
-    return resolved.lexically_normal().wstring();
+    return platform::absolutePath(toWide(path));
 }
 
 void copyFilePath(App& app, HWND hwnd, const std::string& path) {

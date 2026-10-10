@@ -13,6 +13,8 @@
 #include <QStringList>
 #include <QUrl>
 
+#include <filesystem>
+#include <system_error>
 #include <vector>
 
 // Native APIs are reached in three places, each because Qt has no answer with the
@@ -508,6 +510,32 @@ bool documentPathsEqual(const std::string& a, const std::string& b) {
     // awkward one -- APFS is case-insensitive by default -- and this preserves the
     // documented caveat rather than quietly picking a side.
     return a == b;
+#endif
+}
+
+std::wstring absolutePath(const std::wstring& path) {
+    if (path.empty()) return std::wstring();
+#ifdef _WIN32
+    // GetFullPathNameW, which is what MSVC's std::filesystem::absolute calls, so MSVC builds
+    // get the answer they always had and MinGW builds stop prepending the current drive to
+    // `\\server\share` and `\\?\` paths (see the header). Measured 2026-10-11 with a
+    // MinGW-built probe over copy_file_path's six cases: absolute().lexically_normal() missed
+    // 2, this missed 0. No lexically_normal after it: GetFullPathNameW already collapses `.`
+    // and `..`, and libstdc++'s normalisation is the code that misreads the UNC root.
+    const DWORD needed = GetFullPathNameW(path.c_str(), 0, nullptr, nullptr);
+    if (needed == 0) return std::wstring();
+    std::wstring buffer(needed, L'\0');
+    const DWORD written = GetFullPathNameW(path.c_str(), needed, buffer.data(), nullptr);
+    if (written == 0 || written >= needed) return std::wstring();
+    buffer.resize(written);
+    return buffer;
+#else
+    // Not QFileInfo/QDir::cleanPath: both turn the separator into '/', and on POSIX the
+    // standard library already gives the right answer, so the seam keeps it.
+    std::error_code ec;
+    const std::filesystem::path resolved = std::filesystem::absolute(std::filesystem::path(path), ec);
+    if (ec) return std::wstring();
+    return resolved.lexically_normal().wstring();
 #endif
 }
 

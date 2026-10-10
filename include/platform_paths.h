@@ -295,6 +295,17 @@ bool documentPathsEqual(const std::string& a, const std::string& b);
 // openable as given; `name` is the final component only.
 bool isHiddenEntry(const std::wstring& fullPath, const std::wstring& name);
 
+// `path` made absolute against the working directory and collapsed lexically (`.`, `..`,
+// separators), without touching the filesystem: the path need not exist, and symlinks are
+// not resolved. Empty when it cannot be resolved.
+//
+// A seam because std::filesystem::absolute is not one function on Windows. MSVC's calls
+// GetFullPathNameW; libstdc++'s (MinGW) reads a leading `\\` as a root directory with no
+// root name and puts the current drive in front, so `\\server\share\doc.md` became
+// `D:\server\share\doc.md` (the windows-mingw CI job, 2026-10-07). The Windows answer is
+// therefore GetFullPathNameW on both toolchains.
+std::wstring absolutePath(const std::wstring& path);
+
 } // namespace platform
 
 #endif // TINTA_PLATFORM_PATHS_H

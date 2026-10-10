@@ -1142,7 +1142,13 @@ tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`
   `\\server\share\folder name\document.md` came back as `D:\server\share\folder name\document.md`,
   and the `\\?\C:\...` long path as `D:\?\C:\...`. libstdc++ reads a leading `\\` as a root
   directory with no root name and puts the current drive in front, so a MinGW build would copy a
-  wrong path for any document on a network share. Not yet fixed.
+  wrong path for any document on a network share. **Fixed 2026-10-11**: the resolution moved into
+  the paths seam as `platform::absolutePath`, which on Windows is `GetFullPathNameW`, the call
+  MSVC's `absolute()` makes. Checked with a MinGW-built probe (GCC 13, run natively on Windows)
+  over the same six cases: the old code missed the same 2 (with `C:` in front locally), the new
+  code missed 0. MSVC and Linux pass `copy_file_path` unchanged. Not yet re-read from the CI job,
+  because Actions has been refusing to start jobs on this account since 2026-10-10 (a billing
+  block, not the code).
 - `readme_figures`: not a MinGW defect. MSYS2's bash has no `/dev/fd` when ctest starts it, so
   the gate's `comm <(...)` calls read nothing, and the to-do header passed on an empty set. The
   gate now goes through temp files and fails when `comm` does.
@@ -1734,7 +1740,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,011 / 64,982 | **81.6%** |
+| A. Source lines free of the Windows stack | 53,041 / 65,023 | **81.6%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
 | C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
 | D. Test targets that *could* move, and do | 50 / 51 | 98.0% |
@@ -2252,7 +2258,7 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 53,314 lines of the 64,982,
+can never enter the numerator. With `src/*.cpp` totalling 53,344 lines of the 65,023,
 **basis A's ceiling is 82.0%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into

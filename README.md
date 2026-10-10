@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="resources/tinta.ico" width="80">
+  <img src="resources/qinta.ico" width="80">
   <h1>Qinta</h1>
   <p><em>Markdown, distilled — on every desktop.</em></p>
   <p>A multiplatform fork of <a href="https://github.com/oipoistar/tinta">Tinta</a>, moving the whole stack to Qt 6</p>

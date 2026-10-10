@@ -185,7 +185,7 @@ std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void
 
     // THE FRAME CHOICE IS image_api.h's POLICY, IMPLEMENTED, NOT Qt's DEFAULT.
     // Left alone, Qt's ICO handler hands back a frame chosen by its own rule and WIC's
-    // decoder chooses by another, so the hero size -- 64, which resources/tinta.ico has no
+    // decoder chooses by another, so the hero size -- 64, which resources/qinta.ico has no
     // frame for -- would render differently on the two platforms with nothing to reveal it.
     // jumpToImage/size walks the container so the stated rule decides instead.
     const int frameCount = reader.imageCount();

@@ -2013,7 +2013,7 @@ int runRenderApiAssertions(RenderHarness& h) {
     // both backends, so the assertions cost one source file per target instead of a
     // second render-target bring-up.
     //
-    // WHAT IT IS FOR. resources/tinta.ico holds frames at 256/48/32/16 and the start
+    // WHAT IT IS FOR. resources/qinta.ico holds frames at 256/48/32/16 and the start
     // page asks for 64. There IS no 64 frame, so at that size the answer depends
     // entirely on which frame is chosen and how it is scaled -- WIC's ICO decoder and
     // Qt's ICO handler choose differently, and two libraries left to their defaults
@@ -2035,7 +2035,7 @@ int runRenderApiAssertions(RenderHarness& h) {
     // AND THE SECOND THING IT DOES NOT ASSERT IS THE ONE I PLANNED IT TO. The intent was
     // that the 64 px case would FAIL if a backend were left on its library's default
     // frame. It does not, and the arithmetic is the reason rather than the writing:
-    // tinta.ico's frames are 256/48/32/16 and its FIRST entry is the 256, so at a request
+    // qinta.ico's frames are 256/48/32/16 and its FIRST entry is the 256, so at a request
     // of 64 the stated policy -- smallest frame at or above 64 -- SELECTS 256, which is
     // the same frame GetFrame(0) and QImageReader's default hand back. Policy and default
     // COINCIDE at the size that was supposed to separate them. At 32 they differ in which
@@ -2098,7 +2098,7 @@ int runRenderApiAssertions(RenderHarness& h) {
         // 32 and 64, both of which take the first clause. So `else the largest` is dead
         // code in both backends as far as the product is concerned, and dead code that
         // has never run is not implemented, it is written. 512 is above every frame in
-        // tinta.ico (the largest is 256), so this is the only assertion that executes it.
+        // qinta.ico (the largest is 256), so this is the only assertion that executes it.
         //
         // It is also the only UPSCALE in this family, which is worth one line of its own:
         // a backend that refused to enlarge -- or that clamped to the source size and

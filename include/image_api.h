@@ -233,7 +233,7 @@ std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
 //   Choose the SMALLEST frame whose width is >= pixelSize. If no frame is that large,
 //   choose the LARGEST frame available. Then scale that frame to exactly pixelSize.
 //
-// Why it is stated rather than delegated, measured rather than argued: resources/tinta.ico
+// Why it is stated rather than delegated, measured rather than argued: resources/qinta.ico
 // carries frames at 256, 48, 32 and 16 and the hero icon asks for 64. There is NO 64 frame,
 // so at that size "which frame" IS the visible behaviour -- and WIC's ICO decoder and Qt's
 // ICO handler do not choose alike. Two libraries left to their defaults would render a

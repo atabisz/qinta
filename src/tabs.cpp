@@ -544,7 +544,7 @@ void renderTabStrip(App& app) {
     // App icon (16px, centered in a 40px cell)
     float iconCell = dpi(app, 40.0f);
     // ASKED AT 32 WHERE startpage.cpp ASKS AT 64, and the difference is the reason the
-    // frame choice is not made at either call site: tinta.ico HAS a 32x32 frame and has
+    // frame choice is not made at either call site: qinta.ico HAS a 32x32 frame and has
     // no 64x64 one, so the two callers exercise different branches of image_api.h's
     // stated policy. The twenty lines of LoadImageW / CreateBitmapFromHICON /
     // CreateFormatConverter this replaces were byte-similar to startpage.cpp's, which is

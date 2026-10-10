@@ -500,7 +500,7 @@ void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
 // policy (image_api.h). What is left is four lines with no conditional compilation in
 // them at all, which is why the explanation is a past tense rather than a rationale.
 //
-// THE ONE THING WORTH KNOWING AT THIS CALL SITE: 64 is a size resources/tinta.ico has no
+// THE ONE THING WORTH KNOWING AT THIS CALL SITE: 64 is a size resources/qinta.ico has no
 // frame for. The scaling and the frame choice are deliberately NOT decided here -- doing
 // it at the call site would put the policy in two places, since tabs.cpp asks the same
 // question at 32 where the frame IS exact.

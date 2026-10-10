@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="../../resources/tinta.ico" width="80" alt="Qinta logo">
+  <img src="../../resources/qinta.ico" width="80" alt="Qinta logo">
   <h1>Centered heading</h1>
   <p><em>An italic tagline — centered under the heading.</em></p>
   <p>A multiplatform fork of <a href="https://example.com/tinta">Tinta</a>, moving the whole stack to Qt 6</p>

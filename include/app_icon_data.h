@@ -5,7 +5,7 @@
 
 // THE APPLICATION ICON'S BYTES, EMBEDDED ONCE FOR BOTH BACKENDS.
 //
-// The definition is GENERATED at configure time from resources/tinta.ico into
+// The definition is GENERATED at configure time from resources/qinta.ico into
 // ${CMAKE_BINARY_DIR}/generated/app_icon_data.cpp -- see the "embedded app icon" block in
 // CMakeLists.txt. Only this declaration is checked in, so the 36 KB asset lives in exactly
 // one place on disk and no generated file is in git.

@@ -60,6 +60,6 @@ the last published one, so the job only succeeds for new version tags.
 - `AppxManifest.xml` — package identity, full-trust entry point, declared
   `.md`/`.markdown`/`.mmd` file-type associations. `TINTA_MSIX_VERSION` is
   replaced by `pack.ps1`.
-- `Assets/` — Store logos generated from `resources/tinta.ico`.
+- `Assets/` — Store logos generated from `resources/qinta.ico`.
 - Store listing art (marketing screenshots, poster/box art) is managed in
   Partner Center; sources live outside this repo.

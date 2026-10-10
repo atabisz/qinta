@@ -249,7 +249,7 @@ set(PLATFORM_PROCESS_LIBS Qt6::Core)
 
 # ── The embedded app icon, generated for BOTH backends ────────────────────────────────
 #
-# resources/tinta.ico becomes a C++ byte array that the Direct2D and Qt builds read
+# resources/qinta.ico becomes a C++ byte array that the Direct2D and Qt builds read
 # identically, decoded through tinta::decodeIconBytesToBitmap. include/app_icon_data.h
 # carries the reasoning, including why this is NOT a Qt .qrc: a Qt-only mechanism would
 # have left the Direct2D side on LoadImageW and kept an #ifdef at the call site, which is
@@ -259,7 +259,7 @@ set(PLATFORM_PROCESS_LIBS Qt6::Core)
 # CMAKE_CONFIGURE_DEPENDS re-runs configure when the .ico changes, so editing the artwork
 # regenerates the array. Without that line a new icon would be silently ignored until
 # someone deleted the build directory -- a stale asset that nothing reports.
-set(TINTA_ICON_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/resources/tinta.ico)
+set(TINTA_ICON_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/resources/qinta.ico)
 set(TINTA_ICON_GENERATED ${CMAKE_BINARY_DIR}/generated/app_icon_data.cpp)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${TINTA_ICON_SOURCE})
 file(READ ${TINTA_ICON_SOURCE} TINTA_ICON_HEX HEX)
@@ -267,7 +267,7 @@ string(LENGTH "${TINTA_ICON_HEX}" TINTA_ICON_HEX_LEN)
 if(TINTA_ICON_HEX_LEN LESS 64)
     # A truncated or missing asset would otherwise generate a valid, tiny array and the
     # icon would simply never appear -- a silent failure with no diagnostic anywhere.
-    message(FATAL_ERROR "resources/tinta.ico read as only ${TINTA_ICON_HEX_LEN} hex chars")
+    message(FATAL_ERROR "resources/qinta.ico read as only ${TINTA_ICON_HEX_LEN} hex chars")
 endif()
 string(REGEX REPLACE "(..)" "0x\\1," TINTA_ICON_BYTES "${TINTA_ICON_HEX}")
 # THE TWELVE GROUPS ARE WRITTEN OUT AND THAT IS NOT A STYLE CHOICE. This line first read
@@ -282,7 +282,7 @@ string(REGEX REPLACE
     TINTA_ICON_BYTES "${TINTA_ICON_BYTES}")
 file(WRITE ${TINTA_ICON_GENERATED}
 "// GENERATED FILE -- DO NOT EDIT AND DO NOT COMMIT.\n"
-"// Written by CMakeLists.txt from resources/tinta.ico. See include/app_icon_data.h.\n"
+"// Written by CMakeLists.txt from resources/qinta.ico. See include/app_icon_data.h.\n"
 "#include \"app_icon_data.h\"\n"
 "\n"
 "namespace tinta {\n"

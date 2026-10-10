@@ -2,7 +2,7 @@
 // version metadata. resources/tinta.rc until 2026-10-07, when tinta.exe was retired.
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_ICON1 ICON "tinta.ico"
+IDI_ICON1 ICON "qinta.ico"
 
 // Version metadata. The numbers come from CMake (project VERSION) via
 // TINTA_VERSION_* compile definitions so the exe always self-describes

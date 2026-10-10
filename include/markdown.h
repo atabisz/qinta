@@ -68,6 +68,8 @@ struct Element {
     std::string language;     // for code blocks
     int align = 0;            // table cells, and HTML paragraphs/headings (0=default, 1=left, 2=center, 3=right)
     int col_count = 0;        // for tables (number of columns)
+    float width = 0;          // HTML <img> width/height attributes, CSS px (0 = unset)
+    float height = 0;
     int alertKind = 0;        // for blockquotes: GitHub alert (0=none, 1=note, 2=tip,
                               // 3=important, 4=warning, 5=caution)
 
@@ -126,7 +128,9 @@ std::string elementTypeToString(ElementType type);
 void debugPrintElement(const ElementPtr& elem, int indent = 0);
 
 // Parse HTML content into markdown elements
-void parseHtmlIntoElements(const std::string& html, Element* parent);
+// openAlign carries <div align>/<center> state across HTML blocks; null starts fresh
+void parseHtmlIntoElements(const std::string& html, Element* parent,
+                           std::vector<int>* openAlign = nullptr);
 
 } // namespace qmd
 

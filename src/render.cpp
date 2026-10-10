@@ -340,11 +340,39 @@ static void alignLaidOutLines(App& app, const LayoutSnapshot& from, float startX
             row->maxX = std::max(row->maxX, r.right);
         }
     }
-    for (const auto& row : rows) {
-        float slack = maxWidth - (row.maxX - row.minX);
-        if (slack <= 0) continue;
-        float target = align == 2 ? startX + slack / 2 : startX + slack;
-        shiftLayoutItems(app, from, target - row.minX, row.top - 0.5f, row.bottom);
+    auto offset = [&](float left, float right) {
+        float slack = maxWidth - (right - left);
+        if (slack <= 0) return 0.0f;
+        return (align == 2 ? startX + slack / 2 : startX + slack) - left;
+    };
+    for (const auto& row : rows)
+        shiftLayoutItems(app, from, offset(row.minX, row.maxX), row.top - 0.5f, row.bottom);
+
+    // Images, and the placeholder an unloaded image draws, break out of the text flow and
+    // own no word rects, so they are not on any row above: each aligns by its own width
+    auto onRow = [&](float top) {
+        return std::any_of(rows.begin(), rows.end(), [&](const Row& w) {
+            return top >= w.top - 0.5f && top < w.bottom;
+        });
+    };
+    for (size_t i = from.bitmaps; i < app.layoutBitmaps.size(); i++) {
+        auto& rect = app.layoutBitmaps[i].destRect;
+        if (onRow(rect.top)) continue;
+        float dx = offset(rect.left, rect.right);
+        for (size_t j = from.links; j < app.linkRects.size(); j++) {
+            auto& link = app.linkRects[j].bounds;
+            if (link.top == rect.top && link.left == rect.left) { link.left += dx; link.right += dx; }
+        }
+        rect.left += dx;
+        rect.right += dx;
+    }
+    for (size_t i = from.textRuns; i < app.layoutTextRuns.size(); i++) {
+        auto& run = app.layoutTextRuns[i];
+        if (onRow(run.bounds.top)) continue;
+        float dx = offset(run.bounds.left, run.bounds.right);
+        run.pos.x += dx;
+        run.bounds.left += dx;
+        run.bounds.right += dx;
     }
 }
 
@@ -474,6 +502,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     rootStyle.isLink = !baseLinkUrl.empty();
     std::vector<StyledRun> runs;
     flattenInline(app, elements, rootStyle, lineHeight, runs);
+    // Where a block image left y, so a paragraph that ends on one adds no empty line
+    float yAfterImage = -1.0f;
 
     // Reserve a common baseline and enough vertical room before retaining
     // any runs. Uniform spacing within this paragraph keeps wrapping and
@@ -617,7 +647,16 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                     y += lineHeight;  // end current line
                     x = startX;
                 }
+                size_t bitmapsBefore = app.layoutBitmaps.size();
                 layoutImage(app, elem, y, startX, maxWidth);
+                yAfterImage = y;
+                // An image inside a link (a README badge) clicks through like its text would
+                if (isLink && app.layoutBitmaps.size() > bitmapsBefore) {
+                    App::LinkRect lr;
+                    lr.bounds = app.layoutBitmaps.back().destRect;
+                    lr.url = linkUrl;
+                    app.linkRects.push_back(lr);
+                }
                 continue;
             }
 
@@ -928,6 +967,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         }
     }
 
+    if (y == yAfterImage && x == startX) return;
     y += lineHeight;
 }
 
@@ -2658,6 +2698,14 @@ static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent
     float scale = app.contentScale * app.zoomFactor;
     float imgW = (float)entry.width;
     float imgH = (float)entry.height;
+    // HTML width=/height= in CSS px; with one of the two, the other follows the aspect.
+    // This may upscale, as a browser would, unlike an image's own size below.
+    if (imgW > 0 && imgH > 0 && (elem->width > 0 || elem->height > 0)) {
+        float w = elem->width > 0 ? elem->width : elem->height * imgW / imgH;
+        float h = elem->height > 0 ? elem->height : elem->width * imgH / imgW;
+        imgW = w * scale;
+        imgH = h * scale;
+    }
 
     // Scale to fit within maxWidth, never upscale
     float displayScale = std::min(1.0f, maxWidth / imgW);

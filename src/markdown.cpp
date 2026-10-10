@@ -1,6 +1,7 @@
 #include "markdown.h"
 #include "portable_str.h"
 #include <cstdio>
+#include <cstdlib>
 #include <md4c.h>
 #include <cstdint>
 #include <fstream>
@@ -47,6 +48,10 @@ struct ParserContext {
     std::stack<Element*> elementStack;
     std::string currentText;
     const char* inputStart = nullptr;  // start of markdown source for offset tracking
+    // Open <div align>/<center> alignments. A blank line ends an HTML block but not the
+    // div, so this survives from one HTML block to the next, and the Markdown
+    // paragraphs and headings between them take its alignment as GitHub renders them.
+    std::vector<int> htmlAlign{0};
 
     ParserContext() {
         root = std::make_shared<Element>(ElementType::Document);
@@ -104,12 +109,14 @@ static int enterBlockCallback(MD_BLOCKTYPE type, void* detail, void* userdata) {
 
         case MD_BLOCK_P:
             elem = std::make_shared<Element>(ElementType::Paragraph);
+            elem->align = ctx->htmlAlign.back();
             break;
 
         case MD_BLOCK_H: {
             auto* h = static_cast<MD_BLOCK_H_DETAIL*>(detail);
             elem = std::make_shared<Element>(ElementType::Heading);
             elem->level = h->level;
+            elem->align = ctx->htmlAlign.back();
             break;
         }
 
@@ -205,7 +212,7 @@ static int leaveBlockCallback(MD_BLOCKTYPE type, void* /*detail*/, void* userdat
             // Parse HTML content and convert to elements
             Element* htmlBlock = ctx->current();
             if (htmlBlock && htmlBlock->type == ElementType::HtmlBlock && !htmlBlock->text.empty()) {
-                parseHtmlIntoElements(htmlBlock->text, htmlBlock);
+                parseHtmlIntoElements(htmlBlock->text, htmlBlock, &ctx->htmlAlign);
                 htmlBlock->text.clear(); // Clear raw HTML after parsing
             }
             ctx->popElement();
@@ -331,6 +338,8 @@ static bool isTransparentFontTag(const MD_CHAR* text, MD_SIZE size) {
            text[afterName] == '/';
 }
 
+static bool handleInlineHtmlTag(ParserContext* ctx, const MD_CHAR* text, MD_SIZE size);
+
 static int textCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, void* userdata) {
     auto* ctx = static_cast<ParserContext*>(userdata);
 
@@ -353,6 +362,10 @@ static int textCallback(MD_TEXTTYPE type, const MD_CHAR* text, MD_SIZE size, voi
             }
             if (ctx->current() && ctx->current()->type != ElementType::HtmlBlock &&
                 isTransparentFontTag(text, size)) {
+                break;
+            }
+            if (ctx->current() && ctx->current()->type != ElementType::HtmlBlock &&
+                handleInlineHtmlTag(ctx, text, size)) {
                 break;
             }
             ctx->addText(text, size);
@@ -1141,6 +1154,10 @@ struct HtmlTag {
     std::string title;
     std::string id;
     std::string align;
+    std::string src;
+    std::string alt;
+    float width = 0;
+    float height = 0;
 };
 
 static std::string toLower(const std::string& s) {
@@ -1162,12 +1179,15 @@ static std::string extractAttribute(const std::string& tag, const std::string& a
     static std::unordered_map<std::string, std::regex> regexCache;
     auto it = regexCache.find(attr);
     if (it == regexCache.end()) {
-        std::string pattern = attr + "\\s*=\\s*[\"']([^\"']*)[\"']";
+        // A whole attribute name (so "align" never matches valign= and "src" never
+        // data-src=), with a quoted value or a bare one such as width=80
+        std::string pattern = "(?:^|[^\\w-])" + attr +
+                              "\\s*=\\s*(?:[\"']([^\"']*)[\"']|([^\\s\"'>]+))";
         it = regexCache.emplace(attr, std::regex(pattern, std::regex::icase)).first;
     }
     std::smatch match;
-    if (std::regex_search(tag, match, it->second) && match.size() > 1) {
-        return match[1].str();
+    if (std::regex_search(tag, match, it->second) && match.size() > 2) {
+        return match[1].matched ? match[1].str() : match[2].str();
     }
     return "";
 }
@@ -1197,8 +1217,83 @@ static HtmlTag parseTag(const std::string& tagStr) {
     tag.title = extractAttribute(tagStr, "title");
     tag.id = extractAttribute(tagStr, "id");
     tag.align = toLower(extractAttribute(tagStr, "align"));
+    if (tag.name == "img") {
+        tag.src = extractAttribute(tagStr, "src");
+        tag.alt = extractAttribute(tagStr, "alt");
+        // CSS pixels; a percentage or other unit is ignored rather than misread
+        auto pixels = [&](const char* attr) {
+            std::string v = extractAttribute(tagStr, attr);
+            if (v.size() > 2 && v.compare(v.size() - 2, 2, "px") == 0) v.resize(v.size() - 2);
+            if (v.empty() || v.find_first_not_of("0123456789.") != std::string::npos) return 0.0f;
+            return std::strtof(v.c_str(), nullptr);
+        };
+        tag.width = pixels("width");
+        tag.height = pixels("height");
+    }
 
     return tag;
+}
+
+// Inline formatting tags that map one-to-one onto an element, shared by the HTML block
+// parser and inline HTML inside a Markdown paragraph. <a> and <img> carry attributes
+// and are built by makeInlineTagElement below.
+static bool inlineTagType(const std::string& name, ElementType& type) {
+    if (name == "strong" || name == "b") type = ElementType::Strong;
+    else if (name == "em" || name == "i") type = ElementType::Emphasis;
+    else if (name == "code") type = ElementType::Code;
+    else if (name == "sub") type = ElementType::Subscript;
+    else if (name == "sup") type = ElementType::Superscript;
+    else if (name == "mark") type = ElementType::Highlight;
+    else if (name == "del" || name == "s" || name == "strike") type = ElementType::Strikethrough;
+    else if (name == "a") type = ElementType::Link;
+    else if (name == "img") type = ElementType::Image;
+    else return false;
+    return true;
+}
+
+static ElementPtr makeInlineTagElement(const HtmlTag& tag, ElementType type) {
+    auto elem = std::make_shared<Element>(type);
+    if (type == ElementType::Link) {
+        elem->url = tag.href;
+        elem->title = tag.title;
+    } else if (type == ElementType::Image) {
+        elem->url = tag.src;
+        elem->title = tag.title;
+        elem->width = tag.width;
+        elem->height = tag.height;
+        if (!tag.alt.empty()) {
+            auto alt = std::make_shared<Element>(ElementType::Text);
+            alt->text = tag.alt;
+            alt->parent = elem.get();
+            elem->children.push_back(alt);
+        }
+    }
+    return elem;
+}
+
+// Inline HTML inside a Markdown paragraph. md4c hands each tag over as its own
+// MD_TEXT_HTML run, so the formatting tags open and close elements on the parser's
+// stack. Returns false for anything it does not model, which stays literal text.
+static bool handleInlineHtmlTag(ParserContext* ctx, const MD_CHAR* text, MD_SIZE size) {
+    if (size < 3 || text[0] != '<' || text[1] == '!') return false;
+    HtmlTag tag = parseTag(std::string(text, size));
+    ElementType type;
+    if (!inlineTagType(tag.name, type) || !ctx->current()) return false;
+    ctx->flushText();
+    if (tag.isClosing) {
+        // A stray close tag is dropped rather than shown or allowed to pop an
+        // unrelated element
+        if (ctx->current()->type == type) ctx->popElement();
+        return true;
+    }
+    ElementPtr elem = makeInlineTagElement(tag, type);
+    if (type == ElementType::Image) {
+        elem->parent = ctx->current();
+        ctx->current()->children.push_back(elem);
+    } else {
+        ctx->pushElement(elem);
+    }
+    return true;
 }
 
 // Element::align codes, shared with table cells: 0=default, 1=left, 2=center, 3=right
@@ -1213,14 +1308,16 @@ static bool isInlineElement(ElementType type) {
     switch (type) {
         case ElementType::Text: case ElementType::Link: case ElementType::Strong:
         case ElementType::Emphasis: case ElementType::Code: case ElementType::Ruby:
-        case ElementType::RubyText:
+        case ElementType::RubyText: case ElementType::Image: case ElementType::Subscript:
+        case ElementType::Superscript: case ElementType::Highlight:
+        case ElementType::Strikethrough: case ElementType::HardBreak:
             return true;
         default:
             return false;
     }
 }
 
-void parseHtmlIntoElements(const std::string& html, Element* parent) {
+void parseHtmlIntoElements(const std::string& html, Element* parent, std::vector<int>* openAlign) {
     if (!parent) return;
 
     std::stack<Element*> elementStack;
@@ -1229,14 +1326,31 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
     size_t pos = 0;
     std::string textBuffer;
     int preDepth = 0;
-    // align= on <div>/<center> is inherited by the paragraphs and headings inside
-    std::vector<int> alignStack{0};
+    // align= on <div>/<center> is inherited by the paragraphs and headings inside,
+    // starting from whatever an earlier HTML block left open
+    std::vector<int> alignStack = openAlign && !openAlign->empty() ? *openAlign : std::vector<int>{0};
+
+    // Inline content sitting directly in an aligned <div> (a README's logo <img>, say)
+    // gets an anonymous paragraph carrying the alignment, closed at the next block tag
+    Element* implicitParagraph = nullptr;
+    auto openImplicitParagraph = [&]() {
+        if (implicitParagraph || alignStack.back() == 0 ||
+            elementStack.top()->type != ElementType::HtmlBlock) return;
+        auto elem = std::make_shared<Element>(ElementType::Paragraph);
+        elem->align = alignStack.back();
+        elem->parent = elementStack.top();
+        elementStack.top()->children.push_back(elem);
+        elementStack.push(elem.get());
+        implicitParagraph = elem.get();
+    };
 
     // HTML whitespace rules rather than a trim: a run of whitespace collapses to one
     // space, and only the whitespace at a block's edges is dropped. Trimming every
     // text node ate the space in "a fork of <a>Tinta</a>".
     auto flushText = [&](bool blockBoundary) {
         if (elementStack.empty()) { textBuffer.clear(); return; }
+        if (preDepth == 0 && textBuffer.find_first_not_of(" \t\n\r") != std::string::npos)
+            openImplicitParagraph();
         Element* parent = elementStack.top();
         std::string text;
         if (preDepth > 0) {
@@ -1270,6 +1384,10 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
         }
         textBuffer.clear();
     };
+    auto closeImplicitParagraph = [&]() {
+        if (implicitParagraph && elementStack.top() == implicitParagraph) elementStack.pop();
+        implicitParagraph = nullptr;
+    };
 
     while (pos < html.length()) {
         // Look for next tag
@@ -1297,10 +1415,20 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
         std::string tagStr = html.substr(tagStart, tagEnd - tagStart + 1);
         HtmlTag tag = parseTag(tagStr);
         // Text before an inline tag keeps its trailing space; a block edge drops it
-        const bool blockTag = !(tag.name == "a" || tag.name == "strong" || tag.name == "b" ||
-                                tag.name == "em" || tag.name == "i" || tag.name == "code" ||
-                                tag.name == "span" || tag.name == "ruby" || tag.name == "rt" ||
-                                tag.name == "rp");
+        const bool blockTag =
+            tag.name == "ul" || tag.name == "ol" || tag.name == "li" || tag.name == "p" ||
+            (tag.name.size() == 2 && tag.name[0] == 'h' && tag.name[1] >= '1' && tag.name[1] <= '6') ||
+            tag.name == "hr" || tag.name == "pre" || tag.name == "blockquote" ||
+            tag.name == "div" || tag.name == "center";
+        ElementType inlineType = ElementType::Text;
+        if (blockTag) {
+            flushText(true);
+            closeImplicitParagraph();
+        } else if (inlineTagType(tag.name, inlineType) || tag.name == "ruby" ||
+                   tag.name == "rt" || tag.name == "span" || tag.name == "br") {
+            flushText(false);
+            if (!tag.isClosing) openImplicitParagraph();
+        }
 
         // Handle different tags
         if (tag.name == "ul" || tag.name == "ol") {
@@ -1328,53 +1456,13 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
                 elementStack.pop();
             }
         }
-        else if (tag.name == "a") {
+        else if (inlineTagType(tag.name, inlineType)) {
             if (!tag.isClosing) {
-                flushText(blockTag);
-                auto elem = std::make_shared<Element>(ElementType::Link);
-                elem->url = tag.href;
-                elem->title = tag.title;
+                ElementPtr elem = makeInlineTagElement(tag, inlineType);
                 elem->parent = elementStack.top();
                 elementStack.top()->children.push_back(elem);
-                elementStack.push(elem.get());
-            } else if (elementStack.size() > 1) {
-                flushText(blockTag);
-                elementStack.pop();
-            }
-        }
-        else if (tag.name == "strong" || tag.name == "b") {
-            if (!tag.isClosing) {
-                flushText(blockTag);
-                auto elem = std::make_shared<Element>(ElementType::Strong);
-                elem->parent = elementStack.top();
-                elementStack.top()->children.push_back(elem);
-                elementStack.push(elem.get());
-            } else if (elementStack.size() > 1) {
-                flushText(blockTag);
-                elementStack.pop();
-            }
-        }
-        else if (tag.name == "em" || tag.name == "i") {
-            if (!tag.isClosing) {
-                flushText(blockTag);
-                auto elem = std::make_shared<Element>(ElementType::Emphasis);
-                elem->parent = elementStack.top();
-                elementStack.top()->children.push_back(elem);
-                elementStack.push(elem.get());
-            } else if (elementStack.size() > 1) {
-                flushText(blockTag);
-                elementStack.pop();
-            }
-        }
-        else if (tag.name == "code") {
-            if (!tag.isClosing) {
-                flushText(blockTag);
-                auto elem = std::make_shared<Element>(ElementType::Code);
-                elem->parent = elementStack.top();
-                elementStack.top()->children.push_back(elem);
-                elementStack.push(elem.get());
-            } else if (elementStack.size() > 1) {
-                flushText(blockTag);
+                if (inlineType != ElementType::Image) elementStack.push(elem.get());
+            } else if (elementStack.size() > 1 && elementStack.top()->type == inlineType) {
                 elementStack.pop();
             }
         }
@@ -1504,6 +1592,8 @@ void parseHtmlIntoElements(const std::string& html, Element* parent) {
     }
 
     flushText(true);
+    closeImplicitParagraph();
+    if (openAlign) *openAlign = alignStack;
 }
 
 } // namespace qmd

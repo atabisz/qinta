@@ -1126,9 +1126,10 @@ linked statically) plus the Qt DLLs.
 
 **Started 2026-10-07 as a CI job, not a switch.** `.github/workflows/build.yml` has a
 `windows-mingw` job: MSYS2's UCRT64 GCC and Qt 6, configure, build and the whole `ctest` suite. It
-is `continue-on-error` until it has been green, so a red there is a finding rather than a broken
-`master`, and MSVC stays the build that ships. The switch itself waits for that job to pass and for
-the rendering harnesses to agree under it.
+was `continue-on-error` until it had been green, so a red there was a finding rather than a broken
+`master`. **It went green on 2026-10-11, and since then it runs on every push and a red fails the
+run**, the same as the other three hosts. MSVC is still the build that ships: the switch itself
+waits for the rendering harnesses to agree under MinGW.
 
 **First reading, 2026-10-07 (run 37585526316 on `160ff18`): MinGW configures and builds the whole
 tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`, clipboard and
@@ -1146,9 +1147,9 @@ tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`
   the paths seam as `platform::absolutePath`, which on Windows is `GetFullPathNameW`, the call
   MSVC's `absolute()` makes. Checked with a MinGW-built probe (GCC 13, run natively on Windows)
   over the same six cases: the old code missed the same 2 (with `C:` in front locally), the new
-  code missed 0. MSVC and Linux pass `copy_file_path` unchanged. Not yet re-read from the CI job,
-  because Actions has been refusing to start jobs on this account since 2026-10-10 (a billing
-  block, not the code).
+  code missed 0. MSVC and Linux pass `copy_file_path` unchanged. Re-read from the CI job on
+  2026-10-11 (run 38092855683, on `473a6b9`, GCC 16.2.0 and Qt 6.11.2): `copy_file_path` passes,
+  and so does the **whole suite, 53 of 53**.
 - `readme_figures`: not a MinGW defect. MSYS2's bash has no `/dev/fd` when ctest starts it, so
   the gate's `comm <(...)` calls read nothing, and the to-do header passed on an empty set. The
   gate now goes through temp files and fails when `comm` does.

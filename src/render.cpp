@@ -355,16 +355,34 @@ static void alignLaidOutLines(App& app, const LayoutSnapshot& from, float startX
             return top >= w.top - 0.5f && top < w.bottom;
         });
     };
-    for (size_t i = from.bitmaps; i < app.layoutBitmaps.size(); i++) {
-        auto& rect = app.layoutBitmaps[i].destRect;
-        if (onRow(rect.top)) continue;
-        float dx = offset(rect.left, rect.right);
-        for (size_t j = from.links; j < app.linkRects.size(); j++) {
-            auto& link = app.linkRects[j].bounds;
-            if (link.top == rect.top && link.left == rect.left) { link.left += dx; link.right += dx; }
+    // Images sharing a row (their vertical extents overlap) move together
+    std::vector<size_t> pending;
+    for (size_t i = from.bitmaps; i < app.layoutBitmaps.size(); i++)
+        if (!onRow(app.layoutBitmaps[i].destRect.top)) pending.push_back(i);
+    while (!pending.empty()) {
+        tinta::RectF extent = app.layoutBitmaps[pending.front()].destRect;
+        std::vector<size_t> row, rest;
+        for (size_t i : pending) {
+            const auto& r = app.layoutBitmaps[i].destRect;
+            if (r.top < extent.bottom && r.bottom > extent.top) {
+                row.push_back(i);
+                extent.left = std::min(extent.left, r.left);
+                extent.right = std::max(extent.right, r.right);
+            } else {
+                rest.push_back(i);
+            }
         }
-        rect.left += dx;
-        rect.right += dx;
+        float dx = offset(extent.left, extent.right);
+        for (size_t i : row) {
+            auto& rect = app.layoutBitmaps[i].destRect;
+            for (size_t j = from.links; j < app.linkRects.size(); j++) {
+                auto& link = app.linkRects[j].bounds;
+                if (link.top == rect.top && link.left == rect.left) { link.left += dx; link.right += dx; }
+            }
+            rect.left += dx;
+            rect.right += dx;
+        }
+        pending.swap(rest);
     }
     for (size_t i = from.textRuns; i < app.layoutTextRuns.size(); i++) {
         auto& run = app.layoutTextRuns[i];
@@ -397,6 +415,9 @@ static float getSpaceWidth(App& app, tinta::TextFormat* format) {
 
 static void layoutElement(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth);
 static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth);
+static App::ImageEntry& getOrLoadImage(App& app, const std::string& src);
+static bool imageDisplaySize(App& app, const ElementPtr& elem, float maxWidth,
+                             float& displayW, float& displayH);
 
 // --- UAX#14 line-break analysis ---
 //
@@ -507,6 +528,11 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     // <br> is one empty line, where both used to take one line more.
     float yAfterImage = -1.0f;
     float yAfterBreak = -1.0f;
+    // The row of images being filled side by side: its first bitmap, the link rects
+    // added since it started, and its extent
+    size_t imageRowFirst = (size_t)-1;
+    size_t imageRowLinks = 0;
+    float imageRowTop = 0, imageRowBottom = 0, imageRowRight = 0;
 
     // Reserve a common baseline and enough vertical room before retaining
     // any runs. Uniform spacing within this paragraph keeps wrapping and
@@ -646,13 +672,51 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 continue;
 
             case ElementType::Image: {
-                // Break out of inline flow, render image as block
-                if (x > startX) {
-                    y += lineHeight;  // end current line
-                    x = startX;
-                }
+                // Images break out of the text flow onto rows of their own, but
+                // consecutive ones share a row, a space apart and bottom-aligned, as
+                // a README's badges do -- wrapping when the next one does not fit
                 size_t bitmapsBefore = app.layoutBitmaps.size();
-                layoutImage(app, elem, y, startX, maxWidth);
+                float w = 0, h = 0;
+                bool besideRow = imageRowFirst != (size_t)-1 && x == startX && y == yAfterImage &&
+                                 imageDisplaySize(app, elem, maxWidth, w, h) &&
+                                 imageRowRight + spaceWidth + w <= startX + maxWidth;
+                if (besideRow) {
+                    float rowH = imageRowBottom - imageRowTop;
+                    if (h > rowH) {
+                        // A taller image lowers the row's shared bottom edge
+                        float dy = h - rowH;
+                        for (size_t i = imageRowFirst; i < app.layoutBitmaps.size(); i++) {
+                            auto& r = app.layoutBitmaps[i].destRect;
+                            for (size_t j = imageRowLinks; j < app.linkRects.size(); j++) {
+                                auto& link = app.linkRects[j].bounds;
+                                if (link.top == r.top && link.left == r.left) { link.top += dy; link.bottom += dy; }
+                            }
+                            r.top += dy;
+                            r.bottom += dy;
+                        }
+                        imageRowBottom = imageRowTop + h;
+                    }
+                    float left = imageRowRight + spaceWidth;
+                    app.layoutBitmaps.push_back({getOrLoadImage(app, elem->url).bitmap,
+                        tinta::rectF(left, imageRowBottom - h, left + w, imageRowBottom)});
+                    imageRowRight = left + w;
+                    y = imageRowBottom + 12 * (app.contentScale * app.zoomFactor);
+                } else {
+                    if (x > startX) {
+                        y += lineHeight;  // end current line
+                        x = startX;
+                    }
+                    layoutImage(app, elem, y, startX, maxWidth);
+                    imageRowFirst = (size_t)-1;
+                    if (app.layoutBitmaps.size() > bitmapsBefore) {
+                        const auto& r = app.layoutBitmaps.back().destRect;
+                        imageRowFirst = bitmapsBefore;
+                        imageRowLinks = app.linkRects.size();
+                        imageRowTop = r.top;
+                        imageRowBottom = r.bottom;
+                        imageRowRight = r.right;
+                    }
+                }
                 yAfterImage = y;
                 // An image inside a link (a README badge) clicks through like its text would
                 if (isLink && app.layoutBitmaps.size() > bitmapsBefore) {
@@ -758,6 +822,9 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         }
 
         if (text.empty()) continue;
+        // The whitespace between two images is the gap the row already leaves
+        if (x == startX && y == yAfterImage &&
+            text.find_first_not_of(L' ') == std::wstring::npos) continue;
 
         size_t textDocStart = app.docText.size();
         float linkLineStartX = x;
@@ -2667,10 +2734,41 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
     return app.imageCache[src];
 }
 
-static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth) {
+// The size a loaded image draws at within maxWidth; false while it is pending or failed
+static bool imageDisplaySize(App& app, const ElementPtr& elem, float maxWidth,
+                             float& displayW, float& displayH) {
     auto& entry = getOrLoadImage(app, elem->url);
+    if (entry.failed || !entry.bitmap) return false;
 
-    if (entry.failed || !entry.bitmap) {
+    float scale = app.contentScale * app.zoomFactor;
+    float imgW = (float)entry.width;
+    float imgH = (float)entry.height;
+    // HTML width=/height= in CSS px; with one of the two, the other follows the aspect.
+    // This may upscale, as a browser would, unlike an image's own size below.
+    if (imgW > 0 && imgH > 0 && (elem->width > 0 || elem->height > 0)) {
+        float w = elem->width > 0 ? elem->width : elem->height * imgW / imgH;
+        float h = elem->height > 0 ? elem->height : elem->width * imgH / imgW;
+        imgW = w * scale;
+        imgH = h * scale;
+    }
+
+    // Scale to fit within maxWidth, never upscale
+    float displayScale = std::min(1.0f, maxWidth / imgW);
+    displayW = imgW * displayScale;
+    displayH = imgH * displayScale;
+
+    // Cap max height
+    float maxH = 600.0f * scale;
+    if (displayH > maxH) {
+        displayH = maxH;
+        displayW = displayH * (imgW / imgH);
+    }
+    return true;
+}
+
+static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent, float maxWidth) {
+    float displayW = 0, displayH = 0;
+    if (!imageDisplaySize(app, elem, maxWidth, displayW, displayH)) {
         // Render alt text as placeholder
         std::wstring altText = L"[image";
         std::wstring alt;
@@ -2700,30 +2798,7 @@ static void layoutImage(App& app, const ElementPtr& elem, float& y, float indent
     }
 
     float scale = app.contentScale * app.zoomFactor;
-    float imgW = (float)entry.width;
-    float imgH = (float)entry.height;
-    // HTML width=/height= in CSS px; with one of the two, the other follows the aspect.
-    // This may upscale, as a browser would, unlike an image's own size below.
-    if (imgW > 0 && imgH > 0 && (elem->width > 0 || elem->height > 0)) {
-        float w = elem->width > 0 ? elem->width : elem->height * imgW / imgH;
-        float h = elem->height > 0 ? elem->height : elem->width * imgH / imgW;
-        imgW = w * scale;
-        imgH = h * scale;
-    }
-
-    // Scale to fit within maxWidth, never upscale
-    float displayScale = std::min(1.0f, maxWidth / imgW);
-    float displayW = imgW * displayScale;
-    float displayH = imgH * displayScale;
-
-    // Cap max height
-    float maxH = 600.0f * scale;
-    if (displayH > maxH) {
-        displayH = maxH;
-        displayW = displayH * (imgW / imgH);
-    }
-
-    app.layoutBitmaps.push_back({entry.bitmap,
+    app.layoutBitmaps.push_back({getOrLoadImage(app, elem->url).bitmap,
         tinta::rectF(indent, y, indent + displayW, y + displayH)});
 
     y += displayH + 12 * scale;

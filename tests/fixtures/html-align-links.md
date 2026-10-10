@@ -49,4 +49,12 @@ Inline HTML in Markdown: CO<sub>2</sub>, E = mc<sup>2</sup>, <mark>highlighted</
 A fenced block after the list.
 ```
 
+<div align="center">
+  <a href="https://example.com/one"><img src="svg-image-sample.svg" height="20" alt="one"></a>
+  <a href="https://example.com/two"><img src="svg-image-sample.svg" height="20" alt="two"></a>
+  <img src="svg-image-sample.svg" height="40" alt="tall">
+</div>
+
+A Markdown badge row: ![a](svg-image-sample.svg) ![b](svg-image-sample.svg)
+
 All surrounding content renders after the aligned HTML.

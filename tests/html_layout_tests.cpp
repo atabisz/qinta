@@ -138,6 +138,73 @@ void breakCases(App& app, const std::string& where) {
     }
 }
 
+// Consecutive images share a row a space apart, bottom-aligned, wrap when the next does
+// not fit, and an aligned row moves as one
+void imageRowCases(App& app, const std::string& where) {
+    const float scale = app.contentScale * app.zoomFactor;
+    const float space = app.spaceWidthText;
+    auto near = [](float a, float b) { return std::abs(a - b) < 0.5f; };
+
+    layout(app, "![a](svg-image-sample.svg) ![b](svg-image-sample.svg)\n");
+    check(app.layoutBitmaps.size() == 2, where + ": two Markdown images laid out");
+    if (app.layoutBitmaps.size() == 2) {
+        const auto& a = app.layoutBitmaps[0].destRect;
+        const auto& b = app.layoutBitmaps[1].destRect;
+        check(near(a.top, b.top) && near(b.left, a.right + space),
+              where + ": two Markdown images sit side by side, one space apart");
+    }
+
+    layout(app, "<div align=\"center\">\n"
+                "  <a href=\"https://example.com/1\"><img src=\"svg-image-sample.svg\" height=\"20\"></a>\n"
+                "  <img src=\"svg-image-sample.svg\" height=\"40\">\n"
+                "  <img src=\"svg-image-sample.svg\" height=\"20\">\n"
+                "</div>\n");
+    check(app.layoutBitmaps.size() == 3, where + ": badge row laid out");
+    if (app.layoutBitmaps.size() == 3) {
+        const auto& r0 = app.layoutBitmaps[0].destRect;
+        const auto& r1 = app.layoutBitmaps[1].destRect;
+        const auto& r2 = app.layoutBitmaps[2].destRect;
+        check(near(r0.bottom, r1.bottom) && near(r1.bottom, r2.bottom), where + ": row is bottom-aligned");
+        check(near(r1.bottom - r1.top, 40 * scale) && near(r0.bottom - r0.top, 20 * scale),
+              where + ": row keeps each image's own height");
+        check(near(r1.left, r0.right + space) && near(r2.left, r1.right + space), where + ": row is one space apart");
+        bool linkMoved = false;
+        for (const auto& link : app.linkRects)
+            if (link.url == "https://example.com/1" && near(link.bounds.left, r0.left) &&
+                near(link.bounds.top, r0.top) && near(link.bounds.bottom, r0.bottom)) linkMoved = true;
+        check(linkMoved, where + ": a lowered, centered linked image keeps its link rect on it");
+        // Centered as one row: equal margins either side of the whole row
+        layout(app, "# Box\n");
+        float left = 0, right = 0;
+        for (const auto& line : app.layoutLines)
+            if (line.p2.x - line.p1.x > right - left) { left = line.p1.x; right = line.p2.x; }
+        layout(app, "<div align=\"center\">\n"
+                    "  <a href=\"https://example.com/1\"><img src=\"svg-image-sample.svg\" height=\"20\"></a>\n"
+                    "  <img src=\"svg-image-sample.svg\" height=\"40\">\n"
+                    "  <img src=\"svg-image-sample.svg\" height=\"20\">\n"
+                    "</div>\n");
+        const auto& first = app.layoutBitmaps.front().destRect;
+        const auto& last = app.layoutBitmaps.back().destRect;
+        check(std::abs((first.left - left) - (right - last.right)) < 1.5f, where + ": the row is centered as a whole");
+    }
+
+    // Wide images wrap: none crosses the right edge and wrapped rows do not overlap
+    layout(app, "# Box\n");
+    float boxRight = 0;
+    for (const auto& line : app.layoutLines) boxRight = std::max(boxRight, line.p2.x);
+    layout(app, "<p><img src=\"svg-image-sample.svg\" width=\"300\"> <img src=\"svg-image-sample.svg\" width=\"300\"> "
+                "<img src=\"svg-image-sample.svg\" width=\"300\"> <img src=\"svg-image-sample.svg\" width=\"300\"></p>\n");
+    check(app.layoutBitmaps.size() == 4, where + ": four wide images laid out");
+    int rows = 1;
+    for (size_t i = 0; i < app.layoutBitmaps.size(); i++) {
+        const auto& r = app.layoutBitmaps[i].destRect;
+        check(r.right <= boxRight + 0.5f, where + ": a wide image stays inside the box");
+        if (i && r.top >= app.layoutBitmaps[i - 1].destRect.bottom) rows++;
+        else if (i) check(near(r.top, app.layoutBitmaps[i - 1].destRect.top), where + ": same-row images share a top");
+    }
+    check(rows >= 2, where + ": four 300px images wrap onto more than one row (" + std::to_string(rows) + ")");
+}
+
 void fixtureCases(App& app, const std::string& source, const std::string& where) {
     layout(app, source);
     const float scale = app.contentScale * app.zoomFactor;
@@ -201,9 +268,9 @@ void fixtureCases(App& app, const std::string& source, const std::string& where)
           where + ": <sub>/<sup> in an HTML block keep their text");
 
     // The logo (width=80) and the badge (height=28) load and are centered by their own width
-    check(app.layoutBitmaps.size() == 2, where + ": both local images load (" +
+    check(app.layoutBitmaps.size() == 7, where + ": all local images load (" +
           std::to_string(app.layoutBitmaps.size()) + ")");
-    if (app.layoutBitmaps.size() == 2) {
+    if (app.layoutBitmaps.size() == 7) {
         const auto& logo = app.layoutBitmaps[0].destRect;
         check(std::abs((logo.right - logo.left) - 80 * scale) < 0.5f, where + ": width=80 is honoured");
         const auto& badge = app.layoutBitmaps[1].destRect;
@@ -250,6 +317,7 @@ int main(int argc, char** argv) {
                     fixtureCases(app, source, where);
                     imageGapCases(app, where);
                     breakCases(app, where);
+                    imageRowCases(app, where);
                 }
             }
         }

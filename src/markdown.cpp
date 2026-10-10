@@ -1368,7 +1368,8 @@ void parseHtmlIntoElements(const std::string& html, Element* parent, std::vector
             }
             if (pendingSpace) text += ' ';
             bool atLineStart = parent->children.empty() ||
-                               !isInlineElement(parent->children.back()->type);
+                               !isInlineElement(parent->children.back()->type) ||
+                               parent->children.back()->type == ElementType::HardBreak;
             if (!atLineStart && parent->children.back()->type == ElementType::Text) {
                 const std::string& prev = parent->children.back()->text;
                 atLineStart = !prev.empty() && prev.back() == ' ';

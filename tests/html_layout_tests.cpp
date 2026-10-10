@@ -114,6 +114,30 @@ void imageGapCases(App& app, const std::string& where) {
     }
 }
 
+// HTML's line-break rule: a <br> that ends a block adds no line, a lone <br> between
+// blocks is one empty line with no paragraph gap, and a break mid-paragraph is unchanged
+void breakCases(App& app, const std::string& where) {
+    const float scale = app.contentScale * app.zoomFactor;
+    const float lh = app.textFormat->GetFontSize() * 1.7f;
+    auto top = [&](const std::wstring& text) {
+        for (const auto& run : app.layoutTextRuns)
+            if (run.docLength && app.docText.substr(run.docStart, run.docLength) == text) return run.bounds.top;
+        return -1.0f;
+    };
+    struct Case { const char* source; const wchar_t* first; const wchar_t* next; float advance; const char* what; };
+    for (const Case& c : {
+            Case{"First.\n\n<br>\n\nNext.\n", L"First.", L"Next.", lh + 14 * scale + lh, "a lone <br> block is one empty line"},
+            Case{"<p>First.<br></p>\n\nNext.\n", L"First.", L"Next.", lh + 14 * scale, "a trailing <br> adds no line"},
+            Case{"First.\n\n<br>\n<br>\n\nNext.\n", L"First.", L"Next.", lh + 14 * scale + 2 * lh, "two lone <br>s are two lines"},
+            Case{"<p>First.<br><br>Next.</p>\n", L"First.", L"Next.", 2 * lh, "a mid-paragraph double <br> is unchanged"},
+            Case{"First.  \nNext.\n", L"First.", L"Next.", lh, "a Markdown hard break is unchanged"}}) {
+        layout(app, c.source);
+        float a = top(c.first), b = top(c.next);
+        check(a >= 0 && b >= 0 && std::abs((b - a) - c.advance) < 0.5f,
+              where + ": " + c.what + " (advance " + std::to_string(b - a) + " want " + std::to_string(c.advance) + ")");
+    }
+}
+
 void fixtureCases(App& app, const std::string& source, const std::string& where) {
     layout(app, source);
     const float scale = app.contentScale * app.zoomFactor;
@@ -225,6 +249,7 @@ int main(int argc, char** argv) {
                                               std::to_string(scale) + " width " + std::to_string(width);
                     fixtureCases(app, source, where);
                     imageGapCases(app, where);
+                    breakCases(app, where);
                 }
             }
         }

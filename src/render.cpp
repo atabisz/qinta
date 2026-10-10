@@ -502,8 +502,11 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
     rootStyle.isLink = !baseLinkUrl.empty();
     std::vector<StyledRun> runs;
     flattenInline(app, elements, rootStyle, lineHeight, runs);
-    // Where a block image left y, so a paragraph that ends on one adds no empty line
+    // Where a block image or a hard break left y. A paragraph that ends on either adds
+    // no empty line after it: HTML's rule, under which "a<br>" is one line and a lone
+    // <br> is one empty line, where both used to take one line more.
     float yAfterImage = -1.0f;
+    float yAfterBreak = -1.0f;
 
     // Reserve a common baseline and enough vertical room before retaining
     // any runs. Uniform spacing within this paragraph keeps wrapping and
@@ -639,6 +642,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 app.docText += L"\n";
                 x = startX;
                 y += lineHeight;
+                yAfterBreak = y;
                 continue;
 
             case ElementType::Image: {
@@ -967,7 +971,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         }
     }
 
-    if (y == yAfterImage && x == startX) return;
+    if (x == startX && (y == yAfterImage || y == yAfterBreak)) return;
     y += lineHeight;
 }
 
@@ -3159,8 +3163,12 @@ static void layoutElement(App& app, const ElementPtr& elem, float& y, float inde
                     layoutInlineContent(app, inlineBuffer, indent, y, maxWidth,
                                         app.textFormat, app.theme.text);
                     app.docText += L"\n\n";
+                    // Bare <br>s between blocks (a README's spacer) are blank lines,
+                    // not a paragraph, so they take no paragraph gap
+                    bool onlyBreaks = std::all_of(inlineBuffer.begin(), inlineBuffer.end(),
+                        [](const ElementPtr& e) { return e->type == ElementType::HardBreak; });
                     float s = app.contentScale * app.zoomFactor;
-                    y += 14 * s;
+                    if (!onlyBreaks) y += 14 * s;
                     inlineBuffer.clear();
                 }
             };

@@ -247,6 +247,43 @@ void docxCases(App& app) {
     fs::remove_all(dir);
 }
 
+// Inline code sits on the surrounding text's baseline, and its chip wraps the code's own
+// line rather than the 1.7x line box. Both were off on macOS: Menlo 3px low, chip full height.
+void codeSpanCases(App& app, const std::string& where) {
+    auto baselineOf = [](const App::LayoutTextRun& run) {
+        tinta::LineMetrics m{};
+        uint32_t n = 1;
+        run.layout->GetLineMetrics(&m, 1, &n);
+        return run.pos.y + m.baseline;
+    };
+    for (const char* source : {"Text before `code_span` and after.\n", "## Heading with `code_span` inside\n",
+                               "Text with **bold `code_span`** and *italic `code_span`*.\n",
+                               "A [`code_span`](https://example.com) link.\n"}) {
+        layout(app, source);
+        const App::LayoutTextRun* text = nullptr;
+        const App::LayoutTextRun* code = nullptr;
+        for (const auto& run : app.layoutTextRuns) {
+            if (!run.layout || !run.docLength) continue;
+            std::wstring t = app.docText.substr(run.docStart, run.docLength);
+            if (t == L"code_span") code = &run;
+            else if (!text) text = &run;
+        }
+        check(text && code, where + ": text and code runs laid out: " + source);
+        if (!text || !code) continue;
+        check(std::abs(baselineOf(*text) - baselineOf(*code)) < 0.5f,
+              where + ": inline code shares the text baseline (" +
+              std::to_string(baselineOf(*code) - baselineOf(*text)) + "): " + source);
+        const tinta::RectF* chip = nullptr;
+        for (const auto& r : app.layoutRects)
+            if (r.rect.left <= code->bounds.left && r.rect.right >= code->bounds.right &&
+                r.rect.top <= code->pos.y + 0.5f && r.rect.bottom >= baselineOf(*code)) chip = &r.rect;
+        check(chip != nullptr, where + ": the chip covers the code: " + source);
+        if (chip)
+            check(chip->bottom - chip->top < (code->bounds.bottom - code->bounds.top) - 0.5f,
+                  where + ": the chip is shorter than the line box: " + source);
+    }
+}
+
 void fixtureCases(App& app, const std::string& source, const std::string& where) {
     layout(app, source);
     const float scale = app.contentScale * app.zoomFactor;
@@ -361,6 +398,7 @@ int main(int argc, char** argv) {
                     imageGapCases(app, where);
                     breakCases(app, where);
                     imageRowCases(app, where);
+                    codeSpanCases(app, where);
                 }
             }
         }

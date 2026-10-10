@@ -577,6 +577,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 break;
 
             case ElementType::Code: {
+                tinta::TextFormat* surroundFormat = format ? format : baseFormat;
                 format = inlineCodeFormat(app, run.style.bold, run.style.italic);
                 if (!isLink) color = themeInlineCodeColor(app.theme);
                 for (const auto& child : elem->children) {
@@ -594,13 +595,22 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                     y += lineHeight;
                 }
 
-                app.layoutRects.push_back({tinta::rectF(x - 2, y + mathTextOffset,
-                                                      x + textWidth + kCodeSpanPadding,
-                                                      y + mathTextOffset + normalLineHeight),
-                                           app.theme.codeBackground});
+                // The code sits on the surrounding text's baseline, measured through
+                // the backend. It was centred in the 1.7x line box from an assumed
+                // 1.2x font height, which matched Segoe UI and Consolas but put Menlo
+                // 3px below Helvetica Neue on macOS. The chip wraps the code's own
+                // line rather than the whole line box.
+                float verticalOffset = drawYOffset + textBaseline(app, surroundFormat) -
+                                       textBaseline(app, format);
+                float chipPad = format->GetFontSize() * 0.12f;
+                float lineTop = y + mathTextOffset;
+                app.layoutRects.push_back({tinta::rectF(x - 2,
+                        std::max(lineTop, y + verticalOffset - chipPad),
+                        x + textWidth + kCodeSpanPadding,
+                        std::min(lineTop + normalLineHeight,
+                                 y + verticalOffset + info.height + chipPad)),
+                    app.theme.codeBackground});
 
-                float codeFontHeight = format->GetFontSize() * 1.2f;
-                float verticalOffset = mathTextOffset + (normalLineHeight - codeFontHeight) / 2.0f;
                 tinta::PointF pos = tinta::pointF(x, y + verticalOffset);
                 tinta::RectF bounds = tinta::rectF(x, y, x + textWidth, y + lineHeight);
                 addTextRun(app, std::move(info), pos, bounds, color,

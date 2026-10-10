@@ -760,6 +760,7 @@ struct ParaProps {
     std::string borderColor;  // left border (quotes, alerts)
     int indentTwips = 0;
     bool center = false;
+    bool right = false;
     std::string extraRunProps;  // colored quote text etc.
 };
 
@@ -782,11 +783,18 @@ std::string paraPropsXml(const ParaProps& props) {
                "\"/>";
     }
     if (props.center) xml += "<w:jc w:val=\"center\"/>";
+    else if (props.right) xml += "<w:jc w:val=\"right\"/>";
     return xml.empty() ? "" : "<w:pPr>" + xml + "</w:pPr>";
 }
 
 void walkBlocks(DocxCtx& ctx, const ElementPtr& elem, ParaProps props,
                 int listDepth);
+
+// align= from an HTML paragraph or heading
+void alignProps(const ElementPtr& elem, ParaProps& props) {
+    if (elem->align == 2) props.center = true;
+    else if (elem->align == 3) props.right = true;
+}
 
 // Inline content of one paragraph into `out`
 void walkInline(DocxCtx& ctx, const ElementPtr& elem, RunProps props,
@@ -890,10 +898,12 @@ void walkInline(DocxCtx& ctx, const ElementPtr& elem, RunProps props,
             int width = 0, height = 0;
             std::string extension;
             if (!remote) {
-                std::wstring widePath = toWide(src);
-                if (widePath.size() < 2 || widePath[1] != L':') {
-                    widePath = ctx.baseDir + L"\\" + widePath;
-                }
+                // fs::path rather than a "\\" join and a drive-letter test,
+                // which only ever resolved on Windows
+                std::filesystem::path imagePath(toWide(src));
+                if (imagePath.is_relative() && !ctx.baseDir.empty())
+                    imagePath = std::filesystem::path(ctx.baseDir) / imagePath;
+                std::wstring widePath = imagePath.wstring();
                 size_t dot = src.find_last_of('.');
                 if (dot != std::string::npos) {
                     extension = src.substr(dot + 1);
@@ -907,8 +917,16 @@ void walkInline(DocxCtx& ctx, const ElementPtr& elem, RunProps props,
                     readBinaryFile(widePath, data) &&
                     imageDimensions(data, width, height)) {
                     int rel = addImageRel(ctx, extension, data);
+                    // HTML width=/height= (CSS px), the other side following the aspect
+                    float w = (float)width, h = (float)height;
+                    if (w > 0 && h > 0 && (elem->width > 0 || elem->height > 0)) {
+                        float sw = elem->width > 0 ? elem->width : elem->height * w / h;
+                        float sh = elem->height > 0 ? elem->height : elem->width * h / w;
+                        w = sw;
+                        h = sh;
+                    }
                     long long cx, cy;
-                    fitEmu((float)width, (float)height, cx, cy);
+                    fitEmu(w, h, cx, cy);
                     out += "<w:r>" + drawingXml(ctx, rel, cx, cy) + "</w:r>";
                     break;
                 }
@@ -1058,13 +1076,17 @@ void walkBlocks(DocxCtx& ctx, const ElementPtr& elem, ParaProps props,
             break;
         case ElementType::Properties:
             break;
-        case ElementType::Paragraph:
-            emitParagraph(ctx, elem, props);
+        case ElementType::Paragraph: {
+            ParaProps para = props;
+            alignProps(elem, para);
+            emitParagraph(ctx, elem, para);
             break;
+        }
         case ElementType::Heading: {
             int level = std::max(1, std::min(6, elem->level));
             ParaProps heading = props;
             heading.styleId = "Heading" + std::to_string(level);
+            alignProps(elem, heading);
             emitParagraph(ctx, elem, heading);
             break;
         }

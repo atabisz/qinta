@@ -7,6 +7,12 @@
 #include "qt_test_app.h"
 #include "theme_apply.h"
 #include "render.h"
+#include "export.h"
+
+#include <QDateTime>
+#include <QImage>
+#include <filesystem>
+#include <sstream>
 
 #include <algorithm>
 #include <cmath>
@@ -205,6 +211,42 @@ void imageRowCases(App& app, const std::string& where) {
     check(rows >= 2, where + ": four 300px images wrap onto more than one row (" + std::to_string(rows) + ")");
 }
 
+// DOCX carries the same alignment and <img> size, and embeds a relative image off
+// Windows too (it was joined with "\\"). The zip is stored, so document.xml is searchable.
+void docxCases(App& app) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() /
+        ("qinta-docx-" + std::to_string(QDateTime::currentMSecsSinceEpoch()));
+    fs::create_directories(dir);
+    QImage(40, 20, QImage::Format_RGB32).save(QString::fromStdWString((dir / L"logo.png").wstring()));
+    auto doc = app.parser.parse(
+        "<div align=\"center\">\n  <img src=\"logo.png\" width=\"80\">\n  <h1>Centered</h1>\n</div>\n\n"
+        "<p align=\"right\">Right.</p>\n\nPlain.\n");
+    std::shared_ptr<Element> savedRoot = app.root;
+    std::string savedFile = app.currentFile;
+    app.root = doc.root;
+    app.currentFile = (dir / L"readme.md").u8string();
+    const fs::path out = dir / L"readme.docx";
+    check(exportDocxFile(app, out.wstring()), "the aligned document exports to DOCX");
+    std::ifstream in(out, std::ios::binary);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    const std::string bytes = ss.str();
+    auto count = [&](const std::string& needle) {
+        size_t n = 0;
+        for (size_t at = bytes.find(needle); at != std::string::npos; at = bytes.find(needle, at + 1)) n++;
+        return n;
+    };
+    check(count("<w:jc w:val=\"center\"/>") >= 2, "DOCX centers the image paragraph and the heading (" +
+          std::to_string(count("<w:jc w:val=\"center\"/>")) + ")");
+    check(count("<w:jc w:val=\"right\"/>") == 1, "DOCX right-aligns the right paragraph");
+    check(bytes.find("word/media/") != std::string::npos, "DOCX embeds the relative image");
+    check(bytes.find("cx=\"762000\"") != std::string::npos, "DOCX sizes the image at width=80 (762000 EMU)");
+    app.root = savedRoot;
+    app.currentFile = savedFile;
+    fs::remove_all(dir);
+}
+
 void fixtureCases(App& app, const std::string& source, const std::string& where) {
     layout(app, source);
     const float scale = app.contentScale * app.zoomFactor;
@@ -303,6 +345,7 @@ int main(int argc, char** argv) {
         if (!QtTestApp::install(app)) return 2;
         app.currentFile = TINTA_HTML_FIXTURE;  // images resolve beside the document
         parserCases(app);
+        docxCases(app);
         app.height = 900;
         app.readingWidthPct = 100;
         for (int theme : {0, 5}) {

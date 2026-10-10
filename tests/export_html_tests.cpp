@@ -228,6 +228,45 @@ int main() {
     checkContains(html, "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e",
                   "CJK text survives as UTF-8");
 
+    // --- HTML blocks: align=, <img> size and a relative image ------------------
+    // The viewer honours <div align>, <p align> and <img width/height>; the export must
+    // carry the same, and a relative image must embed on every platform -- it was
+    // joined with "\\" and so only ever resolved on Windows.
+    {
+        const fs::path imageFile = probeDir / L"logo.png";
+        {
+            // Eight bytes of PNG signature: readBinary only has to find the file
+            std::ofstream png(imageFile, std::ios::binary);
+            png << "\x89PNG\r\n\x1a\n";
+        }
+        auto htmlDoc = parseDocument(parser,
+            "<div align=\"center\">\n"
+            "  <img src=\"logo.png\" width=\"80\" alt=\"Logo\">\n"
+            "  <h1>Centered</h1>\n"
+            "  <p>Water is H<sub>2</sub>O.</p>\n"
+            "</div>\n"
+            "\n"
+            "<p align=\"right\">Right.</p>\n"
+            "\n"
+            "Plain.\n", "readme.md");
+        App htmlApp;
+        htmlApp.root = htmlDoc.root;
+        htmlApp.currentFile = (probeDir / L"readme.md").u8string();
+        const fs::path htmlOut = probeDir / L"aligned.html";
+        check(exportHtmlFile(htmlApp, htmlOut.wstring()), "the aligned document exports");
+        std::ifstream in(htmlOut, std::ios::binary);
+        std::ostringstream ss;
+        ss << in.rdbuf();
+        const std::string out = ss.str();
+        checkContains(out, "<h1 style=\"text-align:center\">Centered</h1>", "a centered heading keeps its alignment");
+        checkContains(out, "<p style=\"text-align:center\">Water is H<sub>2</sub>O.</p>",
+                      "a centered paragraph keeps its alignment and its <sub>");
+        checkContains(out, "<p style=\"text-align:right\">Right.</p>", "a right-aligned paragraph keeps its alignment");
+        checkContains(out, "<p>Plain.</p>", "Markdown after the div is not aligned");
+        checkContains(out, "src=\"data:image/png;base64,", "a relative image beside the document is embedded");
+        checkContains(out, "alt=\"Logo\" width=\"80\"/>", "an <img> keeps its width");
+    }
+
     // --- the empty-title case -----------------------------------------------
     app.currentFile.clear();
     const fs::path untitled = probeDir / L"untitled.html";

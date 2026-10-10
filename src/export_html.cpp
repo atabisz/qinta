@@ -1052,15 +1052,23 @@ void walkChildren(ExportCtx& ctx, const ElementPtr& elem) {
     for (const auto& child : elem->children) walk(ctx, child);
 }
 
+// align= from an HTML paragraph or heading, as an inline style the export keeps
+std::string alignStyle(const ElementPtr& elem) {
+    if (elem->align == 2) return " style=\"text-align:center\"";
+    if (elem->align == 3) return " style=\"text-align:right\"";
+    return {};
+}
+
 void emitImage(ExportCtx& ctx, const ElementPtr& elem) {
     std::string src = elem->url;
     bool remote = src.rfind("http://", 0) == 0 || src.rfind("https://", 0) == 0;
     if (!remote) {
-        std::wstring widePath = toWide(src);
-        // Resolve relative to the document folder
-        if (widePath.size() < 2 || widePath[1] != L':') {
-            widePath = ctx.baseDir + L"\\" + widePath;
-        }
+        // Resolve relative to the document folder. fs::path rather than a "\\" join
+        // and a drive-letter test, which only ever resolved on Windows
+        std::filesystem::path imagePath(toWide(src));
+        if (imagePath.is_relative() && !ctx.baseDir.empty())
+            imagePath = std::filesystem::path(ctx.baseDir) / imagePath;
+        std::wstring widePath = imagePath.wstring();
         std::string data;
         const char* mime = mimeForPath(src);
         if (mime && readBinary(widePath, data)) {
@@ -1071,8 +1079,12 @@ void emitImage(ExportCtx& ctx, const ElementPtr& elem) {
     for (const auto& child : elem->children) {
         if (child->type == ElementType::Text) alt += child->text;
     }
-    ctx.out += "<img src=\"" + htmlEscape(src) + "\" alt=\"" +
-               htmlEscape(alt) + "\"/>";
+    ctx.out += "<img src=\"" + htmlEscape(src) + "\" alt=\"" + htmlEscape(alt) + "\"";
+    // HTML width=/height= as the viewer honours them, in CSS px
+    auto px = [](float v) { return std::to_string((int)std::lround(v)); };
+    if (elem->width > 0) ctx.out += " width=\"" + px(elem->width) + "\"";
+    if (elem->height > 0) ctx.out += " height=\"" + px(elem->height) + "\"";
+    ctx.out += "/>";
 }
 
 void emitMath(ExportCtx& ctx, const ElementPtr& elem, bool display) {
@@ -1105,13 +1117,13 @@ void walk(ExportCtx& ctx, const ElementPtr& elem) {
         case ElementType::Properties:
             break;  // frontmatter stays out of the export, like print
         case ElementType::Paragraph:
-            ctx.out += "<p>";
+            ctx.out += "<p" + alignStyle(elem) + ">";
             walkChildren(ctx, elem);
             ctx.out += "</p>\n";
             break;
         case ElementType::Heading: {
             int level = std::max(1, std::min(6, elem->level));
-            ctx.out += "<h" + std::to_string(level) + ">";
+            ctx.out += "<h" + std::to_string(level) + alignStyle(elem) + ">";
             walkChildren(ctx, elem);
             ctx.out += "</h" + std::to_string(level) + ">\n";
             break;

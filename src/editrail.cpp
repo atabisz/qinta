@@ -46,7 +46,7 @@ static tinta::Color railA(tinta::Color c, float a) {
 // borrow are different types, so the distinction stops depending on a comment.
 static std::unique_ptr<tinta::TextLayout> railLayout(
         App& app, const std::wstring& text, float sizeDip,
-        tinta::FontWeight weight, const wchar_t* family = L"Segoe UI",
+        tinta::FontWeight weight, const wchar_t* family = kDefaultFont,
         tinta::FontStyle style = tinta::FontStyle::Normal) {
     std::unique_ptr<tinta::TextFormat> fmt = app.textFactory->CreateTextFormat(
         family, weight, style, tinta::FontStretch::Normal, dpi(app, sizeDip),
@@ -109,36 +109,36 @@ struct RailBtn {
 
 static const RailBtn kTextBtns[] = {
     {1, L"B", 13.0f, tinta::FontWeight::Bold, tinta::FontStyle::Normal,
-     L"Segoe UI", false, "rail.bold", L"Ctrl+B"},
+     kDefaultFont, false, "rail.bold", L"Ctrl+B"},
     {2, L"I", 13.0f, tinta::FontWeight::Normal, tinta::FontStyle::Italic,
      L"Georgia", false, "rail.italic", L"Ctrl+I"},
     {3, L"S", 13.0f, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
-     L"Segoe UI", true, "rail.strike", L""},
+     kDefaultFont, true, "rail.strike", L""},
     {4, L"</>", 10.5f, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
-     L"Consolas", false, "rail.code", L""},
+     kDefaultCodeFont, false, "rail.code", L""},
     {5, L"\U0001F517", 12.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.link", L"Ctrl+K"},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.link", L"Ctrl+K"},
 };
 static const RailBtn kBlockBtns[] = {
     {10, L"\u2022\u2261", 12.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.bullets", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.bullets", L""},
     {11, L"\u2611", 13.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.tasks", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.tasks", L""},
     {12, L"\u275D", 13.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.quote", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.quote", L""},
 };
 static const RailBtn kInsertBtns[] = {
     {20, L"\u229E", 13.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.table", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.table", L""},
     {21, L"\u25C8", 13.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.diagram", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.diagram", L""},
     {22, L"\U0001F5BC", 12.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.image", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.image", L""},
 };
 // Foot: pandoc export, shown only when an executable was found
 static const RailBtn kFootBtns[] = {
     {23, L"\u2912", 13.0f, tinta::FontWeight::Normal,
-     tinta::FontStyle::Normal, L"Segoe UI", false, "rail.export", L""},
+     tinta::FontStyle::Normal, kDefaultFont, false, "rail.export", L""},
 };
 
 static const RailBtn* railBtnById(int id) {
@@ -565,7 +565,7 @@ void renderEditCtxMenu(App& app) {
         if (it.icon[0]) {
             railGlyph(app, it.icon, it.id == 113 ? 9.5f : 12.0f,
                       tinta::FontWeight::Normal, tinta::FontStyle::Normal,
-                      it.id == 113 ? L"Consolas" : L"Segoe UI",
+                      it.id == 113 ? kDefaultCodeFont : kDefaultFont,
                       tinta::rectF(r.left + dpi(app, 6.0f), r.top,
                                   r.left + dpi(app, 28.0f), r.bottom),
                       railA(accent, alpha));
@@ -584,7 +584,7 @@ void renderEditCtxMenu(App& app) {
         if (it.hint[0]) {
             std::unique_ptr<tinta::TextLayout> hl =
                 railLayout(app, it.hint, 11.0f, tinta::FontWeight::Normal,
-                           L"Consolas");
+                           kDefaultCodeFont);
             if (hl) {
                 tinta::TextMetrics m{};
                 hl->GetMetrics(&m);
@@ -649,7 +649,7 @@ void renderEditCtxMenu(App& app) {
             }
             railGlyph(app, kEDiag[i].icon, 12.0f,
                       tinta::FontWeight::Normal, tinta::FontStyle::Normal,
-                      L"Segoe UI",
+                      kDefaultFont,
                       tinta::rectF(r.left + dpi(app, 6.0f), r.top,
                                   r.left + dpi(app, 28.0f), r.bottom),
                       accent);
@@ -665,7 +665,7 @@ void renderEditCtxMenu(App& app) {
             }
             std::unique_ptr<tinta::TextLayout> hint =
                 railLayout(app, kEDiag[i].hint, 10.5f,
-                           tinta::FontWeight::Normal, L"Consolas");
+                           tinta::FontWeight::Normal, kDefaultCodeFont);
             if (hint) {
                 tinta::TextMetrics m{};
                 hint->GetMetrics(&m);
@@ -726,7 +726,7 @@ void renderEditCtxMenu(App& app) {
             }
             std::unique_ptr<tinta::TextLayout> hint =
                 railLayout(app, pandocFormatExt(i), 10.5f,
-                           tinta::FontWeight::Normal, L"Consolas");
+                           tinta::FontWeight::Normal, kDefaultCodeFont);
             if (hint) {
                 tinta::TextMetrics m{};
                 hint->GetMetrics(&m);

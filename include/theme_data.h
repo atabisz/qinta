@@ -50,17 +50,25 @@
 // here rather than file-local to src/themes.cpp so tests/theme_data_tests.cpp
 // can assert against the same source of truth instead of duplicating the
 // platform conditional with its own literal, which would silently drift.
-// Scope: only the body/heading default, which is uniform across all ten
-// built-in themes. The per-theme monospace choices (Consolas / Cascadia Code /
-// Cascadia Mono, in themes.cpp and in src/editrail.cpp, src/text_formats_app.cpp,
-// src/overlays.cpp) are a deliberate Windows aesthetic distinction, not a
-// uniform default, and are NOT covered here -- see src/themes.cpp's top comment.
+// The same rule covers the chrome: every site that pinned "Segoe UI" for UI text
+// takes kDefaultFont / kDefaultFontLight, and every site that pinned "Consolas"
+// takes kDefaultCodeFont, so no family Qt has to alias is named on startup.
+//
+// The monospace default is kDefaultCodeFont, and the per-theme choices go through
+// platformCodeFont() below rather than being replaced by it. Consolas / Cascadia
+// Code / Cascadia Mono are a deliberate Windows distinction between themes, so
+// Windows keeps them; none of the three ships with macOS or a stock Linux, which
+// is where the alias cost came back after the body fix -- measured 2026-10-10 on
+// macOS 26.6.2: "Populating font family aliases took 35 ms ... missing font
+// family "Cascadia Code"", from Midnight, the default theme's code face.
 #if defined(_WIN32)
 inline constexpr const wchar_t* kDefaultFont = L"Segoe UI";
 inline constexpr const wchar_t* kDefaultFontLight = L"Segoe UI Light";
+inline constexpr const wchar_t* kDefaultCodeFont = L"Consolas";
 #elif defined(__APPLE__)
 inline constexpr const wchar_t* kDefaultFont = L"Helvetica Neue";
 inline constexpr const wchar_t* kDefaultFontLight = L"Helvetica Neue Light";
+inline constexpr const wchar_t* kDefaultCodeFont = L"Menlo";
 #else
 // [DEFERRED-VERIFY]: not measured against a real Linux host -- this session
 // has none to probe. DejaVu Sans ships with the core fontconfig packages on
@@ -69,7 +77,22 @@ inline constexpr const wchar_t* kDefaultFontLight = L"Helvetica Neue Light";
 // Light-weight family, so kDefaultFontLight reuses the same name.
 inline constexpr const wchar_t* kDefaultFont = L"DejaVu Sans";
 inline constexpr const wchar_t* kDefaultFontLight = L"DejaVu Sans";
+// [DEFERRED-VERIFY], for the same reason: DejaVu Sans Mono ships in the same
+// package as DejaVu Sans.
+inline constexpr const wchar_t* kDefaultCodeFont = L"DejaVu Sans Mono";
 #endif
+
+// A built-in theme's code face: the named Windows face on Windows, the platform
+// monospace everywhere else. A theme file's codefont= is the user's choice and does
+// not go through this -- only the families the tree itself names.
+inline constexpr const wchar_t* platformCodeFont(const wchar_t* windowsFace) {
+#if defined(_WIN32)
+    return windowsFace;
+#else
+    (void)windowsFace;
+    return kDefaultCodeFont;
+#endif
+}
 
 // Theme colors
 struct D2DTheme {

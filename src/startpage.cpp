@@ -250,7 +250,7 @@ static std::unique_ptr<tinta::TextLayout> spLayout(App& app,
                                                    bool ellipsis = false,
                                                    float trackingDip = 0.0f) {
     std::unique_ptr<tinta::TextFormat> fmt = app.textFactory->CreateTextFormat(
-        L"Segoe UI", weight, tinta::FontStyle::Normal, tinta::FontStretch::Normal,
+        kDefaultFont, weight, tinta::FontStyle::Normal, tinta::FontStretch::Normal,
         dpi(app, sizeDip), L"en-us");
     if (!fmt) return nullptr;
     if (!wrap) fmt->SetWordWrapping(tinta::WordWrapping::NoWrap);

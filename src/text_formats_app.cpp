@@ -274,25 +274,26 @@ void installChromeFormats(App& app) {
     // scale further down, because editor text IS document text. Getting the two the wrong way
     // round would make chrome grow with Ctrl+= and look like a feature.
     const float scale = app.contentScale;
-    const wchar_t* segoe = L"Segoe UI";
+    const wchar_t* uiFont = kDefaultFont;
 
     using W = tinta::FontWeight;
     using S = tinta::FontStyle;
 
-    // THE FAMILY LITERALS ARE A KNOWN DIVERGENCE OFF WINDOWS and they are copied verbatim
-    // anyway: neither Segoe UI nor Consolas exists on a stock Linux box, so Qt substitutes.
-    // A different family here would make the two stacks disagree on purpose, and the
-    // substitution is Qt's job -- it already happens for the document formats, whose theme
-    // families are equally Windows-flavoured.
+    // The chrome families are the platform defaults from theme_data.h, which are Segoe UI and
+    // Consolas on Windows. These used to be those literals on every platform, on the argument
+    // that a different family would make the Direct2D and Qt stacks disagree on purpose and
+    // that substitution was Qt's job. Both halves went with the Direct2D stack: there is one
+    // stack, and Qt's substitution for a missing family costs an alias-table build on first
+    // use (theme_data.h has the measurement).
     app.searchTextFormat = makeFormat(app, app.searchTextFormatStorage,
                                       app.theme.fontFamily, W::Normal, S::Normal,
                                       16.0f * scale);
-    app.signalSmallFormat = makeFormat(app, app.signalSmallFormatStorage, segoe,
+    app.signalSmallFormat = makeFormat(app, app.signalSmallFormatStorage, uiFont,
                                        W::SemiBold, S::Normal, 10.0f * scale);
     app.themeTitleFormat = makeFormat(app, app.themeTitleFormatStorage,
-                                      L"Segoe UI Light", W::Light, S::Normal,
+                                      kDefaultFontLight, W::Light, S::Normal,
                                       28.0f * scale);
-    app.themeHeaderFormat = makeFormat(app, app.themeHeaderFormatStorage, segoe,
+    app.themeHeaderFormat = makeFormat(app, app.themeHeaderFormatStorage, uiFont,
                                        W::SemiBold, S::Normal, 11.0f * scale);
 
     // The theme's CODE face, not its body face -- the stats line shows counts in the same
@@ -302,15 +303,15 @@ void installChromeFormats(App& app) {
     app.statsFormat = makeFormat(app, app.statsFormatStorage, app.theme.codeFontFamily,
                                  W::Normal, S::Normal, 13.0f * scale);
 
-    app.folderBrowserFormat = makeFormat(app, app.folderBrowserFormatStorage, segoe,
+    app.folderBrowserFormat = makeFormat(app, app.folderBrowserFormatStorage, uiFont,
                                          W::Normal, S::Normal, 13.0f * scale);
     configureTrimmedRow(app, app.folderBrowserFormat);
 
     // Bold at 13, plain at 12 -- the SIZES differ as well as the weights, which was easy to
     // miss in the Windows original where the two calls were adjacent.
-    app.tocFormatBold = makeFormat(app, app.tocFormatBoldStorage, segoe, W::Bold,
+    app.tocFormatBold = makeFormat(app, app.tocFormatBoldStorage, uiFont, W::Bold,
                                    S::Normal, 13.0f * scale);
-    app.tocFormat = makeFormat(app, app.tocFormatStorage, segoe, W::Normal, S::Normal,
+    app.tocFormat = makeFormat(app, app.tocFormatStorage, uiFont, W::Normal, S::Normal,
                                12.0f * scale);
     configureTrimmedRow(app, app.tocFormatBold);
     configureTrimmedRow(app, app.tocFormat);
@@ -368,11 +369,11 @@ void installChromeFormats(App& app) {
                                              editorLineHeight, editorBaseline);
     }
 
-    // 9.5 DIP Consolas, right-aligned against the gutter's inner edge, vertically centred in
+    // 9.5 DIP kDefaultCodeFont (Consolas on Windows), right-aligned against the gutter's inner edge, vertically centred in
     // its row. The gutter is the one chrome format that pins a family rather than taking one
     // from the theme, and it is on the EDITOR scale because it has to line up with the rows
     // it numbers.
-    app.editorGutterFormat = makeFormat(app, app.editorGutterFormatStorage, L"Consolas",
+    app.editorGutterFormat = makeFormat(app, app.editorGutterFormatStorage, kDefaultCodeFont,
                                         W::Normal, S::Normal, 9.5f * editorScale);
     if (app.editorGutterFormat) {
         app.editorGutterFormat->SetTextAlignment(tinta::TextAlignment::Trailing);

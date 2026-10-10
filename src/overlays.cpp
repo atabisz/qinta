@@ -2591,11 +2591,11 @@ void renderPrintPreview(App& app) {
     // consumer untouched -- and .get() on a null unique_ptr is null, so the
     // `if (uiFmt)` tests below keep their exact previous meaning.
     auto uiFmtStorage = app.textFactory
-        ? app.textFactory->CreateTextFormat(L"Segoe UI", tinta::FontWeight::Normal,
+        ? app.textFactory->CreateTextFormat(kDefaultFont, tinta::FontWeight::Normal,
               tinta::FontStyle::Normal, tinta::FontStretch::Normal, 13.0f * ui, L"en-us")
         : nullptr;
     auto btnFmtStorage = app.textFactory
-        ? app.textFactory->CreateTextFormat(L"Segoe UI", tinta::FontWeight::SemiBold,
+        ? app.textFactory->CreateTextFormat(kDefaultFont, tinta::FontWeight::SemiBold,
               tinta::FontStyle::Normal, tinta::FontStretch::Normal, 13.0f * ui, L"en-us")
         : nullptr;
     tinta::TextFormat* uiFmt = uiFmtStorage.get();
@@ -4001,7 +4001,7 @@ void renderThemeEditor(App& app) {
             tinta::roundedRect(spec, dpi(app, 8.0f), dpi(app, 8.0f)), app.brush, 1.0f);
 
         const wchar_t* fam = app.themeEditorFont.empty()
-            ? L"Segoe UI" : app.themeEditorFont.c_str();
+            ? kDefaultFont : app.themeEditorFont.c_str();
         // Owning handles rather than three Release calls: the seam returns the owner,
         // and it frees the backend object when this block exits. Same borrowed/owned
         // split as the print-preview block -- `h`, `b` and `m` keep their raw spelling
@@ -4017,7 +4017,7 @@ void renderThemeEditor(App& app) {
                   dpi(app, 13.5f), L"en-us")
             : nullptr;
         auto mStorage = app.textFactory
-            ? app.textFactory->CreateTextFormat(L"Consolas", tinta::FontWeight::Normal,
+            ? app.textFactory->CreateTextFormat(kDefaultCodeFont, tinta::FontWeight::Normal,
                   tinta::FontStyle::Normal, tinta::FontStretch::Normal,
                   dpi(app, 12.5f), L"en-us")
             : nullptr;

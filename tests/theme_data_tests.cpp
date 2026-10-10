@@ -135,6 +135,25 @@ int main() {
     check(std::wcscmp(THEMES[9].fontFamily, kDefaultFontLight) == 0,
           "...and is distinct from that theme's main font, so the test can tell them apart");
 
+    // --- code faces per platform (platformCodeFont) -------------------------
+    //
+    // Off Windows no built-in may name Consolas or Cascadia: Qt aliases a missing
+    // family on first lookup and logs the cost (theme_data.h). On Windows the themes
+    // keep their distinct faces, so the mapping must not have flattened them.
+#if defined(_WIN32)
+    check(std::wcscmp(THEMES[0].codeFontFamily, L"Consolas") == 0,
+          "Paper keeps Consolas on Windows");
+    check(std::wcscmp(THEMES[5].codeFontFamily, L"Cascadia Code") == 0,
+          "Midnight keeps Cascadia Code on Windows");
+    check(std::wcscmp(THEMES[9].codeFontFamily, L"Cascadia Mono") == 0,
+          "Abyss keeps Cascadia Mono on Windows");
+#else
+    for (int i = 0; i < THEME_COUNT; i++) {
+        check(std::wcscmp(THEMES[i].codeFontFamily, kDefaultCodeFont) == 0,
+              "every built-in code face is kDefaultCodeFont off Windows");
+    }
+#endif
+
     // --- themeInlineCodeColor (#197) ----------------------------------------
     check(!THEMES[0].inlineCode.has_value(), "no built-in sets an inlineCode override");
     checkNear(themeInlineCodeColor(THEMES[0]).r, THEMES[0].code.r,
@@ -235,6 +254,8 @@ int main() {
     checkNear(minimal.text.r, THEMES[0].text.r, "an omitted colour falls back to Paper's");
     check(std::wcscmp(minimal.fontFamily, kDefaultFont) == 0,
           "an omitted font= falls back to the platform default font");
+    check(std::wcscmp(minimal.codeFontFamily, kDefaultCodeFont) == 0,
+          "an omitted codefont= falls back to the platform default code font");
     check(minimal.inlineCode.has_value(), "inlinecode= is read for a hand-authored theme");
 
     // A section with no name= is not a theme and must be dropped, not registered

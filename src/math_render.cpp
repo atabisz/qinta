@@ -89,7 +89,7 @@ std::wstring g_mathFontFamily;
 // caches nothing of its own.
 const wchar_t* mathFontFamily(App& app) {
     if (g_mathFontFamily.empty()) {
-        g_mathFontFamily = app.theme.fontFamily ? app.theme.fontFamily : L"Segoe UI";
+        g_mathFontFamily = app.theme.fontFamily ? app.theme.fontFamily : kDefaultFont;
         // Cambria Math when it is installed, the theme font when it is not. The probe
         // used to be a DirectWrite font-collection lookup inline here; it is the one
         // question in this file the text seam could not answer, and the seam grew a

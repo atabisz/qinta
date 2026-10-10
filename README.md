@@ -1734,7 +1734,7 @@ basis below is measured — Windows and Linux each built and tested in the same 
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,008 / 64,956 | **81.6%** |
+| A. Source lines free of the Windows stack | 53,011 / 64,982 | **81.6%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
 | C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
 | D. Test targets that *could* move, and do | 50 / 51 | 98.0% |
@@ -2252,8 +2252,8 @@ be demonstrated.
 The understatement is now measured rather than asserted. The probe's numerator sums only
 the `src/*.cpp` files the manifest lists, while its denominator counts every `.cpp` *and
 `.h`* under `src/` and `include/` — so a header line is in the denominator permanently and
-can never enter the numerator. With `src/*.cpp` totalling 53,311 lines of the 64,956,
-**basis A's ceiling is 82.1%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
+can never enter the numerator. With `src/*.cpp` totalling 53,314 lines of the 64,982,
+**basis A's ceiling is 82.0%, not 100%**, and 72.9% should be read against that. **AND THE MOVE THAT
 TOOK THE CEILING FROM 84.4% TO 84.3% IS THE FIRST ONE THIS PAGE DID NOT NOTICE ON ITS OWN, BECAUSE
 `ctest` NOTICED IT INSTEAD.** A per-platform default font landed in the theme system — 31 lines into
 `include/theme_data.h` and a net 4 into `src/themes.cpp` — so the numerator rose **4** against a

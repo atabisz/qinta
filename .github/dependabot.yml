@@ -1,0 +1,12 @@
+# Keeps the actions in .github/workflows current. GitHub Actions is the only ecosystem here
+# Dependabot can read: md4c arrives through CMake FetchContent and Qt from each runner's
+# installer, neither of which it parses.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

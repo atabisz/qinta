@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Qinta
+Comment=Markdown and Mermaid viewer and editor
+Exec=qinta %f
+Icon=qinta
+Terminal=false
+Categories=Office;TextEditor;
+MimeType=text/markdown;text/x-markdown;

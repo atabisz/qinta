@@ -1,12 +1,12 @@
 # Builds every target and runs the whole ctest suite on Windows, macOS and Linux, then
 # uploads the binaries as workflow artifacts.
 #
-# THE ARTIFACTS ARE NOT RELEASES. Only the Windows one is self-contained: windeployqt copies
-# the Qt DLLs beside qinta.exe, and the Stage step copies the VC++ runtime DLLs beside them, so
-# the folder runs on a Windows 10 or 11 install with no redistributable (the UCRT ships with the
-# OS). The macOS and Linux binaries link against the Qt the runner
-# installed, so they run only where the same Qt is installed -- packaging them as an .app
-# bundle and an AppImage is the release job's work, not this one's.
+# THE ARTIFACTS ARE PACKAGES, NOT YET RELEASES: nothing here tags or publishes. Each one is
+# self-contained. Windows: windeployqt copies the Qt DLLs beside qinta.exe and the Stage step
+# copies the VC++ runtime DLLs beside them, so the folder runs on Windows 10 or 11 with no
+# redistributable (the UCRT ships with the OS). macOS: scripts/package-macos.sh builds Qinta.app
+# with its Qt frameworks inside, signed ad hoc and not notarized. Linux: scripts/package-linux.sh
+# builds an AppImage, which the job then runs in a container with no Qt installed.
 #
 # ripgrep is installed on every runner because readme_figures depends on it: without rg on
 # PATH, scripts/check-readme-figures.sh checks sixteen claims instead of all of them and exits 0.
@@ -177,10 +177,23 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --repeat until-pass:2
 
+      - name: Package
+        run: bash scripts/package-macos.sh build package
+
+      # From the zip a user would download, not from the folder that was zipped: ditto keeps the
+      # frameworks' symlinks, and an unzip that lost them would show here as a broken bundle.
+      - name: The packaged app runs
+        run: |
+          mkdir unzipped
+          ditto -x -k package/qinta-*-macos-*.zip unzipped
+          codesign --verify --deep --strict unzipped/Qinta.app
+          QT_QPA_PLATFORM=offscreen unzipped/Qinta.app/Contents/MacOS/qinta             --printpages pages tests/fixtures/markdown-regression-control.md
+          test "$(ls pages/*.png | wc -l | tr -d ' ')" = 2
+
       - uses: actions/upload-artifact@v4
         with:
-          name: qinta-macos-arm64
-          path: build/qinta
+          name: qinta-macos-app
+          path: package/qinta-*-macos-*.zip
 
   linux:
     # Pinned rather than -latest: 24.04 ships Qt 6.4.2, the version the Linux build was
@@ -193,7 +206,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++ cmake qt6-base-dev qt6-svg-dev libgl-dev fonts-dejavu-core ripgrep
+            g++ cmake qt6-base-dev qt6-base-dev-tools qt6-svg-dev libgl-dev fonts-dejavu-core             ripgrep python3-pil
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -204,10 +217,29 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure --repeat until-pass:2
 
+      - name: Package
+        run: bash scripts/package-linux.sh build package
+
+      # The AppImage in a bare Ubuntu with no Qt at all, so a library it failed to bundle cannot
+      # be found on the runner instead. The packages installed are the ones an AppImage expects
+      # from the desktop it runs on (GL, fontconfig, a font, GLib, D-Bus), and the run fails if
+      # any Qt library is present before it starts.
+      - name: The AppImage runs without Qt installed
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w ubuntu:24.04 bash -c '
+            set -e
+            apt-get update -qq
+            apt-get install -y -qq --no-install-recommends libgl1 libegl1 libfontconfig1               libglib2.0-0t64 libdbus-1-3 fonts-dejavu-core >/dev/null
+            if ls /usr/lib/x86_64-linux-gnu/libQt6* >/dev/null 2>&1; then
+              echo "Qt is installed in the container, so this run proves nothing"; exit 1
+            fi
+            APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen ./package/qinta-*.AppImage               --printpages /tmp/pages tests/fixtures/markdown-regression-control.md
+            test "$(ls /tmp/pages/*.png | wc -l)" = 2'
+
       - uses: actions/upload-artifact@v4
         with:
-          name: qinta-linux-x64
-          path: build/qinta
+          name: qinta-linux-appimage
+          path: package/qinta-*.AppImage
 
   # docs/port.md's MinGW gate: the two Windows builds must paginate the rendering fixtures alike. A
   # different page count or page size fails the run; pixel differences are reported in the job

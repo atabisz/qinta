@@ -29,7 +29,8 @@ fi
 
 # A tagged commit is named by its tag; anything else by its commit, so a snapshot can never be
 # mistaken for a release. (CI checks out without tags, so describe would differ from a local run.)
-version=$(git -C "$root" describe --tags --exact-match 2>/dev/null || git -C "$root" rev-parse --short HEAD)
+# QINTA_VERSION, when set, names a release build (build.yml sets it from the release input).
+version=${QINTA_VERSION:-$(git -C "$root" describe --tags --exact-match 2>/dev/null || git -C "$root" rev-parse --short HEAD)}
 short_version=$(sed -n 's/^project([a-z]* VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")
 arch=$(uname -m)
 app="$out/Qinta.app"

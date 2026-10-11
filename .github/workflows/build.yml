@@ -1,8 +1,8 @@
 # Builds every target and runs the whole ctest suite on Windows, macOS and Linux, then
 # uploads the binaries as workflow artifacts.
 #
-# THE ARTIFACTS ARE PACKAGES, NOT YET RELEASES: nothing here tags or publishes. Each one is
-# self-contained. Windows: windeployqt copies the Qt DLLs beside qinta.exe and the Stage step
+# THE ARTIFACTS ARE PACKAGES. Only a manual run with the `release` input set turns them into a
+# release, and then only a DRAFT (the release job, at the end). Each one is self-contained. Windows: windeployqt copies the Qt DLLs beside qinta.exe and the Stage step
 # copies the VC++ runtime DLLs beside them, so the folder runs on Windows 10 or 11 with no
 # redistributable (the UCRT ships with the OS). macOS: scripts/package-macos.sh builds Qinta.app
 # with its Qt frameworks inside, signed ad hoc and not notarized. Linux: scripts/package-linux.sh
@@ -24,6 +24,16 @@ on:
     branches: [master]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Draft a GitHub Release with this version, e.g. v0.0.1 (empty: an ordinary run)'
+        required: false
+        default: ''
+
+# A release run's packages carry the version in their names (scripts/package-*.sh read it).
+# Empty on every other run, where they are named by commit.
+env:
+  QINTA_VERSION: ${{ inputs.release }}
 
 # Superseded runs are cancelled on pull requests only. On master every commit keeps its run:
 # the Windows build took over 15 minutes before the app closure was compiled once, and with
@@ -278,3 +288,69 @@ jobs:
 
       - name: Compare
         run: python3 scripts/compare_print_pages.py msvc mingw
+
+  # A DRAFT GitHub Release, on a manual run of this workflow with the `release` input set (for
+  # example v0.0.1). Only after every job above has passed, the MinGW build and the page
+  # comparison included. The draft points at this run's commit and is visible only to the
+  # repository's owner; GitHub creates the tag when the draft is PUBLISHED, so nothing public
+  # happens until a person presses Publish. Uses the gh CLI the runner already has, not a
+  # third-party release action, so the repository's action allowlist is unchanged.
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.release != ''
+    needs: [windows, windows-mingw, macos, linux, print-pages-agree]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.release }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Refuses rather than overwrites: a version that is not vX.Y.Z, one that is not the version
+      # CMakeLists.txt builds (the exe, the start page and the macOS bundle all report that one),
+      # and one that already has a release or a tag.
+      - name: Check the version
+        run: |
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "release must look like v1.2.3, got '$VERSION'"; exit 1; }
+          built=$(sed -n 's/^project([a-z]* VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          [ "v$built" = "$VERSION" ] || { echo "release $VERSION is not the version CMakeLists.txt builds ($built)"; exit 1; }
+          if gh release view "$VERSION" >/dev/null 2>&1; then echo "a release $VERSION already exists"; exit 1; fi
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null; then echo "a tag $VERSION already exists"; exit 1; fi
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: qinta-windows-x64
+          path: qinta-${{ inputs.release }}-windows-x64
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: qinta-macos-app
+          path: macos
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: qinta-linux-appimage
+          path: linux
+
+      # The Windows folder is zipped with its own top-level folder, so unzipping it does not
+      # spill 50 files into Downloads. The notes are this version's section of CHANGELOG.md.
+      - name: Assemble
+        run: |
+          mkdir release
+          zip -qr "release/qinta-$VERSION-windows-x64.zip" "qinta-$VERSION-windows-x64"
+          cp "macos/qinta-$VERSION-macos-arm64.zip" "linux/qinta-$VERSION-x86_64.AppImage" release/
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f' \
+            CHANGELOG.md > notes.md
+          [ -s notes.md ] || { echo "CHANGELOG.md has no '## [$VERSION]' section"; exit 1; }
+          printf '\n### Downloads\n\n%s\n%s\n%s\n' \
+            "- Windows 10 or 11: unzip qinta-$VERSION-windows-x64.zip and run qinta.exe. Nothing to install." \
+            "- macOS (Apple silicon): unzip and move Qinta.app to Applications. It is not notarized, so the first time, right-click it and choose Open." \
+            "- Linux (x86_64): make the AppImage executable (chmod +x) and run it." >> notes.md
+          ls -la release
+          cat notes.md
+
+      - name: Draft the release
+        run: |
+          gh release create "$VERSION" --draft --target "$GITHUB_SHA" \
+            --title "Qinta $VERSION" --notes-file notes.md release/*

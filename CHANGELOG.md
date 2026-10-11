@@ -3,8 +3,8 @@
 ## [v0.0.1] - unreleased
 
 Qinta's version numbering starts here. The port to a single Qt stack on Windows, macOS and Linux
-is recorded in [docs/port.md](docs/port.md), and the road to 1.0.0 in
-[docs/roadmap.md](docs/roadmap.md).
+is recorded in [docs/port.md](https://github.com/atabisz/qinta/blob/master/docs/port.md), and the road to 1.0.0 in
+[docs/roadmap.md](https://github.com/atabisz/qinta/blob/master/docs/roadmap.md).
 
 ### Fixed
 - Settings survive a restart again: zoom, reading and zen width, word wrap, the editor preview,

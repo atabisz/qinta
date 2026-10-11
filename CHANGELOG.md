@@ -1,5 +1,14 @@
 # Changelog
 
+## [v0.0.1] - unreleased
+
+Qinta's version numbering starts here. The port to a single Qt stack on Windows, macOS and Linux
+is recorded in [docs/port.md](docs/port.md), and the road to 1.0.0 in
+[docs/roadmap.md](docs/roadmap.md).
+
+Every entry below is upstream [tinta](https://github.com/oipoistar/tinta)'s, kept as the history
+qinta was forked from. Its version numbers are tinta's, not qinta's.
+
 ## [v3.6.7] - 2026-09-09
 
 ### Added

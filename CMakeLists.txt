@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.15)
-project(tinta VERSION 3.6.7 LANGUAGES C CXX)
+project(tinta VERSION 0.0.1 LANGUAGES C CXX)
+
+# QINTA'S OWN NUMBERING, RESTARTED AT 0.0.1 ON 2026-10-11. 3.6.7 was upstream tinta's last
+# version, and upstream's v3.x tags are not in qinta's history, so carrying the number on would
+# have claimed a lineage of releases qinta never made. 1.0.0 is the release where the port is
+# finished and the Windows-only functionality is gone: docs/roadmap.md lists what that takes.
 
 # THE VERSION DEFINES ARE A LIST BECAUSE MORE THAN ONE TARGET NEEDS THEM, and that became
 # true the moment a file reading TINTA_VERSION_* was measured off Windows. src/overlays.cpp

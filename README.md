@@ -438,6 +438,10 @@ Qinta runs on Windows, macOS and Linux from one Qt 6 stack. The goal, the stack 
 port is structured, how to build and test it off Windows, and the measured status of every slice
 are in [docs/port.md](docs/port.md).
 
+The version is **0.0.1**: qinta's numbering restarted there, and 1.0.0 is the release where the
+port is finished and the Windows-only functionality is gone. What is left before then is in
+[docs/roadmap.md](docs/roadmap.md).
+
 ## Usage
 
 ```bash

@@ -55,8 +55,21 @@ There is no update check and no MSIX package.
 
 ## Building
 
-**Qinta has no releases, no packages and no installer.** It is a work-in-progress fork, and
-building it from source is the only way to get it.
+**Qinta has no releases and no installer yet, but every push builds a package per platform.**
+The latest successful run of [`build.yml`](.github/workflows/build.yml) on `master` carries
+them as artifacts (downloading an artifact needs a GitHub login), each named by the commit it was
+built from:
+
+| Artifact | What it is | Checked in CI |
+|---|---|---|
+| `qinta-windows-x64` | A folder: `qinta.exe`, the Qt DLLs and the VC++ runtime DLLs | the five VC++ runtime DLLs are present, and a copy of the folder prints the fixture pages that are compared against MinGW's |
+| `qinta-macos-app` | `Qinta.app`, Apple silicon, zipped | no library loads from Homebrew; unzipped, its signature verifies and it prints pages |
+| `qinta-linux-appimage` | An x86_64 AppImage | every Qt library it loads is inside it; it prints pages in an Ubuntu 24.04 container with no Qt installed |
+
+Not yet witnessed: any of the three opening a window on a machine that never had Qt or Visual
+Studio installed, since CI only runs them headless. The macOS app is signed ad hoc and **not
+notarized**, so macOS blocks it on first open; right-click it and choose Open. Building from
+source, below, is the other way to get qinta.
 
 All three platforms build from the same CMake project, and they are not equally proven. The
 state per platform, before any commands:
@@ -234,7 +247,9 @@ cmake --build build-mac -j"$(sysctl -n hw.ncpu)"
   combined package, so `CMAKE_PREFIX_PATH` needs both prefixes.
 - **You get a plain executable, not an app bundle.** The target carries `WIN32` and no
   `MACOSX_BUNDLE` — zero occurrences of it in the file — so `qinta` builds as a command-line
-  binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`.
+  binary here too. Confirmed: the built binary is a bare Mach-O executable, not a `.app`. To
+  get one, run `scripts/package-macos.sh build-mac package`, which assembles `Qinta.app`
+  around that binary with its Qt frameworks inside, the same step CI runs.
 - **Every ctest entry passes**, after fixing four macOS-specific gaps the first build here
   surfaced — none of them were build or link problems, the binary configured and ran from the
   start:

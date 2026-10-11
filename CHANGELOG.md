@@ -2,14 +2,16 @@
 
 ## [v0.0.1] - unreleased
 
-Qinta's version numbering starts here. The port to a single Qt stack on Windows, macOS and Linux
-is recorded in [docs/port.md](https://github.com/atabisz/qinta/blob/master/docs/port.md), and the road to 1.0.0 in
+The first release of Qinta, a fork of [tinta](https://github.com/oipoistar/tinta) rebuilt on a
+single Qt 6 stack, so the same viewer and editor runs on Windows, macOS and Linux. Qinta's
+version numbering starts here. The port is recorded in
+[docs/port.md](https://github.com/atabisz/qinta/blob/master/docs/port.md), and the road to 1.0.0 in
 [docs/roadmap.md](https://github.com/atabisz/qinta/blob/master/docs/roadmap.md).
 
 ### Fixed
 - Settings survive a restart again: zoom, reading and zen width, word wrap, the editor preview,
-  heading rules, the table-of-contents and browser pins, folder search and the update-check state
-  were reset at every launch since the Windows app was retired.
+  heading rules, the table-of-contents and browser pins, and folder search were reset at every
+  launch since the Windows app was retired.
 - The UI language is applied at launch, the saved choice or else the system's; qinta always
   started in its default language.
 - A plain launch reopens the last session's tabs, and closing the main window saves them.
@@ -18,6 +20,14 @@ is recorded in [docs/port.md](https://github.com/atabisz/qinta/blob/master/docs/
 - A document named by a relative path on the command line is stored by its absolute path, so the
   session and the recent files still find it when qinta starts from somewhere else; before, it was
   dropped as missing.
+
+### Removed
+- The update check. It had not run since the Windows app was retired, and its notice pointed at
+  upstream tinta's releases. A settings file that still carries its keys loads unchanged.
+- The `--dumpchrome` switch, a measuring tool for the retired Direct2D stack. It is now an
+  unknown option.
+
+## Upstream tinta history
 
 Every entry below is upstream [tinta](https://github.com/oipoistar/tinta)'s, kept as the history
 qinta was forked from. Its version numbers are tinta's, not qinta's.

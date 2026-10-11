@@ -340,7 +340,7 @@ jobs:
           mkdir release
           zip -qr "release/qinta-$VERSION-windows-x64.zip" "qinta-$VERSION-windows-x64"
           cp "macos/qinta-$VERSION-macos-arm64.zip" "linux/qinta-$VERSION-x86_64.AppImage" release/
-          awk -v h="## [$VERSION]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f' \
+          awk -v h="## [$VERSION]" 'index($0, h) == 1 { f = 1; next } f && /^## / { exit } f' \
             CHANGELOG.md > notes.md
           [ -s notes.md ] || { echo "CHANGELOG.md has no '## [$VERSION]' section"; exit 1; }
           printf '\n### Downloads\n\n%s\n%s\n%s\n' \

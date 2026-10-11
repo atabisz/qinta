@@ -41,7 +41,7 @@ jobs:
       CFLAGS: /MP
       CXXFLAGS: /MP
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The version the README's Windows section was measured with.
       - uses: jurplel/install-qt-action@v4
@@ -82,7 +82,7 @@ jobs:
             if (-not (Test-Path "dist/$dll")) { throw "dist/ is missing $dll" }
           }
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qinta-windows-x64
           path: dist/
@@ -97,7 +97,7 @@ jobs:
           echo '; print-pages harness' > harness-bin/settings.ini
           bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: print-pages-msvc
           path: print-pages/
@@ -116,7 +116,7 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: msys2/setup-msys2@v2
         with:
@@ -147,7 +147,7 @@ jobs:
           echo '; print-pages harness' > harness-bin/settings.ini
           bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: print-pages-mingw
           path: print-pages/
@@ -156,7 +156,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: brew install qtbase qtsvg ripgrep
@@ -191,7 +191,7 @@ jobs:
             --printpages pages tests/fixtures/markdown-regression-control.md
           test "$(ls pages/*.png | wc -l | tr -d ' ')" = 2
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qinta-macos-app
           path: package/qinta-*-macos-*.zip
@@ -201,7 +201,7 @@ jobs:
     # measured against, and a runner-image bump would change Qt minor underneath the suite.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install dependencies
         run: |
@@ -243,7 +243,7 @@ jobs:
               --printpages /tmp/pages tests/fixtures/markdown-regression-control.md
             test "$(ls /tmp/pages/*.png | wc -l)" = 2'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: qinta-linux-appimage
           path: package/qinta-*.AppImage
@@ -256,14 +256,14 @@ jobs:
     needs: [windows, windows-mingw]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: print-pages-msvc
           path: msvc
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: print-pages-mingw
           path: mingw

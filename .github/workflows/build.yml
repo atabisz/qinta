@@ -11,6 +11,11 @@
 # ripgrep is installed on every runner because readme_figures depends on it: without rg on
 # PATH, scripts/check-readme-figures.sh checks sixteen claims instead of all of them and exits 0.
 # The EXPECTED_CHECKS arm would catch that, but installing rg is cheaper than debugging it.
+#
+# Every action is pinned to a full commit SHA, with its release tag in a trailing comment. The
+# repo's Actions settings require that (sha_pinning_required), so a tag reference fails the run
+# before any job starts. A tag can be moved to new code, and these jobs build the shipped
+# binaries. Dependabot (.github/dependabot.yml) bumps the SHA and the comment together.
 
 name: build
 
@@ -41,10 +46,10 @@ jobs:
       CFLAGS: /MP
       CXXFLAGS: /MP
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # The version the README's Windows section was measured with.
-      - uses: jurplel/install-qt-action@v4
+      - uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4.4.1
         with:
           version: '6.8.3'
           arch: win64_msvc2022_64
@@ -82,7 +87,7 @@ jobs:
             if (-not (Test-Path "dist/$dll")) { throw "dist/ is missing $dll" }
           }
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qinta-windows-x64
           path: dist/
@@ -97,7 +102,7 @@ jobs:
           echo '; print-pages harness' > harness-bin/settings.ini
           bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: print-pages-msvc
           path: print-pages/
@@ -116,9 +121,9 @@ jobs:
       run:
         shell: msys2 {0}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: msys2/setup-msys2@v2
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2.33.0
         with:
           msystem: UCRT64
           update: true
@@ -147,7 +152,7 @@ jobs:
           echo '; print-pages harness' > harness-bin/settings.ini
           bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: print-pages-mingw
           path: print-pages/
@@ -156,7 +161,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install dependencies
         run: brew install qtbase qtsvg ripgrep
@@ -191,7 +196,7 @@ jobs:
             --printpages pages tests/fixtures/markdown-regression-control.md
           test "$(ls pages/*.png | wc -l | tr -d ' ')" = 2
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qinta-macos-app
           path: package/qinta-*-macos-*.zip
@@ -201,7 +206,7 @@ jobs:
     # measured against, and a runner-image bump would change Qt minor underneath the suite.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install dependencies
         run: |
@@ -243,7 +248,7 @@ jobs:
               --printpages /tmp/pages tests/fixtures/markdown-regression-control.md
             test "$(ls /tmp/pages/*.png | wc -l)" = 2'
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qinta-linux-appimage
           path: package/qinta-*.AppImage
@@ -256,14 +261,14 @@ jobs:
     needs: [windows, windows-mingw]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: print-pages-msvc
           path: msvc
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: print-pages-mingw
           path: mingw

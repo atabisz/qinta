@@ -34,7 +34,7 @@ rather than estimates.
 </p>
 
 <sub>Those two screenshots are upstream Tinta's, on Windows, via the Direct2D stack. Qinta's own
-witnessed screenshots are further down and look plainer, because the Qt frontend is not finished.</sub>
+witnessed screenshots are in [docs/port.md](docs/port.md).</sub>
 
 ### One executable
 
@@ -43,8 +43,8 @@ else. Until 2026-10-07 the same project also defined `tinta`, upstream's Direct2
 Win32 app, as the reference the port was measured against. It was retired that day, with the
 whole Direct2D stack: 13 source files, 8 headers and the 5 backend tests whose subject it was.
 Its last `--printpages` output is kept as the reference it was (`build-win-split/s25ref/`, local
-and untracked), and the port's history below still describes the two stacks side by side,
-because that is how the work was done.
+and untracked), and the port's history in [docs/port.md](docs/port.md) still describes the two
+stacks side by side, because that is how the work was done.
 
 `qinta.exe /register` registers qinta for `.md`, `.markdown` and `.mmd` on Windows, as
 `Qinta.MarkdownFile` under its own `Software\Qinta\Capabilities`, so an upstream Tinta installed
@@ -266,8 +266,7 @@ It's a viewer first: perfect as the double-click default for `.md` and `.mmd` fi
 
 Those figures are upstream Tinta's, measured by upstream, on Windows. **Qinta has not been
 benchmarked against anything** — no startup time, no binary size claim beyond what the build
-happens to produce. Publishing a comparison row for a frontend that cannot yet handle a keypress
-would be inventing a number, so the table is left as Tinta's and marked as such.
+happens to produce. Until it is measured, the table is left as Tinta's and marked as such.
 
 The fork exists because that Windows-only stack is the whole reason for the speed *and* the whole
 reason there is no macOS or Linux build. Reaching those platforms means either maintaining a
@@ -278,15 +277,14 @@ reasoning, and why Qt 6 rather than Skia, is in
 
 ## Features
 
-- **Lightning-fast startup** - Direct2D rendering, no web engine overhead
+- **No web engine** - Native Qt 6 rendering on Windows, macOS and Linux
 - **10 beautiful themes** - 5 light and 5 dark themes to choose from
-- **Hardware-accelerated** - Smooth text rendering via DirectWrite
 - **Word wrap** - Optional soft wrap in the editor (Ctrl+W)
 - **Native LaTeX math** - `$inline$` and `$$display$$` equations with matrices, cases, aligned equations, fractions, limits, accents and custom macros. Uses an installed math font; no bundled fonts or web engine. See the [supported math syntax](docs/math-support.md).
 - **Focused editing** - Hide the preview pane while writing (Ctrl+E)
 - **Native Mermaid diagrams** - 22 diagram families, from flowcharts with subgraphs through sequence, class, state, ER, gantt, and pie to C4, sankey, kanban, and radar - rendered without a web engine
 - **Export as HTML, DOCX, or PDF** - Right-click and pick "Export as..." for a self-contained web page, a Word document that opens natively, or a vector PDF; diagrams and math come along in every format
-- **Pandoc export** - With [pandoc](https://pandoc.org) installed (or pointed at in settings), the editor offers EPUB, OpenDocument, PowerPoint, RTF and LaTeX too; rich formats convert from Tinta's own HTML export so diagrams and math survive as vector graphics
+- **Pandoc export** - With [pandoc](https://pandoc.org) installed (or pointed at in settings), the editor offers EPUB, OpenDocument, PowerPoint, RTF and LaTeX too; rich formats convert from Qinta's own HTML export so diagrams and math survive as vector graphics
 - **Start page** - Bare launches land on a launcher with recent files, quick actions labeled with your actual key bindings, and built-in guides; closing the last tab returns there, and Ctrl+T opens it as a new tab
 - **Review annotations** - Select text and press `A` to attach a note, stored as an invisible HTML comment in the file itself. Annotated passages get a tint and a marker rail beside the scrollbar; hover previews, click edits, and a copy-for-agent button turns the whole review into a paste-ready task list for any coding agent - as the agent fixes items and deletes the comments, the marks vanish live
 - **File references** - Plain-text paths like `docs/plan.md` become real links: live targets open as tabs, missing ones render as faded ghosts. Mouse back/forward (or Alt+arrows) walks your jumps with exact scroll restore
@@ -297,7 +295,7 @@ reasoning, and why Qt 6 rather than Skia, is in
 - **Paste screenshots** - Ctrl+V a bitmap in edit mode and it saves as a PNG beside the document with the link inserted
 - **Pin on top** - A pushpin in the title bar keeps the window above every other app
 - **Rich tables** - Tables with bold, italic, code, and clickable links in cells
-- **Tabs** - Win11 Notepad-style tabs in the title bar: files opened from Explorer join the window as tabs, Ctrl+Tab cycles, Ctrl+W or Ctrl+F4 closes (Ctrl+F4 also while editing, where Ctrl+W is word wrap), middle-click closes, Ctrl+T opens the file browser into a new tab, unsaved buffers show a dot, and dragging reorders tabs. Right-click a tab for close operations (close, close all but this, close all to the left/right) plus copy path and reveal in Explorer. Pulling a tab out of the strip floats it as a card: drop it on open space for a new window (which keeps the tab row), or onto another Tinta window to move it there — and dropping a single-file window onto a tab strip merges it back. Single-file windows stay tabless; turn the Explorer behavior off with the "Open files in tabs" setting
+- **Tabs** - Win11 Notepad-style tabs in the title bar: files opened from Explorer join the window as tabs, Ctrl+Tab cycles, Ctrl+W or Ctrl+F4 closes (Ctrl+F4 also while editing, where Ctrl+W is word wrap), middle-click closes, Ctrl+T opens the file browser into a new tab, unsaved buffers show a dot, and dragging reorders tabs. Right-click a tab for close operations (close, close all but this, close all to the left/right) plus copy path and reveal in Explorer. Pulling a tab out of the strip floats it as a card: drop it on open space for a new window (which keeps the tab row), or onto another Qinta window to move it there — and dropping a single-file window onto a tab strip merges it back. Single-file windows stay tabless; turn the Explorer behavior off with the "Open files in tabs" setting
 - **Folder browser** - Press B to browse and open Markdown or Mermaid files (Ctrl+click a file to open it in a new tab)
 - **Table of contents** - Press Tab to see document headings, click to jump; the panel follows your reading position, and typing filters the headings
 - **Unified editor** - Press `:` to edit: your raw Markdown on the left with the rendered page floating beside it as a sheet on the editor's desk. A slim line-number gutter, a soft accent wash on the caret's line and its rendered block, a tool rail with formatting controls plus table-size and diagram-template pickers, and Markdown assists (lists continue on Enter, Tab indents, Ctrl+B/I wrap). Search and find-replace work in the editor too
@@ -308,7 +306,7 @@ reasoning, and why Qt 6 rather than Skia, is in
 - **Text-file references** - `.txt`, `.json`, `.yaml` and friends link like Markdown files and open as highlighted documents
 - **Search** - Find text with F or Ctrl+F, cycle through matches with Enter; every match shows as a tick on the scrollbar
 - **Persistent settings** - Remembers your theme, zoom level, and window position
-- **Portable mode** - Create a `settings.ini` next to `tinta.exe` (an empty file works) and the whole configuration — settings, custom themes, languages, drafts — lives beside the executable and travels with it; without one, everything stays in `%APPDATA%\Tinta`
+- **Portable mode** - Create a `settings.ini` next to the `qinta` executable (an empty file works) and the whole configuration — settings, custom themes, languages, drafts — lives beside the executable and travels with it; without one, everything stays in `%APPDATA%\Tinta` on Windows, `$XDG_CONFIG_HOME/Tinta` (usually `~/.config/Tinta`) on Linux and `~/Library/Application Support/Tinta` on macOS
 - **Localized interface** - English, Simplified Chinese, Japanese, Korean, German, French, and Italian UI; follows Windows or a chosen language
 - **Text selection & copy** - Select text and copy to clipboard
 - **Zoom support** - Ctrl+scroll to zoom in/out
@@ -357,7 +355,7 @@ always work regardless of profile.
 Settings live in a plain INI file at `%APPDATA%\Tinta\settings.ini` (theme,
 zoom, window placement, word wrap, and more — written on exit). The `[Keys]`
 section holds the Custom profile's bindings if you prefer editing by hand:
-change a value and restart Tinta. Accepted values are letters, digits,
+change a value and restart Qinta. Accepted values are letters, digits,
 `Tab`, `Space`, `F1`–`F12`, or any single character.
 
 ```ini
@@ -381,14 +379,13 @@ context menu show whatever keys are currently bound.
 
 Other settings of note: `browserFocusPath=1` makes `B` open the file browser
 with the path box focused and selected, so paste + Enter jumps anywhere
-(also in Settings → General). `tinta --new` starts an untitled quick note
+(also in Settings → General). `qinta --new` starts an untitled quick note
 from the command line.
 
 The interface language is available in Settings → General. It follows the
 Windows display language by default, or can be changed explicitly. Transient
 notifications and native error dialogs use the same language. Additional
-translations can be added through `languages.ini`; the app remains a native,
-single-file Windows viewer with no web runtime.
+translations can be added through `languages.ini`.
 
 ## Cross-platform port
 
@@ -400,30 +397,30 @@ are in [docs/port.md](docs/port.md).
 
 ```bash
 # Open a Markdown file
-tinta.exe document.md
+qinta document.md
 
 # Open a Mermaid flowchart
-tinta.exe diagram.mmd
+qinta diagram.mmd
 
 # Open with light theme
-tinta.exe -l document.md
+qinta -l document.md
 
 # Show stats on startup
-tinta.exe -s document.md
+qinta -s document.md
 
-# Register for Markdown and Mermaid files
-tinta.exe /register
+# Start an untitled quick note, or open a file straight into the editor
+qinta --new
+qinta --edit document.md
+
+# Export without opening a window (the argument is the OUTPUT path)
+qinta --exportpdf document.pdf document.md
+
+# Register for Markdown and Mermaid files (Windows only)
+qinta.exe /register
 ```
 
-Or simply drag and drop a `.md` or `.mmd` file onto the window.
-
-**Every line above is the Windows `tinta.exe`**, which a default build no longer produces —
-`--target tinta` builds it. The Qt binary is `qinta` (`qinta.exe` on
-Windows) and takes **one path and no switches at all** — see
-[Building](#building) for how to launch it per platform, and
-[Building and testing off Windows](docs/port.md#building-and-testing-off-windows) for why the switches are
-refused there rather than accepted and ignored. `/register` and file association are Windows-only
-by nature: there is nothing to register on the other two.
+Or simply drag and drop a `.md` or `.mmd` file onto the window. The binary is `qinta.exe` on
+Windows; [Building](#building) has how to launch it per platform.
 
 To copy a document's full path, right-click the document or its tab (the filename
 in the title bar when only one file is open) and choose
@@ -432,18 +429,18 @@ tab's path, even if another tab is active. Untitled notes have no path until sav
 
 ## File Association
 
-On first launch, Tinta will ask if you want to set it as the default viewer for Markdown and Mermaid files. If you choose "No", you won't be asked again.
+On first launch on Windows, Qinta will ask if you want to set it as the default viewer for Markdown and Mermaid files. If you choose "No", you won't be asked again.
 
-To register Tinta as the default viewer later, run:
+To register Qinta as the default viewer later, run:
 ```bash
-tinta.exe /register
+qinta.exe /register
 ```
 
-This registers `.md`, `.markdown`, and `.mmd` so you can select Tinta as their default app in Windows Settings.
+This registers `.md`, `.markdown`, and `.mmd` so you can select Qinta as their default app in Windows Settings.
 
 ## Mermaid Support
 
-Tinta natively renders twenty-two Mermaid diagram families in `.mmd` files and fenced `mermaid` code blocks — no web engine involved:
+Qinta natively renders twenty-two Mermaid diagram families in `.mmd` files and fenced `mermaid` code blocks — no web engine involved:
 
 - **Flowcharts** (`flowchart` / `graph`) - TB/TD, BT, LR, RL layouts, `subgraph` groups, common node shapes, directed and labeled edges, `classDef`/`class`/`style` styling, and graceful handling of Mermaid 11 edge IDs and node configs
 - **Sequence diagrams** - participants and actors with aliases and `<br/>` breaks, every arrow family, activations, notes, `autonumber`, and `loop`/`alt`/`opt`/`par`/`critical`/`break` frames
@@ -492,13 +489,11 @@ inlinecode=B00020
 Here inline code is red and plain fenced code stays neutral. Syntax highlighting
 keeps its own colors. Without `inlinecode`, inline code uses `code` as before.
 The override is preserved when saving a theme from the editor and applies to
-HTML and DOCX exports. Native printing keeps Tinta's existing light print palette.
+HTML and DOCX exports. Native printing keeps the existing light print palette.
 
 ## Dependencies
 
 - [MD4C](https://github.com/mity/md4c) - Fast markdown parser (fetched automatically by CMake)
-- Windows Direct2D/DirectWrite (system libraries) — the `tinta` target only, and the stack being
-  replaced
 - Qt 6 — the `qinta` target on all three platforms. **Core** and **Gui** are required off
   Windows and the configure stops without them; **Widgets** likewise, for the file-picker seam;
   **Svg** and **Network** are asked for optionally but are needed for `qinta` itself to link.

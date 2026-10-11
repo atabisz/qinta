@@ -108,8 +108,8 @@ int main() {
     // 858-byte blank PDF with a confident hash. WinMain's `&& i + 1 < argc` guard makes the
     // option VANISH; here it is an error.
     {
-        for (const char* flag : {"--printpages", "--dumpchrome", "--exporthtml",
-                                 "--exportdocx", "--exportpdf"}) {
+        for (const char* flag : {"--printpages", "--exporthtml", "--exportdocx",
+                                 "--exportpdf"}) {
             const tinta::LaunchOptions o = parse({flag});
             check(contains(o.missingValues, flag),
                   "a value-taking flag with no value is reported by name rather than "
@@ -123,9 +123,9 @@ int main() {
     // value-taking flag as missing would pass all five assertions there.
     {
         const tinta::LaunchOptions o =
-            parse({"--printpages", "p", "--dumpchrome", "c", "--exporthtml", "h",
-                   "--exportdocx", "d", "--exportpdf", "f"});
-        check(o.printPagesDir == "p" && o.dumpChromePath == "c" && o.exportHtmlPath == "h" &&
+            parse({"--printpages", "p", "--exporthtml", "h", "--exportdocx", "d",
+                   "--exportpdf", "f"});
+        check(o.printPagesDir == "p" && o.exportHtmlPath == "h" &&
                   o.exportDocxPath == "d" && o.exportPdfPath == "f",
               "COUNTER-CASE: each value-taking flag captures its own value, so the "
               "missing-value assertions above cannot pass by reporting everything");
@@ -192,7 +192,7 @@ int main() {
             {"-l", 0},         {"--light", 0},      {"-s", 0},
             {"--stats", 0},    {"/register", 0},    {"--register", 0},
             {"--cascade", 0},  {"--tabbed", 0},     {"--edit", 0},
-            {"--new", 0},      {"--printpages", 1}, {"--dumpchrome", 1},
+            {"--new", 0},      {"--printpages", 1},
             {"--exporthtml", 1}, {"--exportdocx", 1}, {"--exportpdf", 1},
             {"--pos", 2},
         };
@@ -217,7 +217,7 @@ int main() {
                     total);
 
         // CONTROL for the census: an invented flag must NOT be recognised, or the census is
-        // measuring a parse that accepts everything and its 16/16 means nothing.
+        // measuring a parse that accepts everything and its 15/15 means nothing.
         const tinta::LaunchOptions bogus = parse({"--definitely-not-an-option"});
         check(!bogus.unknown.empty(),
               "CENSUS CONTROL: an invented flag IS reported unknown -- without this, a parse "
@@ -423,7 +423,6 @@ int main() {
             {"--exportpdf", "build-win-split/pdfscratch/m1.pdf"},
             {"--exporthtml", "build-win-split/out.html"},
             {"--exportdocx", "build-win-split/out.docx"},
-            {"--dumpchrome", "build-win-split/chrome.txt"},
             {"--printpages", "build-win-split/pages"},
         };
         int allowed = 0;
@@ -433,19 +432,19 @@ int main() {
                 allowed++;
             }
         }
-        check(allowed == 5,
-              "OUTPUT GUARD CONTROL: all five real harness shapes are allowed even though the "
+        check(allowed == 4,
+              "OUTPUT GUARD CONTROL: all four real harness shapes are allowed even though the "
               "path already exists -- a guard that refuses the rigs gets reverted, and then the "
               "defect is back with the guard's name on it");
 
-        // .txt is in that list on purpose: it is a plausible --dumpchrome target, so it is
-        // deliberately NOT a document extension, and this asserts the decision rather than
+        // .txt is deliberately NOT a document extension (it was a plausible --dumpchrome
+        // target while that switch existed), and this asserts the decision rather than
         // leaving it to the header's prose.
         check(!tinta::isDocumentPath("chrome.txt") && tinta::isDocumentPath("README.md") &&
                   tinta::isDocumentPath("a.MARKDOWN") && tinta::isDocumentPath("b.mkd") &&
                   tinta::isDocumentPath("c.mdown"),
               "OUTPUT GUARD: the document set is markdown only, case-insensitively, and .txt is "
-              "excluded because the chrome dump plausibly writes one");
+              "excluded, as it was while the chrome dump could write one");
 
         // A dot in a DIRECTORY name is not an extension. Without this, an output path like
         // build-win-split/v1.2/out would read its extension as ".2/out" and classify as
@@ -457,13 +456,20 @@ int main() {
               "directory name is not mistaken for an extension");
 
         // plannedOutput reports the write that WOULD HAPPEN, which is the first branch
-        // src/main_d2d.cpp enters -- not the first flag on the line. Asserted because the two
-        // orders differ and guarding a file nobody writes would be a silent no-op.
+        // main() enters -- not the first flag on the line. Asserted because the two orders
+        // differ and guarding a file nobody writes would be a silent no-op.
         const tinta::PlannedOutput both =
-            tinta::plannedOutput(parse({"--exportpdf", "p.pdf", "--dumpchrome", "c.txt"}));
-        check(both.flag == "--dumpchrome" && both.path == "c.txt",
+            tinta::plannedOutput(parse({"--exportpdf", "p.pdf", "--printpages", "pages"}));
+        check(both.flag == "--printpages" && both.path == "pages",
               "OUTPUT GUARD: with two destructive flags the DISPATCH order decides, and "
-              "--dumpchrome runs first in src/main_d2d.cpp regardless of command-line order");
+              "--printpages runs first regardless of command-line order");
+        // --dumpchrome was removed on 2026-10-11. It is an unknown option now, and the value
+        // that followed it is an ordinary argument -- the document to open -- not an output.
+        const tinta::LaunchOptions retired = parse({"--dumpchrome", "c.txt"});
+        check(contains(retired.unknown, "--dumpchrome") && retired.inputFile == "c.txt" &&
+                  tinta::plannedOutput(retired).flag.empty(),
+              "the removed --dumpchrome is an unknown option, and nothing plans a write "
+              "to the path after it");
         check(tinta::plannedOutput(parse({"--light", "notes.md"})).flag.empty(),
               "OUTPUT GUARD: an ordinary launch plans no write, so the guard cannot fire on it");
 
@@ -530,10 +536,10 @@ int main() {
               "JOIN: not for a quick note or a cascade relaunch, which ask for their own window");
         int harness = 0;
         for (const char* flag :
-             {"--printpages", "--dumpchrome", "--exporthtml", "--exportdocx", "--exportpdf"}) {
+             {"--printpages", "--exporthtml", "--exportdocx", "--exportpdf"}) {
             if (!tinta::shouldJoinExistingWindow(parse({flag, "out", "a.md"}), true)) harness++;
         }
-        check(harness == 5, "JOIN: not for any of the five harness switches, which write and exit");
+        check(harness == 4, "JOIN: not for any of the four harness switches, which write and exit");
     }
 
     std::printf("%s%d launch-option assertions run, %d failed\n",

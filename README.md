@@ -50,7 +50,7 @@ stacks side by side, because that is how the work was done.
 `Qinta.MarkdownFile` under its own `Software\Qinta\Capabilities`, so an upstream Tinta installed
 beside it keeps its own registration (2026-10-07). As on every Windows 10 and 11 app, it then opens
 Settings > Default apps, because only the user can make it the default. Off Windows, `/register`
-is refused. `--dumpchrome` is gone for good with the DirectWrite chrome formats it read back.
+is refused. `--dumpchrome` was removed with the DirectWrite chrome formats it read back, and is now an unknown option.
 There is no update check and no MSIX package.
 
 ## Building

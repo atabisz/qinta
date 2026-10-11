@@ -31,11 +31,12 @@
 //     Now: tinta::parseLaunchOptions (one chain, shared with WinMain) does the reading.
 //     --light, --pos and --cascade are honoured here for real, and since 2026-10-06 so are
 //     --printpages, --exporthtml, --exportdocx and --exportpdf, which write and exit without a
-//     window, and --tabbed, --new, --edit and --stats followed the same day. The other two
-//     (/register, --dumpchrome) are refused on
-//     stderr, by name, and the window still opens -- because a refusal a user can read is
-//     the opposite of the old behaviour, where an unhonourable flag was indistinguishable
-//     from a working one.
+//     window, and --tabbed, --new, --edit and --stats followed the same day. /register is
+//     honoured on Windows and refused elsewhere, on stderr, by name, and the window still
+//     opens -- because a refusal a user can read is the opposite of the old behaviour, where
+//     an unhonourable flag was indistinguishable from a working one. --dumpchrome was refused
+//     the same way until it was removed on 2026-10-11, its body having gone with Direct2D; it
+//     is now an unknown option like any other.
 //
 //     WHY ONLY THREE, since the parse hands over thirteen: the blocker is not this file. It
 //     is that --tabbed, --new, --edit and --stats need src/input.cpp -- 4,394 lines, 98
@@ -216,9 +217,6 @@ int main(int argc, char** argv) {
         refuse("/register", "file associations are a Windows-registry feature");
     }
 #endif
-    if (!options.dumpChromePath.empty()) {
-        refuse("--dumpchrome", "the chrome dump is still on the Direct2D path");
-    }
     // --printpages, --exporthtml, --exportdocx and --exportpdf WERE REFUSED HERE until
     // 2026-10-06, the last three behind a long note on why the PDF one looked cheap and was
     // not: the exporters needed the print code, which was Windows-bound then. It is portable

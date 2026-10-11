@@ -146,7 +146,7 @@ The launch lines, and the exit codes they were read at, are in [Building](../REA
 `--printpages`, `--exporthtml`, `--exportdocx` and `--exportpdf` write their output and exit without
 opening a window, behind an output guard, so `qinta --exportpdf README.md` refuses rather than
 overwriting the document. `-l`, `-s`, `--new`, `--edit`, `--tabbed`, `--pos` and `/register` are
-honoured; `--dumpchrome` is refused by name, because the chrome dump went with the Direct2D stack.
+honoured; `--dumpchrome` was removed on 2026-10-11, because the chrome dump went with the Direct2D stack.
 An unknown flag, or a flag missing its argument, is reported on stderr rather than silently
 ignored. A path that cannot be opened prints `qinta: cannot open '<path>'` on stderr, and the
 window still opens.
@@ -370,7 +370,7 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,510 / 65,511 | **81.7%** |
+| A. Source lines free of the Windows stack | 53,501 / 65,503 | **81.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
 | C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
 | D. Test targets that *could* move, and do | 52 / 53 | 98.1% |
@@ -386,7 +386,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 53,813 lines of the 65,511,
+numerator. With `src/*.cpp` totalling 53,804 lines of the 65,503,
 **basis A's ceiling is 82.1%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 

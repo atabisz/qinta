@@ -60,12 +60,6 @@ LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
             } else {
                 out.missingValues.push_back(arg);
             }
-        } else if (arg == "--dumpchrome") {
-            if (i + 1 < n) {
-                out.dumpChromePath = args[++i];
-            } else {
-                out.missingValues.push_back(arg);
-            }
         } else if (arg == "--exporthtml") {
             if (i + 1 < n) {
                 out.exportHtmlPath = args[++i];
@@ -125,8 +119,7 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
 
 bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs) {
     return !options.inputFile.empty() && !options.quickNote && !options.cascade &&
-           options.printPagesDir.empty() && options.dumpChromePath.empty() &&
-           options.exportHtmlPath.empty() && options.exportDocxPath.empty() &&
+           options.printPagesDir.empty() && options.exportHtmlPath.empty() && options.exportDocxPath.empty() &&
            options.exportPdfPath.empty() && openInTabs;
 }
 
@@ -141,10 +134,10 @@ std::vector<std::string> tornOffRelaunchArgs(int x, int y, const std::string& ut
 }
 
 PlannedOutput plannedOutput(const LaunchOptions& options) {
-    // Dispatch order, taken from src/main_d2d.cpp: --dumpchrome, then --printpages, then the three
-    // exporters. That file returns from the first branch it enters, so the first match here is the
-    // only write that can happen, and reporting a later one would guard a file nobody touches.
-    if (!options.dumpChromePath.empty()) return {"--dumpchrome", options.dumpChromePath};
+    // Dispatch order, taken from the retired src/main_d2d.cpp and kept by src/main_qt.cpp:
+    // --printpages, then the three exporters. main() returns from the first branch it enters, so
+    // the first match here is the only write that can happen, and reporting a later one would
+    // guard a file nobody touches. (--dumpchrome came first until it was removed, 2026-10-11.)
     if (!options.printPagesDir.empty()) return {"--printpages", options.printPagesDir};
     if (!options.exportHtmlPath.empty()) return {"--exporthtml", options.exportHtmlPath};
     if (!options.exportDocxPath.empty()) return {"--exportdocx", options.exportDocxPath};

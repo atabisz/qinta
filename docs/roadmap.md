@@ -31,7 +31,9 @@ the date given, not as a live reading.
   any more. The `checkUpdates`, `lastUpdateCheck` and `dismissedUpdate` settings and the
   "update available" action remain, and that action opens **upstream's** release page
   (`src/signals.cpp`). Either reimplement it against qinta's own releases or remove all of it.
-- [ ] **`--dumpchrome`** is refused (`src/main_qt.cpp`): its body was `chrome_dump_d2d.cpp`, deleted
+- [x] **Removed 2026-10-11**: the switch, its field, its place in the output guard and its refusal.
+  It is an unknown option now, and the path after it is an ordinary argument, not an output
+  (`launch_options_tests`). The original item: **`--dumpchrome`** is refused (`src/main_qt.cpp`): its body was `chrome_dump_d2d.cpp`, deleted
   with the Direct2D stack. Port it onto the Qt render target or delete the switch.
 - [ ] **IME candidate window position.** `editorPositionImeWindow` (`src/editor.cpp`) is a no-op on
   qinta, so CJK composition works but its candidate list does not follow the caret. Qt's route is a

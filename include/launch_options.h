@@ -38,8 +38,10 @@
 //
 // WHAT IS NOT HERE: any judgement about whether an option can be HONOURED. This header knows
 // what the options ARE; it does not know what any particular front end can do about them.
-// That split is the point -- the Qt arm can honour four and must refuse nine, the Win32 arm
-// honours all thirteen, and if this file held that knowledge it would have to hold it twice.
+// That split is the point -- when this was written the Qt arm could honour four of WinMain's
+// thirteen and had to refuse nine, and if this file had held that knowledge it would have had to
+// hold it twice. Today qinta honours all twelve (--dumpchrome was removed on 2026-10-11) except
+// /register off Windows, and that knowledge still lives in src/main_qt.cpp, not here.
 namespace tinta {
 
 struct LaunchOptions {
@@ -55,7 +57,6 @@ struct LaunchOptions {
     bool quickNote = false;        // --new
 
     std::string printPagesDir;   // --printpages <dir>
-    std::string dumpChromePath;  // --dumpchrome <path>
     std::string exportHtmlPath;  // --exporthtml <path>
     std::string exportDocxPath;  // --exportdocx <path>
     std::string exportPdfPath;   // --exportpdf <path>
@@ -136,8 +137,8 @@ std::vector<std::string> tornOffRelaunchArgs(int x, int y,
 
 // THE DESTRUCTIVE HALF OF A LAUNCH, AND THE GUARD THE PARSER ALONE CANNOT GIVE IT.
 //
-// Five of the thirteen options WRITE A FILE AND EXIT: --printpages, --dumpchrome, --exporthtml,
-// --exportdocx, --exportpdf. Every one of them names its OUTPUT, and on a command line where the
+// Four of the twelve options WRITE A FILE AND EXIT: --printpages, --exporthtml, --exportdocx,
+// --exportpdf (and --dumpchrome, until it was removed on 2026-10-11). Every one of them names its OUTPUT, and on a command line where the
 // input is also a path the two are indistinguishable by shape -- `--exportpdf README.md` reads
 // like it names the thing to convert. On 2026-09-20 that cost a tracked file: from the repo root,
 // `tinta --lite --exportpdf README.md` replaced a 2,357-line README with a 4,427,206-byte
@@ -160,9 +161,9 @@ std::vector<std::string> tornOffRelaunchArgs(int x, int y,
 // incident was never that README.md existed: it was that README.md is an INPUT FORMAT with an
 // output flag pointed at it. Re-exporting m1.pdf over m1.pdf is the harness working correctly.
 //
-// AND WHY THERE IS NO --force. An override would take the option set from thirteen names across
-// sixteen spellings to fourteen across seventeen, moving every figure README.md derives from that
-// census -- to buy an escape hatch from a rule narrow enough not to need one. The extension test
+// AND WHY THERE IS NO --force. An override would take the option set from twelve names across
+// fifteen spellings to thirteen across sixteen -- to buy an escape hatch from a rule narrow
+// enough not to need one. The extension test
 // is the escape hatch: name your output with the extension of the thing you are writing.
 enum class OutputRefusal {
     None,
@@ -183,9 +184,9 @@ struct PlannedOutput {
 PlannedOutput plannedOutput(const LaunchOptions& options);
 
 // Would writing this path destroy one of this app's own documents? Extension membership only, so
-// it is pure and needs no filesystem. `.txt` is deliberately NOT a member: it is a plausible
-// --dumpchrome target, and this app's documents are markdown, so including it would trade a real
-// false-positive risk for no additional catch.
+// it is pure and needs no filesystem. `.txt` is deliberately NOT a member: it was a plausible
+// --dumpchrome target when that switch existed (removed 2026-10-11), and this app's documents are
+// markdown, so including it would trade a real false-positive risk for no additional catch.
 bool isDocumentPath(const std::string& path);
 
 // The whole decision. `outputExists` is the ONE fact the host has to supply -- everything else is

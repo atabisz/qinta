@@ -21,10 +21,11 @@
 // failure, the off-Windows path FAILS rather than no-ops, so that the caller's
 // existing error handling does the right thing for free.
 //
-// "OFF WINDOWS" BELOW MEANS OFF THE WIN32 WINDOW STACK. Every arm here is guarded
-// `defined(_WIN32) && !defined(TINTA_QT_UI)`, so qinta on Windows -- a Qt window on a
-// Win32 OS -- takes the same arm as qinta on Linux: InvalidateRect on a window qinta
-// never created is not a repaint. CMakeLists.txt says why at TINTA_QT_UI's definition.
+// "OFF WINDOWS" BELOW MEANS OFF THE WIN32 WINDOW STACK, which no longer exists. The arms here
+// were guarded `defined(_WIN32) && !defined(TINTA_QT_UI)` while it did, so qinta on Windows
+// took the same arm as qinta on Linux; since the Win32 arms were deleted each function has
+// one body, the sink-backed one, and this file has no conditional code at all. TINTA_QT_UI
+// itself was removed on 2026-10-11 (CMakeLists.txt keeps the note).
 
 #include "win32_types.h"
 // The off-Windows arm of requestRepaint below. Included unconditionally: it has no

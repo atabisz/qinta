@@ -402,8 +402,8 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
     // for one keystroke: WM_KEYDOWN reaches handleKeyDown, and TranslateMessage's WM_CHAR
     // reaches handleCharInput UNLESS handleKeyDown returned true (include/input.h, #195).
     // The HWND is nullptr, which is what it is on this stack everywhere (App::hwnd is only
-    // ever assigned by src/main_d2d.cpp), and every seam it reaches takes its off-stack
-    // arm for that reason -- see TINTA_QT_UI in CMakeLists.txt.
+    // ever assigned by the retired src/main_d2d.cpp), and every seam it reaches has one
+    // body now, the sink-backed one.
     //
     // THE 12-KEY SWITCH THAT STOOD HERE IS GONE RATHER THAN KEPT AS A FALLBACK. Every one of
     // its keys maps to a code handleKeyDown's viewer branch already handles, with the same

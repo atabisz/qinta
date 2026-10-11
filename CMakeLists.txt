@@ -688,24 +688,13 @@ if(Qt6_FOUND AND Qt6Widgets_FOUND)
 
     add_executable(qinta WIN32 src/main_qt.cpp)
     target_link_libraries(qinta PRIVATE qinta_app)
-    # TINTA_QT_UI: "this target's window is a QWidget", which is a DIFFERENT QUESTION from
-    # _WIN32, the same split TINTA_D2D_BACKEND makes for the renderer. On Windows qinta is
-    # a Win32 OS with a Qt window, and `#ifdef _WIN32` could only answer the first: linking
-    # the router's files into qinta here read `LNK1120: 50 unresolved externals`, and the
-    # window-code share of them was zen_mode_win32, tab_ghost_win32, tab_tearoff_win32,
-    # quicknote_win32 and the IME -- Win32 window arms the callers picked because the OS
-    # was Windows. So every guard around WINDOW code reads
-    # `defined(_WIN32) && !defined(TINTA_QT_UI)`, and every guard about the OS (file
-    # times, process ids, the date format, the VK constants) stays `_WIN32`.
-    #
-    # OPT-IN ON THE QT TARGETS, deliberately the opposite polarity to TINTA_D2D_BACKEND: a
-    # target that forgets it keeps today's Win32 arms, so `tinta` cannot change silently,
-    # and a Qt target that forgets it fails its link loudly with the list above. Defined
-    # off Windows too, where it changes nothing (_WIN32 is already false) but keeps the
-    # definition a fact about the target rather than the host. qt_entry_tests carries it
-    # as well and asserts it arrived: requestQuit() must return false there on both hosts.
-    # It arrives through qinta_app, like everything else the closure is compiled with.
-    target_compile_definitions(qinta_app PUBLIC TINTA_QT_UI)
+    # TINTA_QT_UI WAS DEFINED HERE until 2026-10-11. It said "this target's window is a
+    # QWidget", a different question from _WIN32 while both stacks existed: on Windows qinta
+    # was a Win32 OS with a Qt window, so every guard around WINDOW code read
+    # `defined(_WIN32) && !defined(TINTA_QT_UI)` and the Win32 window arms stayed with tinta.
+    # Once tinta and its window arms were deleted, every one of those guards went with them;
+    # on the day it was removed no line in src/, include/ or tests/ tested it. Guards about
+    # the OS (file times, process ids, the date format, the VK constants) stay `_WIN32`.
     if(WIN32)
         # UNICODE/_UNICODE because the whole tree assumes the wide Win32 API, and
         # shell32 because ${PLATFORM_PATHS_SOURCE} is still the win32 file here. Both
@@ -2661,7 +2650,7 @@ if(BUILD_TESTING)
                 tests/win32_chrome_readback.cpp
             )
             # The closure, its libraries (Svg and Network for image_qt.cpp's QSvgRenderer and
-            # QNetworkAccessManager), TINTA_QT_UI, the version and the Windows chrome file all
+            # QNetworkAccessManager), the version and the Windows chrome file all
             # arrive through qinta_app -- the same objects qinta links, not a second compile.
             target_link_libraries(qt_entry_tests PRIVATE qinta_app)
             # Where tests/fixtures/ is, for the QPrinter block's CJK fixture (2026-10-06): the

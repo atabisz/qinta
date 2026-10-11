@@ -2310,9 +2310,9 @@ int main(int argc, char** argv) {
     //
     // What stood here asserted requestQuit() read FALSE on this target, which was the proof
     // TINTA_QT_UI had selected the off-window arm. It is replaced, not deleted: the arm now
-    // delivers to include/window_sink.h, so the same proof is "true with a sink installed,
-    // false with none" -- and on Windows, without TINTA_QT_UI, it would read true from
-    // PostQuitMessage in BOTH halves, so the false half is the one that still pins the macro.
+    // delivers to include/window_sink.h, so the proof is "true with a sink installed, false
+    // with none". The macro and the PostQuitMessage arm it guarded are both gone (2026-10-11),
+    // so the false half now pins the sink's behaviour rather than a compile definition.
     //
     // A RECORDING SINK FOR THE DELIVERY, THE WINDOW'S OWN FOR THE REGISTRATION. The window's
     // quit closure calls QCoreApplication::quit(), whose effect this suite cannot observe
@@ -2323,8 +2323,8 @@ int main(int argc, char** argv) {
     {
         tinta::clearWindowSink();
         check(!requestQuit(),
-              "TINTA_QT_UI: with no window sink, requestQuit() returns false -- the off-window "
-              "arm, not PostQuitMessage, which would have returned true");
+              "with no window sink, requestQuit() returns false -- nothing to deliver to, and no "
+              "PostQuitMessage arm left to answer true instead");
 
         QtAppWindow sinkProbe(app);
         sinkProbe.resize(600, 400);

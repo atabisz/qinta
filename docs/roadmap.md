@@ -41,7 +41,8 @@ the date given, not as a live reading.
 - [ ] **Dropping a torn-off tab onto another running qinta window.** Open in
   [port.md's Status](port.md#status): Qt has no portable way to ask which process owns the window
   under the cursor, so on qinta that drop opens a new window instead.
-- [ ] **Retire `TINTA_QT_UI`.** It split the Win32 window arms from the Qt ones while both stacks
+- [x] **Retired 2026-10-11**: the definition and the comments describing guards built on it. The
+  original item: **Retire `TINTA_QT_UI`.** It split the Win32 window arms from the Qt ones while both stacks
   existed. No line in `src/` or `include/` tests it any more (0 preprocessor lines, against 51 for
   `_WIN32` through the same search, 2026-10-11), so it is a definition nothing reads. Remove it
   from `CMakeLists.txt`, and correct the comments that still describe guards built on it, such as

@@ -115,22 +115,39 @@ if ! ls "$app/Contents/PlugIns/tls/"*.dylib >/dev/null 2>&1; then
     exit 1
 fi
 
-# Self-contained means no Mach-O in the bundle still points into Homebrew. The number of Mach-O
+# Self-contained means no Mach-O in the bundle still loads from Homebrew. The number of Mach-O
 # files read is checked too, so a scan that found nothing cannot read as clean.
+#
+# For a library, otool -L prints its OWN install name before its dependencies, and that name is
+# never loaded from; the first run of this check counted it and failed six frameworks for naming
+# themselves. So the file's own id (otool -D) is dropped first.
+homebrew_deps() {
+    local self_id
+    self_id=$(otool -D "$1" | tail -n +2)
+    otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -vxF "${self_id:-//none//}" |
+        grep -E '^(/opt/homebrew|/usr/local)/' || true
+}
+# The control: Homebrew's own QtGui certainly loads from Homebrew, so a check that calls it clean
+# has stopped seeing dependencies, and the clean bundle below would mean nothing.
+if [ -z "$(homebrew_deps "$qtbase/lib/QtGui.framework/QtGui")" ]; then
+    echo "package-macos: the dependency check found nothing in Homebrew's own QtGui; it is broken" >&2
+    exit 1
+fi
 machos=0
 leaks=0
 while IFS= read -r f; do
     if file "$f" | grep -q 'Mach-O'; then
         machos=$((machos + 1))
-        if otool -L "$f" | tail -n +2 | grep -E '(/opt/homebrew|/usr/local)/' >/dev/null; then
-            echo "package-macos: $f still links into Homebrew:" >&2
-            otool -L "$f" | grep -E '(/opt/homebrew|/usr/local)/' >&2
+        found=$(homebrew_deps "$f")
+        if [ -n "$found" ]; then
+            echo "package-macos: $f still loads from Homebrew:" >&2
+            echo "$found" >&2
             leaks=$((leaks + 1))
         fi
     fi
 done < <(find "$app" -type f)
 if [ "$machos" -lt 10 ] || [ "$leaks" -ne 0 ]; then
-    echo "package-macos: $machos Mach-O files read, $leaks linking outside the bundle" >&2
+    echo "package-macos: $machos Mach-O files read, $leaks loading from outside the bundle" >&2
     exit 1
 fi
 
@@ -139,4 +156,4 @@ codesign --verify --deep --strict "$app"
 
 zip="$out/qinta-$version-macos-$arch.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
-echo "package-macos: $zip ($machos Mach-O files, none linking into Homebrew)"
+echo "package-macos: $zip ($machos Mach-O files, none loading from Homebrew)"

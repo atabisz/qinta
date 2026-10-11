@@ -87,11 +87,28 @@ jobs:
           name: qinta-windows-x64
           path: dist/
 
+      # The shipped folder, copied so the settings.ini that puts qinta in portable mode never
+      # lands in the artifact above. print-pages-agree compares these pages with MinGW's.
+      - name: Print pages
+        shell: bash
+        run: |
+          mkdir harness-bin
+          cp -r dist/* harness-bin/
+          echo '; print-pages harness' > harness-bin/settings.ini
+          bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: print-pages-msvc
+          path: print-pages/
+          retention-days: 14
+
   # MinGW-w64 on Windows: MSYS2's UCRT64 GCC and Qt 6, the route README's "Planned: MinGW"
   # section names, because it is the one Windows build that needs no Visual Studio. Added
   # 2026-10-07 as continue-on-error, a finding rather than a broken master, until it had been
   # green. It went green on 2026-10-11 (53/53, run 38092855683), so since then a red here fails
-  # the run like any other host. No artifact, because the MSVC job's folder is the one that ships.
+  # the run like any other host. No binary artifact, because the MSVC job's folder is the one
+  # that ships; its printed pages are uploaded for print-pages-agree.
   windows-mingw:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -122,6 +139,19 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure --repeat until-pass:2
+
+      - name: Print pages
+        run: |
+          mkdir harness-bin
+          cp build/qinta.exe harness-bin/
+          echo '; print-pages harness' > harness-bin/settings.ini
+          bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: print-pages-mingw
+          path: print-pages/
+          retention-days: 14
 
   macos:
     runs-on: macos-latest
@@ -178,3 +208,29 @@ jobs:
         with:
           name: qinta-linux-x64
           path: build/qinta
+
+  # README's MinGW gate: the two Windows builds must paginate the rendering fixtures alike. A
+  # different page count or page size fails the run; pixel differences are reported in the job
+  # summary and do not fail it, because the two jobs install different Qt releases and glyph
+  # rasterisation moves between releases.
+  print-pages-agree:
+    needs: [windows, windows-mingw]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: print-pages-msvc
+          path: msvc
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: print-pages-mingw
+          path: mingw
+
+      - name: Install Pillow
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends python3-pil
+
+      - name: Compare
+        run: python3 scripts/compare_print_pages.py msvc mingw

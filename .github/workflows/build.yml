@@ -187,7 +187,8 @@ jobs:
           mkdir unzipped
           ditto -x -k package/qinta-*-macos-*.zip unzipped
           codesign --verify --deep --strict unzipped/Qinta.app
-          QT_QPA_PLATFORM=offscreen unzipped/Qinta.app/Contents/MacOS/qinta             --printpages pages tests/fixtures/markdown-regression-control.md
+          QT_QPA_PLATFORM=offscreen unzipped/Qinta.app/Contents/MacOS/qinta \
+            --printpages pages tests/fixtures/markdown-regression-control.md
           test "$(ls pages/*.png | wc -l | tr -d ' ')" = 2
 
       - uses: actions/upload-artifact@v4
@@ -206,7 +207,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            g++ cmake qt6-base-dev qt6-base-dev-tools qt6-svg-dev libgl-dev fonts-dejavu-core             ripgrep python3-pil
+            g++ cmake qt6-base-dev qt6-base-dev-tools qt6-svg-dev libgl-dev fonts-dejavu-core \
+              ripgrep python3-pil
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -222,18 +224,21 @@ jobs:
 
       # The AppImage in a bare Ubuntu with no Qt at all, so a library it failed to bundle cannot
       # be found on the runner instead. The packages installed are the ones an AppImage expects
-      # from the desktop it runs on (GL, fontconfig, a font, GLib, D-Bus), and the run fails if
+      # from the desktop it runs on (the GL libraries, fontconfig, a font, GLib, D-Bus; linuxdeploy
+      # deliberately does not bundle GL, so libopengl0 is the desktop's to provide), and it fails if
       # any Qt library is present before it starts.
       - name: The AppImage runs without Qt installed
         run: |
           docker run --rm -v "$PWD:/w" -w /w ubuntu:24.04 bash -c '
             set -e
             apt-get update -qq
-            apt-get install -y -qq --no-install-recommends libgl1 libegl1 libfontconfig1               libglib2.0-0t64 libdbus-1-3 fonts-dejavu-core >/dev/null
+            apt-get install -y -qq --no-install-recommends libgl1 libegl1 libopengl0 libfontconfig1 \
+              libglib2.0-0t64 libdbus-1-3 fonts-dejavu-core >/dev/null
             if ls /usr/lib/x86_64-linux-gnu/libQt6* >/dev/null 2>&1; then
               echo "Qt is installed in the container, so this run proves nothing"; exit 1
             fi
-            APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen ./package/qinta-*.AppImage               --printpages /tmp/pages tests/fixtures/markdown-regression-control.md
+            APPIMAGE_EXTRACT_AND_RUN=1 QT_QPA_PLATFORM=offscreen ./package/qinta-*.AppImage \
+              --printpages /tmp/pages tests/fixtures/markdown-regression-control.md
             test "$(ls /tmp/pages/*.png | wc -l)" = 2'
 
       - uses: actions/upload-artifact@v4

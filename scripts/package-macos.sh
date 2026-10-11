@@ -83,16 +83,25 @@ plutil -lint "$app/Contents/Info.plist" >/dev/null
 qtbase=$(brew --prefix qtbase)
 "$qtbase/bin/macdeployqt" "$app" -always-overwrite
 
-# Homebrew installs qtsvg as its own keg, and macdeployqt looks for plugins only under qtbase's,
-# so the SVG image and icon plugins are copied from the shared plugin tree if it left them out.
-shared_plugins="$(brew --prefix)/share/qt/plugins"
-for plugin in imageformats/libqsvg.dylib iconengines/libqsvgicon.dylib; do
-    if [ ! -f "$app/Contents/PlugIns/$plugin" ] && [ -f "$shared_plugins/$plugin" ]; then
-        mkdir -p "$app/Contents/PlugIns/$(dirname "$plugin")"
-        cp "$shared_plugins/$plugin" "$app/Contents/PlugIns/$plugin"
-        "$qtbase/bin/macdeployqt" "$app" -always-overwrite >/dev/null
-    fi
+# Plugins macdeployqt leaves out, copied in and then fixed up by a second macdeployqt pass. It
+# deploys only the cocoa platform plugin, and offscreen is what runs qinta headless (the
+# --printpages switches, and CI's check of this bundle). And Homebrew installs qtsvg as its own
+# keg while macdeployqt looks only under qtbase's, so the SVG plugins come from the shared tree.
+copied=0
+for plugin in platforms/libqoffscreen.dylib imageformats/libqsvg.dylib iconengines/libqsvgicon.dylib; do
+    [ -f "$app/Contents/PlugIns/$plugin" ] && continue
+    for tree in "$qtbase/share/qt/plugins" "$(brew --prefix)/share/qt/plugins"; do
+        if [ -f "$tree/$plugin" ]; then
+            mkdir -p "$app/Contents/PlugIns/$(dirname "$plugin")"
+            cp "$tree/$plugin" "$app/Contents/PlugIns/$plugin"
+            copied=$((copied + 1))
+            break
+        fi
+    done
 done
+if [ "$copied" -gt 0 ]; then
+    "$qtbase/bin/macdeployqt" "$app" -always-overwrite >/dev/null
+fi
 for plugin in platforms/libqcocoa.dylib platforms/libqoffscreen.dylib imageformats/libqsvg.dylib; do
     if [ ! -f "$app/Contents/PlugIns/$plugin" ]; then
         echo "package-macos: the bundle has no $plugin" >&2

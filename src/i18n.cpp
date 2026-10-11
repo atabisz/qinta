@@ -214,7 +214,6 @@ const Entry kEntries[] = {
     { "table.copied", L"Table copied", L"\u5DF2\u590D\u5236\u8868\u683C", L"\u8868\u3092\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F", L"\uD45C \uBCF5\uC0AC\uB428" },
     { "diagram.png", L"Image", L"\u56FE\u7247", L"\u753B\u50CF", L"\uC774\uBBF8\uC9C0" },
     { "diagram.copied", L"Image copied", L"\u5DF2\u590D\u5236\u56FE\u7247", L"\u753B\u50CF\u3092\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F", L"\uC774\uBBF8\uC9C0 \uBCF5\uC0AC\uB428" },
-    { "update.available", L"Qinta %ls is available", L"Qinta %ls \u5DF2\u53D1\u5E03", L"Qinta %ls \u304C\u5229\u7528\u53EF\u80FD\u3067\u3059", L"Qinta %ls \uC0AC\uC6A9 \uAC00\uB2A5" },
     { "draft.recovered", L"Restore %d unsaved draft(s)", L"\u6062\u590D %d \u4E2A\u672A\u4FDD\u5B58\u8349\u7A3F", L"\u672A\u4FDD\u5B58\u306E\u4E0B\u66F8\u304D %d \u4EF6\u3092\u5FA9\u5143", L"\uC800\uC7A5\uB418\uC9C0 \uC54A\uC740 \uCD08\uC548 %d\uAC1C \uBCF5\uC6D0" },
     { "createref.title", L"Create this file?", L"\u521B\u5EFA\u6B64\u6587\u4EF6\uFF1F", L"\u3053\u306E\u30D5\u30A1\u30A4\u30EB\u3092\u4F5C\u6210\u3057\u307E\u3059\u304B\uFF1F", L"\uC774 \uD30C\uC77C\uC744 \uB9CC\uB4E4\uAE4C\uC694?" },
     { "createref.create", L"Create", L"\u521B\u5EFA", L"\u4F5C\u6210", L"\uB9CC\uB4E4\uAE30" },

@@ -94,12 +94,10 @@ struct Settings {
     // because languages.ini languages have no stable numeric index.
     // Credit: multilingual groundwork by wxh-777 (PR #84).
     std::string language = "auto";
-    // Update check: portable builds ask GitHub for the latest release at
-    // most once a day (Store installs update through the Store and never
-    // check). dismissedUpdate remembers a version the user closed away.
-    bool checkUpdates = true;
-    std::string lastUpdateCheck;   // YYYY-MM-DD of the last completed check
-    std::string dismissedUpdate;   // "X.Y.Z" the user dismissed
+    // checkUpdates, lastUpdateCheck and dismissedUpdate stood here until 2026-10-11, for an
+    // update check nothing had run since the Direct2D stack was retired. A settings.ini that
+    // still carries them loads unchanged: the reader ignores keys it does not know, and the
+    // next save leaves them out.
     // Recently opened files for the start page: most-recent-first,
     // capped at 10. when = FILETIME ticks of the last open.
     struct RecentFile { unsigned long long when = 0; std::string path; };

@@ -81,11 +81,8 @@ void storeThemeChoice(Settings& settings, const App& app) {
 
 // WinMain's block after loadSettings(), field for field, minus the theme. Until 2026-10-11
 // qinta's launch copied 11 fields and the rest stayed at App's defaults, so zoom, reading
-// width, word wrap, the pins, the update-check state and the UI language reset every launch.
+// width, word wrap, the pins and the UI language reset every launch.
 void applySavedPreferences(App& app, const Settings& settings) {
-    app.updateCheckEnabled = settings.checkUpdates;
-    app.updateLastCheck = settings.lastUpdateCheck;
-    app.updateDismissedVersion = settings.dismissedUpdate;
     app.folderSearchEnabled = settings.folderSearchEnabled;
     app.browserFocusPath = settings.browserFocusPath;
     app.openInTabs = settings.openInTabs;
@@ -115,9 +112,6 @@ void storePreferences(Settings& settings, const App& app) {
     settings.editorShowPreview = app.editorShowPreview;
     settings.editorWordWrap = app.editorWordWrap;
     settings.editorAssists = app.editorAssists;
-    settings.checkUpdates = app.updateCheckEnabled;
-    settings.lastUpdateCheck = app.updateLastCheck;
-    settings.dismissedUpdate = app.updateDismissedVersion;
     settings.folderSearchEnabled = app.folderSearchEnabled;
     settings.browserFocusPath = app.browserFocusPath;
     // The open tabs, for the next launch to reopen. Untitled buffers have no path to restore.

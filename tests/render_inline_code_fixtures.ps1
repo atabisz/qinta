@@ -18,7 +18,6 @@ themeIndex=$($variant[1])
 followSystemTheme=0
 hasAskedFileAssociation=1
 openInTabs=0
-checkUpdates=0
 language=en
 "@ | Set-Content -LiteralPath "$variantDir/runner/settings.ini"
     $fixtures = @('inline-code-color')

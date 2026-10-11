@@ -178,7 +178,8 @@ inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
 // the handler, so a pretend success leaks it and silently drops the work.
 //
 // Those three sites -- main_d2d.cpp's WM_APP_UPDATE_CHECK post from the update-check
-// thread, render.cpp:2433, search.cpp:122 (line
+// thread (gone: main_d2d.cpp with the Direct2D stack on 2026-10-07, the message with the
+// update check on 2026-10-11), render.cpp:2433, search.cpp:122 (line
 // numbers re-measured 2026-09-15; the previous three had drifted and pointed at a
 // bare brace, a SizeU() argument and an rfind() -- the ROUTING added and removed no
 // lines, so they had been stale for some spans already) -- are

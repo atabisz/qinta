@@ -24,7 +24,10 @@ the date given, not as a live reading.
   session-owning window writes them at close (`tinta::sessionToRestore`, `src/qt_launch.cpp`).
   Checked in the real binary: a seeded three-tab session reopened with its active tab, and a normal
   close wrote it back. Fixture: `tests/fixtures/session-restore.md`.
-- [ ] **The update check.** It was retired with the Direct2D stack: nothing sets `updateAvailable`
+- [x] **Removed 2026-10-11**: the fields, the three settings keys, the chip's action, close action,
+  icon and string, the timer and message IDs. An old `settings.ini` still loads, and its next save
+  drops the keys (`settings_restore`). An update check against qinta's own releases belongs with
+  publishing, below. The original item: **The update check.** It was retired with the Direct2D stack: nothing sets `updateAvailable`
   any more. The `checkUpdates`, `lastUpdateCheck` and `dismissedUpdate` settings and the
   "update available" action remain, and that action opens **upstream's** release page
   (`src/signals.cpp`). Either reimplement it against qinta's own releases or remove all of it.

@@ -60,9 +60,6 @@ void setNonDefault(App& app, int language) {
     app.editorShowPreview = !app.editorShowPreview;
     app.editorWordWrap = !app.editorWordWrap;
     app.editorAssists = !app.editorAssists;
-    app.updateCheckEnabled = !app.updateCheckEnabled;
-    app.updateLastCheck = "2026-10-11";
-    app.updateDismissedVersion = "9.9.9";
     app.folderSearchEnabled = !app.folderSearchEnabled;
     app.browserFocusPath = !app.browserFocusPath;
     app.readingWidthPct = 63;
@@ -86,9 +83,6 @@ void checkPreferencesRoundTrip(const std::filesystem::path& dir) {
               saved->editorShowPreview != defaults->editorShowPreview &&
               saved->editorWordWrap != defaults->editorWordWrap &&
               saved->editorAssists != defaults->editorAssists &&
-              saved->updateCheckEnabled != defaults->updateCheckEnabled &&
-              saved->updateLastCheck != defaults->updateLastCheck &&
-              saved->updateDismissedVersion != defaults->updateDismissedVersion &&
               saved->folderSearchEnabled != defaults->folderSearchEnabled &&
               saved->browserFocusPath != defaults->browserFocusPath &&
               saved->readingWidthPct != defaults->readingWidthPct &&
@@ -115,13 +109,8 @@ void checkPreferencesRoundTrip(const std::filesystem::path& dir) {
     check(restored->editorShowPreview == saved->editorShowPreview, "editor preview survives");
     check(restored->editorWordWrap == saved->editorWordWrap, "word wrap survives");
     check(restored->editorAssists == saved->editorAssists, "editor assists survive");
-    check(restored->updateCheckEnabled == saved->updateCheckEnabled, "update-check switch survives");
-    check(restored->updateLastCheck == saved->updateLastCheck, "last update check survives");
-    check(restored->updateDismissedVersion == "9.9.9", "dismissed update survives");
     check(restored->folderSearchEnabled == saved->folderSearchEnabled, "folder search survives");
-    check(restored->updateLastCheck == "2026-10-11" &&
-              restored->browserFocusPath == saved->browserFocusPath,
-          "last update check and browser focus survive");
+    check(restored->browserFocusPath == saved->browserFocusPath, "browser focus survives");
     check(restored->readingWidthPct == 63, "reading width survives");
     check(restored->zenWidthPct == 47, "zen width survives");
     check(restored->headingRules == saved->headingRules, "heading rules survive");
@@ -141,6 +130,27 @@ void checkPreferencesRoundTrip(const std::filesystem::path& dir) {
     check(followsSystem->languageSetting == -1 &&
               followsSystem->currentLanguageIndex == system,
           "language \"auto\" launches in the system language");
+}
+
+// A settings.ini written before the update check was removed (2026-10-11) still carries its
+// three keys. It must load with the rest intact, and the next save must drop them.
+void checkLegacyUpdateKeys(const std::filesystem::path& dir) {
+    {
+        std::ofstream ini(dir / "settings.ini", std::ios::binary);
+        ini << "[Settings]\nreadingWidthPct=58\ncheckUpdates=0\nlastUpdateCheck=2026-09-10\n"
+               "dismissedUpdate=3.6.7\nzenWidthPct=41\n";
+    }
+    const Settings legacy = loadSettings();
+    check(legacy.readingWidthPct == 58 && legacy.zenWidthPct == 41,
+          "a settings.ini with the retired update keys loads, the fields around them intact");
+    saveSettings(legacy);
+    const std::string rewritten = read(dir / "settings.ini");
+    check(rewritten.find("readingWidthPct=58") != std::string::npos,
+          "CONTROL: the rewritten file was read, and it holds a field that was in the old one");
+    check(rewritten.find("checkUpdates") == std::string::npos &&
+              rewritten.find("lastUpdateCheck") == std::string::npos &&
+              rewritten.find("dismissedUpdate") == std::string::npos,
+          "and the next save leaves the retired keys out");
 }
 
 void checkSessionWrite(const std::filesystem::path& dir) {
@@ -285,6 +295,7 @@ int main(int argc, char** argv) {
     check(fs::equivalent(tintaConfigDir(), dir), "settings land only in the portable test folder");
 
     checkPreferencesRoundTrip(dir);
+    checkLegacyUpdateKeys(dir);
     checkSessionWrite(dir);
     checkSessionChoice(dir);
     {

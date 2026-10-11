@@ -14,18 +14,18 @@ enum SignalIcon {
     SIGI_COPY,       // two sheets
     SIGI_WARNING,    // triangle + !
     SIGI_FILE,       // page with fold
-    SIGI_UPDATE,     // arrow into tray
     SIGI_EYE,        // preview visibility
 };
+// The update chip's action, close action and icon were removed on 2026-10-11 with the rest of
+// the update check, which nothing had run since the Direct2D stack was retired. See
+// docs/roadmap.md on bringing one back against qinta's own releases.
 enum SignalAction {
     SIGA_NONE = 0,
-    SIGA_OPEN_RELEASE,    // update chip: open the latest release page
     SIGA_RESTORE_DRAFTS,  // draft chip: recover crash leftovers as tabs
     SIGA_RETRY_SAVE,      // save-failed chip: try the save again
 };
 enum SignalClose {
     SIGC_NONE = 0,
-    SIGC_DISMISS_UPDATE,  // remember the dismissed version
     SIGC_DISCARD_DRAFTS,  // delete the recovered drafts for good
 };
 

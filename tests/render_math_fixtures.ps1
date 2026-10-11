@@ -40,7 +40,6 @@ windowHeight=900
 windowMaximized=0
 hasAskedFileAssociation=1
 openInTabs=0
-checkUpdates=0
 tocPinned=0
 browserPinned=0
 language=en

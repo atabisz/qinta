@@ -171,9 +171,6 @@ int main() {
     written.browserPinned = true;
     written.language = "ja";
     written.keyProfile = "vim";
-    written.checkUpdates = false;
-    written.lastUpdateCheck = "2026-09-10";
-    written.dismissedUpdate = "3.6.7";
     written.pandocPath = "/usr/bin/pandoc";
     // A non-ASCII path, because the ini is byte-oriented UTF-8 and a wide-string
     // round trip through the stream would mangle it.
@@ -246,11 +243,6 @@ int main() {
     check(read.browserPinned == written.browserPinned, "browserPinned round-trips");
     check(read.language == written.language, "language round-trips");
     check(read.keyProfile == written.keyProfile, "keyProfile round-trips");
-    check(read.checkUpdates == written.checkUpdates, "checkUpdates round-trips");
-    check(read.lastUpdateCheck == written.lastUpdateCheck,
-          "lastUpdateCheck round-trips");
-    check(read.dismissedUpdate == written.dismissedUpdate,
-          "dismissedUpdate round-trips");
     check(read.pandocPath == written.pandocPath, "pandocPath round-trips");
 
     check(read.recentFiles.size() == 2, "both recent files round-trip");

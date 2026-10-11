@@ -15,7 +15,6 @@ themeIndex=0
 followSystemTheme=0
 hasAskedFileAssociation=1
 openInTabs=0
-checkUpdates=0
 language=en
 '@ | Set-Content -LiteralPath "$taskOutput/runner/settings.ini"
 

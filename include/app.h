@@ -93,7 +93,7 @@ inline int64_t usElapsed(Clock::time_point start) {
 #define TIMER_FOLDER_SEARCH 7
 #define TIMER_SELECT_SCROLL 8
 #define TIMER_LINK_PEEK 9
-#define TIMER_UPDATE_CHECK 10
+// 10 was TIMER_UPDATE_CHECK, removed with the update check on 2026-10-11.
 
 // armTimer and disarmTimer used to be defined here. They moved to win32_api.h,
 // which app.h includes, once it was clear they were not app.h's to own: SetTimer or
@@ -121,10 +121,7 @@ inline int64_t usElapsed(Clock::time_point start) {
 // (lParam = FolderScanMsg*, ownership transfers to the handler)
 #define WM_APP_FOLDER_SEARCH (WM_APP + 4)
 
-// Posted by the update-check worker with the latest release tag
-// (lParam = std::string* "X.Y.Z", ownership transfers to the handler;
-// empty string = the check failed and is retried another day)
-#define WM_APP_UPDATE_CHECK (WM_APP + 5)
+// WM_APP + 5 was WM_APP_UPDATE_CHECK, removed with the update check on 2026-10-11.
 
 // Pandoc worker finished; wParam = success (pandoc.cpp)
 #define WM_APP_PANDOC_DONE (WM_APP + 6)
@@ -643,16 +640,6 @@ struct App {
     // (per-window, not persisted)
     bool alwaysOnTop = false;
 
-    // Update-available chip (bottom right): non-blocking, once per
-    // session, absent entirely for Store installs
-    bool updateCheckEnabled = true;
-    bool updateAvailable = false;
-    bool updateDismissed = false;   // this session
-    std::string updateVersion;      // "X.Y.Z" offered by the chip
-    std::string updateLastCheck;    // mirrors Settings on save
-    std::string updateDismissedVersion;
-    tinta::RectF updateChipRect{};   // screen coords, zero while hidden
-    tinta::RectF updateCloseRect{};
     // Draft recovery: crash leftovers found at startup, offered via a chip
     std::vector<std::wstring> recoveredDrafts;
     tinta::RectF draftChipRect{};    // screen coords, zero while hidden

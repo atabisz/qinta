@@ -125,17 +125,6 @@ void drawSignalIcon(App& app, int icon, float cx, float cy, float s,
                 app.brush, w);
             break;
         }
-        case SIGI_UPDATE:
-            app.renderTarget->DrawLine(tinta::pointF(cx, cy - s * 0.42f),
-                                       tinta::pointF(cx, cy + s * 0.18f), app.brush, w);
-            app.renderTarget->DrawLine(tinta::pointF(cx - s * 0.26f, cy - s * 0.08f),
-                                       tinta::pointF(cx, cy + s * 0.18f), app.brush, w);
-            app.renderTarget->DrawLine(tinta::pointF(cx + s * 0.26f, cy - s * 0.08f),
-                                       tinta::pointF(cx, cy + s * 0.18f), app.brush, w);
-            app.renderTarget->DrawLine(tinta::pointF(cx - s * 0.4f, cy + s * 0.4f),
-                                       tinta::pointF(cx + s * 0.4f, cy + s * 0.4f),
-                                       app.brush, w);
-            break;
         default: {  // info circle
             tinta::Ellipse e = tinta::ellipse(tinta::pointF(cx, cy), s * 0.44f, s * 0.44f);
             app.renderTarget->DrawEllipse(e, app.brush, w);
@@ -197,22 +186,6 @@ void parkChip(App& app, App::SignalChip&& chip) {
 // Run a chip's click action; returns true when the chip is resolved
 bool runSignalAction(App& app, HWND hwnd, int action) {
     switch (action) {
-        case SIGA_OPEN_RELEASE:
-            // ROUTED, not reimplemented: platform::openExternalUrl is the seam the
-            // utils.cpp slice built for exactly this call shape, already on 17
-            // targets, so this costs no CMake wiring.
-            //
-            // The seam takes a narrow UTF-8 string and its Windows half is
-            // ShellExecute*A*, where this call was ShellExecuteW. platform_paths.h
-            // documents that divergence and deliberately carries it rather than
-            // fixing it -- the A form decodes bytes as the active ANSI codepage. It
-            // cannot bite HERE, because this URL is a pure-ASCII literal, where the
-            // two forms agree byte for byte. That is why the wide literal loses its
-            // L rather than gaining a conversion.
-            platform::openExternalUrl(
-                "https://github.com/oipoistar/tinta/releases/latest");
-            app.updateDismissed = true;
-            return true;
         case SIGA_RESTORE_DRAFTS:
             draftsRecoverAll(app, hwnd);
             return true;
@@ -226,10 +199,6 @@ bool runSignalAction(App& app, HWND hwnd, int action) {
 
 void runCloseAction(App& app, int closeAction) {
     switch (closeAction) {
-        case SIGC_DISMISS_UPDATE:
-            app.updateDismissed = true;
-            app.updateDismissedVersion = app.updateVersion;
-            break;
         case SIGC_DISCARD_DRAFTS:
             draftsDiscardAll(app);
             break;

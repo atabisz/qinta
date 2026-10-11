@@ -64,7 +64,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure --repeat until-pass:2
 
-      # App-local VC++ runtime, README's C runtime option B. windeployqt's --compiler-runtime
+      # App-local VC++ runtime, docs/port.md's C runtime option B. windeployqt's --compiler-runtime
       # does NOT do this for MSVC: measured 2026-10-07, it copies vc_redist.x64.exe, the
       # installer, and with no VCINSTALLDIR it copies nothing. So the runtime DLLs come from
       # the Visual Studio install's own Redist folder (Microsoft.VC*.CRT, the unit Microsoft
@@ -103,7 +103,7 @@ jobs:
           path: print-pages/
           retention-days: 14
 
-  # MinGW-w64 on Windows: MSYS2's UCRT64 GCC and Qt 6, the route README's "Planned: MinGW"
+  # MinGW-w64 on Windows: MSYS2's UCRT64 GCC and Qt 6, the route docs/port.md's "MinGW on Windows"
   # section names, because it is the one Windows build that needs no Visual Studio. Added
   # 2026-10-07 as continue-on-error, a finding rather than a broken master, until it had been
   # green. It went green on 2026-10-11 (53/53, run 38092855683), so since then a red here fails
@@ -209,7 +209,7 @@ jobs:
           name: qinta-linux-x64
           path: build/qinta
 
-  # README's MinGW gate: the two Windows builds must paginate the rendering fixtures alike. A
+  # docs/port.md's MinGW gate: the two Windows builds must paginate the rendering fixtures alike. A
   # different page count or page size fails the run; pixel differences are reported in the job
   # summary and do not fail it, because the two jobs install different Qt releases and glyph
   # rasterisation moves between releases.

@@ -75,8 +75,7 @@ command below is unverified it says so on the spot, rather than sitting in the s
 one that was measured.
 
 No Direct2D or DirectWrite code is left to compile: the stack and its `TINTA_LEGACY_D2D` flag
-were deleted on 2026-10-07 (see [the deprecated-backend flag](docs/port.md#the-deprecated-backend-flag) for
-what the flag measured while it existed).
+were deleted on 2026-10-07.
 
 ### Prerequisites on every platform
 

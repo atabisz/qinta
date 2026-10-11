@@ -236,8 +236,19 @@ linked statically) plus the Qt DLLs.
 `windows-mingw` job: MSYS2's UCRT64 GCC and Qt 6, configure, build and the whole `ctest` suite. It
 was `continue-on-error` until it had been green, so a red there was a finding rather than a broken
 `master`. **It went green on 2026-10-11, and since then it runs on every push and a red fails the
-run**, the same as the other three hosts. MSVC is still the build that ships: the switch itself
-waits for the rendering harnesses to agree under MinGW.
+run**, the same as the other three hosts.
+
+**Decided 2026-10-11: MinGW is a supported way to build on Windows, and MSVC stays the build that
+ships.** The kit and the re-run above are done: the whole suite passes under MinGW and the
+harnesses agree (below). The `if(MSVC)` block's GCC equivalents are done only in part: `NOMINMAX`
+is in, and there is no `/W4` counterpart, so MinGW builds at GCC's default warning level, as the
+Linux and macOS builds do. That is the licence goal met, since a warning level is not what it
+needed: anyone can now build qinta on Windows without Visual
+Studio, through the steps in README's
+[MinGW-w64 section](../README.md#windows-without-visual-studio-mingw-w64). Changing the shipped
+folder as well would buy nothing for the people downloading it, since CI's runners carry Visual
+Studio, and would swap the VC++ runtime beside the exe for MinGW's, which nobody has launched on a
+clean machine either.
 
 **First reading, 2026-10-07 (run 37585526316 on `160ff18`): MinGW configures and builds the whole
 tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`, clipboard and
@@ -262,7 +273,14 @@ tree, and 50 of 52 ctest entries pass**, including the Qt app tests, `qinta_cli`
   the gate's `comm <(...)` calls read nothing, and the to-do header passed on an empty set. The
   gate now goes through temp files and fails when `comm` does.
 
-The rendering harnesses have not been run under MinGW.
+**The rendering harnesses agree, 2026-10-11 (run 38099623195, on `e9491b5`).** Both Windows jobs
+print five fixtures through `qinta --printpages` (README, `markdown-regression-control`,
+`math-mixed-layout`, `math-inline-stress`, `supsub-probe`), and the `print-pages-agree` job compares
+them with `scripts/compare_print_pages.py`: **175 of 175 pages are byte-identical**, though the two
+jobs install different Qt releases (6.8.3 and 6.11.2). The same pages printed on a local Windows
+machine differ from CI's on 23, so the comparison can see a difference. A different page count or
+page size fails the run from now on; pixel differences are reported without failing, because a Qt
+release can move glyph rasterisation.
 
 ### Status
 

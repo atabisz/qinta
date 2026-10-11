@@ -101,7 +101,8 @@ cd qinta
 
 - **Visual Studio 2019 or newer** with the **Desktop development with C++** workload, which
   installs MSVC and the Windows SDK, which qinta's two Windows-only files (the file association
-  and the title-bar chrome) and the Windows branches of the Qt backends build against.
+  and the title-bar chrome) and the Windows branches of the Qt backends build against. To build
+  without Visual Studio, see [MinGW-w64](#windows-without-visual-studio-mingw-w64) below.
 - **CMake 3.15+.** The copy Visual Studio bundles is fine, but it is not necessarily on `PATH`
   in an ordinary shell: it lives under
   `Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin`, which the Developer Command Prompt
@@ -129,6 +130,36 @@ another shell will phrase the same missing DLL its own way. Put
 that directory on `PATH`, `124` under `timeout 5` with it, and the legacy `tinta.exe` read `124`
 through the same harness while it existed — so `124` means *still running* rather than being what this harness
 returns for everything.
+
+### Windows without Visual Studio: MinGW-w64
+
+MSYS2's UCRT64 toolchain builds qinta with GCC and MSYS2's own Qt 6, so no Visual Studio
+licence is needed. **These are the steps CI runs on every push** (the `windows-mingw` job in
+[`build.yml`](.github/workflows/build.yml)): the whole ctest suite passes, and the pages
+`qinta --printpages` prints are byte-identical to the MSVC build's (see
+[docs/port.md](docs/port.md#mingw-on-windows)). Not yet done by hand: opening the window of a
+MinGW-built `qinta` on a desktop. CI only runs it headless.
+
+Install [MSYS2](https://www.msys2.org/), open its **UCRT64** shell, and install the toolchain
+and Qt:
+
+```bash
+pacman -S --needed git mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-cmake \
+  mingw-w64-ucrt-x86_64-ninja mingw-w64-ucrt-x86_64-qt6-base mingw-w64-ucrt-x86_64-qt6-svg
+```
+
+Then, from the clone, in the same shell:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/qinta.exe README.md
+```
+
+The UCRT64 shell has Qt's DLLs on `PATH`; started from anywhere else, `qinta.exe` needs
+`C:\msys64\ucrt64\bin` on `PATH`. The tests also want `mingw-w64-ucrt-x86_64-ripgrep`, which
+the README figure check needs, and then `ctest --test-dir build`. The MSVC build is still the
+one CI packages, so the folder in the `qinta-windows-x64` artifact is MSVC's.
 
 ### Linux
 

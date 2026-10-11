@@ -812,7 +812,7 @@ echo "basis C numerator = $c_union_count linked - $c_subtracted linked-but-never
 
 # And the README must say it. This is the numerator's only gate.
 c_row="$(sed -nE 's/^\| C\. Files a running test links \*\*off Windows\*\* \| ([0-9]+) \/ ([0-9]+) \|.*/\1 \2/p' \
-    "$SOURCE_DIR/README.md" | head -1)"
+    "$SOURCE_DIR/docs/port.md" | head -1)"
 c_pub_num="${c_row% *}"
 c_pub_den="${c_row#* }"
 if [ -z "$c_row" ]; then

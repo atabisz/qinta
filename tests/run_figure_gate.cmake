@@ -33,8 +33,8 @@ if(GATE_CONTROL)
     set(gate_args --control)
 endif()
 
-# The gate must run from the repo root -- it reads README.md and src/ by relative path
-# and exits 90 if it cannot find README.md, which is a distinguishable failure rather
+# The gate must run from the repo root -- it reads docs/port.md and src/ by relative path
+# and exits 90 if it cannot find docs/port.md, which is a distinguishable failure rather
 # than an empty pass.
 execute_process(COMMAND "${BASH_EXE}" "${GATE_SCRIPT}" ${gate_args}
     WORKING_DIRECTORY "${REPO_ROOT}"

@@ -63,7 +63,9 @@
 
 set -u
 
-README=README.md
+# The figures this checks moved out of README.md into docs/port.md on 2026-10-11, with the
+# port section that states them. The variable keeps its name so the messages below still read.
+README=docs/port.md
 control=0
 [ "${1:-}" = "--control" ] && control=1
 

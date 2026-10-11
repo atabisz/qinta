@@ -558,5 +558,9 @@ MIT, unchanged from upstream — see [LICENSE](LICENSE), which keeps its origina
 
 Qinta is a fork of [oipoistar/tinta](https://github.com/oipoistar/tinta). The viewer, the themes,
 the Mermaid and math support, the editor and the exporters are upstream's work; what this fork
-adds is the move to a single portable stack. Nothing here is offered back upstream, and the
-`upstream` remote in this repository is deliberately configured with its push URL disabled.
+adds is the move to a single portable stack, which we needed to run it on macOS and Linux as
+well as Windows.
+
+We haven't been in touch with the upstream author about the fork yet. We'd be glad to offer this
+work back to Tinta wherever it's useful there, and that conversation comes first. Until then, the
+`upstream` remote in this repository is fetch-only, with its push URL disabled.

@@ -239,6 +239,25 @@ void checkSessionChoice(const std::filesystem::path& dir) {
           "a quick note and a cascaded window do not");
 }
 
+// A file named on the command line by a relative path is stored absolute, so a later launch from
+// another directory still finds it. The test runs with its own folder as the current directory
+// (the wrapper's refusal above checks that), which is the base a relative name resolves against.
+void checkLaunchPathIsAbsolute(const std::filesystem::path& dir) {
+    const std::string relative = "relative-launch.md";
+    check(!std::filesystem::path(relative).is_absolute(),
+          "CONTROL: the launch name under test is relative to begin with");
+    // Compared as std::filesystem paths, not strings: Qt spells the result with '/', the same
+    // spelling the file dialog stores, and the expected value here is built with the platform's
+    // separator, so a string compare would fail on Windows over a separator alone.
+    const std::filesystem::path absolute(toWide(tinta::absoluteLaunchPath(relative)));
+    check(absolute.is_absolute() && absolute == dir / relative,
+          "a relative launch path becomes absolute against the current directory");
+    const std::filesystem::path already = dir / "already.md";
+    check(std::filesystem::path(toWide(tinta::absoluteLaunchPath(already.string()))) == already,
+          "an absolute launch path is left pointing at the same file");
+    check(tinta::absoluteLaunchPath("").empty(), "no launch path stays no launch path");
+}
+
 void checkLaunchDocument(App& app, const std::filesystem::path& dir) {
     const std::string doc = (dir / "zoomed.md").string();
     touch(doc);
@@ -298,6 +317,7 @@ int main(int argc, char** argv) {
     checkLegacyUpdateKeys(dir);
     checkSessionWrite(dir);
     checkSessionChoice(dir);
+    checkLaunchPathIsAbsolute(dir);
     {
         auto state = std::make_unique<App>();
         App& app = *state;

@@ -15,6 +15,9 @@ is recorded in [docs/port.md](docs/port.md), and the road to 1.0.0 in
 - A plain launch reopens the last session's tabs, and closing the main window saves them.
 - A document opened from the command line resumes at its saved reading position and zoom, and
   joins the recent files.
+- A document named by a relative path on the command line is stored by its absolute path, so the
+  session and the recent files still find it when qinta starts from somewhere else; before, it was
+  dropped as missing.
 
 Every entry below is upstream [tinta](https://github.com/oipoistar/tinta)'s, kept as the history
 qinta was forked from. Its version numbers are tinta's, not qinta's.

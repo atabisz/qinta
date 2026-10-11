@@ -128,6 +128,12 @@ void saveClosingState(const App& app, const QWidget& window);
 std::vector<std::string> sessionToRestore(const LaunchOptions& options, const Settings& settings,
                                           int& active);
 
+// The launch document's path, made absolute against the current directory. A file named on the
+// command line is stored in the session and the recent files, and a relative one stored as
+// given only resolves again from the same directory: started from the Start menu or a file
+// manager, qinta dropped it as missing (found 2026-10-12 in a real settings.ini). Empty stays empty.
+std::string absoluteLaunchPath(const std::string& path);
+
 // Whether this window owns the session the close save writes: not a cascaded new window and not
 // a quick note, as in WinMain. Those keep what is on disk (storePreferences).
 bool ownsSession(const LaunchOptions& options);

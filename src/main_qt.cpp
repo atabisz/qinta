@@ -238,9 +238,8 @@ int main(int argc, char** argv) {
     // acknowledgement, means this launch opens its own window. The path goes absolute first,
     // because the running window has its own working directory.
     if (tinta::shouldJoinExistingWindow(options, saved.openInTabs)) {
-        const std::string absolute =
-            QFileInfo(QString::fromStdString(options.inputFile)).absoluteFilePath().toStdString();
-        if (tinta::sendToRunningInstance(tinta::instanceChannelName(), absolute)) {
+        if (tinta::sendToRunningInstance(tinta::instanceChannelName(),
+                                         tinta::absoluteLaunchPath(options.inputFile))) {
             releaseQtBackends(app);
             return 0;
         }
@@ -272,11 +271,14 @@ int main(int argc, char** argv) {
     int sessionActive = 0;
     const std::vector<std::string> session = tinta::sessionToRestore(options, saved, sessionActive);
     bool namedOnCommandLine = false;
+    // Absolute before it is loaded, because the loaded path is what the session and the recent
+    // files store, and a relative one only resolves again from this same directory.
+    const std::string launchFile = tinta::absoluteLaunchPath(options.inputFile);
     if (!options.inputFile.empty() && !options.quickNote) {
-        if (loadDocumentFromPath(app, options.inputFile)) {
+        if (loadDocumentFromPath(app, launchFile)) {
             namedOnCommandLine = true;
             title = QStringLiteral("%1 - Qinta")
-                        .arg(QString::fromLocal8Bit(options.inputFile.c_str()));
+                        .arg(QString::fromLocal8Bit(launchFile.c_str()));
         } else {
             std::fprintf(stderr, "qinta: cannot open '%s'\n", options.inputFile.c_str());
         }

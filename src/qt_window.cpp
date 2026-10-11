@@ -520,7 +520,7 @@ void QtAppWindow::closeEvent(QCloseEvent* event) {
     if (windowCloseMayProceed(app_, nullptr)) {
         // WinMain's WM_DESTROY, in its order: every dirty buffer was just resolved, so a
         // leftover draft would resurrect content the user already decided about -- then the
-        // save, narrowed to the fields this arm loads (qt_launch.h).
+        // save: the preferences, the reading position, the session and the geometry (qt_launch.h).
         draftsDeleteAll(app_);
         tinta::saveClosingState(app_, *this);
         event->accept();

@@ -33,6 +33,17 @@ if(GATE_CONTROL)
     set(gate_args --control)
 endif()
 
+# The Windows ctest list the gate compares tests/test-platforms.txt against: this build's,
+# passed in by CMakeLists.txt on Windows. Off Windows there is none, and that has to be SAID:
+# left unset, the gate falls back to a build-win-split directory, and a WSL build sharing a
+# Windows working copy finds a stale one there and compares against it (2026-10-11). A path
+# that does not exist makes the gate skip the check, with this text as the reason.
+if(DEFINED WIN_BUILD_DIR AND NOT WIN_BUILD_DIR STREQUAL "")
+    set(ENV{TINTA_WIN_BUILD_DIR} "${WIN_BUILD_DIR}")
+else()
+    set(ENV{TINTA_WIN_BUILD_DIR} "(no Windows build: this ctest run is not on Windows)")
+endif()
+
 # The gate must run from the repo root -- it reads docs/port.md and src/ by relative path
 # and exits 90 if it cannot find docs/port.md, which is a distinguishable failure rather
 # than an empty pass.

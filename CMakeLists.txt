@@ -466,10 +466,9 @@ set(QINTA_APP_SOURCES
     # it exists at all so tests/qt_entry_tests.cpp can call the same two steps main() calls
     # instead of a copy of them.
     src/qt_launch.cpp
-    # settings.cpp for loadSettings(). Six fields are read off the result -- four for the
-    # placement, two for the keymap; the other twenty-four reach Windows-only consumers and
-    # are deliberately not applied, which
-    # src/main_qt.cpp's header comment states at the site rather than leaving to inference.
+    # settings.cpp for loadSettings(). Since 2026-10-11 every field is applied, through
+    # src/qt_launch.cpp and settings_app.cpp; until then six were, on the stale argument that
+    # the rest had Windows-only consumers (src/main_qt.cpp's header comment has the history).
     src/settings.cpp
     # And keymap.cpp, which the linker demanded on the NEXT attempt: loadSettings() restores
     # key bindings through keyProfileIndexById/keyIniName whether or not this entry point
@@ -2638,6 +2637,15 @@ if(BUILD_TESTING)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
             set_tests_properties(inline_code_theme PROPERTIES
                 ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+            # Settings and session restore (2026-10-11). Through the portable wrapper too, because
+            # it saves settings: the folder it is staged in is the only settings.ini it can reach.
+            tinta_qt_app_test(settings_restore_tests NONE tests/settings_restore_tests.cpp)
+            add_test(NAME settings_restore COMMAND ${CMAKE_COMMAND}
+                -DTEST_BINARY=$<TARGET_FILE:settings_restore_tests>
+                -DTEST_DIR=${CMAKE_CURRENT_BINARY_DIR}/settings-restore-test-$<CONFIG>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
+            set_tests_properties(settings_restore PROPERTIES
+                ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
 
             add_executable(qt_entry_tests
                 tests/qt_entry_tests.cpp
@@ -2823,17 +2831,27 @@ if(BUILD_TESTING)
 # order to avoid it. Off Windows the hints simply do not exist and PATH answers.
 find_program(BASH_EXECUTABLE NAMES bash
     HINTS "$ENV{ProgramFiles}/Git/usr/bin" "$ENV{ProgramFiles}/Git/bin")
+# On Windows the gate compares tests/test-platforms.txt against a Windows ctest list, and it
+# must be THIS build's. Without it the gate fell back to a build-win-split directory: on a
+# machine that had one it compared against a stale list -- html_layout missing from both the
+# manifest and that list read as agreement on 2026-10-11 -- and in CI it skipped the check.
+set(TINTA_GATE_WIN_BUILD "")
+if(WIN32)
+    set(TINTA_GATE_WIN_BUILD ${CMAKE_BINARY_DIR})
+endif()
 if(BASH_EXECUTABLE)
     add_test(NAME readme_figures COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DWIN_BUILD_DIR=${TINTA_GATE_WIN_BUILD}
         -DEXPECTED_CHECKS=20
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)
     add_test(NAME readme_figures_control COMMAND ${CMAKE_COMMAND}
         -DBASH_EXE=${BASH_EXECUTABLE}
         -DGATE_SCRIPT=${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-readme-figures.sh
         -DREPO_ROOT=${CMAKE_CURRENT_SOURCE_DIR}
+        -DWIN_BUILD_DIR=${TINTA_GATE_WIN_BUILD}
         -DEXPECTED_CHECKS=20
         -DGATE_CONTROL=ON
         -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_figure_gate.cmake)

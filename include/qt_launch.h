@@ -54,12 +54,10 @@ std::vector<MonitorArea> monitorsFromQt();
 
 // Settings' four geometry fields plus the three placement options, and nothing else.
 //
-// The narrowness is the point and it is not laziness: Settings has thirty fields and a
-// placement reads four of them. main() also applies the two keymap fields, which the key
-// router consumes -- that is applyKeymap's job, not this function's -- and the theme fields
-// and windowMaximized, which applySavedTheme and showPlaced below take. The rest reach
-// consumers that are still Windows-only, so copying them would set state nothing on this
-// arm reads.
+// The narrowness is the point and it is not laziness: Settings has 34 fields and a placement
+// reads four of them. The theme fields go to applySavedTheme below, windowMaximized to
+// showPlaced, and the rest -- the keymap and language included -- to applySavedPreferences
+// (settings.h).
 //
 // `savedX`/`savedY` may be kWindowPositionUseDefault and that value is passed through
 // unchanged -- it means "nothing has ever saved a position", and choosePlacement returns it
@@ -117,11 +115,32 @@ bool systemPrefersLight();
 // the fields the close save writes, so it is loaded for the same reason as the theme.
 void showPlaced(QWidget& window, bool maximized);
 
-// WM_DESTROY's save, narrowed to the fields this arm loads: the four theme fields, the
-// maximized flag and -- unless maximized or full screen, where the widget's rectangle is not
-// the one to restore -- the geometry, as the inverse of applyPlacement: frame position, client
-// size. Every other field is written back as loadSettings() read it.
+// WM_DESTROY's save: storePreferences (settings.h) for everything App holds -- the theme, the
+// preferences, the reading position and the session -- then the maximized flag and, unless
+// maximized or full screen, where the widget's rectangle is not the one to restore, the
+// geometry, as the inverse of applyPlacement: frame position, client size.
 void saveClosingState(const App& app, const QWidget& window);
+
+// THE LAST SESSION, WinMain's rule: reopened on a plain launch -- no file argument, not a quick
+// note, a cascaded new window, an edit-mode launch or a harness switch -- and only with "Open
+// files in tabs" on, since with it off a window holds one document. Paths that no longer exist
+// are dropped, and `active` follows its path through the filtering. Empty means no session.
+std::vector<std::string> sessionToRestore(const LaunchOptions& options, const Settings& settings,
+                                          int& active);
+
+// Whether this window owns the session the close save writes: not a cascaded new window and not
+// a quick note, as in WinMain. Those keep what is on disk (storePreferences).
+bool ownsSession(const LaunchOptions& options);
+
+// After the launch document has loaded: its saved reading position and, when it differs, its
+// zoom, as openDocumentInViewer does for an in-app open -- except under --edit, which opens at
+// the top, as in WinMain. A file named on the command line also goes to the head of the recent
+// files, unless this is a harness run (--printpages, --export*): a headless export is not the
+// user opening a document, and WinMain recording it is how a scripted run came to rewrite the
+// user's settings. Then the text formats, if the zoom they were built at (installQtBackends,
+// before any setting was read) is no longer the one in force.
+void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptions& options,
+                           bool namedOnCommandLine);
 
 }  // namespace tinta
 

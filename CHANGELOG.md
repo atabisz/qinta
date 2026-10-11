@@ -6,6 +6,16 @@ Qinta's version numbering starts here. The port to a single Qt stack on Windows,
 is recorded in [docs/port.md](docs/port.md), and the road to 1.0.0 in
 [docs/roadmap.md](docs/roadmap.md).
 
+### Fixed
+- Settings survive a restart again: zoom, reading and zen width, word wrap, the editor preview,
+  heading rules, the table-of-contents and browser pins, folder search and the update-check state
+  were reset at every launch since the Windows app was retired.
+- The UI language is applied at launch, the saved choice or else the system's; qinta always
+  started in its default language.
+- A plain launch reopens the last session's tabs, and closing the main window saves them.
+- A document opened from the command line resumes at its saved reading position and zoom, and
+  joins the recent files.
+
 Every entry below is upstream [tinta](https://github.com/oipoistar/tinta)'s, kept as the history
 qinta was forked from. Its version numbers are tinta's, not qinta's.
 

@@ -10,19 +10,14 @@
 //
 // WHAT IT DOES NOT DO YET, and why each one is absent rather than forgotten:
 //
-//   * A NARROW settings load, and the narrowness is the point. What stood here said "No
-//     settings load", because the ~30 field assignments following loadSettings() in WinMain
-//     reach members whose consumers are still Windows-only -- which is still true of the
-//     rest. ELEVEN are read now, each because something on this arm reads or WRITES it:
-//     windowX/Y/Width/Height and windowMaximized feed the placement and the show;
-//     keyProfile/keyOverrides feed the keymap handleKeyDown translates through; and
-//     themeIndex, followSystemTheme, lightThemeIndex and darkThemeIndex, because the theme
-//     picker and the close save read-modify-write them -- a field this arm writes and never
-//     loaded went back to settings.ini as App's default. followSystemTheme is also acted on
-//     now: it starts the theme the system reading picks, and the window follows changes to
-//     that reading (slice 12). The close save (qt_launch.h) writes
-//     only the theme and geometry fields. Loading all thirty would set state nothing reads,
-//     which is the thing the old bullet was right about.
+//   * THE WHOLE settings load, since 2026-10-11. This arm used to read eleven fields -- the
+//     geometry, the theme and the keymap -- on the argument that the other ~20 reached members
+//     whose consumers were Windows-only. That stopped being true when WinMain was retired: zoom,
+//     reading width, word wrap, the pins and the UI language all have consumers here, and
+//     skipping them reset each to App's default on every launch. applySavedPreferences
+//     (settings.h) now copies every field WinMain copied, storePreferences writes them back at
+//     close, and the last session's tabs reopen (qt_launch.h). followSystemTheme is acted on: it
+//     starts the theme the system reading picks, and the window follows changes to that reading.
 //   * loadCustomThemes() now runs, as it does in WinMain, because the saved theme index can
 //     name a custom theme. The bullet that stood here said it "would change nothing" while
 //     the only index this file set was the built-in kLightModeThemeIndex.
@@ -257,6 +252,10 @@ int main(int argc, char** argv) {
     // both read-modify-write the four theme fields, so skipping the load wrote defaults over
     // them. With follow-system on the start theme is the system's pick instead. See qt_launch.h.
     tinta::applySavedTheme(app, saved, tinta::systemPrefersLight());
+    // Every other saved preference, in WinMain's order: after the theme, before the document.
+    // The keymap and the UI language are in it (settings.h).
+    applySavedPreferences(app, saved);
+    app.sessionOwner = tinta::ownsSession(options);
 
     // --light: the one appearance flag that needs nothing Windows-only. The three fields it
     // moves live in src/qt_launch.cpp rather than here, so tests/qt_entry_tests.cpp can grab a
@@ -269,15 +268,26 @@ int main(int argc, char** argv) {
 
     QString title = QStringLiteral("Qinta");
     // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
-    // when a path was also given.
+    // when a path was also given. With no file at all, the last session's active tab opens
+    // (tinta::sessionToRestore has WinMain's conditions), and the rest of it joins the tab strip
+    // below. A session tab that will not load leaves the start page, as in WinMain.
+    int sessionActive = 0;
+    const std::vector<std::string> session = tinta::sessionToRestore(options, saved, sessionActive);
+    bool namedOnCommandLine = false;
     if (!options.inputFile.empty() && !options.quickNote) {
         if (loadDocumentFromPath(app, options.inputFile)) {
+            namedOnCommandLine = true;
             title = QStringLiteral("%1 - Qinta")
                         .arg(QString::fromLocal8Bit(options.inputFile.c_str()));
         } else {
             std::fprintf(stderr, "qinta: cannot open '%s'\n", options.inputFile.c_str());
         }
+    } else if (!session.empty() && loadDocumentFromPath(app, session[sessionActive])) {
+        title = QStringLiteral("%1 - Qinta")
+                    .arg(QString::fromLocal8Bit(session[sessionActive].c_str()));
     }
+    tinta::restoreLaunchDocument(app, saved, options, namedOnCommandLine);
+    if (!session.empty() && !app.currentFile.empty()) tabsSeedSession(app, session);
 
     // THE HARNESS SWITCHES: write and exit, in WinMain's dispatch order, which is also the
     // order tinta::plannedOutput reports and the guard above checked. No window is created: the
@@ -305,8 +315,8 @@ int main(int argc, char** argv) {
 
     // WHERE THE WINDOW GOES, decided by the same function WinMain calls.
     //
-    // Four geometry fields out of Settings, plus windowMaximized, the theme fields and the
-    // keymap fields -- see the header comment on why the rest are deliberately not applied. The saved size is the request's size, so a
+    // Four geometry fields out of Settings, plus windowMaximized; every other field was applied
+    // above by applySavedTheme and applySavedPreferences. The saved size is the request's size, so a
     // window restores at the dimensions it was closed at, and the 1000x700 that used to be
     // hardcoded here is now only the fallback Settings itself supplies (1024x768).
     // Both halves come from src/qt_launch.cpp rather than living here, because nine field
@@ -315,14 +325,11 @@ int main(int argc, char** argv) {
     // tests/qt_entry_tests.cpp asserts on the request AND on the geometry the window ends up
     // with, which are two separate claims.
 
-    // THE KEYMAP, THE FIFTH FIELD WITH A CONSUMER: the key router hands every keystroke to
-    // handleKeyDown, which passes it through translateActionKey before its switch. App::keymap
-    // is zero-initialised, and against an unbound map every default action key -- J, K, T, Q,
-    // F11 -- translates to 0 and falls through the switch. Without these two lines the router
-    // would compile, pass every sendEvent test that forgot the same call, and F11 would do
-    // nothing in the running application. The same two lines as WinMain, in the same order.
-    app.keyOverrides = saved.keyOverrides;
-    applyKeymap(app, saved);
+    // THE KEYMAP was bound here by its own two lines and is now bound by applySavedPreferences
+    // above, before the document loads. It is not optional: App::keymap is zero-initialised, and
+    // against an unbound map every default action key -- J, K, T, Q, F11 -- translates to 0 and
+    // falls through handleKeyDown's switch, in a build that compiles and passes any test that
+    // forgot the same call.
 
     const tinta::WindowRect placement =
         choosePlacement(tinta::placementRequestFrom(options, saved), tinta::monitorsFromQt());

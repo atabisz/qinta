@@ -370,11 +370,11 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,432 / 65,418 | **81.7%** |
+| A. Source lines free of the Windows stack | 53,561 / 65,576 | **81.7%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
 | C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
-| D. Test targets that *could* move, and do | 50 / 51 | 98.0% |
-| E. All test targets, run off Windows | 50 / 52 | 96.2% |
+| D. Test targets that *could* move, and do | 52 / 53 | 98.1% |
+| E. All test targets, run off Windows | 52 / 54 | 96.3% |
 
 - **A** is source lines in the `src/*.cpp` files on `tests/portable-sources.txt`, over every
   `.cpp` and `.h` under `src/` and `include/`.
@@ -386,7 +386,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 53,735 lines of the 65,418,
+numerator. With `src/*.cpp` totalling 53,864 lines of the 65,576,
 **basis A's ceiling is 82.1%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 
@@ -396,7 +396,7 @@ that are outside `tests/portable-sources.txt`, measured against CMake's generate
 | target | blockers | what they are |
 |---|---|---|
 | `config_paths` | 0 | **nothing** — Windows-only by *subject*: MSIX filesystem virtualization, and its own test includes `<windows.h>` for `CreateFileW` |
-| `file_association` | 2 | `settings_win32.cpp` — the registry code under test, which has no non-Windows form — plus `window_chrome_win32.cpp`, the DWM title bar every Qt app target links on Windows. Both are Windows-only by design. It read 5 until the clipboard, keyboard and process seam halves were deleted the same day. Added 2026-10-07: `/register` run for real against a redirected HKCU |
+| `file_association` | 1 | `settings_win32.cpp` — the registry code under test, which has no non-Windows form. `window_chrome_win32.cpp`, the DWM title bar, counted here too until 2026-10-11; it now reaches every app test through the shared `qinta_app` objects, so it is no longer this target's own source, and those tests run off Windows as well. It read 5 until the clipboard, keyboard and process seam halves were deleted the same day. Added 2026-10-07: `/register` run for real against a redirected HKCU |
 
 **`render.cpp`'s native mentions.** Counted with the pattern
 `(ID2D1|IDWrite|IWIC|D2D1_|DWRITE_|WIC[A-Z])[A-Za-z0-9_]*` plus `D2D1::`, re-derived at every

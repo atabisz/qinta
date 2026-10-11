@@ -53,6 +53,16 @@ void storeThemeChoice(Settings& settings, const App& app);
 void persistEditorMode(const App& app);
 void persistOpenInTabs(const App& app);
 
+// The saved preferences, onto App at launch: every field the retired WinMain copied after
+// loadSettings() except the theme, which applySavedTheme (qt_launch.h) owns. Includes the
+// keymap and the UI language, so a launch needs only this and applySavedTheme.
+void applySavedPreferences(App& app, const Settings& settings);
+// The other direction, at close: the same fields from App onto a freshly loaded Settings, plus
+// the theme, the current document's reading position and, from the session-owning window
+// only, the open tabs. Window geometry is the caller's, because only the caller has a window.
+// openInTabs is left as loaded: it persists at toggle time (persistOpenInTabs).
+void storePreferences(Settings& settings, const App& app);
+
 // tintaConfigDir() and configFilePathForShell() moved to config_dir.h, which is
 // included above so callers of this header are unaffected. They left because
 // they need no part of app.h, and a file that only resolves a path should not be

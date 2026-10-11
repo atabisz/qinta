@@ -1,5 +1,9 @@
 #include "qt_launch.h"
 
+#include <cmath>
+#include <filesystem>
+#include <system_error>
+
 #include <QGuiApplication>
 #include <QList>
 #include <QPalette>
@@ -13,6 +17,7 @@
 #include "settings.h"
 #include "theme_apply.h"
 #include "theme_data.h"
+#include "text_utils.h"
 
 namespace tinta {
 
@@ -107,7 +112,7 @@ void showPlaced(QWidget& window, bool maximized) {
 
 void saveClosingState(const App& app, const QWidget& window) {
     Settings settings = loadSettings();
-    storeThemeChoice(settings, app);
+    storePreferences(settings, app);
     settings.windowMaximized = window.isMaximized();
     if (!window.isMaximized() && !window.isFullScreen()) {
         settings.windowX = window.x();
@@ -116,6 +121,48 @@ void saveClosingState(const App& app, const QWidget& window) {
         settings.windowHeight = window.height();
     }
     saveSettings(settings);
+}
+
+namespace {
+bool isHarnessRun(const LaunchOptions& options) {
+    return !options.printPagesDir.empty() || !options.exportHtmlPath.empty() ||
+           !options.exportDocxPath.empty() || !options.exportPdfPath.empty();
+}
+}  // namespace
+
+std::vector<std::string> sessionToRestore(const LaunchOptions& options, const Settings& settings,
+                                          int& active) {
+    active = 0;
+    std::vector<std::string> paths;
+    if (!options.inputFile.empty() || options.quickNote || options.cascade ||
+        options.startInEditMode || isHarnessRun(options) || !settings.openInTabs) {
+        return paths;
+    }
+    for (size_t i = 0; i < settings.sessionTabs.size(); i++) {
+        const std::string& path = settings.sessionTabs[i];
+        std::error_code ec;
+        if (!std::filesystem::exists(std::filesystem::path(toWide(path)), ec)) continue;
+        if ((int)i == settings.sessionActive) active = (int)paths.size();
+        paths.push_back(path);
+    }
+    return paths;
+}
+
+bool ownsSession(const LaunchOptions& options) {
+    return !options.cascade && !options.quickNote;
+}
+
+void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptions& options,
+                           bool namedOnCommandLine) {
+    if (!app.currentFile.empty()) {
+        if (namedOnCommandLine && !isHarnessRun(options)) persistRecentFile(app.currentFile);
+        if (!options.startInEditMode) {
+            app.pendingScrollRestore = findReadingPosition(settings, app.currentFile);
+            const float zoom = findReadingZoom(settings, app.currentFile);
+            if (zoom > 0.0f && std::fabs(zoom - app.zoomFactor) > 0.01f) app.zoomFactor = zoom;
+        }
+    }
+    if (app.zoomFactor != app.appliedZoomFactor) updateTextFormats(app);
 }
 
 }  // namespace tinta

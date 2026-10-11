@@ -7,7 +7,11 @@ the date given, not as a live reading.
 
 ## Porting: behaviour the retired Windows app had and qinta does not
 
-- [ ] **Find which saved settings qinta does not restore, then restore them.** `settings.ini` holds
+- [x] **Done 2026-10-11.** Every field WinMain applied at launch and wrote at close is restored
+  again (`applySavedPreferences` and `storePreferences`, `src/settings_app.cpp`), traced from the
+  retired `WinMain`'s own load and close blocks rather than from a census. The UI language was
+  among the gaps: qinta never set it at launch. Test: `settings_restore`. The original item:
+  **Find which saved settings qinta does not restore, then restore them.** `settings.ini` holds
   34 fields. The retired `WinMain` applied most of them in one block after loading; qinta's launch
   path (`main_qt.cpp`) reads 11 directly, and others persist and restore through their own routes:
   recent files, per-document reading position and zoom (`findReadingPosition`, `findReadingZoom`),
@@ -16,9 +20,10 @@ the date given, not as a live reading.
   this starts by tracing each field from load to use. The candidates that census found no
   reader for: reading and zen width, word wrap, the editor preview, heading rules, folder search,
   and the table-of-contents and browser pins.
-- [ ] **Session restore.** `sessionTabs` and `sessionActive` are loaded and saved by
-  `src/settings.cpp` and touched by nothing else in the tree, so qinta neither records the open tabs
-  nor reopens them.
+- [x] **Session restore. Done 2026-10-11:** a plain launch reopens the last session's tabs, and the
+  session-owning window writes them at close (`tinta::sessionToRestore`, `src/qt_launch.cpp`).
+  Checked in the real binary: a seeded three-tab session reopened with its active tab, and a normal
+  close wrote it back. Fixture: `tests/fixtures/session-restore.md`.
 - [ ] **The update check.** It was retired with the Direct2D stack: nothing sets `updateAvailable`
   any more. The `checkUpdates`, `lastUpdateCheck` and `dismissedUpdate` settings and the
   "update available" action remain, and that action opens **upstream's** release page

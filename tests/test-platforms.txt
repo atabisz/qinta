@@ -115,7 +115,9 @@ code_block_layout              both
 config_paths                   windows-only   subject: MSIX filesystem virtualization; tests/config_path_tests.cpp includes <windows.h> for CreateFileW, HANDLE and GetTickCount64
 copy_file_path                 both
 draft_owner                    both
-file_association               windows-only   sources: 2 -- settings_win32.cpp, window_chrome_win32.cpp
+file_association               windows-only   sources: 1 -- settings_win32.cpp (window_chrome_win32.cpp reaches every app test through qinta_app)
+html_layout                    both
 inline_code_theme              both
 input_shortcuts                both
 math_layout                    both
+settings_restore               both

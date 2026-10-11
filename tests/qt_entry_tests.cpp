@@ -3010,8 +3010,11 @@ int main(int argc, char** argv) {
         const bool clampLow = themeApp.currentThemeIndex == 0 &&
                               themeApp.theme.name == themeAt(0).name;
 
-        // The close save. A settings.ini is seeded first with a zoomFactor this arm never
-        // writes, which is the field a WinMain-style full save would have put a default over.
+        // The close save. A settings.ini is seeded first with a zoomFactor App does not hold.
+        // Until 2026-10-11 this asserted the file's 1.75 SURVIVED, because the launch never loaded
+        // zoom and a full save would have put App's default over it. The launch loads every field
+        // now (applySavedPreferences), so the close writes App's zoom, as WinMain's did, and the
+        // seeded 1.75 is what proves the value came from App rather than from the file.
         const bool quitBefore = QApplication::quitOnLastWindowClosed();
         QApplication::setQuitOnLastWindowClosed(false);
         const bool addedTab = app.tabs.empty();
@@ -3048,7 +3051,7 @@ int main(int argc, char** argv) {
                                    afterClean.windowY == savePos.y() && savePos.x() == 140 &&
                                    savePos.y() == 160 && afterClean.windowWidth == 820 &&
                                    afterClean.windowHeight == 610 && !afterClean.windowMaximized;
-        const bool zoomKept = afterClean.zoomFactor == 1.75f;
+        const bool zoomKept = app.zoomFactor != 1.75f && afterClean.zoomFactor == app.zoomFactor;
 
         // A refused close writes nothing: the file's bytes are compared, not its fields.
         auto readSettingsFile = []() {
@@ -3092,7 +3095,7 @@ int main(int argc, char** argv) {
         check(shownPlain, "showPlaced(false) shows the window unmaximized");
         check(cleanClose && themeSaved, "a clean close saves the four theme fields");
         check(geometrySaved, "and the geometry, as applyPlacement's inverse: frame pos, client size");
-        check(zoomKept, "and keeps a field this arm never loads as the file had it");
+        check(zoomKept, "and writes the zoom App holds over the file's, now that the launch loads it");
         check(dirtyUnwritten, "a close refused for a dirty buffer leaves settings.ini byte-identical");
         check(shownMaximized && maxSaved,
               "a maximized close saves the flag and leaves the restore rectangle as it was");

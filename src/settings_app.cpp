@@ -1,5 +1,7 @@
-// The settings functions that touch App -- four, plus storeThemeChoice, the field copy
-// persistThemeChoice and the Qt arm's close save share.
+// The settings functions that touch App: applyKeymap, the three persist-on-change ones (editor
+// mode, open-in-tabs, theme), storeThemeChoice
+// (the field copy persistThemeChoice and the close save share), and applySavedPreferences and
+// storePreferences, the launch and close halves of every other field.
 //
 // They are here rather than in settings.cpp because that single line of field
 // copying each was what kept the entire ini reader and writer, 380 lines of string
@@ -34,6 +36,8 @@
 #include "app.h"
 #include "settings.h"
 #include "keymap.h"
+#include "i18n.h"
+#include "text_utils.h"
 
 void applyKeymap(App& app, const Settings& settings) {
     resolveKeymap(app.keymap, settings.keyProfile, settings.keyOverrides);
@@ -73,4 +77,75 @@ void storeThemeChoice(Settings& settings, const App& app) {
     settings.followSystemTheme = app.followSystemTheme;
     settings.lightThemeIndex = app.lightThemeIndex;
     settings.darkThemeIndex = app.darkThemeIndex;
+}
+
+// WinMain's block after loadSettings(), field for field, minus the theme. Until 2026-10-11
+// qinta's launch copied 11 fields and the rest stayed at App's defaults, so zoom, reading
+// width, word wrap, the pins, the update-check state and the UI language reset every launch.
+void applySavedPreferences(App& app, const Settings& settings) {
+    app.updateCheckEnabled = settings.checkUpdates;
+    app.updateLastCheck = settings.lastUpdateCheck;
+    app.updateDismissedVersion = settings.dismissedUpdate;
+    app.folderSearchEnabled = settings.folderSearchEnabled;
+    app.browserFocusPath = settings.browserFocusPath;
+    app.openInTabs = settings.openInTabs;
+    app.editorAssists = settings.editorAssists;
+    app.pandocUserPath = toWide(settings.pandocPath);
+    app.zoomFactor = settings.zoomFactor;
+    app.editorShowPreview = settings.editorShowPreview;
+    app.editorWordWrap = settings.editorWordWrap;
+    app.readingWidthPct = settings.readingWidthPct;
+    app.zenWidthPct = settings.zenWidthPct;
+    app.headingRules = settings.headingRules;
+    app.tocOnLeft = settings.tocOnLeft;
+    app.tocPinned = settings.tocPinned;
+    app.browserPinned = settings.browserPinned;
+    app.languageSetting = settings.language == "auto"
+        ? -1 : languageIndexById(settings.language);
+    app.currentLanguageIndex = app.languageSetting >= 0
+        ? app.languageSetting : detectSystemLanguage();
+    app.keyOverrides = settings.keyOverrides;
+    applyKeymap(app, settings);
+}
+
+// WinMain's WM_CLOSE block, field for field, minus the window placement.
+void storePreferences(Settings& settings, const App& app) {
+    storeThemeChoice(settings, app);
+    settings.zoomFactor = app.zoomFactor;
+    settings.editorShowPreview = app.editorShowPreview;
+    settings.editorWordWrap = app.editorWordWrap;
+    settings.editorAssists = app.editorAssists;
+    settings.checkUpdates = app.updateCheckEnabled;
+    settings.lastUpdateCheck = app.updateLastCheck;
+    settings.dismissedUpdate = app.updateDismissedVersion;
+    settings.folderSearchEnabled = app.folderSearchEnabled;
+    settings.browserFocusPath = app.browserFocusPath;
+    // The open tabs, for the next launch to reopen. Untitled buffers have no path to restore.
+    // Only the session-owning window writes them: a quick note or a dragged-out window keeps
+    // what is on disk, so its close cannot replace a newer session with its own few tabs.
+    if (app.sessionOwner) {
+        settings.sessionTabs.clear();
+        settings.sessionActive = 0;
+        for (size_t i = 0; i < app.tabs.size(); i++) {
+            const std::string& path =
+                (int)i == app.activeTab ? app.currentFile : app.tabs[i].path;
+            if (path.empty()) continue;
+            if ((int)i == app.activeTab) settings.sessionActive = (int)settings.sessionTabs.size();
+            settings.sessionTabs.push_back(path);
+        }
+        // No tab strip yet (one document, never a tab operation): that document is the session.
+        if (app.tabs.empty() && !app.currentFile.empty()) settings.sessionTabs.push_back(app.currentFile);
+    }
+    settings.readingWidthPct = app.readingWidthPct;
+    settings.zenWidthPct = app.zenWidthPct;
+    settings.headingRules = app.headingRules;
+    settings.tocOnLeft = app.tocOnLeft;
+    settings.tocPinned = app.tocPinned;
+    settings.browserPinned = app.browserPinned;
+    settings.language = app.languageSetting >= 0 ? languageIdAt(app.languageSetting) : "auto";
+    settings.keyProfile = app.keyProfile;
+    settings.keyOverrides = app.keyOverrides;
+    if (!app.currentFile.empty()) {
+        rememberReadingPosition(settings, app.currentFile, app.scrollY, app.zoomFactor);
+    }
 }

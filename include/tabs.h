@@ -54,13 +54,18 @@ void tabBulkCloseStep(App& app, HWND hwnd);
 bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle);
 bool tabSwitcherMouseDown(App& app, HWND hwnd, int x, int y);
 // Drag lifecycle: move reorders inside the strip or floats the tab as a
-// ghost card once clear of it; release decides (drop into another Tinta
-// window, spawn a new one, or snap back); Esc/capture loss cancels
+// ghost card once clear of it; release decides (spawn a new window or snap
+// back -- NOT a drop into another running window, which this stack cannot
+// ask for; see docs/roadmap.md); Esc/capture loss cancels
 void tabDragMove(App& app, HWND hwnd, int x, int y);
 void tabDragEnd(App& app, HWND hwnd, int x, int y);
 void tabDragCancel(App& app, HWND hwnd);
-// After a native window move: a tabless window dropped onto another
-// Tinta window's strip merges its document there
+// DEFERRED, AND UNCALLED ON THIS STACK. On Win32 this ran after a native
+// window move: a tabless window dropped onto another Tinta window's strip
+// donated its document there. Its one caller died with the Direct2D window
+// procedure, and the search it ran was an HWND walk, so nothing calls it
+// here and the behaviour does not happen. docs/roadmap.md groups it with
+// the other direction of the same missing question.
 void tabWindowDropMerge(App& app, HWND hwnd);
 
 #endif  // TINTA_TABS_H

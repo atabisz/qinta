@@ -306,7 +306,7 @@ taken along the way, are in the commit history.
 | 2026-10-06 | The tab strip's always-on-top pin works on `qinta` (`Qt::WindowStaysOnTopHint` through the window sink) | Done |
 | 2026-10-06 | A second `qinta` launch joins the running window as a tab, over `QLocalSocket`, under tinta's single-instance rule | Done |
 | 2026-10-06 | Tear a tab off into its own window on `qinta`: detach under the Qt ghost, drop away from the window | Done |
-| open | Dropping a torn-off tab onto ANOTHER running `qinta` window: no portable "which process owns the window under the cursor"; on Qt that drop opens a new window | Not attempted |
+| open | Moving a tab between two running `qinta` windows, BOTH directions — a torn-off tab dropped onto another window, and a single-file window dropped onto another window's strip (`tabWindowDropMerge`, a stub with no caller). One cause: no portable "which process owns the window under the cursor". On Qt the first drop opens a new window and the second does nothing | Not attempted |
 | 2026-10-06 | `qinta` draws tinta's whole frame: start page, editor, tab strip, search, every overlay and dialog (`src/render_frame.cpp`) | Done |
 | 2026-10-06 | `qinta` shows one row of caption buttons: the tab strip leaves minimise, maximise and close to the native title bar | Done |
 | 2026-10-07 | Slice 25: retire `tinta` and delete the Direct2D stack — `main_d2d.cpp`, `d2d_init.cpp`, `chrome_dump_d2d.cpp` and ten more files, 4,821 lines, nothing ported | Done |
@@ -370,7 +370,7 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 53,774 / 65,940 | **81.5%** |
+| A. Source lines free of the Windows stack | 53,784 / 65,956 | **81.5%** |
 | B. `src/*.cpp` files compiling without Windows headers | 78 / 80 | 97.5% |
 | C. Files a running test links **off Windows** | 77 / 80 | 96.2% |
 | D. Test targets that *could* move, and do | 53 / 54 | 98.1% |
@@ -386,7 +386,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 54,077 lines of the 65,940,
+numerator. With `src/*.cpp` totalling 54,087 lines of the 65,956,
 **basis A's ceiling is 82.0%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 

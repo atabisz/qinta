@@ -101,7 +101,15 @@ Deferred on 2026-10-12, so they do not hold up 1.0.0.
 - [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
   headless only, too.
 
-- [ ] **Dropping a torn-off tab onto another running qinta window.** Open in
-  [port.md's Status](port.md#status): Qt has no portable way to ask which process owns the window
-  under the cursor, so on qinta that drop opens a new window instead. It needs per-platform code
-  for a small convenience; the tab is not lost, it gets a window of its own.
+- [ ] **Moving a tab between two running qinta windows — neither direction.** Open in
+  [port.md's Status](port.md#status). One cause for both: Qt has no portable way to ask which
+  process owns the window under the cursor, and both directions are that question.
+  - *Dropping a torn-off tab onto another running qinta window*: on qinta that drop opens a new
+    window instead. The tab is not lost, it gets a window of its own.
+  - *Dropping a single-file window onto another window's tab strip to merge it there* (Win11
+    Notepad does this). `tabWindowDropMerge` in `src/tabs.cpp` is a stub with **no caller** — the
+    one it had was the retired Direct2D window procedure's end-of-window-move, and the search it ran
+    was an `HWND` walk. Its two design constraints are worth keeping if this is ever built: only a
+    window holding exactly one tab donates, and never while an unsaved edit is open.
+
+  Both need per-platform code for a small convenience, which is why they are here and not in 1.0.0.

@@ -660,7 +660,8 @@ struct App {
     int tabDragStartX = 0;
     int tabDragStartY = 0;
     // Pulled clear of the strip: the tab floats as a ghost card until
-    // release decides (drop into another window / new window / snap back)
+    // release decides (a new window, or snap back -- a drop into another
+    // running window is deferred, see docs/roadmap.md)
     bool tabDragDetached = false;
     HWND tabGhostWnd = nullptr;
     // A native move/size loop is in progress; the starting rect tells a

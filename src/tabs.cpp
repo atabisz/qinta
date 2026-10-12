@@ -1517,15 +1517,18 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     app.tabDragDetached = false;
     releaseMouseIfCaptured(hwnd);
 
-    // WINDOWS ONLY, AND OFF WINDOWS THIS IS NOT A SKIPPED STEP: tabDragMove never detaches
-    // there, so `detached` is always false and there is nothing to drop. Where the tab lands
-    // is an HWND question -- include/tab_tearoff_win32.h says why it has no Qt arm.
-    // THE DROP, OFF THE Win32 STACK (2026-10-06). Over this window: snap home, as Win32's
-    // ThisWindow. Anywhere else: a new window at the drop point, as Win32's Nowhere. Win32's
-    // third answer, OtherWindow -- the tab moves into another running Tinta -- has no portable
-    // question to ask ("which process owns the window under the cursor"), so on this stack a drop
-    // over another qinta window ALSO opens a new one. Stated here, in include/window_sink.h and
-    // in the README rather than discovered.
+    // THE DROP, ON ONE STACK SINCE 2026-10-06, and this runs on every platform: tabDragMove
+    // detaches through the window sink, so `detached` is live off Windows too. (The paragraph
+    // that used to lead here said the opposite -- "WINDOWS ONLY ... tabDragMove never detaches
+    // there" -- and was already contradicted by its own next sentence and by the code; it also
+    // cited include/tab_tearoff_win32.h, deleted in slice 25.)
+    // Over this window: snap home, as Win32's ThisWindow. Anywhere else: a new window at the
+    // drop point, as Win32's Nowhere. Win32's third answer, OtherWindow -- the tab moves into
+    // another running Tinta -- has no portable question to ask ("which process owns the window
+    // under the cursor"), so on this stack a drop over another qinta window ALSO opens a new
+    // one. Stated rather than discovered, in README.md's Tabs bullet, docs/roadmap.md and
+    // docs/port.md's Status -- NOT in include/window_sink.h, which names the three questions
+    // the sink does answer and never mentions this fourth one.
     {
         tinta::WindowSink& sink = tinta::windowSinkSlot();
         if (detached && sink.ghostHide) sink.ghostHide();
@@ -1546,17 +1549,24 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
     requestRepaint(hwnd);
 }
 
+// DEFERRED AND UNCALLED -- `rg tabWindowDropMerge` finds this definition and its
+// declaration, and nothing else. On Win32, a tabless window dropped so the cursor
+// landed on another Tinta window's tab strip donated its document there
+// (Notepad-style); multi-tab windows hand tabs over through per-tab drags instead.
+//
+// The caller was main_d2d.cpp's end-of-window-move, which went with the Direct2D
+// window procedure in slice 25, and the search it ran was an HWND walk -- the same
+// unanswerable question as tabDragEnd's OtherWindow arm below: "which process owns
+// the window under the cursor". So this is not a Qt arm waiting to be filled in at
+// one site; it is half of one deferred roadmap entry, and the README says so.
+//
+// The guards below are kept because they are the design, not the port: only a
+// one-tab window donates, and never while an unsaved edit is open.
 void tabWindowDropMerge(App& app, HWND hwnd) {
-    // A tabless window dropped so the cursor lands on another Tinta
-    // window's tab strip donates its document there (Notepad-style);
-    // multi-tab windows hand tabs over through per-tab drags instead
     if (app.tabs.size() != 1) return;
     if (app.editMode && app.editorDirty) return;
     const std::string& path = app.currentFile;
     if (path.empty()) return;
-
-    // Windows only, for the same reason as tabDragEnd's drop: the one caller is
-    // main_d2d.cpp's end-of-window-move, and the search is an HWND walk.
     (void)hwnd;
 }
 

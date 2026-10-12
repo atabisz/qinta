@@ -70,7 +70,8 @@ the date given, not as a live reading.
 - [x] **Published 2026-10-12**: [v0.0.1](https://github.com/atabisz/qinta/releases/tag/v0.0.1), drafted by `build.yml`'s release job from a manual run and published by hand. The next release is the same run with the next version. The original item: **Publish v0.0.1**: tag it, and add a release job that attaches the three packages
   `build.yml` already builds on every push (README § Building) to a GitHub Release.
 - [ ] **Notarize the macOS app.** It is signed ad hoc and not notarized, so macOS blocks it on first
-  open until the user right-clicks it and chooses Open. Notarizing needs an **Apple Developer
+  open until the user allows it once (README's Download section: `xattr` in Terminal, or Open
+  Anyway in Privacy & Security; right-click > Open stopped working in macOS 15). Notarizing needs an **Apple Developer
   Program membership** (US$99 a year), a Developer ID certificate in the repository's secrets, and
   a `notarytool` step after `scripts/package-macos.sh` signs the bundle.
 - [ ] **Witness each package opening a window** on a machine that never had Qt or Visual Studio
@@ -80,8 +81,10 @@ the date given, not as a live reading.
     package opened, rendered, and restored and saved a session on the development machine. Windows
     Sandbox could not be used for this on that managed machine: it starts, but neither its
     LogonCommand nor `wsb exec` could start a process inside it.
-  - **macOS and Linux: not yet seen by hand.** The AppImage is proven to run with no Qt installed
-    (CI runs it in a bare Ubuntu 24.04 container), but headless, not with a window on a desktop.
+  - **macOS: done 2026-10-12.** The published v0.0.2 app opened on a Mac, after the one-time
+    quarantine step the README's Download section describes.
+  - **Linux: not yet seen by hand.** The AppImage is proven to run with no Qt installed (CI runs
+    it in a bare Ubuntu 24.04 container), but headless, not with a window on a desktop.
 - [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
   headless only, too.
 

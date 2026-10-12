@@ -10,7 +10,9 @@
 #
 # The bundle is signed ad hoc, which arm64 requires for anything to run once macdeployqt has
 # rewritten the binaries. It is NOT notarized, so Gatekeeper blocks it on first open from a
-# download until the user allows it (right-click, Open).
+# download until the user allows it: `xattr -dr com.apple.quarantine` on the app, or System
+# Settings > Privacy & Security > Open Anyway (README's Download section). Right-click > Open
+# stopped bypassing it in macOS 15.
 set -euo pipefail
 
 if [ $# -ne 2 ]; then

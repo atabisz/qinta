@@ -346,7 +346,7 @@ jobs:
           [ -s notes.md ] || { echo "CHANGELOG.md has no '## [$VERSION]' section"; exit 1; }
           printf '\n### Downloads\n\n%s\n%s\n%s\n' \
             "- Windows 10 or 11: unzip qinta-$VERSION-windows-x64.zip and run qinta.exe. Nothing to install." \
-            "- macOS (Apple silicon): unzip and move Qinta.app to Applications. It is not notarized, so the first time, right-click it and choose Open." \
+            "- macOS (Apple silicon): unzip and move Qinta.app to Applications. It is not notarized, so macOS blocks the first open; run \`xattr -dr com.apple.quarantine /Applications/Qinta.app\` once in Terminal, or use System Settings > Privacy & Security > Open Anyway. Right-click > Open no longer works since macOS 15." \
             "- Linux (x86_64): make the AppImage executable (chmod +x) and run it." >> notes.md
           ls -la release
           cat notes.md

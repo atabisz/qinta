@@ -54,12 +54,39 @@ is refused, and says how to make qinta the default there instead: the macOS app 
 AppImage declare Markdown files themselves. `--dumpchrome` was removed with the DirectWrite chrome formats it read back, and is now an unknown option.
 There is no update check and no MSIX package.
 
+## Download
+
+Download the latest version from the
+[Releases page](https://github.com/atabisz/qinta/releases/latest). There is no installer.
+
+**Windows 10 or 11:** unzip `qinta-<version>-windows-x64.zip` and run `qinta.exe` from the
+folder. It carries its own Qt and Visual C++ runtime, so nothing else needs installing.
+
+**macOS (Apple silicon):** unzip `qinta-<version>-macos-arm64.zip` and move `Qinta.app` to
+Applications. The app is signed but not notarized by Apple, so the first time you open it macOS
+says *"Apple could not verify "Qinta" is free of malware"* and offers only **Done** and **Move to
+Bin**. Since macOS 15, right-clicking and choosing Open no longer gets past this. Do one of these
+once, and Qinta opens normally from then on:
+
+- **Terminal** (quickest): run
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/Qinta.app
+  ```
+
+  then open Qinta. This removes the "downloaded from the internet" mark, for this app only.
+- **System Settings:** after the warning, open **System Settings > Privacy & Security**, scroll
+  to *"Qinta" was blocked to protect your Mac*, click **Open Anyway** and confirm, then open Qinta
+  again and choose **Open Anyway**.
+
+**Linux (x86_64):** make the AppImage executable and run it:
+`chmod +x qinta-<version>-x86_64.AppImage && ./qinta-<version>-x86_64.AppImage`.
+
 ## Building
 
-**Qinta has no releases and no installer yet, but every push builds a package per platform.**
-The latest successful run of [`build.yml`](.github/workflows/build.yml) on `master` carries
-them as artifacts (downloading an artifact needs a GitHub login), each named by the commit it was
-built from:
+Besides the releases, every push builds a package per platform. The latest successful run of
+[`build.yml`](.github/workflows/build.yml) on `master` carries them as artifacts (downloading an
+artifact needs a GitHub login), each named by the commit it was built from:
 
 | Artifact | What it is | Checked in CI |
 |---|---|---|
@@ -67,10 +94,10 @@ built from:
 | `qinta-macos-app` | `Qinta.app`, Apple silicon, zipped | no library loads from Homebrew; unzipped, its signature verifies and it prints pages |
 | `qinta-linux-appimage` | An x86_64 AppImage | every Qt library it loads is inside it; it prints pages in an Ubuntu 24.04 container with no Qt installed |
 
-Not yet witnessed: any of the three opening a window on a machine that never had Qt or Visual
-Studio installed, since CI only runs them headless. The macOS app is signed ad hoc and **not
-notarized**, so macOS blocks it on first open; right-click it and choose Open. Building from
-source, below, is the other way to get qinta.
+CI runs all three headless. By hand, the released Windows package has opened on a second Windows
+machine and the macOS app on a Mac (2026-10-12); the Linux AppImage has not yet been opened on a
+desktop. The macOS app is **not notarized**: see [Download](#download) for opening it the first
+time. Building from source, below, is the other way to get qinta.
 
 All three platforms build from the same CMake project, and they are not equally proven. The
 state per platform, before any commands:

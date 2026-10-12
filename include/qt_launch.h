@@ -148,6 +148,24 @@ bool ownsSession(const LaunchOptions& options);
 void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptions& options,
                            bool namedOnCommandLine);
 
+// A DOCUMENT HANDED TO THE RUNNING WINDOW FROM OUTSIDE IT, in WinMain's WM_COPYDATA shape: the
+// window comes forward and the document opens as a tab. A second launch's hand-off
+// (instance_channel_qt.h) arrives here, and so does a macOS file-open event that joins. One
+// function, so main()'s arrivals and tests/qt_entry_tests.cpp run the same code -- the hand-off
+// test used to hold its own copy of the callback, which no defect in main()'s copy could fail.
+void openArrivedDocument(App& app, QWidget& window, const std::string& utf8Path);
+
+// macOS FINDER: a double-click, Open With, or a document dropped on the Dock icon never starts a
+// second process. LaunchServices sends a QFileOpenEvent to the running qinta, or to a fresh one it
+// started with NO file argument -- and measured 2026-10-13, that event arrives inside exec(), after
+// the window exists, even with processEvents() pumped before the launch document is chosen. So
+// the event takes the decision the second process would have taken, through the same
+// shouldJoinExistingWindow and this window's "Open files in tabs": join (openArrivedDocument), or
+// with tabs off start the plain `qinta <path>` that would have opened its own window. Except on
+// the start page, which holds no document and so takes it in place whatever the setting -- the
+// cold launch's case, where `qinta <path>` would have opened that document in this window.
+void openFileOpenEventDocument(App& app, QWidget& window, const std::string& utf8Path);
+
 }  // namespace tinta
 
 #endif  // TINTA_QT_LAUNCH_H

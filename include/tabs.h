@@ -18,6 +18,12 @@ void tabsSeedSession(App& app, const std::vector<std::string>& paths);
 void tabActivate(App& app, HWND hwnd, int index);
 void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
                  bool activate = true);
+// The start page giving way to a document: the document opens as a tab and
+// the start page's own tab closes, so a launcher holding nothing becomes a
+// window holding that one document. The start page's recent-file click, and
+// a macOS Finder open that arrives while the start page is showing.
+void tabOpenPathReplacingStartPage(App& app, HWND hwnd,
+                                   const std::string& utf8Path);
 void tabCloseIndex(App& app, HWND hwnd, int index);
 void tabCycle(App& app, HWND hwnd, int direction);
 

@@ -2504,15 +2504,7 @@ static void startPageInvoke(App& app, HWND hwnd, int id) {
                     app.startPageRecents.begin() + index);
                 app.startPageHover = 0;
             } else {
-                tabsInit(app);
-                int shellId = app.tabs[app.activeTab].id;
-                tabOpenPath(app, hwnd, path);
-                for (int i = 0; i < (int)app.tabs.size(); i++) {
-                    if (app.tabs[i].id == shellId) {
-                        tabCloseIndex(app, hwnd, i);
-                        break;
-                    }
-                }
+                tabOpenPathReplacingStartPage(app, hwnd, path);
             }
         }
     } else if (id >= 20 && id < 23) {

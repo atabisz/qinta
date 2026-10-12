@@ -102,7 +102,7 @@
 #include "qt_window.h"
 #include "settings.h"
 #include "settings_data.h"
-#include "tabs.h"  // tabOpenPath, for documents handed over by a second launch
+#include "tabs.h"  // tabsSeedSession, for the restored session
 #include "theme_data.h"
 #include "utils.h"  // updateWindowTitle, the one caption computer
 #include "window_placement.h"
@@ -390,12 +390,18 @@ int main(int argc, char** argv) {
     // the window comes forward, as WinMain's WM_COPYDATA case restores and foregrounds. If the
     // name is already held by another live window, this one simply does not listen.
     tinta::InstanceServer instanceServer([&app, &window](const std::string& path) {
-        if (window.isMinimized()) window.showNormal();
-        window.raise();
-        window.activateWindow();
-        tabOpenPath(app, nullptr, path, true);
+        tinta::openArrivedDocument(app, window, path);
     });
     instanceServer.listen(tinta::instanceChannelName());
+
+    // macOS Finder's way in: no second process, a QFileOpenEvent instead -- on a cold launch too,
+    // which reaches this binary with no file argument and delivers the document inside exec().
+    // Installing it here rather than beside QApplication loses nothing, measured: the event never
+    // arrives before exec(). See qt_launch.h.
+    tinta::FileOpenRouter fileOpenRouter([&app, &window](const std::string& path) {
+        tinta::openFileOpenEventDocument(app, window, path);
+    });
+    qapp.installEventFilter(&fileOpenRouter);
 
     const int rc = QApplication::exec();
 

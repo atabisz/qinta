@@ -134,6 +134,11 @@ std::vector<std::string> quickNoteRelaunchArgs();                            // 
 std::vector<std::string> documentRelaunchArgs(const std::string& utf8Path);  // a note window
 std::vector<std::string> tornOffRelaunchArgs(int x, int y,
                                              const std::string& utf8Path);  // a torn-off tab
+// THE FOURTH, AND THE ONE WITHOUT --cascade: a plain second launch, `qinta <path>`, started on
+// macOS for a Finder open that the running window does not join ("Open files in tabs" off). It
+// is the process Windows starts for the same double-click, so it takes the same launch decisions
+// -- shouldJoinExistingWindow, the session -- rather than a cascaded window's.
+std::vector<std::string> secondLaunchArgs(const std::string& utf8Path);
 
 // THE DESTRUCTIVE HALF OF A LAUNCH, AND THE GUARD THE PARSER ALONE CANNOT GIVE IT.
 //

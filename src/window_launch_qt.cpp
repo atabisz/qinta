@@ -61,3 +61,8 @@ void launchDocumentWindow(const std::wstring& fullPath) {
 void launchTornOffTabWindow(int x, int y, const std::string& utf8Path) {
     relaunch(tinta::tornOffRelaunchArgs(x, y, utf8Path));
 }
+
+// A macOS Finder open with "Open files in tabs" off: the second process Windows would start.
+void launchSecondInstance(const std::string& utf8Path) {
+    relaunch(tinta::secondLaunchArgs(utf8Path));
+}

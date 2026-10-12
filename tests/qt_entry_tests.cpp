@@ -91,6 +91,7 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QEventLoop>
+#include <QFileOpenEvent>
 #include <QMimeData>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -4704,9 +4705,11 @@ int main(int argc, char** argv) {
 
         const size_t tabsBefore = app.tabs.size();
         std::string received;
-        tinta::InstanceServer server([&app, &received](const std::string& path) {
+        // main()'s own callback, not a copy of it: a copy here could not fail on a defect in
+        // main()'s (qt_launch.h says why openArrivedDocument exists).
+        tinta::InstanceServer server([&app, &joinWindow, &received](const std::string& path) {
             received = path;
-            tabOpenPath(app, nullptr, path, true);
+            tinta::openArrivedDocument(app, joinWindow, path);
         });
         const bool listening = server.listen(channel);
         std::atomic<int> sendResult{-1};
@@ -4731,6 +4734,133 @@ int main(int argc, char** argv) {
               "acknowledges it");
         check(joined,
               "join: the handed-over document opens as a new tab and becomes the current file");
+    }
+
+    // ---- macOS FINDER: THE FILE-OPEN EVENT (2026-10-13) ---------------------------------------
+    //
+    // Finder's double-click and Open With start no second process: LaunchServices sends the running
+    // qinta a QFileOpenEvent, and a cold launch gets one too, with no file argument. There were 0
+    // handlers, so on macOS the app opened nothing from the Finder at all. The event is SENT TO
+    // qApp here, as the platform sends it, and main()'s own routing runs: FileOpenRouter into
+    // openFileOpenEventDocument. Qt sends no such event off macOS, so this block can run anywhere.
+    //
+    // Four arms: the window joins (a tab), the start page gives way (what a cold launch meets),
+    // with "Open files in tabs" off the second process Windows would start is started instead,
+    // and with tabs off the start page still takes the document. Each is asserted on what it must NOT do as well, so one branch cannot
+    // satisfy another's check.
+    {
+        QtAppWindow openWindow(app);
+        openWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        openWindow.resize(800, 500);
+        check(openWindow.openDocument(tmpUtf8), "file-open: the window has a document open");
+
+        const std::filesystem::path openDir =
+            std::filesystem::temp_directory_path() / "qinta_file_open_probe";
+        std::error_code openEc;
+        std::filesystem::remove_all(openDir, openEc);
+        std::filesystem::create_directories(openDir, openEc);
+        const std::string joinPath = (openDir / "finder-join.md").string();
+        const std::string shellPath = (openDir / "finder-start-page.md").string();
+        const std::string tabsOffPath = (openDir / "finder-tabs-off.md").string();
+        for (const std::string& p : {joinPath, shellPath, tabsOffPath}) {
+            std::ofstream(p, std::ios::binary) << "# opened from the Finder\n\nA body.\n";
+        }
+        auto sendFileOpen = [](const std::string& path) {
+            QFileOpenEvent event(QString::fromStdString(path));
+            return QCoreApplication::sendEvent(qApp, &event);
+        };
+        auto pathlessTabs = [&app]() {
+            int n = 0;
+            for (const App::DocTab& tab : app.tabs) n += tab.path.empty() ? 1 : 0;
+            return n;
+        };
+
+        // CONTROL FIRST: no router installed, so the event must open nothing. This is master's
+        // behaviour, and the check that tells a red below apart from a router that never ran.
+        const size_t tabsBeforeControl = app.tabs.size();
+        sendFileOpen(joinPath);
+        const bool controlOpenedNothing =
+            app.tabs.size() == tabsBeforeControl && app.currentFile != joinPath;
+
+        tinta::FileOpenRouter router([&app, &openWindow](const std::string& path) {
+            tinta::openFileOpenEventDocument(app, openWindow, path);
+        });
+        qApp->installEventFilter(&router);
+
+        // Arm 1: a document is showing, so the event joins as a new tab.
+        const size_t tabsBeforeJoin = app.tabs.size();
+        const bool joinConsumed = sendFileOpen(joinPath);
+        const bool joined = app.tabs.size() == tabsBeforeJoin + 1 && app.currentFile == joinPath;
+
+        // Arm 2: the start page is showing (Ctrl+T's empty tab), as on a cold Finder launch. The
+        // document replaces it: one tab in, one tab out, and no pathless tab left behind.
+        tabOpenStartPage(app, nullptr);
+        const bool onStartPage = startPageActive(app);
+        const size_t tabsBeforeShell = app.tabs.size();
+        const int pathlessBeforeShell = pathlessTabs();
+        sendFileOpen(shellPath);
+        const bool shellReplaced = app.tabs.size() == tabsBeforeShell &&
+                                   app.currentFile == shellPath &&
+                                   pathlessTabs() == pathlessBeforeShell - 1;
+        const int pathlessAfterShell = pathlessTabs();
+
+        // Arm 3: tabs off. The window must not take the document; a plain `qinta <path>` is
+        // started, and parsed back it is a launch that takes its own decisions -- no --cascade.
+        std::vector<std::vector<std::string>> secondLaunches;
+        tinta::setRelaunchHookForTests([&secondLaunches](const std::vector<std::string>& args) {
+            secondLaunches.push_back(args);
+        });
+        const bool savedOpenInTabs = app.openInTabs;
+        app.openInTabs = false;
+        const size_t tabsBeforeOff = app.tabs.size();
+        sendFileOpen(tabsOffPath);
+        app.openInTabs = savedOpenInTabs;
+        tinta::setRelaunchHookForTests(nullptr);
+        const bool offLaunched = secondLaunches.size() == 1 &&
+                                 parse_qt_launch(secondLaunches[0]).inputFile == tabsOffPath &&
+                                 !parse_qt_launch(secondLaunches[0]).cascade;
+        const bool offStayed = app.tabs.size() == tabsBeforeOff && app.currentFile != tabsOffPath;
+        const size_t tabsAfterShell = tabsBeforeOff;  // arm 3 opens no tab, so arm 2's count
+        const size_t offLaunches = secondLaunches.size();
+
+        // Arm 4: tabs off AND the start page showing -- a cold Finder launch for a user with tabs
+        // off. The start page still takes it: no second launch, which would leave this window
+        // empty beside the document's. Found end to end, not by the three arms above, which all
+        // passed with the tabs check made first.
+        tinta::setRelaunchHookForTests([&secondLaunches](const std::vector<std::string>& args) {
+            secondLaunches.push_back(args);
+        });
+        secondLaunches.clear();
+        tabOpenStartPage(app, nullptr);
+        const bool offOnStartPage = startPageActive(app);
+        app.openInTabs = false;
+        sendFileOpen(tabsOffPath);
+        app.openInTabs = savedOpenInTabs;
+        tinta::setRelaunchHookForTests(nullptr);
+        const bool offShellTook = offOnStartPage && secondLaunches.empty() &&
+                                  app.currentFile == tabsOffPath;
+
+        qApp->removeEventFilter(&router);
+        std::printf("fileopen control_nothing=%d consumed=%d joined=%d start_page=%d "
+                    "shell_replaced=%d tabs=%zu->%zu pathless=%d->%d off_launches=%zu "
+                    "off_launched=%d off_stayed=%d\n",
+                    controlOpenedNothing, joinConsumed, joined, onStartPage, shellReplaced,
+                    tabsBeforeShell, tabsAfterShell, pathlessBeforeShell, pathlessAfterShell,
+                    offLaunches, offLaunched, offStayed);
+        check(controlOpenedNothing,
+              "file-open: CONTROL -- with no router installed the event opens nothing");
+        check(joinConsumed && joined,
+              "file-open: a Finder open joins the window as a new tab and becomes the current file");
+        check(onStartPage && shellReplaced,
+              "file-open: on the start page the document replaces it rather than opening beside it");
+        check(offLaunched,
+              "file-open: with tabs off a plain second launch of the path is started");
+        check(offStayed, "file-open: with tabs off the running window does not take the document");
+        std::printf("fileopen off_start_page=%d off_shell_launches=%zu off_shell_took=%d\n",
+                    offOnStartPage, secondLaunches.size(), offShellTook);
+        check(offShellTook,
+              "file-open: with tabs off the start page still takes the document, launching nothing");
+        std::filesystem::remove_all(openDir, openEc);
     }
 
     // ---- TAB TEAR-OFF (slice 24), AND THE RELAUNCHES RUN AT LAST --------------------------

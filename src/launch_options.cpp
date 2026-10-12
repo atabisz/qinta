@@ -133,6 +133,8 @@ std::vector<std::string> tornOffRelaunchArgs(int x, int y, const std::string& ut
     return {"--cascade", "--tabbed", "--pos", std::to_string(x), std::to_string(y), utf8Path};
 }
 
+std::vector<std::string> secondLaunchArgs(const std::string& utf8Path) { return {utf8Path}; }
+
 PlannedOutput plannedOutput(const LaunchOptions& options) {
     // Dispatch order, taken from the retired src/main_d2d.cpp and kept by src/main_qt.cpp:
     // --printpages, then the three exporters. main() returns from the first branch it enters, so

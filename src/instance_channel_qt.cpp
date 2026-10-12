@@ -3,6 +3,8 @@
 #include <QByteArray>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QEvent>
+#include <QFileOpenEvent>
 #include <QLocalServer>
 #include <QLocalSocket>
 
@@ -75,6 +77,20 @@ void InstanceServer::accept() {
             socket->disconnectFromServer();
         });
     }
+}
+
+FileOpenRouter::FileOpenRouter(std::function<void(const std::string&)> onPath, QObject* parent)
+    : QObject(parent), onPath_(std::move(onPath)) {}
+
+bool FileOpenRouter::eventFilter(QObject* watched, QEvent* event) {
+    if (event->type() == QEvent::FileOpen) {
+        const QString file = static_cast<QFileOpenEvent*>(event)->file();
+        if (!file.isEmpty()) {
+            if (onPath_) onPath_(file.toUtf8().toStdString());
+            return true;
+        }
+    }
+    return QObject::eventFilter(watched, event);
 }
 
 }  // namespace tinta

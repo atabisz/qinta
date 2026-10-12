@@ -215,6 +215,19 @@ void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
     }
 }
 
+void tabOpenPathReplacingStartPage(App& app, HWND hwnd,
+                                   const std::string& utf8Path) {
+    tabsInit(app);
+    int shellId = app.tabs[app.activeTab].id;
+    tabOpenPath(app, hwnd, utf8Path);
+    for (int i = 0; i < (int)app.tabs.size(); i++) {
+        if (app.tabs[i].id == shellId) {
+            tabCloseIndex(app, hwnd, i);
+            break;
+        }
+    }
+}
+
 void tabCloseIndex(App& app, HWND hwnd, int index) {
     tabsInit(app);
     if (index < 0 || index >= (int)app.tabs.size()) return;

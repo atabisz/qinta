@@ -46,6 +46,23 @@ private:
     QLocalServer* server_ = nullptr;
 };
 
+// THE OTHER WAY A DOCUMENT REACHES A RUNNING qinta, and the only one macOS Finder uses: a
+// QFileOpenEvent sent to the QApplication (double-click, Open With, a drop on the Dock icon).
+// Installed as an event filter on qApp; every local path the event carries goes to `onPath`, on
+// the GUI thread. An event naming no local file -- a URL scheme -- is left to Qt. Harmless off
+// macOS, where Qt sends no such event, which is also why the test runs it on every platform.
+class FileOpenRouter : public QObject {
+public:
+    explicit FileOpenRouter(std::function<void(const std::string&)> onPath,
+                            QObject* parent = nullptr);
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
+private:
+    std::function<void(const std::string&)> onPath_;
+};
+
 }  // namespace tinta
 
 #endif  // TINTA_INSTANCE_CHANNEL_QT_H

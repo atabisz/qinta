@@ -16,6 +16,9 @@
 #include "app.h"
 #include "editor.h"
 #include "settings.h"
+#include "startpage.h"  // startPageActive
+#include "tabs.h"  // tabOpenPath, for a document handed to the running window
+#include "utils.h"  // launchSecondInstance
 #include "theme_apply.h"
 #include "theme_data.h"
 #include "text_utils.h"
@@ -169,6 +172,41 @@ void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptio
         }
     }
     if (app.zoomFactor != app.appliedZoomFactor) updateTextFormats(app);
+}
+
+namespace {
+
+// WM_COPYDATA's restore-and-foreground, for every document that arrives from outside.
+void bringForward(QWidget& window) {
+    if (window.isMinimized()) window.showNormal();
+    window.raise();
+    window.activateWindow();
+}
+
+}  // namespace
+
+void openArrivedDocument(App& app, QWidget& window, const std::string& utf8Path) {
+    bringForward(window);
+    tabOpenPath(app, nullptr, utf8Path, true);
+}
+
+void openFileOpenEventDocument(App& app, QWidget& window, const std::string& utf8Path) {
+    LaunchOptions asLaunch;
+    asLaunch.inputFile = utf8Path;
+    if (startPageActive(app)) {
+        // A COLD FINDER LAUNCH LANDS HERE: no file argument, so the start page is up when the event
+        // arrives. It gives way as it does for its own recent-file click, which leaves the one
+        // document `qinta <path>` would have opened, not a start-page tab beside it. FIRST, and with
+        // tabs off too: a window showing the start page holds no document, so taking this one is
+        // not a second document in it -- and asking the tabs setting first left a cold launch
+        // with an empty start-page window and the document in a second one (measured 2026-10-13).
+        bringForward(window);
+        tabOpenPathReplacingStartPage(app, nullptr, utf8Path);
+    } else if (!shouldJoinExistingWindow(asLaunch, app.openInTabs)) {
+        launchSecondInstance(utf8Path);
+    } else {
+        openArrivedDocument(app, window, utf8Path);
+    }
 }
 
 }  // namespace tinta

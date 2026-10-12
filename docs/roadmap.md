@@ -2,7 +2,8 @@
 
 Qinta's numbering restarted at **0.0.1** on 2026-10-11. **1.0.0** is the release where the port to
 one Qt stack is finished and the Windows-only functionality is gone, either ported to all three
-platforms or removed. Each item below says what is measured and what is not. Take a figure as of
+platforms or removed. **Reached on 2026-10-12:** every item above "After 1.0.0" is
+closed, and that section holds what was deliberately left for later. Each item below says what is measured and what is not. Take a figure as of
 the date given, not as a live reading.
 
 ## Porting: behaviour the retired Windows app had and qinta does not
@@ -69,12 +70,7 @@ the date given, not as a live reading.
 
 - [x] **Published 2026-10-12**: [v0.0.1](https://github.com/atabisz/qinta/releases/tag/v0.0.1), drafted by `build.yml`'s release job from a manual run and published by hand. The next release is the same run with the next version. The original item: **Publish v0.0.1**: tag it, and add a release job that attaches the three packages
   `build.yml` already builds on every push (README § Building) to a GitHub Release.
-- [ ] **Notarize the macOS app.** It is signed ad hoc and not notarized, so macOS blocks it on first
-  open until the user allows it once (README's Download section: `xattr` in Terminal, or Open
-  Anyway in Privacy & Security; right-click > Open stopped working in macOS 15). Notarizing needs an **Apple Developer
-  Program membership** (US$99 a year), a Developer ID certificate in the repository's secrets, and
-  a `notarytool` step after `scripts/package-macos.sh` signs the bundle.
-- [ ] **Witness each package opening a window** on a machine that never had Qt or Visual Studio
+- [x] **Witness each package opening a window** on a machine that never had Qt or Visual Studio
   installed. CI runs all three headless only.
   - **Windows: done 2026-10-12.** The published v0.0.2 zip, downloaded from the Releases page,
     worked on a second Windows machine (reported by the maintainer). Earlier the same day the
@@ -83,11 +79,10 @@ the date given, not as a live reading.
     LogonCommand nor `wsb exec` could start a process inside it.
   - **macOS: done 2026-10-12.** The published v0.0.2 app opened on a Mac, after the one-time
     quarantine step the README's Download section describes.
-  - **Linux: not yet seen by hand.** The AppImage is proven to run with no Qt installed (CI runs
-    it in a bare Ubuntu 24.04 container), but headless, not with a window on a desktop.
-- [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
-  headless only, too.
-
+  - **Linux: done 2026-10-12.** The published v0.0.2 AppImage opened its window on an Ubuntu
+    desktop (WSLg, X11) and rendered a mixed fixture with math and the tab strip. That Ubuntu has
+    Qt's development packages installed, so the no-Qt half rests on CI, which runs the AppImage in
+    a bare Ubuntu 24.04 container.
 ## Quality
 
 - [x] **Done 2026-10-12**: `-Wall -Wextra` on qinta's own targets (not md4c's), its 36 distinct warnings fixed, and warnings as errors on the Linux CI job (`QINTA_WARNINGS_AS_ERRORS`). Other hosts report but do not fail. The original item: **A warning level for GCC and Clang.** MSVC builds at `/W4`. MinGW, Linux and macOS build at
@@ -97,6 +92,14 @@ the date given, not as a live reading.
 ## After 1.0.0
 
 Deferred on 2026-10-12, so they do not hold up 1.0.0.
+
+- [ ] **Notarize the macOS app.** It is signed ad hoc and not notarized, so macOS blocks it on first
+  open until the user allows it once (README's Download section: `xattr` in Terminal, or Open
+  Anyway in Privacy & Security; right-click > Open stopped working in macOS 15). Notarizing needs an **Apple Developer
+  Program membership** (US$99 a year), a Developer ID certificate in the repository's secrets, and
+  a `notarytool` step after `scripts/package-macos.sh` signs the bundle.
+- [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
+  headless only, too.
 
 - [ ] **Dropping a torn-off tab onto another running qinta window.** Open in
   [port.md's Status](port.md#status): Qt has no portable way to ask which process owns the window

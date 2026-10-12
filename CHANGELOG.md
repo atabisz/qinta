@@ -1,5 +1,20 @@
 # Changelog
 
+## [v1.0.0] - 2026-10-12
+
+Qinta 1.0.0: the port to one Qt 6 stack is finished. The same viewer and editor runs on Windows,
+macOS and Linux, and the functionality that only the retired Windows app had is either ported to
+all three or deliberately removed. What was left for after 1.0.0 is listed in
+[docs/roadmap.md](https://github.com/atabisz/qinta/blob/master/docs/roadmap.md). Each package has
+now been opened on a desktop by hand: Windows on a second machine, macOS on a Mac, Linux on Ubuntu.
+
+### Changed
+- The macOS download instructions say how to open the app the first time on current macOS: run
+  `xattr -dr com.apple.quarantine /Applications/Qinta.app` once in Terminal, or use System
+  Settings > Privacy & Security > Open Anyway. Right-click > Open no longer works since macOS 15.
+- Qinta builds with the compilers' full warning sets on every platform and none are left, which
+  keeps the code tidier for anyone building from source.
+
 ## [v0.0.2] - 2026-10-12
 
 ### Fixed

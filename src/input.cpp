@@ -4483,10 +4483,11 @@ bool windowCloseMayProceed(App& app, HWND hwnd) {
 // here -- close(), and the follow-system switch with this arm's own appearance reading.
 bool handlesPostedMessage(unsigned message) {
     return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH ||
-           message == WM_APP_LAYOUT_CHUNK || message == WM_CLOSE || message == WM_SETTINGCHANGE;
+           message == WM_APP_LAYOUT_CHUNK || message == WM_APP_PANDOC_DONE ||
+           message == WM_CLOSE || message == WM_SETTINGCHANGE;
 }
 
-void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM lParam) {
+void handlePostedMessage(App& app, unsigned message, WPARAM wParam, LPARAM lParam) {
     if (message == WM_APP_IMAGE_READY) completeAsyncImage(app, (void*)lParam);
     if (message == WM_APP_FOLDER_SEARCH) completeFolderSearch(app, (void*)lParam);
     // WinMain's WM_APP_LAYOUT_CHUNK case, moved here on 2026-10-06 when the frame went portable
@@ -4497,6 +4498,28 @@ void handlePostedMessage(App& app, unsigned message, WPARAM /*wParam*/, LPARAM l
         bool done = layoutDocumentContinue(app, 10000);
         requestRepaint(app.hwnd);  // scrollbar grows as layout fills in
         if (!done) postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+    }
+    // WinMain's WM_APP_PANDOC_DONE case, restored here on 2026-10-12. It went with the window
+    // procedure in 0b39ae6 and nothing took its place, so for five commits the Qt post sink
+    // refused the one message src/pandoc.cpp's worker sends. app.pandocRunning is written in
+    // exactly two places -- true when the worker starts, false in the catch for a worker that
+    // failed to start -- so with the completion dropped the flag stayed true for the life of
+    // the process and the guard in pandocExportFlow refused every export after the first,
+    // silently. The two toast strings below had zero callers for the same reason: the one site
+    // that used them was in the deleted procedure.
+    //
+    // wParam IS THE OUTCOME, which is why this function's wParam stopped being unnamed. The
+    // worker posts `ok ? 1 : 0` and the three other messages here carry nothing in it.
+    if (message == WM_APP_PANDOC_DONE) {
+        app.pandocRunning = false;
+        if (wParam) {
+            signalPushKey(app, SIG_SUCCESS, SIGI_CHECK, "toast.pandoc_ok");
+        } else {
+            signalPushKey(app, SIG_ERROR, SIGI_WARNING, "toast.pandoc_fail");
+        }
+        // signalPush repaints through canRepaint already; this is the procedure's own
+        // requestRepaint, kept so the behaviour matches 0b39ae6's case exactly.
+        requestRepaint(app.hwnd);
     }
 }
 

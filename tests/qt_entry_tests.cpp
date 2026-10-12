@@ -134,6 +134,7 @@
 #include "document.h"
 #include "file_utils.h"
 #include "geometry.h"
+#include "i18n.h"  // tr(), so the chip assertions read the translation table and not a copy
 #include "signals.h"
 #include "math_render.h"
 // For ensureDashedStrokeStyle, which run 18 calls directly. This target already LINKED
@@ -2842,6 +2843,103 @@ int main(int argc, char** argv) {
         app.editMode = editBefore;
         app.searchQuery = queryBefore;
         app.searchMatches.clear();
+
+        // THE THIRD POSTED MESSAGE (2026-10-12): WM_APP_PANDOC_DONE, and this one is here for a
+        // DEFECT rather than for a seam. src/pandoc.cpp's worker ends with
+        // postWindowMessage(hwnd, WM_APP_PANDOC_DONE, ok ? 1 : 0, 0), and handlesPostedMessage
+        // did not name that message, so the Qt sink refused it and the completion was dropped.
+        // app.pandocRunning has two writers -- true when the worker starts, false in the catch
+        // for a worker that FAILED to start -- so a conversion that ran left it true forever and
+        // the guard in pandocExportFlow refused every later export in the session, silently.
+        //
+        // POSTED FROM A WORKER THREAD, because that is the only thread the real sender runs on:
+        // the post sink's closure is the one piece of the Qt window a non-GUI thread touches, and
+        // a post from this thread would exercise a path pandoc never takes.
+        //
+        // WHAT THIS CANNOT SEE, said here rather than implied: nothing below calls
+        // pandocExportFlow or runs pandoc. The dialog is a real application-modal QFileDialog
+        // with no test seam (include/file_dialog.h says a test cannot click one), so the
+        // conversion half of the flow is unwitnessed and the claim here is about the completion
+        // message's path -- from the post inward. The flag these checks read IS the one the
+        // guard reads; the guard's own early return is not executed.
+        {
+            const bool pandocRunningBefore = app.pandocRunning;
+            app.signalChips.clear();
+
+            // The sink's own allowlist, with a message that must STAY refused beside it so a
+            // true reading cannot be a function that says yes to everything.
+            const bool takesDone = handlesPostedMessage(WM_APP_PANDOC_DONE);
+            const bool refusesOther = !handlesPostedMessage(WM_APP + 99);
+
+            // Round one: a success. The flag is read BEFORE the post as well, because `false`
+            // after is also what a flag nobody ever set reads.
+            app.pandocRunning = true;
+            const bool armedOnce = app.pandocRunning;
+            bool postedOk = false;
+            std::thread okWorker(
+                [&postedOk]() { postedOk = postWindowMessage(nullptr, WM_APP_PANDOC_DONE, 1, 0); });
+            okWorker.join();
+            const bool clearedOnce =
+                pumpUntil([&app]() { return !app.pandocRunning; }, 2000);
+            const size_t chipsAfterOk = app.signalChips.size();
+            const std::wstring okText =
+                app.signalChips.empty() ? std::wstring() : app.signalChips.back().text;
+            const int okSeverity = app.signalChips.empty() ? -1 : app.signalChips.back().severity;
+            const int okIcon = app.signalChips.empty() ? -1 : app.signalChips.back().icon;
+
+            // Round two: a SECOND export in the same session, which is the whole regression. The
+            // flag arms again and clears again, so the state pandocExportFlow's guard reads
+            // admits it. wParam = 0 this time, which must produce the other chip -- one value
+            // cannot yield both.
+            app.signalChips.clear();
+            app.pandocRunning = true;
+            const bool armedTwice = app.pandocRunning;
+            bool postedFail = false;
+            std::thread failWorker([&postedFail]() {
+                postedFail = postWindowMessage(nullptr, WM_APP_PANDOC_DONE, 0, 0);
+            });
+            failWorker.join();
+            const bool clearedTwice =
+                pumpUntil([&app]() { return !app.pandocRunning; }, 2000);
+            const std::wstring failText =
+                app.signalChips.empty() ? std::wstring() : app.signalChips.back().text;
+            const int failSeverity =
+                app.signalChips.empty() ? -1 : app.signalChips.back().severity;
+            const int failIcon = app.signalChips.empty() ? -1 : app.signalChips.back().icon;
+
+            std::printf("pandoc_done takes=%d refuses_other=%d posted=%d,%d armed=%d,%d "
+                        "cleared=%d,%d chips=%d ok=[%ls] sev=%d icon=%d fail=[%ls] sev=%d "
+                        "icon=%d\n",
+                        takesDone ? 1 : 0, refusesOther ? 1 : 0, postedOk ? 1 : 0,
+                        postedFail ? 1 : 0, armedOnce ? 1 : 0, armedTwice ? 1 : 0,
+                        clearedOnce ? 1 : 0, clearedTwice ? 1 : 0, (int)chipsAfterOk,
+                        okText.c_str(), okSeverity, okIcon, failText.c_str(), failSeverity,
+                        failIcon);
+
+            check(takesDone && refusesOther,
+                  "handlesPostedMessage names WM_APP_PANDOC_DONE and still refuses a message it "
+                  "does not handle");
+            check(postedOk && postedFail,
+                  "postWindowMessage ACCEPTS both completions from a worker thread -- it returned "
+                  "false for the whole of this defect, which is how the worker learned nothing");
+            check(armedOnce && clearedOnce,
+                  "a WM_APP_PANDOC_DONE post clears app.pandocRunning, the flag that was true for "
+                  "the life of the process");
+            check(chipsAfterOk == 1 && okText == tr(app, "toast.pandoc_ok") &&
+                      okSeverity == SIG_SUCCESS && okIcon == SIGI_CHECK,
+                  "wParam=1 pushes exactly one chip, the translated success toast, at "
+                  "SIG_SUCCESS/SIGI_CHECK");
+            check(armedTwice && clearedTwice,
+                  "and a SECOND export in the same session clears it again -- the regression was "
+                  "that every export after the first was refused by a flag nothing reset");
+            check(failText == tr(app, "toast.pandoc_fail") && failSeverity == SIG_ERROR &&
+                      failIcon == SIGI_WARNING,
+                  "wParam=0 pushes the failure toast instead, at SIG_ERROR/SIGI_WARNING");
+
+            app.signalChips.clear();
+            app.pandocRunning = pandocRunningBefore;
+        }
+
         std::filesystem::remove_all(postDir, dirEc);
     }
 

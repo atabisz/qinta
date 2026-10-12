@@ -623,12 +623,23 @@ editor.cpp
 # had been sizing the port. Measured: 12 errors on 9 lines, and 19 on 16 with only the
 # five declaration types supplied. Every other row in that census is a floor too.
 #
-# COMPILE-ONLY, and TWO things make that precise rather than one. The link closure:
-# pandocExportFlow calls editorReparse in editor.cpp above, which cannot link off Windows.
-# And the honest gap even after that closes: the worker's last act is
-# postWindowMessage(hwnd, WM_APP_PANDOC_DONE, ...), which the Qt window's post sink refuses
-# -- it takes only the image, folder-search, close and settings-change messages -- so an off-Windows conversion
-# would run, finish, and never tell the UI. Reaching zero census errors is a COMPILE claim about this file and nothing more.
+# COMPILE-ONLY, and what makes that precise has changed twice. The link closure it used to
+# name is gone: pandocExportFlow calls editorReparse in editor.cpp above, and both files are
+# in QINTA_APP_SOURCES now, so this one links.
+#
+# THE SECOND REASON IS GONE TOO, AS OF 2026-10-12, and it was a DEFECT rather than a design.
+# This note used to end "the worker's last act is postWindowMessage(hwnd,
+# WM_APP_PANDOC_DONE, ...), which the Qt window's post sink refuses -- it takes only the
+# image, folder-search, close and settings-change messages -- so an off-Windows conversion
+# would run, finish, and never tell the UI." That was written as a gap the port had not
+# reached yet; what it actually described was the completion message losing its handler in
+# 0b39ae6, which left app.pandocRunning true forever and made every export after the first a
+# silent no-op on EVERY platform. handlesPostedMessage names the message now and
+# handlePostedMessage answers it, asserted in qt_entry_tests.
+#
+# So what keeps this line in the compile-only section is the plainest reason of the three:
+# no test executes a line of this file. Reaching zero census errors is a COMPILE claim about
+# it and nothing more.
 pandoc.cpp
 
 # render.cpp HAS LEFT THIS SECTION -- see its own heading below, alongside

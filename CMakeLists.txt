@@ -1755,12 +1755,19 @@ if(BUILD_TESTING)
         # What holds it out is src/tabs.cpp and src/print.cpp, the only two root blockers
         # in the closure; see the note under QINTA_APP_SOURCES. This sentence is the one
         # that would have sent the next reader at editor.cpp instead. (SUPERSEDED
-        # 2026-09-24: that closure now links, so the reason left is no caller.) And even
-        # once it could, the worker's last act is postWindowMessage(hwnd,
-        # WM_APP_PANDOC_DONE, ...), whose non-Windows arm returns false by
-        # include/win32_api.h's stated design -- the conversion would run and finish and
-        # the UI would never be told. Delivering that needs the Qt window-message seam,
-        # which is its own slice and is where the HWND in PandocJob goes.
+        # 2026-09-24: that closure now links, so the reason left is no caller.)
+        #
+        # CORRECTED 2026-10-12, and this one was describing a DEFECT as a design. The
+        # sentence here said the worker's last act is postWindowMessage(hwnd,
+        # WM_APP_PANDOC_DONE, ...), "whose non-Windows arm returns false by
+        # include/win32_api.h's stated design -- the conversion would run and finish and the
+        # UI would never be told", and that delivering it "needs the Qt window-message seam,
+        # which is its own slice". The seam has existed since slice 8 (include/post_sink.h);
+        # what was missing was the message's name in handlesPostedMessage, so the sink
+        # refused it. The consequence was not an off-Windows gap but a regression on EVERY
+        # platform: app.pandocRunning had no writer that could clear it after a run, so the
+        # second export in a session was refused in silence. Both halves are in src/input.cpp
+        # now, asserted in qt_entry_tests.
         #
         # So the claim this line makes is exactly the one tests/portable-sources.txt
         # makes and no more: a non-Windows compiler accepts the file every build.

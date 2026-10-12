@@ -376,44 +376,9 @@ void QtTextFormat::SetLineSpacing(tinta::LineSpacingMethod method, float lineSpa
 // --- QtTextLayout -----------------------------------------------------------
 
 QtTextLayout::QtTextLayout(const QString& text, const QFont& font, float fontSize,
-                           const QtTextStyle& style, float maxWidth, float maxHeight,
-                           const QStringList& fallbackFamilies)
+                           const QtTextStyle& style, float maxWidth, float maxHeight)
     : text_(text), font_(font), fontSize_(fontSize), style_(style), maxWidth_(maxWidth),
-      maxHeight_(maxHeight), fallbackFamilies_(fallbackFamilies) {}
-
-// The Qt arm of #155's chain. See include/text_qt.h for why this stopped being an empty
-// body, and src/theme_qt.cpp for where the ORDER comes from.
-void QtTextLayout::ApplyFontFallback() {
-    if (fallbackFamilies_.isEmpty()) return;
-
-    // setFamily() stores a ONE-ELEMENT families list in Qt 6, so families() answers for
-    // both spellings and family() is never the only reading. Empty means no family was ever
-    // requested -- a default QFont -- and appending to that would make a CJK face the body
-    // font outright.
-    const QStringList primary = font_.families();
-    if (primary.isEmpty() || primary.first().isEmpty()) return;
-
-    // THE GUARD THAT KEEPS LATIN TEXT SAFE OFF WINDOWS, and it is not caution.
-    // Qt walks the families list for a missing FAMILY, not only for a missing glyph: with a
-    // theme font the host does not have (Cascadia Code on a bare Linux box) an unguarded
-    // append would resolve the whole document -- every Latin letter of it -- to the first
-    // CJK family in the list, where today Qt substitutes its own default sans. So the chain
-    // is attached only behind a family that is really there, which is also the only
-    // condition under which the appended entries can do anything but sit unused.
-    if (!QFontDatabase::hasFamily(primary.first())) return;
-
-    QStringList merged = primary;
-    for (const QString& family : fallbackFamilies_) {
-        // Idempotent, and it has to be: a layout applied twice must not grow its list, and
-        // a theme whose own font IS a CJK face must not appear in it twice at two different
-        // priorities. Case-insensitively, because QFont family matching is.
-        if (!merged.contains(family, Qt::CaseInsensitive)) merged << family;
-    }
-    if (merged == primary) return;
-
-    font_.setFamilies(merged);
-    run_.reset();
-}
+      maxHeight_(maxHeight) {}
 
 void QtTextLayout::SetTextAlignment(tinta::TextAlignment alignment) {
     style_.textAlignment = alignment;
@@ -1085,15 +1050,9 @@ std::unique_ptr<tinta::TextLayout> QtTextFactory::CreateTextLayout(
     // The style is COPIED out of the format here. DirectWrite does the same, and it
     // is why QtTextLayout holds its own QtTextStyle: a later SetWordWrapping on
     // this layout must not reach back into the format that 35 other layouts share.
-    // The fallback families are copied in with the style, and for the same reason: handing
-    // the layout its own copy is what lets a later reseat of the factory's list leave the
-    // 35 layouts already built alone. Note what is NOT happening here -- the families are
-    // not merged into the font. The layout holds them unapplied until a caller calls
-    // ApplyFontFallback, which is the division render.cpp:59-80 measured and refused to
-    // give up.
     return std::make_unique<QtTextLayout>(toQt(string, stringLength), qtFormat->font(),
                                           qtFormat->GetFontSize(), qtFormat->style(),
-                                          maxWidth, maxHeight, fallbackFamilies_);
+                                          maxWidth, maxHeight);
 }
 
 std::unique_ptr<tinta::InlineObject> QtTextFactory::CreateEllipsisTrimmingSign(

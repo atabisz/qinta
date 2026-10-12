@@ -202,14 +202,9 @@ public:
     // COUNTED, not ignored, and the count is the only reason this fake is a better
     // instrument here than either real backend. The whole argument for
     // ApplyFontFallback being a separate method is that a layout gets a fallback chain
-    // only when a caller ASKS -- so what needs asserting is a call count.
-    //
-    // The clause that stood here, "on Qt the real implementation is an empty body that
-    // no pixel and no metric can distinguish from never having been called at all", is
-    // wrong on both halves since 2026-10-12: the Qt body is real (#155), and what tells
-    // it apart is neither a pixel nor a metric but the layout's own families list, which
-    // QtTextLayout::fontFamilies exposes for exactly that reason. This fake still counts
-    // rather than resolves, because the four CALL SITES are what it is here to grade.
+    // only when a caller ASKS -- so what needs asserting is a call count, and on Qt the
+    // real implementation is an empty body that no pixel and no metric can distinguish
+    // from never having been called at all.
     void ApplyFontFallback() override { ++fallbackCalls_; }
     int fallbackCalls() const { return fallbackCalls_; }
 

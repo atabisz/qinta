@@ -549,9 +549,8 @@ void drawPrims(App& app, tinta::RenderTarget& target, tinta::Brush* brush,
                 // The `if (app.fontFallback)` guard is dropped for src/editor.cpp:103's
                 // reason, and dropping it is not a loosening: ApplyFontFallback is
                 // documented to do nothing when the backend has no chain or has not
-                // built one yet, which is exactly what that guard meant. "The Qt
-                // backend implements it as a genuine no-op" stood here until
-                // 2026-10-12; it is real on both backends now (#155).
+                // built one yet, which is exactly what that guard meant. The Qt backend
+                // implements it as a genuine no-op.
                 layout->ApplyFontFallback();
                 tinta::Color color = resolveDiagramRole(
                     app, prim,

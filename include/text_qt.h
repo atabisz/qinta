@@ -174,15 +174,8 @@ private:
 
 class QtTextLayout final : public tinta::TextLayout {
 public:
-    // fallbackFamilies is the UI-language-ordered CJK/emoji list the factory holds. It is
-    // COPIED in rather than read back through the factory at apply time, which is the one
-    // difference from the Direct2D arm (that one held a borrowed pointer to the factory's
-    // chain). Unobservable in practice: the list is a function of the system UI language,
-    // which does not change inside a session, and all four ApplyFontFallback callers apply
-    // immediately after creating. Stated because "same as the Windows arm" would be wrong.
     QtTextLayout(const QString& text, const QFont& font, float fontSize,
-                 const QtTextStyle& style, float maxWidth, float maxHeight,
-                 const QStringList& fallbackFamilies = QStringList());
+                 const QtTextStyle& style, float maxWidth, float maxHeight);
 
     void SetTextAlignment(tinta::TextAlignment alignment) override;
     void SetParagraphAlignment(tinta::ParagraphAlignment alignment) override;
@@ -219,25 +212,18 @@ public:
     void SetTypography(const tinta::Typography& typography,
                        tinta::TextRange range) override;
 
-    // REAL SINCE 2026-10-12, where this was an empty body under "the correct Qt spelling
-    // of give this layout an emoji and CJK fallback is to do nothing, because it already
-    // has one". The paragraph was half right and the half it got wrong is #155's whole
-    // content: Qt does resolve a missing glyph on its own, but not in the UI language's
-    // ORDER, and with Han unification the order decides which variant every ideograph in
-    // the document is drawn with. A QFont walks its families list in order, so appending
-    // the ordered list to this layout's font IS the Qt spelling of the chain.
+    // Inline, and empty, and that is the IMPLEMENTATION rather than a stub awaiting
+    // one -- see text_api.h for why. Qt resolves missing glyphs through
+    // QFontDatabase's own fallback list during shaping, so there is no chain object to
+    // attach and no call that would attach one; the correct Qt spelling of "give this
+    // layout an emoji and CJK fallback" is to do nothing, because it already has one.
     //
-    // It now invalidates the cached run, which the empty body explicitly did not: the font
-    // changed, so a rebuilt measurement can legitimately differ. In practice the run is
-    // still null here -- all four callers apply immediately after CreateTextLayout, before
-    // anything measures -- so this costs a reshape only if a caller ever applies late.
-    void ApplyFontFallback() override;
-
-    // The families this layout's font will actually be resolved through, in order. The only
-    // way to witness ApplyFontFallback from a test: there is no pixel and no metric that
-    // separates a correct ORDER from a wrong one without knowing which CJK faces the host
-    // has, which is exactly what a CI-gradable check cannot assume.
-    QStringList fontFamilies() const { return font_.families(); }
+    // It is deliberately NOT marked as invalidating the cached run below. Every other
+    // setter on this class invalidates, so a reader is entitled to wonder: nothing
+    // about the layout changed, so a rebuilt measurement would return the same
+    // metrics, and invalidating here would cost a reshape per call for no difference.
+    // That asymmetry is the one thing about this method worth a comment.
+    void ApplyFontFallback() override {}
 
     // Exposed so QtRenderTarget::DrawTextLayout can hand it to the same private
     // helper DrawText uses. Without this, DrawTextLayout would have to repeat the
@@ -283,7 +269,6 @@ private:
     QtTextStyle style_;
     float maxWidth_;
     float maxHeight_;
-    QStringList fallbackFamilies_;
     mutable std::unique_ptr<QtTextRun> run_;
     // RANGED STYLING, AND WHY IT IS A LIST RATHER THAN A RESOLVED PER-CHARACTER
     // STATE.
@@ -327,21 +312,6 @@ public:
                            std::vector<bool>& canBreak) override;
 
     bool FontFamilyExists(const wchar_t* fontFamily) override;
-
-    // THE FALLBACK FAMILIES, HELD AND NOT APPLIED. installFontFallback (src/theme_qt.cpp)
-    // seats them, in UI-language order; CreateTextLayout copies them into each layout it
-    // makes, and the layout attaches them only when a caller calls ApplyFontFallback.
-    //
-    // The same division the Direct2D arm had -- D2DTextFactory::setFontFallback held an
-    // IDWriteFontFallback the factory never applied either -- and for the reason
-    // src/render.cpp:59-80 measured: 15 sites create layouts through this factory and have
-    // never had a fallback, several of them MEASURE text, so applying one here would
-    // silently move measured widths and therefore layout.
-    void setFallbackFamilies(const QStringList& families) { fallbackFamilies_ = families; }
-    const QStringList& fallbackFamilies() const { return fallbackFamilies_; }
-
-private:
-    QStringList fallbackFamilies_;
 };
 
 // Handles both wchar_t widths, which is the whole reason the seam can keep passing

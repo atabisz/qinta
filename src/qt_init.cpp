@@ -9,7 +9,6 @@
 #include "text_api.h"
 #include "text_formats.h"
 #include "text_qt.h"
-#include "theme_apply.h"
 #include "theme_data.h"
 #include "utils.h"
 
@@ -138,24 +137,6 @@ tinta::RenderTarget* qtFactoryTarget() {
 
 void installQtBackends(App& app) {
     app.textFactory = app.textFactoryStorage.install(std::make_unique<QtTextFactory>());
-
-    // THE CJK/EMOJI FALLBACK FAMILIES, AND THIS CALL IS THE REASON #155 WORKS AT A DEFAULT
-    // LAUNCH RATHER THAN ONLY AFTER A THEME SWITCH.
-    //
-    // installFontFallback's one portable caller is updateTextFormats, and on THIS stack
-    // updateTextFormats is not part of startup: this function installs the document and
-    // chrome formats directly, and src/qt_launch.cpp calls updateTextFormats only when the
-    // saved zoom differs from the one the formats were built at. So at default zoom with no
-    // theme change nothing would ever seat the list, and every ideograph in the session
-    // would resolve in whatever order the platform configuration gave -- which is exactly
-    // the state #155 describes. On Windows the equivalent call sat inside updateTextFormats
-    // and WinMain ran it at startup, so the hole is this stack's alone.
-    //
-    // BEFORE installQtTextFormats, though it need not be: the families are attached to
-    // layouts, never to formats, so no format built below can be missing them. Ordered this
-    // way so the factory is fully configured before anything is created through it.
-    installFontFallback(app);
-
     // The factory target, so App has a render target outside paint (see qt_init.h). Only when
     // nothing else is seated: installing during a paint must not replace the paint target.
     if (!app.renderTarget) app.renderTarget = qtFactoryTarget();

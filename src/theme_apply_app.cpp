@@ -96,12 +96,7 @@ void updateTextFormats(App& app) {
     // every call for exactly that reason.
     installDocumentTextFormats(app);
 
-    // Emoji and CJK fallback, in UI-language order (#155). The DirectWrite chain was the
-    // Windows arm, in src/d2d_init.cpp, deleted with the Direct2D stack; src/theme_qt.cpp is
-    // the only arm now and it hands an ordered family list to the text factory.
-    //
-    // NOT the only caller any more: installQtBackends calls it at startup too, because this
-    // function is not on the Qt startup path and the list would otherwise never be seated.
+    // Emoji and CJK fallback. The DirectWrite chain is the Windows arm, in src/d2d_init.cpp.
     installFontFallback(app);
 
     // The chrome formats, through the shared portable function. No seating call follows:

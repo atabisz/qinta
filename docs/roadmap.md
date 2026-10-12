@@ -74,13 +74,14 @@ the date given, not as a live reading.
   Program membership** (US$99 a year), a Developer ID certificate in the repository's secrets, and
   a `notarytool` step after `scripts/package-macos.sh` signs the bundle.
 - [ ] **Witness each package opening a window** on a machine that never had Qt or Visual Studio
-  installed. CI runs all three headless only. *Partly done 2026-10-12:* the Windows package
-  opened, rendered, and restored and saved a session, on a developer machine that has both
-  installed. The package loads its own DLLs first, so that is strong evidence and not proof;
-  Windows Sandbox would give the clean machine, but on the managed machine it was tried on
-  (2026-10-12) the Sandbox starts and neither its LogonCommand nor `wsb exec` can start a process
-  inside it, so that check needs another machine or a manual copy into the Sandbox. macOS and
-  Linux are not yet seen by hand.
+  installed. CI runs all three headless only.
+  - **Windows: done 2026-10-12.** The published v0.0.2 zip, downloaded from the Releases page,
+    worked on a second Windows machine (reported by the maintainer). Earlier the same day the
+    package opened, rendered, and restored and saved a session on the development machine. Windows
+    Sandbox could not be used for this on that managed machine: it starts, but neither its
+    LogonCommand nor `wsb exec` could start a process inside it.
+  - **macOS and Linux: not yet seen by hand.** The AppImage is proven to run with no Qt installed
+    (CI runs it in a bare Ubuntu 24.04 container), but headless, not with a window on a desktop.
 - [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
   headless only, too.
 

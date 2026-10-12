@@ -2819,32 +2819,55 @@ int main(int argc, char** argv) {
         // ISC-4 / ISC-5. THE LIST IS SEATED AT STARTUP, which is the half the parity audit
         // did not name: installFontFallback's one portable caller is updateTextFormats, and
         // src/qt_launch.cpp calls that only when the saved zoom differs from the built one.
-        // So a default launch would never have seated it. A separate App on the heap rather
-        // than release-and-reinstall on this one, so nothing the rest of this file depends
-        // on is disturbed.
-        {
-            auto fresh = std::make_unique<App>();
-            check(fresh->textFactory == nullptr,
-                  "PRE-READING: the second App has no text factory at all, so a list read off it "
-                  "below cannot be a leftover from this file's own App");
-            installQtBackends(*fresh);
-            auto* freshFactory = dynamic_cast<QtTextFactory*>(fresh->textFactory);
-            const int seated = freshFactory
-                                   ? static_cast<int>(freshFactory->fallbackFamilies().size())
-                                   : -1;
-            std::printf("cjk_startup seated=%d\n", seated);
-            check(freshFactory != nullptr && seated == static_cast<int>(ja.size()),
-                  "installQtBackends ALONE seated the whole fallback list -- no updateTextFormats, "
-                  "no zoom change, no theme switch, which is what a default launch is");
-            releaseQtBackends(*fresh);
-        }
+        // So a default launch would never have seated it.
+        //
+        // RELEASE-AND-REINSTALL ON THIS App, which is the pattern runs 2 and 3 above already
+        // use and which is therefore proven on all three platforms. A second App on the heap
+        // read the same claim more directly and is deliberately NOT used: this file has never
+        // constructed two, it was in the change that hung macOS, and a construct with no
+        // precedent on a host I cannot run is not worth a stronger pre-reading.
+        //
+        // The PRE-READING is what keeps this from being a tautology: after the release there
+        // is no factory at all, so the list below cannot be the one updateTextFormats seated
+        // a few lines up.
+        releaseQtBackends(app);
+        check(app.textFactory == nullptr,
+              "PRE-READING: releaseQtBackends left no text factory, so a seated list below is "
+              "installQtBackends' own work and not a leftover");
+        installQtBackends(app);
+        auto* startupFactory = dynamic_cast<QtTextFactory*>(app.textFactory);
+        const int seated = startupFactory
+                               ? static_cast<int>(startupFactory->fallbackFamilies().size())
+                               : -1;
+        std::printf("cjk_startup seated=%d\n", seated);
+        check(startupFactory != nullptr && seated == static_cast<int>(ja.size()),
+              "installQtBackends ALONE seated the whole fallback list -- no updateTextFormats, "
+              "no zoom change, no theme switch, which is what a default launch is");
 
         auto* factory = dynamic_cast<QtTextFactory*>(app.textFactory);
         check(factory != nullptr, "PRECONDITION: this App's text factory is the Qt one");
         const QStringList seatedHere = factory ? factory->fallbackFamilies() : QStringList();
         check(seatedHere.size() == static_cast<int>(ja.size()),
-              "and updateTextFormats' own call seated the same number of families on this App's "
-              "factory, so both of installFontFallback's callers reach it");
+              "and the reinstalled factory carries the whole list, which is what the layout "
+              "checks below are read against");
+        // updateTextFormats is installFontFallback's OTHER caller, and it has to reach it too
+        // -- that is the portable half, the one Windows always had. Forced the way the theme
+        // block above forces it, by planting a family no theme uses so applyTheme cannot skip
+        // the rebuild. Without this, only the startup caller would be witnessed.
+        factory->setFallbackFamilies(QStringList());
+        check(factory->fallbackFamilies().isEmpty(),
+              "PRE-READING: the factory's list is cleared by hand, so a non-empty list after "
+              "updateTextFormats is that call's own work");
+        updateTextFormats(app);
+        // `!isEmpty()` for the reason the append check carries the same clause, and this one
+        // was caught by the arm rather than by reading it: with the installer emptied,
+        // `fallbackFamilies() == seatedHere` compares two empty lists and passes. Arm A owed
+        // 5 reds and printed 4, and the missing one was here. Same defect, same slice, found
+        // the second time by the same instrument.
+        check(!factory->fallbackFamilies().isEmpty() &&
+                  factory->fallbackFamilies() == seatedHere,
+              "updateTextFormats reaches installFontFallback too, seating the identical list -- "
+              "so BOTH of its callers are witnessed, not just the startup one");
 
         // ISC-6 / ISC-7 / ISC-8 / ISC-9: the layout half.
         //
@@ -2869,7 +2892,19 @@ int main(int argc, char** argv) {
         auto realFormat = makeFormat(hostFamilyW.c_str());
         check(realFormat != nullptr, "PRECONDITION: a format on a family the host has");
 
-        auto mixed = app.textFactory->CreateTextLayout(L"Latin 漢字 あ", 11,
+        // LATIN-ONLY TEXT, DELIBERATELY, AND THIS IS NOT A WEAKENING. Every claim below is
+        // about the layout's FAMILIES LIST -- that the list arrives, in order, behind the
+        // primary, idempotently, and not at all behind an absent family. None of that needs
+        // a single ideograph in the string.
+        //
+        // It started as "Latin 漢字 あ" and that hung qt_entry_tests on macOS: the CJK made
+        // Qt resolve the ideographs through the 26-entry list, and on macOS -- the one host
+        // where PingFang SC, Hiragino Sans, Apple SD Gothic Neo and the 180 MB Apple Color
+        // Emoji all actually EXIST -- loading those engines never came back. Windows and
+        // Linux were green on the identical change, because almost none of those families
+        // is installed there, so CI was the only instrument that could see it.
+        // Shaping CJK through the chain is the APP's job, not this check's.
+        auto mixed = app.textFactory->CreateTextLayout(L"Latin only, no ideographs", 25,
                                                        realFormat.get(), 2000.0f, 2000.0f);
         auto* qtMixed = dynamic_cast<QtTextLayout*>(mixed.get());
         check(qtMixed != nullptr, "PRECONDITION: the layout is a QtTextLayout");

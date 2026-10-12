@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v0.0.2] - 2026-10-12
 
 ### Fixed
 - Chinese, Japanese, Korean and other input methods work in the editor. No input method could

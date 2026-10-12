@@ -211,10 +211,20 @@ int main(int argc, char** argv) {
     // src/qt_launch.cpp, the same way WinMain honours them.
 #ifndef _WIN32
     // /register IS HONOURED ON WINDOWS since 2026-10-07 (below, after the settings load); it
-    // stays refused elsewhere, where there is no registry and xdg-mime / LaunchServices are
-    // different models rather than another implementation of this one.
+    // stays refused elsewhere, where there is no registry and LaunchServices / xdg-mime are
+    // different models rather than another implementation of this one. DECIDED 2026-10-12: off
+    // Windows the package declares the types itself (CFBundleDocumentTypes in Qinta.app,
+    // MimeType in the AppImage's desktop entry), and the system owns the choice, so the refusal
+    // says how to make it rather than only that it cannot be made here.
     if (options.forceRegister) {
-        refuse("/register", "file associations are a Windows-registry feature");
+#ifdef __APPLE__
+        refuse("/register", "Qinta.app declares Markdown files itself; to make it the default, "
+                            "use Get Info > Open with > Change All on any .md file in Finder");
+#else
+        refuse("/register", "the desktop owns file associations; choose Qinta under Open With in "
+                            "your file manager (an AppImage's entry, which declares Markdown, "
+                            "appears once the AppImage is integrated into the desktop)");
+#endif
     }
 #endif
     // --printpages, --exporthtml, --exportdocx and --exportpdf WERE REFUSED HERE until

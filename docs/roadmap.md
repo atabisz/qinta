@@ -38,9 +38,6 @@ the date given, not as a live reading.
 - [ ] **IME candidate window position.** `editorPositionImeWindow` (`src/editor.cpp`) is a no-op on
   qinta, so CJK composition works but its candidate list does not follow the caret. Qt's route is a
   `QWidget::inputMethodQuery(Qt::ImCursorRectangle)` override on the editor's widget.
-- [ ] **Dropping a torn-off tab onto another running qinta window.** Open in
-  [port.md's Status](port.md#status): Qt has no portable way to ask which process owns the window
-  under the cursor, so on qinta that drop opens a new window instead.
 - [x] **Retired 2026-10-11**: the definition and the comments describing guards built on it. The
   original item: **Retire `TINTA_QT_UI`.** It split the Win32 window arms from the Qt ones while both stacks
   existed. No line in `src/` or `include/` tests it any more (0 preprocessor lines, against 51 for
@@ -50,14 +47,17 @@ the date given, not as a live reading.
 
 ## Windows-only by subject: decide, then document
 
-- [ ] **`/register`, the file association**, works on Windows through the registry
-  (`src/settings_win32.cpp`) and is refused elsewhere. The packages now declare the `.md` types
-  themselves (`CFBundleDocumentTypes` in the macOS app, `MimeType` in the Linux desktop entry),
-  which may be the whole answer off Windows. If it is, say so, and change the refusal's message.
-- [ ] **The themed title bar** (`src/window_chrome_win32.cpp`) colours the caption through DWM, the
-  only API Windows has for it. Keep it as a Windows integration, or drop it for Qt's default frame.
-  It is in `tests/windows-only-sources.txt` with `settings_win32.cpp`, the two files the porting
-  figure counts as Windows by design.
+- [x] **`/register`, the file association. Decided 2026-10-12: the packages are the answer off
+  Windows.** It works on Windows through the registry (`src/settings_win32.cpp`). On macOS and
+  Linux the system owns the choice, and the packages declare the `.md` types themselves
+  (`CFBundleDocumentTypes` in the macOS app, `MimeType` in the AppImage's desktop entry), so
+  `/register` stays refused there, and its message now says how to make qinta the default:
+  Finder's Get Info on macOS, the file manager's Open With on Linux.
+- [x] **The themed title bar. Decided 2026-10-12: kept** as a Windows integration.
+  `src/window_chrome_win32.cpp` colours the caption through DWM, the only API Windows has for it;
+  macOS and Linux keep their native frames, which follow the system's own light and dark. It stays
+  in `tests/windows-only-sources.txt` with `settings_win32.cpp`, the two files the porting figure
+  counts as Windows by design, and neither blocks 1.0.0.
 
 ## Releases
 
@@ -68,7 +68,10 @@ the date given, not as a live reading.
   Program membership** (US$99 a year), a Developer ID certificate in the repository's secrets, and
   a `notarytool` step after `scripts/package-macos.sh` signs the bundle.
 - [ ] **Witness each package opening a window** on a machine that never had Qt or Visual Studio
-  installed. CI runs all three headless only.
+  installed. CI runs all three headless only. *Partly done 2026-10-12:* the Windows package
+  opened, rendered, and restored and saved a session, on a developer machine that has both
+  installed. The package loads its own DLLs first, so that is strong evidence and not proof;
+  Windows Sandbox would give the clean machine. macOS and Linux are not yet seen by hand.
 - [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
   headless only, too.
 
@@ -77,3 +80,12 @@ the date given, not as a live reading.
 - [ ] **A warning level for GCC and Clang.** MSVC builds at `/W4`. MinGW, Linux and macOS build at
   the compilers' defaults, because the `if(MSVC)` block in `CMakeLists.txt` has no counterpart.
   Expect a first pass to surface warnings nobody has read.
+
+## After 1.0.0
+
+Deferred on 2026-10-12, so they do not hold up 1.0.0.
+
+- [ ] **Dropping a torn-off tab onto another running qinta window.** Open in
+  [port.md's Status](port.md#status): Qt has no portable way to ask which process owns the window
+  under the cursor, so on qinta that drop opens a new window instead. It needs per-platform code
+  for a small convenience; the tab is not lost, it gets a window of its own.

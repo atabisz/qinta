@@ -61,7 +61,7 @@ the date given, not as a live reading.
 
 ## Releases
 
-- [ ] **Publish v0.0.1**: tag it, and add a release job that attaches the three packages
+- [x] **Published 2026-10-12**: [v0.0.1](https://github.com/atabisz/qinta/releases/tag/v0.0.1), drafted by `build.yml`'s release job from a manual run and published by hand. The next release is the same run with the next version. The original item: **Publish v0.0.1**: tag it, and add a release job that attaches the three packages
   `build.yml` already builds on every push (README § Building) to a GitHub Release.
 - [ ] **Notarize the macOS app.** It is signed ad hoc and not notarized, so macOS blocks it on first
   open until the user right-clicks it and chooses Open. Notarizing needs an **Apple Developer

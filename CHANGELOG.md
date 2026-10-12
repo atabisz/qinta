@@ -1,6 +1,6 @@
 # Changelog
 
-## [v0.0.1] - unreleased
+## [v0.0.1] - 2026-10-12
 
 The first release of Qinta, a fork of [tinta](https://github.com/oipoistar/tinta) rebuilt on a
 single Qt 6 stack, so the same viewer and editor runs on Windows, macOS and Linux. Qinta's

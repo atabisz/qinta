@@ -107,6 +107,12 @@
 // answers itself: close(), and the follow-system switch with qt_launch's appearance reading.
 // On Qt 6.5+ the constructor also connects colorSchemeChanged to that same switch.
 //
+// AND DROPPED FILES, as of 2026-10-12: dragEnterEvent and dropEvent reach src/input.cpp's
+// handleDropFiles, which had been written, declared and left with NO CALLER since 0b39ae6
+// deleted main_d2d.cpp's WM_DROPFILES case. README advertises the feature twice; it worked on
+// no platform in between. See the declarations below for why the extension filter stays in
+// handleDropFiles and not in the drag handler.
+//
 // AND THE TITLE BAR, as of slice 13: the window sink's chrome member receives applyTheme's
 // colours and, on Windows, paints them with the Direct2D stack's DWM calls on winId(). The
 // constructor applies the current theme's once, because the first applyTheme ran before the
@@ -131,6 +137,8 @@ class TabGhostWidget;
 
 class QCloseEvent;
 class QContextMenuEvent;
+class QDragEnterEvent;
+class QDropEvent;
 class QKeyEvent;
 class QMouseEvent;
 class QResizeEvent;
@@ -229,6 +237,26 @@ protected:
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+
+    // WM_DROPFILES's two halves. The Win32 case enumerated the HDROP and handed plain paths
+    // to src/input.cpp's handleDropFiles; these do the same with a QMimeData's URLs, so the
+    // decision about which files are supported stays in handleDropFiles and is made in one
+    // place.
+    //
+    // dragEnterEvent ACCEPTS ANY DROP CARRYING A LOCAL FILE and deliberately does not test
+    // the extension. Two reasons, and the second is the load-bearing one: it is what
+    // DragAcceptFiles did -- Windows accepted every file drop and the handler threw the
+    // unsupported paths away -- and re-testing here would put isSupportedDropPath's decision
+    // at a second site that can drift from the first. The visible consequence is parity: a
+    // dropped .exe shows an accept cursor and then does nothing, exactly as on Win32.
+    //
+    // WITHOUT setAcceptDrops(true) IN THE CONSTRUCTOR NEITHER OF THESE EVER FIRES. That is
+    // the setFocusPolicy failure shape again, and worse here, because a test can send a
+    // QDropEvent straight to the widget and reach dropEvent with the flag unset -- so the
+    // handler tests pass while the application is dead. acceptDrops() is asserted on its own
+    // in qt_entry_tests for that reason.
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
     // Marks the layout dirty and re-clamps the scroll offset against the new height.
     // Does NOT relayout -- see the header comment above for why that stays in the paint.

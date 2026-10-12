@@ -76,9 +76,18 @@ void handleTimer(App& app, HWND hwnd, unsigned id);
 // which case it has already activated that tab and opened the unsaved-changes dialog
 // (or, with the dialog open, marked the close as pending behind it).
 bool windowCloseMayProceed(App& app, HWND hwnd);
-// The posted messages the Qt window's post sink (include/post_sink.h) takes: the two whose
-// senders are portable worker threads, WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH, plus
-// WM_CLOSE and WM_SETTINGCHANGE, which the window answers itself rather than through here.
+// The posted messages the Qt window's post sink (include/post_sink.h) takes. SIX, and this
+// comment is the authority on none of them -- handlesPostedMessage's body is, and this list
+// has been behind it twice: it named four until 2026-10-12, missing WM_APP_LAYOUT_CHUNK
+// (added 2026-10-06) and then WM_APP_PANDOC_DONE (added the same day this was corrected).
+// Read the function, and if you are adding a message, this sentence is the one that rots.
+//
+//   WM_APP_IMAGE_READY, WM_APP_FOLDER_SEARCH   posted by portable worker threads
+//   WM_APP_LAYOUT_CHUNK, WM_APP_PANDOC_DONE    posted from the window's own thread and the
+//                                              pandoc worker respectively, handled below
+//   WM_CLOSE, WM_SETTINGCHANGE                 the window answers these itself rather than
+//                                              through here
+//
 // handlesPostedMessage runs on the POSTING thread, so it reads nothing but its argument;
 // handlePostedMessage runs on the window's thread and takes ownership of lParam, as the
 // window procedure's two cases do. WinMain keeps its own cases and does not call these.

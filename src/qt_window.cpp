@@ -3,16 +3,22 @@
 #include <QCloseEvent>
 #include <QContextMenuEvent>
 #include <QCoreApplication>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QGuiApplication>
 #include <QInputMethod>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
+#include <QList>
+#include <QMimeData>
 #include <QMouseEvent>
 #include <QPaintEvent>
 #include <QResizeEvent>
 #include <QString>
 #include <QStyleHints>
 #include <QTimer>
+#include <QUrl>
 #include <QWheelEvent>
 #include <QWindow>
 
@@ -21,6 +27,8 @@
 #include <cwchar>
 #include <memory>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include "app.h"
 #include "drafts.h"
@@ -113,6 +121,13 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // below -- would work during a drag and nowhere else. WM_MOUSEMOVE arrives with no
     // button down, and handleMouseMove is written for that.
     setMouseTracking(true);
+
+    // THE DROP COUNTERPART, and the same failure shape a third time: a QWidget receives no
+    // drag or drop event whatever unless this is set, so dragEnterEvent and dropEvent below
+    // would compile, be reachable from a test that sends an event directly, pass, and never
+    // fire once in the running application. This is DragAcceptFiles(hwnd, TRUE), which
+    // main_d2d.cpp called at window creation.
+    setAcceptDrops(true);
 
     // WITHOUT THIS, EVERY ONE OF THE 277 requestRepaint CALLS UNDER src/ IS A NO-OP.
     // The seam in include/win32_api.h has no way to reach a QWidget on its own -- it is
@@ -509,6 +524,57 @@ void QtAppWindow::contextMenuEvent(QContextMenuEvent* event) {
     const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     handleContextMenu(app_, nullptr, event->pos().x(), event->pos().y(), fromKeyboard);
     event->accept();
+}
+
+// The local files on a drag payload, in the order the platform listed them, as native paths.
+//
+// NATIVE SEPARATORS, not QUrl::toLocalFile's output as it comes. On Windows that returns
+// forward slashes, which open fine but then travel into App::currentFile, the window caption
+// and settings.ini's [Recent] -- so the same document dropped and opened through Ctrl+O would
+// be two different strings in the recent list.
+//
+// A NON-LOCAL URL YIELDS AN EMPTY PATH AND IS SKIPPED, which is what makes this the accept
+// test as well as the conversion: a drag from a browser carries http URLs, a drag of selected
+// text carries no URLs at all, and neither is a file this window can open.
+static std::vector<std::wstring> droppedLocalPaths(const QMimeData* mime) {
+    std::vector<std::wstring> paths;
+    if (!mime || !mime->hasUrls()) return paths;
+    const QList<QUrl> urls = mime->urls();
+    paths.reserve(static_cast<std::size_t>(urls.size()));
+    for (const QUrl& url : urls) {
+        const QString local = url.toLocalFile();
+        if (local.isEmpty()) continue;
+        const QString native = QDir::toNativeSeparators(local);
+        paths.emplace_back(native.toStdWString());
+    }
+    return paths;
+}
+
+void QtAppWindow::dragEnterEvent(QDragEnterEvent* event) {
+    // Accepted on the PRESENCE of a local file, never on its extension -- see the header.
+    if (droppedLocalPaths(event->mimeData()).empty()) {
+        QWidget::dragEnterEvent(event);
+        return;
+    }
+    // acceptProposedAction rather than accept(): it records WHICH action was taken, so the
+    // source sees a copy rather than a move and a file dragged out of Explorer is not
+    // unlinked. WM_DROPFILES had no equivalent to get wrong -- the shell only ever offered a
+    // copy.
+    event->acceptProposedAction();
+}
+
+void QtAppWindow::dropEvent(QDropEvent* event) {
+    const std::vector<std::wstring> paths = droppedLocalPaths(event->mimeData());
+    if (paths.empty()) {
+        QWidget::dropEvent(event);
+        return;
+    }
+    syncViewport();
+    // Unfiltered, as include/input.h:57 asks: handleDropFiles decides which ones it supports,
+    // opens each into a tab with the first activating, and repaints only if something opened.
+    // Skipping every path is therefore the same no-op a drop of nothing is.
+    handleDropFiles(app_, nullptr, paths);
+    event->acceptProposedAction();
 }
 
 tinta::RectF QtAppWindow::placeholderRect() const {

@@ -88,7 +88,10 @@
 #include <QContextMenuEvent>
 #include <QCursor>
 #include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QEventLoop>
+#include <QMimeData>
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QImage>
@@ -110,6 +113,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QUrl>
 #include <QTimer>
 #include <QWheelEvent>
 #include <QWindow>
@@ -3000,6 +3004,196 @@ int main(int argc, char** argv) {
               "tableEditChar inserts the character and delivers exactly one repaint");
         check(themeRepaints == 1, "applyTheme delivers exactly one repaint");
         tinta::clearRepaintSink();
+    }
+
+    // DROPPED FILES (2026-10-12). src/input.cpp's handleDropFiles was written, declared, and
+    // left with NO CALLER when 0b39ae6 deleted main_d2d.cpp's WM_DROPFILES case -- and nothing
+    // in the tree called setAcceptDrops either, so a QWidget received no drag or drop event at
+    // all. README advertises the feature twice and it worked on no platform in between.
+    //
+    // THE acceptDrops() CHECK IS ASSERTED ALONE, AND NOT FOR THE REASON THIS COMMENT FIRST
+    // GAVE. It said every other check here would still pass on a build with no
+    // setAcceptDrops, because QApplication::sendEvent reaches a handler whether the widget
+    // accepts drops or not -- the setFocusPolicy argument, carried over by analogy. The
+    // mutation refuted it: with setAcceptDrops(true) removed, ALL SIX checks in this block go
+    // red and drops=0,0,0,0, because Qt gates drag and drop delivery on acceptDrops() even
+    // for a synthetic event, which it does not do for keys.
+    //
+    // So the flag is covered either way and the separate assertion earns its place as a
+    // DIAGNOSTIC instead: six reds have two possible causes -- the flag, or the handlers --
+    // and this is the one check that says which. Recorded rather than quietly reworded,
+    // because the conclusion survived while its reason did not, and the wrong reason is what
+    // would have been reused on the next widget-attribute slice.
+    //
+    // Own window, for the reason the post block above gives: every probe window's destructor
+    // clears all the sinks, and tabOpenPath repaints through one.
+    {
+        QtAppWindow dropWindow(app);
+        dropWindow.resize(800, 600);
+
+        const std::filesystem::path dropDir =
+            std::filesystem::temp_directory_path() / "qinta_drop_probe";
+        std::error_code dropEc;
+        std::filesystem::remove_all(dropDir, dropEc);
+        std::filesystem::create_directories(dropDir, dropEc);
+        {
+            std::ofstream one(dropDir / "dropped-one.md", std::ios::binary);
+            one << "# dropped one\n\nThe first dropped document.\n";
+            std::ofstream two(dropDir / "dropped-two.md", std::ios::binary);
+            two << "# dropped two\n\nThe second, which must open behind the first.\n";
+            std::ofstream three(dropDir / "dropped-three.md", std::ios::binary);
+            three << "# dropped three\n\nThe multi-file round's second opener.\n";
+            // UNSUPPORTED, and the point of it: isSupportedDropPath takes the document
+            // extensions plus .txt, so this must be thrown away rather than opened. Dropped
+            // BESIDE a supported file, so the exclusion is read as "acted on one of two" and
+            // not as "the whole drop failed".
+            std::ofstream exe(dropDir / "not-a-document.exe", std::ios::binary);
+            exe << "MZ";
+        }
+        auto fileUrl = [&dropDir](const char* name) {
+            return QUrl::fromLocalFile(
+                QString::fromStdString((dropDir / name).string()));
+        };
+        // A drag or drop event the way Qt delivers one, for the reason sendWheel gives.
+        //
+        // A DROP IS PRECEDED BY ITS OWN DRAG ENTER, and that is fidelity rather than
+        // convenience: the platform never delivers a Drop that no DragEnter opened, and Qt
+        // holds drag state between the two. Measured the hard way -- without it, the FIRST
+        // synthetic Drop was delivered and every later one was silently discarded, with
+        // isAccepted() false and nothing opened, while a DragEnter over the identical payload
+        // was still being accepted. That reads exactly like a broken dropEvent and it was a
+        // broken test sequence (claim 18: a first-run red from a probe written this run is a
+        // suspect instrument, not a verdict).
+        auto sendDrag = [&dropWindow](QEvent::Type type, const QMimeData& mime) {
+            const QPoint at(dropWindow.width() / 2, dropWindow.height() / 2);
+            QDragEnterEvent enter(at, Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&dropWindow, &enter);
+            if (type == QEvent::DragEnter) return enter.isAccepted();
+            QDropEvent ev(QPointF(at), Qt::CopyAction, &mime, Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(&dropWindow, &ev);
+            return ev.isAccepted();
+        };
+
+        const bool accepts = dropWindow.acceptDrops();
+
+        QMimeData oneFile;
+        oneFile.setUrls({fileUrl("dropped-one.md")});
+        const bool enterLocal = sendDrag(QEvent::DragEnter, oneFile);
+
+        // THE TWO COUNTER-CASES. A handler that accepts everything passes the check above and
+        // fails both of these, which is the only thing separating "it accepts a file drop"
+        // from "it accepts".
+        QMimeData remoteUrl;
+        remoteUrl.setUrls({QUrl("http://127.0.0.1:9/not-a-local-file.md")});
+        const bool enterRemote = sendDrag(QEvent::DragEnter, remoteUrl);
+        QMimeData plainText;
+        plainText.setText("just some dragged text");
+        const bool enterText = sendDrag(QEvent::DragEnter, plainText);
+
+        // Round one: a single supported file.
+        const size_t tabsBefore = app.tabs.size();
+        const bool droppedOne = sendDrag(QEvent::Drop, oneFile);
+        const std::string currentAfterOne = app.currentFile;
+        const size_t tabsAfterOne = app.tabs.size();
+
+        // Round two: two supported files and one unsupported, in one drop. handleDropFiles
+        // opens each supported path with the FIRST activating, and skips the rest -- so the
+        // tab count moving by two rather than three is the exclusion reading.
+        //
+        // BOTH SUPPORTED PATHS ARE FRESH, and that is load-bearing rather than tidy. The first
+        // version of this round re-dropped dropped-one.md from round one and asserted +2; it
+        // read +1, because tabOpenPath switches to an already-open path instead of
+        // duplicating it (src/tabs.cpp:197-205). The code was right and the assertion's
+        // arithmetic was wrong -- so the exclusion check now measures only the skip, and the
+        // already-open behaviour is round four's claim instead of a confound in this one.
+        QMimeData mixedFiles;
+        mixedFiles.setUrls({fileUrl("dropped-two.md"), fileUrl("not-a-document.exe"),
+                            fileUrl("dropped-three.md")});
+        const size_t tabsBeforeMixed = app.tabs.size();
+        const bool droppedMixed = sendDrag(QEvent::Drop, mixedFiles);
+        const size_t tabsAfterMixed = app.tabs.size();
+        const std::string currentAfterMixed = app.currentFile;
+
+        // Round three: ONLY unsupported paths. Nothing opens, and the event is still accepted
+        // -- it carried a local file, which is all dragEnterEvent promised.
+        QMimeData onlyExe;
+        onlyExe.setUrls({fileUrl("not-a-document.exe")});
+        const size_t tabsBeforeExe = app.tabs.size();
+        const bool droppedExe = sendDrag(QEvent::Drop, onlyExe);
+        const size_t tabsAfterExe = app.tabs.size();
+        const std::string currentAfterExe = app.currentFile;
+
+        // Round four: a file ALREADY OPEN. Found by round two's wrong assertion rather than
+        // designed, and kept because it is the behaviour a user hits most -- dropping the
+        // document you are already reading must not give you a second tab on it. The
+        // discriminator is the pair: the tab count does not move AND the current document
+        // becomes that file, which together separate "switched to the existing tab" from
+        // "ignored the drop".
+        app.activeTab = 0;
+        const std::string currentBeforeReopen = app.currentFile;
+        const size_t tabsBeforeReopen = app.tabs.size();
+        const bool droppedReopen = sendDrag(QEvent::Drop, oneFile);
+        const size_t tabsAfterReopen = app.tabs.size();
+        const std::string currentAfterReopen = app.currentFile;
+
+        // DIAGNOSTIC, kept: it is what separates "the payload is wrong" from "the delivery was
+        // refused". A DragEnter over each payload runs droppedLocalPaths on exactly the data
+        // the Drop carried, so if enter accepts and drop does not, the conversion is fine and
+        // the event never reached the handler.
+        std::printf("drop payloads urls=%d,%d,%d enter_again=%d,%d\n",
+                    (int)oneFile.urls().size(), (int)mixedFiles.urls().size(),
+                    (int)onlyExe.urls().size(),
+                    sendDrag(QEvent::DragEnter, mixedFiles) ? 1 : 0,
+                    sendDrag(QEvent::DragEnter, onlyExe) ? 1 : 0);
+
+        auto leaf = [](const std::string& p) {
+            return std::filesystem::path(p).filename().string();
+        };
+        std::printf("drop accepts=%d enter=local:%d,remote:%d,text:%d drops=%d,%d,%d,%d "
+                    "tabs=%d->%d->%d->%d->%d current=one:%s,mixed:%s,exe:%s,"
+                    "reopen:%s(from %s)\n",
+                    accepts ? 1 : 0, enterLocal ? 1 : 0, enterRemote ? 1 : 0, enterText ? 1 : 0,
+                    droppedOne ? 1 : 0, droppedMixed ? 1 : 0, droppedExe ? 1 : 0,
+                    droppedReopen ? 1 : 0, (int)tabsBefore, (int)tabsAfterOne,
+                    (int)tabsAfterMixed, (int)tabsAfterExe, (int)tabsAfterReopen,
+                    leaf(currentAfterOne).c_str(), leaf(currentAfterMixed).c_str(),
+                    leaf(currentAfterExe).c_str(), leaf(currentAfterReopen).c_str(),
+                    leaf(currentBeforeReopen).c_str());
+
+        check(accepts,
+              "the window accepts drops -- without setAcceptDrops(true) Qt delivers neither "
+              "handler, and measured: every check in this block goes red with it removed, so "
+              "this one is the diagnostic that says the flag is the cause");
+        check(enterLocal, "a drag carrying a local file is accepted");
+        check(!enterRemote && !enterText,
+              "and one carrying only a remote URL, or no URL at all, is NOT -- the "
+              "counter-case for the check above");
+        check(droppedOne && tabsAfterOne == tabsBefore + 1 &&
+                  std::filesystem::path(currentAfterOne).filename() == "dropped-one.md",
+              "dropping one supported file opens it as the current document, in a new tab");
+        check(droppedMixed && tabsAfterMixed == tabsBeforeMixed + 2 &&
+                  std::filesystem::path(currentAfterMixed).filename() == "dropped-two.md",
+              "a drop of two supported files and one unsupported opens TWO tabs -- not three "
+              "-- and the first supported one activates");
+        // VACUOUS ON ITS OWN, and measured so: with the handleDropFiles call removed this
+        // check stays GREEN, because "nothing opened" is exactly what a dead caller produces
+        // too. It is load-bearing only beside the two checks above, which prove the handler is
+        // reached at all -- and that pairing is the whole content of the claim.
+        check(droppedExe && tabsAfterExe == tabsBeforeExe &&
+                  currentAfterExe == currentAfterMixed,
+              "a drop of only unsupported paths opens nothing and changes nothing, while the "
+              "event is still accepted");
+        check(droppedReopen && tabsAfterReopen == tabsBeforeReopen &&
+                  std::filesystem::path(currentAfterReopen).filename() == "dropped-one.md" &&
+                  currentAfterReopen != currentBeforeReopen,
+              "dropping an already-open file switches to its tab instead of duplicating it -- "
+              "the count holds AND the current document changes, which is what tells that "
+              "apart from the drop being ignored");
+
+        while (app.tabs.size() > tabsBefore) {
+            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+        }
+        std::filesystem::remove_all(dropDir, dropEc);
     }
 
     // WM_CLOSE (slice 10). Five portable senders post it -- File > Exit, closing the start

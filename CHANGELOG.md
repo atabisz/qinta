@@ -12,8 +12,8 @@ now been opened on a desktop by hand: Windows on a second machine, macOS on a Ma
 - The macOS download instructions say how to open the app the first time on current macOS: run
   `xattr -dr com.apple.quarantine /Applications/Qinta.app` once in Terminal, or use System
   Settings > Privacy & Security > Open Anyway. Right-click > Open no longer works since macOS 15.
-- Qinta builds with the compilers' full warning sets on every platform and none are left, which
-  keeps the code tidier for anyone building from source.
+- Qinta builds with GCC and Clang's `-Wall -Wextra` warnings on, with none left on GCC; the Linux
+  build now fails on any new one, which keeps the code tidier for anyone building from source.
 
 ## [v0.0.2] - 2026-10-12
 

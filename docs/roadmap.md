@@ -77,7 +77,10 @@ the date given, not as a live reading.
   installed. CI runs all three headless only. *Partly done 2026-10-12:* the Windows package
   opened, rendered, and restored and saved a session, on a developer machine that has both
   installed. The package loads its own DLLs first, so that is strong evidence and not proof;
-  Windows Sandbox would give the clean machine. macOS and Linux are not yet seen by hand.
+  Windows Sandbox would give the clean machine, but on the managed machine it was tried on
+  (2026-10-12) the Sandbox starts and neither its LogonCommand nor `wsb exec` can start a process
+  inside it, so that check needs another machine or a manual copy into the Sandbox. macOS and
+  Linux are not yet seen by hand.
 - [ ] **Open a MinGW-built qinta's window by hand** on a Windows desktop. CI runs that build
   headless only, too.
 

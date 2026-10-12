@@ -209,8 +209,19 @@ public:
     // openDocument. One line of untestable surface, by construction.
     void promptOpenDocument();
 
+    // THE INPUT METHOD (CJK and other composed input). Qt keeps an input method off for a
+    // widget unless Qt::WA_InputMethodEnabled is set and the widget answers these queries, and
+    // until 2026-10-12 this one did neither, so a CJK input method could not compose into the
+    // editor at all. ImEnabled is true only in the editor: in the viewer every letter is a
+    // shortcut (J, K, T...), and an input method left on would compose them instead.
+    // ImCursorRectangle is App::editorCaretRect, which places the candidate window at the caret.
+    QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
+
 protected:
     void paintEvent(QPaintEvent* event) override;
+    // A commit goes through handleCharInput one UTF-16 unit at a time, as typed characters do;
+    // the composition in progress goes to App::imePreedit, which the editor draws at the caret.
+    void inputMethodEvent(QInputMethodEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;

@@ -4,6 +4,8 @@
 #include <QContextMenuEvent>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QInputMethod>
+#include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPaintEvent>
@@ -101,6 +103,10 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // StrongFocus rather than ClickFocus: the window has to be usable from the keyboard
     // before anything has been clicked, because it is launched with a file in it.
     setFocusPolicy(Qt::StrongFocus);
+    // THE INPUT METHOD, same failure shape again: without this attribute Qt keeps an input
+    // method off for the widget, and a CJK one cannot compose into the editor at all. Whether
+    // it is on at a given moment is inputMethodQuery(ImEnabled)'s answer, editor only.
+    setAttribute(Qt::WA_InputMethodEnabled, true);
 
     // THE MOUSE COUNTERPART, same failure shape: without it Qt delivers mouseMoveEvent only
     // while a button is held, so hover -- link and tab highlights, and every cursor shape
@@ -601,4 +607,41 @@ void QtAppWindow::paintEvent(QPaintEvent* event) {
                        !(app_.layoutTextRuns.empty() && app_.layoutRects.empty() &&
                          app_.layoutShapes.empty() && app_.layoutBitmaps.empty() &&
                          app_.layoutLines.empty());
+
+    // The frame just recorded where the caret is, and the editor may have opened or closed
+    // since the last one, so the input method re-reads both: whether it may compose, and where
+    // its candidate window goes.
+    if (hasFocus()) {
+        QGuiApplication::inputMethod()->update(Qt::ImEnabled | Qt::ImCursorRectangle);
+    }
+}
+
+QVariant QtAppWindow::inputMethodQuery(Qt::InputMethodQuery query) const {
+    switch (query) {
+        case Qt::ImEnabled:
+            return app_.editMode;
+        case Qt::ImCursorRectangle: {
+            const tinta::RectF& r = app_.editorCaretRect;
+            return QRectF(r.left, r.top, r.right - r.left, r.bottom - r.top).toAlignedRect();
+        }
+        default:
+            return QWidget::inputMethodQuery(query);
+    }
+}
+
+void QtAppWindow::inputMethodEvent(QInputMethodEvent* event) {
+    if (!app_.editMode) {
+        app_.imePreedit.clear();
+        event->ignore();
+        return;
+    }
+    syncViewport();
+    // The commit first: an input method replacing its composition with the chosen text sends
+    // the commit and an empty preedit in one event.
+    for (const QChar unit : event->commitString()) {
+        handleCharInput(app_, nullptr, static_cast<wchar_t>(unit.unicode()));
+    }
+    app_.imePreedit = event->preeditString().toStdWString();
+    event->accept();
+    update();
 }

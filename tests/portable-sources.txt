@@ -580,11 +580,11 @@ drafts.cpp
 # above, and the difference is the whole rule: shlobj.h had no caller at all, imm.h has a real
 # one. editorPositionImeWindow IS the entire IME surface -- six identifiers, one occurrence
 # each, one 35-line function -- so the guard went round the function rather than round six
-# scattered lines. Off Windows CJK composition still WORKS, because the platform's input
-# method owns it; what is lost is the candidate window's POSITION, which stops following the
-# caret. A degraded placement, not a broken editor. Qt's answer is not a call at this site at
-# all but a QWidget::inputMethodQuery override, so writing a Qt arm here would put the code
-# somewhere Qt never looks.
+# scattered lines. CORRECTED 2026-10-12: it said CJK composition still worked off Windows and
+# only the candidate window's position was lost. It did not work at all on qinta: no widget set
+# Qt::WA_InputMethodEnabled, so Qt kept every input method off. Qt's answer was never a call at
+# this site but QtAppWindow's inputMethodQuery and inputMethodEvent, which now exist, and the
+# function itself is deleted.
 #
 # THE MOST USEFUL THING IN THIS ENTRY IS A BUG THE PORT ITSELF WROTE. Routing the third stream
 # site produced `std::ifstream file(std::filesystem::path(widePath));` -- C++'s most vexing

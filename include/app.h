@@ -1361,6 +1361,15 @@ struct App {
 
     // Editor cursor & selection
     size_t editorCursorPos = 0;
+    // Where the caret was last DRAWN, in window coordinates, whether or not the blink showed it:
+    // the input method's candidate window is placed from this (QtAppWindow::inputMethodQuery).
+    // Recorded by the editor paint, so it follows scrolling, wrapping and zoom without a second
+    // geometry calculation. Outside the editor it keeps its last value, which nothing reads:
+    // the input method is off there.
+    tinta::RectF editorCaretRect{};
+    // The input method's composition in progress (the preedit), drawn at the caret until it is
+    // committed; empty when nothing is being composed.
+    std::wstring imePreedit;
     int editorDesiredCol = -1;
     float editorDesiredX = -1.0f;  // desired caret x for Up/Down in wrap mode
     bool editorSelecting = false;

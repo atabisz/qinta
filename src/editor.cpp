@@ -31,13 +31,10 @@
 #include <chrono>
 #include <cwchar>
 
-// <imm.h> IS THE ONLY WINDOWS HEADER THIS FILE STILL NEEDS, AND IT IS GUARDED
-// RATHER THAN DELETED -- unlike drafts.cpp's <shlobj.h>, which was dead weight.
-// It has one real caller: editorPositionImeWindow, 35 lines, six identifiers.
-// Measured before the guard was written: with the header stubbed, g++ read the
-// file end to end and reported 55 errors on 40 lines -- so for as long as this
-// include was unguarded, every published figure about this file's portability
-// was a proxy for a number nobody had. A fatal include stops the read.
+// <imm.h> WAS THE LAST WINDOWS HEADER THIS FILE NEEDED, for editorPositionImeWindow, which
+// placed the Win32 IME composition window at the caret. Both are gone: the include with the
+// Direct2D stack, and the function, a no-op with no caller by then, on 2026-10-12, when the
+// input method moved to QtAppWindow (inputMethodQuery and inputMethodEvent, qt_window.h).
 
 #define TIMER_EDITOR_REPARSE 2
 
@@ -2476,30 +2473,31 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
 
 // --- IME support ---
 
-// Place the IME composition window at the caret so candidate lists for
-// CJK input appear where the user is typing instead of the window corner.
-//
-// THE WHOLE FUNCTION IS THE <imm.h> SURFACE, WHICH IS WHY THE GUARD IS HERE AND NOT
-// AROUND SIX SCATTERED LINES. Six identifiers -- HIMC, ImmGetContext,
-// COMPOSITIONFORM, CFS_POINT, ImmSetCompositionWindow, ImmReleaseContext -- one
-// occurrence each, all of them below, and every statement between them exists only
-// to fill the COMPOSITIONFORM. So there is no portable half to keep.
-//
-// OFF WINDOWS THIS IS A MISSING FEATURE, NOT AN EQUIVALENCE, and the direction it
-// fails in is worth naming: CJK composition still WORKS, because the platform's
-// input method owns it -- what is lost is the candidate list's POSITION, which
-// reverts to wherever the input method puts it by default rather than following the
-// caret. A degraded placement, not a broken editor, and nothing is corrupted.
-//
-// It stays a no-op rather than gaining a Qt arm because Qt's answer is not a call at
-// this site at all: QWidget::inputMethodQuery(Qt::ImCursorRectangle) is a widget
-// OVERRIDE that Qt pulls when it needs the rectangle, so the caret geometry computed
-// below would move into that override on a widget this tree does not have yet. That
-// makes it the same blocker win32_api.h records twice -- no window object on the Qt
-// side -- and writing a Qt arm here would put the code in a place Qt never calls.
-void editorPositionImeWindow(App& app, HWND hwnd) {
-    (void)app;
-    (void)hwnd;
+// The input method lives on the Qt window now (QtAppWindow::inputMethodQuery and
+// inputMethodEvent). The editor's part is below: the caret rectangle it records while
+// painting, which places the candidate window, and the composition it draws there.
+
+// The input method's composition (App::imePreedit), drawn at the caret until it is committed:
+// a background box, the text in the editor's own format and colour with the same CJK fallback
+// as a line, and an underline, the convention input methods use for text that is not committed
+// yet. It covers what follows the caret rather than pushing it along, as a Win32 composition
+// window did. The caret is recorded for the candidate window just before this is called.
+static void editorDrawImePreedit(App& app, float x, float y, float lineHeight) {
+    if (app.imePreedit.empty() || !app.textFactory || !app.editorTextFormat) return;
+    auto layout = app.textFactory->CreateTextLayout(
+        app.imePreedit.data(), (uint32_t)app.imePreedit.size(), app.editorTextFormat, 1e7f, 1e7f);
+    if (!layout) return;
+    layout->ApplyFontFallback();
+    tinta::TextMetrics tm{};
+    layout->GetMetrics(&tm);
+    const float w = tm.widthIncludingTrailingWhitespace;
+    app.brush->SetColor(app.theme.background);
+    app.renderTarget->FillRectangle(tinta::rectF(x, y, x + w, y + lineHeight), app.brush);
+    app.brush->SetColor(app.theme.text);
+    app.renderTarget->DrawTextLayout(tinta::pointF(x, y), layout.get(), app.brush);
+    app.renderTarget->FillRectangle(
+        tinta::rectF(x, y + lineHeight - dpi(app, 2.0f), x + w, y + lineHeight - dpi(app, 1.0f)),
+        app.brush);
 }
 
 // --- Mouse handling ---
@@ -2946,15 +2944,17 @@ static void renderEditorWrapped(App& app, float editorWidth) {
                 tinta::pointF(textX, lineY), lineLayout, app.brush);
         }
 
-        // Caret
-        if (app.cursorBlinkOn && i == curLine) {
+        // Caret: recorded every frame for the input method, drawn when the blink is on
+        if (i == curLine) {
             float cx = 0, cy = 0;
             editorCaretXY(lineLayout, app.editorCursorPos - lineStart, cx, cy);
-            app.brush->SetColor(app.theme.text);
-            app.renderTarget->FillRectangle(
-                tinta::rectF(textX + cx, lineY + cy,
-                            textX + cx + dpi(app, 2.0f), lineY + cy + lineHeight),
-                app.brush);
+            app.editorCaretRect = tinta::rectF(textX + cx, lineY + cy,
+                                               textX + cx + dpi(app, 2.0f), lineY + cy + lineHeight);
+            editorDrawImePreedit(app, textX + cx, lineY + cy, lineHeight);
+            if (app.cursorBlinkOn) {
+                app.brush->SetColor(app.theme.text);
+                app.renderTarget->FillRectangle(app.editorCaretRect, app.brush);
+            }
         }
 
     }
@@ -3115,18 +3115,22 @@ void renderEditor(App& app, float editorWidth) {
 
     }
 
-    // Cursor (blink state driven by TIMER_CURSOR_BLINK)
-    if (app.cursorBlinkOn) {
+    // Cursor: recorded every frame for the input method, drawn when the blink
+    // (TIMER_CURSOR_BLINK) is on
+    {
         size_t curCol = getColFromPos(app, app.editorCursorPos);
         size_t curLineStart = app.editorLineStarts[curLine];
         size_t curLineLen = getLineLength(app, curLine);
         tinta::TextLayout* curLayout = cachedEditorLineLayout(app, curLineStart, curLineLen);
         float curX = textBase + editorColToX(app, curLayout, std::min(curCol, curLineLen));
         float curY = chromeTopHeight(app) + padding + curLine * lineHeight - app.editorScrollY;
-
-        app.brush->SetColor(app.theme.text);
-        app.renderTarget->FillRectangle(
-            tinta::rectF(curX, curY, curX + dpi(app, 2.0f), curY + lineHeight), app.brush);
+        app.editorCaretRect =
+            tinta::rectF(curX, curY, curX + dpi(app, 2.0f), curY + lineHeight);
+        editorDrawImePreedit(app, curX, curY, lineHeight);
+        if (app.cursorBlinkOn) {
+            app.brush->SetColor(app.theme.text);
+            app.renderTarget->FillRectangle(app.editorCaretRect, app.brush);
+        }
     }
 
     // The rail + gutter column last: horizontally scrolled text slides

@@ -1,5 +1,14 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- Chinese, Japanese, Korean and other input methods work in the editor. No input method could
+  compose into it before; now the composition shows at the caret, the candidate list opens beside
+  it, and the chosen text is inserted. In the viewer the input method stays off, so single-letter
+  shortcuts keep working.
+- `/register` on macOS and Linux now says how to make Qinta the default for Markdown files there.
+
 ## [v0.0.1] - 2026-10-12
 
 The first release of Qinta, a fork of [tinta](https://github.com/oipoistar/tinta) rebuilt on a

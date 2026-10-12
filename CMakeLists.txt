@@ -2626,6 +2626,9 @@ if(BUILD_TESTING)
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_portable_test.cmake)
             set_tests_properties(inline_code_theme PROPERTIES
                 ENVIRONMENT "QT_QPA_PLATFORM=${TINTA_QPA_PLATFORM}")
+            # The input method: CJK composition into the editor, the candidate window's caret
+            # rectangle, and the input method staying off in the viewer (2026-10-12).
+            tinta_qt_app_test(ime_tests ime tests/ime_tests.cpp)
             # Settings and session restore (2026-10-11). Through the portable wrapper too, because
             # it saves settings: the folder it is staged in is the only settings.ini it can reach.
             tinta_qt_app_test(settings_restore_tests NONE tests/settings_restore_tests.cpp)

@@ -35,9 +35,15 @@ the date given, not as a live reading.
   It is an unknown option now, and the path after it is an ordinary argument, not an output
   (`launch_options_tests`). The original item: **`--dumpchrome`** is refused (`src/main_qt.cpp`): its body was `chrome_dump_d2d.cpp`, deleted
   with the Direct2D stack. Port it onto the Qt render target or delete the switch.
-- [ ] **IME candidate window position.** `editorPositionImeWindow` (`src/editor.cpp`) is a no-op on
-  qinta, so CJK composition works but its candidate list does not follow the caret. Qt's route is a
-  `QWidget::inputMethodQuery(Qt::ImCursorRectangle)` override on the editor's widget.
+- [x] **Input method (CJK) in the editor. Done 2026-10-12, and the item was worse than it said.**
+  It read "CJK composition works but its candidate list does not follow the caret". In fact no
+  widget set `Qt::WA_InputMethodEnabled`, so Qt kept every input method off and CJK text could
+  not be composed into the editor at all. The window now enables it, on only in the editor so
+  viewer shortcuts stay shortcuts; commits the composed text through the same path as typing;
+  draws the composition at the caret; and reports the caret for the candidate window
+  (`QtAppWindow::inputMethodQuery` and `inputMethodEvent`). Test: `ime`, driven with the events
+  Qt delivers, since no real input method can be scripted. *Not yet witnessed:* typing through a
+  real CJK input method by hand. The search box and other text fields are outside this item.
 - [x] **Retired 2026-10-11**: the definition and the comments describing guards built on it. The
   original item: **Retire `TINTA_QT_UI`.** It split the Win32 window arms from the Qt ones while both stacks
   existed. No line in `src/` or `include/` tests it any more (0 preprocessor lines, against 51 for

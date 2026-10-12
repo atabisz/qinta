@@ -36,6 +36,12 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY);
 // ask GetKeyState and app state directly, so the WPARAM they used to take was
 // already unused before it was removed.
 void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY);
+// WM_MBUTTONDOWN's case: closes the tab under the press, and ONLY inside the tab strip.
+// Returns whether it consumed the press, which is that case's `return 0` against its
+// `break` -- a middle press anywhere else is the widget's to ignore. Separate from
+// handleMouseDown because it was a separate case: that function takes no button, and the
+// middle button acts at exactly one place.
+bool handleMiddleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY);
 void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY);
 // True consumes this keystroke's character translation as well (#195).
 bool handleKeyDown(App& app, HWND hwnd, unsigned key);

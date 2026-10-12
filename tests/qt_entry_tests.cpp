@@ -3316,6 +3316,219 @@ int main(int argc, char** argv) {
         std::filesystem::remove_all(titleDir, titleEc);
     }
 
+    // MIDDLE-CLICK AND THE MOUSE GRAB (2026-10-12), the parity list's items 4 and 5. Taken
+    // together because they are one region of the mouse path.
+    //
+    // tabStripMouseDown has had a `bool middle` since the strip was written, closing the tab
+    // under the press, and its ONE caller passed a hardcoded false -- while mousePressEvent
+    // handed anything that was not LeftButton to QWidget. So the README's middle-click-to-
+    // close worked on no platform. And releaseMouseIfCaptured was `(void)hwnd;`, which is
+    // correct at five of its six sites (inside a mouse-up, where Qt's implicit grab is ending
+    // anyway) and wrong at the sixth: tabs.cpp's tabDragCancel, reached from the Esc branch of
+    // handleKeyDown. A keystroke does not end an implicit grab, so Esc aborted the drag's
+    // state and left the widget holding the mouse.
+    {
+        QtAppWindow mouseWindow(app);
+        mouseWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        mouseWindow.resize(900, 600);
+
+        const std::filesystem::path mdir =
+            std::filesystem::temp_directory_path() / "qinta_middle_probe";
+        std::error_code mec;
+        std::filesystem::remove_all(mdir, mec);
+        std::filesystem::create_directories(mdir, mec);
+        for (const char* n : {"mid-one.md", "mid-two.md", "mid-three.md"}) {
+            std::ofstream f(mdir / n, std::ios::binary);
+            f << "# " << n << "\n";
+        }
+        const size_t tabsAtStart = app.tabs.size();
+        for (const char* n : {"mid-one.md", "mid-two.md", "mid-three.md"}) {
+            tabOpenPath(app, nullptr, (mdir / n).u8string(), true);
+        }
+        // The strip's hit rects come from renderTabStrip, so a paint has to happen before a
+        // press can be aimed at a tab. Aiming by arithmetic instead would assert this test's
+        // own layout maths rather than the strip's.
+        grabWindow(mouseWindow);
+
+        // A press whose accepted state is readable -- sendMouse above returns nothing, and
+        // "consumed only where it acted" is half of this claim.
+        // PRESS AND RELEASE, because a click is both and the difference is load-bearing here:
+        // tabStripMouseDown sets App::swallowNextMouseUp, so a press delivered without its
+        // release leaves that flag set and the NEXT release anywhere in this block is
+        // swallowed. Measured -- it cost one confident red further down.
+        auto pressButton = [&mouseWindow](Qt::MouseButton button, QPointF local) {
+            const QPointF global(mouseWindow.mapToGlobal(local.toPoint()));
+            QMouseEvent press(QEvent::MouseButtonPress, local, global, button, button,
+                              Qt::NoModifier);
+            QApplication::sendEvent(&mouseWindow, &press);
+            const bool accepted = press.isAccepted();
+            QMouseEvent release(QEvent::MouseButtonRelease, local, global, button, Qt::NoButton,
+                                Qt::NoModifier);
+            QApplication::sendEvent(&mouseWindow, &release);
+            return accepted;
+        };
+        auto leafOf = [](const std::string& p) {
+            return std::filesystem::path(p).filename().string();
+        };
+
+        const float stripMid = chromeTopHeight(app) * 0.5f;
+        // The middle tab of the three, read from the strip's own hit list.
+        float targetX = -1.0f;
+        std::string targetLeaf;
+        for (const auto& hit : app.tabHits) {
+            if (hit.index < 0) continue;  // -2 plus, -3 chevron
+            const std::string leaf =
+                (hit.index == app.activeTab) ? leafOf(app.currentFile)
+                                             : leafOf(app.tabs[(size_t)hit.index].path);
+            if (leaf == "mid-two.md") {
+                // Left of any close button, so the press is on the TAB and not its X -- the
+                // close rect would close the same tab and make the reading ambiguous.
+                targetX = hit.rect.left + 8.0f;
+                targetLeaf = leaf;
+            }
+        }
+
+        // --- item 4: middle-click closes, and only on the strip -------------------------
+        const size_t tabsBeforeMid = app.tabs.size();
+        const bool midAccepted =
+            targetX >= 0.0f && pressButton(Qt::MiddleButton, QPointF(targetX, stripMid));
+        const size_t tabsAfterMid = app.tabs.size();
+        bool twoStillOpen = false;
+        for (size_t i = 0; i < app.tabs.size(); i++) {
+            const std::string leaf = ((int)i == app.activeTab) ? leafOf(app.currentFile)
+                                                               : leafOf(app.tabs[i].path);
+            if (leaf == "mid-two.md") twoStillOpen = true;
+        }
+
+        // THE COUNTER-CASE: below the strip. A handler that closed on any middle press passes
+        // the check above and fails this one, and it is also the `return 0` / `break`
+        // distinction -- an unconsumed press must be left to the widget.
+        const size_t tabsBeforeBelow = app.tabs.size();
+        const bool belowAccepted =
+            pressButton(Qt::MiddleButton, QPointF(200.0f, chromeTopHeight(app) + 80.0f));
+        const size_t tabsAfterBelow = app.tabs.size();
+
+        // And the LEFT button on the strip must still activate rather than close.
+        float leftTargetX = -1.0f;
+        int leftTargetIndex = -1;
+        for (const auto& hit : app.tabHits) {
+            if (hit.index >= 0) {
+                leftTargetX = hit.rect.left + 8.0f;
+                leftTargetIndex = hit.index;
+                break;
+            }
+        }
+        const size_t tabsBeforeLeft = app.tabs.size();
+        if (leftTargetX >= 0.0f) pressButton(Qt::LeftButton, QPointF(leftTargetX, stripMid));
+        const size_t tabsAfterLeft = app.tabs.size();
+        const int activeAfterLeft = app.activeTab;
+
+        // --- item 5: Esc during a tab drag gives the mouse back -------------------------
+        //
+        // The grab is taken explicitly here because a SENT press does not create Qt's
+        // implicit grab -- only a real platform press does. That is the honest shape: the
+        // claim is about what tabDragCancel does to a grab that exists, and the pre-reading
+        // below is what stops "no grabber after" from being a grab that never happened.
+        app.tabDragIndex = 0;
+        app.tabDragging = true;
+        mouseWindow.grabMouse();
+        const bool grabbedBefore = QWidget::mouseGrabber() == &mouseWindow;
+        sendKey(mouseWindow, Qt::Key_Escape);
+        const bool grabbedAfter = QWidget::mouseGrabber() == &mouseWindow;
+        const int dragAfterEsc = app.tabDragIndex;
+
+        // THE GUARD, which is what makes routing all six release sites through one seam safe
+        // rather than a risk: with ANOTHER widget holding the grab, a delivery must not steal
+        // it. Without this clause a release from a bracketed site could cut short a drag that
+        // belongs to a sibling widget.
+        QWidget other;
+        other.setAttribute(Qt::WA_DontShowOnScreen, true);
+        other.resize(10, 10);
+        other.grabMouse();
+        const bool otherHasIt = QWidget::mouseGrabber() == &other;
+        const bool stolen = tinta::deliverReleaseMouse();
+        const bool otherStillHasIt = QWidget::mouseGrabber() == &other;
+        other.releaseMouse();
+
+        std::printf("midclick target=%s accepted=%d tabs=%d->%d two_open=%d | below "
+                    "accepted=%d tabs=%d->%d | left tabs=%d->%d active=%d | esc grabbed=%d->%d "
+                    "drag=%d | guard other=%d stolen=%d other_kept=%d\n",
+                    targetLeaf.empty() ? "-" : targetLeaf.c_str(), midAccepted ? 1 : 0,
+                    (int)tabsBeforeMid, (int)tabsAfterMid, twoStillOpen ? 1 : 0,
+                    belowAccepted ? 1 : 0, (int)tabsBeforeBelow, (int)tabsAfterBelow,
+                    (int)tabsBeforeLeft, (int)tabsAfterLeft, activeAfterLeft,
+                    grabbedBefore ? 1 : 0, grabbedAfter ? 1 : 0, dragAfterEsc,
+                    otherHasIt ? 1 : 0, stolen ? 1 : 0, otherStillHasIt ? 1 : 0);
+
+        check(!targetLeaf.empty(),
+              "the strip's hit list named the middle tab, so the press below is aimed at it "
+              "and not at this test's arithmetic");
+        check(midAccepted && tabsAfterMid == tabsBeforeMid - 1 && !twoStillOpen,
+              "a MIDDLE press on a tab closes that tab and consumes the event -- "
+              "tabStripMouseDown's `middle` had one caller passing a hardcoded false");
+        check(!belowAccepted && tabsAfterBelow == tabsBeforeBelow,
+              "and a middle press BELOW the strip closes nothing and is left to the widget, "
+              "which is WinMain's `break` against its `return 0`");
+        check(tabsAfterLeft == tabsBeforeLeft && activeAfterLeft == leftTargetIndex,
+              "a LEFT press on a tab still activates it and closes nothing");
+        check(grabbedBefore && !grabbedAfter && dragAfterEsc == -1,
+              "Esc during a tab drag releases the mouse grab AND clears the drag -- the grab "
+              "is read before as well as after, so this cannot be a grab that never happened");
+        check(otherHasIt && !stolen && otherStillHasIt,
+              "and a release delivered while ANOTHER widget holds the grab does not steal it "
+              "-- the GetCapture()==hwnd guard, which is what makes one seam safe for all six "
+              "call sites");
+
+        // THE RISK THIS SLICE TAKES, PROBED DIRECTLY. Routing releaseMouseIfCaptured through
+        // a live seam makes the FIVE bracketed sites -- the ones inside handleMouseUp -- fire
+        // a real QWidget::releaseMouse for the first time. The drag-select run earlier in this
+        // file covers the behaviour, but it cannot cover THIS: a sent press creates no implicit
+        // grab, so the guard refuses and the release never executes there. A grab taken by hand
+        // is what puts a real one in front of the mouse-up.
+        //
+        // Asserted as a PAIR, because either half alone is satisfied by the wrong thing: the
+        // selection must still form (so the release did not cut the drag short) AND the grab
+        // must be gone afterwards (so the release actually ran rather than being refused).
+        {
+            const bool selBefore = app.hasSelection;
+            app.hasSelection = false;
+            // MEASURED, not assumed. The first version of this block read selecting=1 after
+            // the release and the release had provably run (the grab was gone), which looks
+            // exactly like the new seam breaking the drag-end path. It was the test: the
+            // tab-strip presses above are presses with no matching release, and
+            // tabStripMouseDown sets App::swallowNextMouseUp, so handleMouseUp returned early
+            // on the first release it saw and never cleared `selecting`. A real click is a
+            // press AND a release; the presses above now send both, and this reading is kept
+            // as the discriminator that named the cause.
+            const bool swallowPending = app.swallowNextMouseUp;
+            const QPointF dragFrom(60.0, chromeTopHeight(app) + 120.0f);
+            const QPointF dragTo(360.0, chromeTopHeight(app) + 120.0f);
+            mouseWindow.grabMouse();
+            const bool grabHeldForDrag = QWidget::mouseGrabber() == &mouseWindow;
+            sendMouse(mouseWindow, QEvent::MouseButtonPress, dragFrom, Qt::LeftButton,
+                      Qt::LeftButton);
+            sendMouse(mouseWindow, QEvent::MouseMove, dragTo, Qt::NoButton, Qt::LeftButton);
+            sendMouse(mouseWindow, QEvent::MouseButtonRelease, dragTo, Qt::LeftButton,
+                      Qt::NoButton);
+            const bool grabGoneAfterUp = QWidget::mouseGrabber() != &mouseWindow;
+            const bool selecting = app.selecting;
+            std::printf("bracketed grab_held=%d grab_gone=%d selecting=%d swallow_pending=%d\n",
+                        grabHeldForDrag ? 1 : 0, grabGoneAfterUp ? 1 : 0, selecting ? 1 : 0,
+                        swallowPending ? 1 : 0);
+            check(grabHeldForDrag && grabGoneAfterUp && !selecting,
+                  "a mouse-up WITH a real grab held releases it and still ends the drag "
+                  "cleanly -- the five bracketed release sites, which the sent-event drag "
+                  "run cannot reach because sendEvent creates no implicit grab");
+            if (QWidget::mouseGrabber() == &mouseWindow) mouseWindow.releaseMouse();
+            app.hasSelection = selBefore;
+        }
+
+        while (app.tabs.size() > tabsAtStart) {
+            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+        }
+        std::filesystem::remove_all(mdir, mec);
+    }
+
     // WM_CLOSE (slice 10). Five portable senders post it -- File > Exit, closing the start
     // page, dragging off the last tab, the unsaved-changes dialog resuming a close -- and
     // the post sink used to refuse it, so each did nothing on qinta. And the window had no

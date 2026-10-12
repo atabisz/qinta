@@ -183,6 +183,17 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
         ++titleCount_;
         setWindowTitle(QString::fromStdWString(title));
     };
+    // releaseMouseIfCaptured (2026-10-12). THE GUARD IS THE POINT, not the release: this is
+    // `if (GetCapture() == hwnd) ReleaseCapture();` translated, and without the comparison a
+    // release routed from a bracketed call site could end a grab that belongs to another
+    // widget. The one site that actually needs this is tabs.cpp's tabDragCancel, reached from
+    // the Esc branch of handleKeyDown -- a KEYSTROKE, which does not end Qt's implicit grab,
+    // so before this existed Esc aborted the drag's state while the widget kept the mouse.
+    sink.releaseMouse = [this]() {
+        if (QWidget::mouseGrabber() != this) return false;
+        releaseMouse();
+        return true;
+    };
     // The tab strip's pin (slice 22). Set on the NATIVE window rather than through
     // QWidget::setWindowFlag, which hides a visible widget and needs a show() to come back --
     // a pin that blinks the window is not SetWindowPos(HWND_TOPMOST). Reports whether the flag
@@ -488,6 +499,26 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
 // right button reaches handleContextMenu through contextMenuEvent, which is WM_CONTEXTMENU's
 // counterpart, and the middle button (tab-strip close) is out of this slice's scope.
 void QtAppWindow::mousePressEvent(QMouseEvent* event) {
+    // THE MIDDLE BUTTON CLOSES A TAB, as of 2026-10-12. It fell into the `!= LeftButton`
+    // arm below and was handed to QWidget, so the README's middle-click-to-close worked on
+    // no platform -- tabStripMouseDown's `middle` parameter had one caller passing a
+    // hardcoded false. Its own entry point rather than a button argument on
+    // handleMouseDown, which is the shape WinMain's separate `case WM_MBUTTONDOWN` had.
+    //
+    // ACCEPTED ONLY WHEN IT ACTED. The Win32 case returned 0 inside the strip and `break`
+    // otherwise, so a middle press on the document is still the widget's to ignore -- which
+    // leaves the door open for a future paste-on-middle-click without a conflict here.
+    if (event->button() == Qt::MiddleButton) {
+        syncViewport();
+        const platform::EventModifierScope modifiers = modifierScopeFor(*event);
+        const QPoint p = event->position().toPoint();
+        if (handleMiddleMouseDown(app_, nullptr, p.x(), p.y())) {
+            event->accept();
+        } else {
+            QWidget::mousePressEvent(event);
+        }
+        return;
+    }
     if (event->button() != Qt::LeftButton) {
         QWidget::mousePressEvent(event);
         return;

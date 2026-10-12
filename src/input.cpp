@@ -1863,6 +1863,44 @@ static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
     requestRepaint(hwnd);
 }
 
+// Whether a press at (mx, my) belongs to the tab strip.
+//
+// EXTRACTED 2026-10-12 so the LEFT and MIDDLE buttons cannot answer it differently. The
+// left button's version of this test was inline in handleMouseDown below, and WinMain's
+// `case WM_MBUTTONDOWN` -- deleted in 0b39ae6 -- asked only `my < chromeTopHeight`, with
+// neither of the two guards here. That is a DELIBERATE divergence from the deleted code
+// rather than a faithful port: the middle case predates the floating sheet, so reproducing
+// its condition would reproduce a stale answer to the same question. Both buttons ask this
+// function now, which is the only arrangement where they cannot drift.
+static bool pressIsOnTabStrip(const App& app, int mx, int my) {
+    if ((float)my >= chromeTopHeight(app)) return false;
+    // A modal confirm owns the whole window while it is up.
+    if (app.confirmExitPending) return false;
+    // With the floating sheet the top band right of the source column belongs to the desk
+    // gap and the page, not the strip -- except the caption island (pin + window buttons)
+    // floating on it.
+    const bool overSheetBand = editorPreviewVisible(app) &&
+                               (float)mx >= editorPaneWidth(app) &&
+                               (float)mx < captionIslandLeft(app);
+    return !overSheetBand;
+}
+
+// WinMain's `case WM_MBUTTONDOWN`, restored 2026-10-12. It was its own case rather than a
+// button argument on handleMouseDown, and that shape is kept: handleMouseDown has no button
+// parameter, adding one would touch every caller, and the middle button acts in exactly one
+// place. Returns whether the press was consumed -- the Win32 case's `return 0` against its
+// `break`, so a middle press outside the strip is left to the widget as it was left to
+// DefWindowProc.
+//
+// tabStripMouseDown's `middle` parameter has existed since the strip was written and its one
+// caller passed a hardcoded false, so on qinta the README's middle-click-to-close worked on
+// no platform.
+bool handleMiddleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
+    if (!pressIsOnTabStrip(app, mouseX, mouseY)) return false;
+    tabStripMouseDown(app, hwnd, mouseX, mouseY, true);
+    return true;
+}
+
 void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
     if (appMenuButtonAt(app, (float)mouseX, (float)mouseY)) {
         toggleApplicationMenu(app, hwnd);
@@ -1896,14 +1934,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.swallowNextMouseUp = true;
             return;
         }
-        // With the floating sheet the top band right of the source column
-        // belongs to the desk gap and the page, not the strip — except
-        // the caption island (pin + window buttons) floating on it
-        bool overSheetBand = editorPreviewVisible(app) &&
-                             (float)mx >= editorPaneWidth(app) &&
-                             (float)mx < captionIslandLeft(app);
-        if ((float)my < chromeTopHeight(app) && !overSheetBand &&
-            !app.confirmExitPending) {
+        if (pressIsOnTabStrip(app, mx, my)) {
             tabStripMouseDown(app, hwnd, mx, my, false);
             app.swallowNextMouseUp = true;
             return;

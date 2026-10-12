@@ -82,6 +82,17 @@ struct WindowSink {
     // for ghostShow. The closure outlives the call, so a pointer would need a lifetime note
     // the reference does not.
     std::function<void(const std::wstring&)> title;
+    // releaseMouseIfCaptured's off-Win32 arm (2026-10-12). THE CLOSURE CARRIES THE GUARD,
+    // not just the release, because the guard is half the call: ReleaseCapture() lets go of
+    // whatever window on the calling thread holds the mouse, so all 6 sites in the tree
+    // spelled `if (GetCapture() == hwnd)` by hand. The Qt translation is
+    // `QWidget::mouseGrabber() == this`, and it is what makes routing every site through one
+    // seam safe instead of special-casing the one that needs it: at the five bracketed sites
+    // the grab is ending anyway, and at none of them may this steal a sibling's.
+    //
+    // Returns whether a grab was actually released, which is the test's discriminator -- "no
+    // grab now" and "no grab ever" are the same reading otherwise.
+    std::function<bool()> releaseMouse;
     // The tab strip's always-on-top pin (slice 22). Returns whether the window applied it, so
     // the pin flips App::alwaysOnTop only for a request that landed -- a pin drawn as set on a
     // window that is not on top is the wrong picture the Win32 branch never shows.
@@ -159,6 +170,14 @@ inline void deliverWindowChrome(const WindowChrome& chrome) {
 // SetWindowTextW's own return is dropped there. It is for the TEST: "the caption did not
 // change" and "no window was listening" are two different states, and a void delivery leaves
 // nothing to tell them apart. Same argument stayOnTop's bool makes, for a different reason.
+// True when a window held the grab and let it go. False covers both "no sink" and "this
+// window was not the grabber", which is correct for every caller: all six spell the
+// request as "release it if it is mine", and none of them acts on a refusal.
+inline bool deliverReleaseMouse() {
+    WindowSink& sink = windowSinkSlot();
+    return sink.releaseMouse && sink.releaseMouse();
+}
+
 inline bool deliverWindowTitle(const std::wstring& title) {
     WindowSink& sink = windowSinkSlot();
     if (!sink.title) return false;

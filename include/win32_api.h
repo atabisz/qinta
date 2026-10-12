@@ -417,10 +417,22 @@ inline void setCursorShape(CursorShape shape) {
 // raw -- which would have kept ReleaseCapture AND added GetCapture to the list of
 // what makes input.cpp unreadable off Windows -- the guarded form gets its own
 // entry below. It qualifies on the first arm of this header's rule at 6 sites.
+// DELIBERATELY STILL A NO-OP, and that is a measurement rather than remaining debt --
+// stated here because the sibling below stopped being one on 2026-10-12 and the
+// asymmetry would otherwise read as an oversight. All 5 of its call sites are inside
+// handleMouseDown, where Qt's implicit grab already delivers the move and release
+// events to the pressed widget. An explicit grabMouse() there would be redundant AND
+// a behaviour change in the direction that bites: an explicit grab OUTLIVES the button
+// release, so every press would have to be paired with a release that the implicit
+// grab does not need.
 inline void captureMouse(HWND hwnd) {
     (void)hwnd;
 }
 
+// Unguarded, and it has NO call sites in the tree -- the 6 real release sites all
+// spell the guarded form below. Left as a no-op for that reason: wiring a release
+// that nothing calls, and that would skip the ownership guard if it were called, is
+// strictly worse than leaving the shape visible.
 inline void releaseMouse() {
 }
 
@@ -434,16 +446,26 @@ inline void releaseMouse() {
 // sibling, the quick-note window. Every one of the 6 sites spelled the guard by
 // hand and identically, which is what makes this one call rather than two.
 //
-// OFF WINDOWS THIS IS THE ENTRY THAT OWES QT CODE, and it is this one rather than
-// releaseMouse because the one unbracketed site in the tree spells its release
-// with the guard. Five of its six callers are inside a mouse-up and need nothing;
-// the sixth is tabs.cpp's tabDragCancel, reached from a keystroke and from
-// WM_CAPTURECHANGED, where an empty arm leaves Qt still grabbing. So the arm below
-// IS a placeholder at one call site out of six -- which is why the reason is
-// written at that site, where the reader deciding what to do has the callers in
-// front of them, and not only here.
-inline void releaseMouseIfCaptured(HWND hwnd) {
-    (void)hwnd;
+// THAT DEBT IS PAID, 2026-10-12, and the paragraph it replaces was right about the
+// defect and WRONG ABOUT THE SHAPE OF THE FIX, so it is corrected rather than
+// deleted. It read: "the sixth is tabs.cpp's tabDragCancel, reached from a keystroke
+// and from WM_CAPTURECHANGED, where an empty arm leaves Qt still grabbing. So the arm
+// below IS a placeholder at one call site out of six -- which is why the reason is
+// written at that site." Measured today, `rg tabDragCancel src/` returns **one**
+// caller: src/input.cpp's Esc branch. The WM_CAPTURECHANGED caller went with the
+// window procedure in 0b39ae6, so the "two callers, two different Qt shapes, one of
+// them not a call" that made this look like a per-site decision no longer exists.
+// Nothing had re-measured the sentence after the stack it described was deleted.
+//
+// With one shape left, the seam takes the whole job, and THE GUARD IS WHAT MAKES THAT
+// SAFE AT THE OTHER FIVE SITES rather than a risk. include/window_sink.h's closure
+// answers `QWidget::mouseGrabber() == this` before releasing -- the exact question the
+// 6 sites each spelled as `GetCapture() == hwnd` -- so at a bracketed site, where the
+// grab is ending anyway, this cannot end a sibling's. An UNguarded release routed
+// through here could have cut a selection drag short, which is why the guard lives in
+// the closure and not at the call sites.
+inline void releaseMouseIfCaptured([[maybe_unused]] HWND hwnd) {
+    tinta::deliverReleaseMouse();
 }
 
 #endif  // TINTA_WIN32_API_H

@@ -36,6 +36,30 @@ the date given, not as a live reading.
   It is an unknown option now, and the path after it is an ordinary argument, not an output
   (`launch_options_tests`). The original item: **`--dumpchrome`** is refused (`src/main_qt.cpp`): its body was `chrome_dump_d2d.cpp`, deleted
   with the Direct2D stack. Port it onto the Qt render target or delete the switch.
+- [x] **CJK ideograph families follow the UI language again (upstream #155). Done 2026-10-12, and
+  the item had a second half nobody had named.** `installFontFallback` was `void
+  installFontFallback(App&) {}` (`src/theme_qt.cpp`) under "nothing to install, QFont resolves
+  missing glyphs from the system's fallback configuration" — true of *whether* a glyph resolves and
+  false of the thing #155 is about. Han unification shares code points across Chinese, Japanese and
+  Korean while the shapes differ, so whichever family resolves first decides the variant every
+  ideograph is drawn with, and a QFont walks its families list in order. So the chain has a Qt
+  spelling after all: an ordered list rather than a DirectWrite chain object, built per language
+  (`cjkFallbackFamilies`) and attached by `QtTextLayout::ApplyFontFallback`, which was the second
+  empty body. Each language's group carries the **Windows, macOS and Linux** faces — the deleted
+  arm's four Windows families alone would have left macOS and Linux where they were.
+  **The second half:** `installFontFallback`'s only caller was `updateTextFormats`, which on this
+  stack runs only from a zoom mismatch or a theme change, so a default launch never called it and a
+  correct function would have been dead. `installQtBackends` calls it at startup now.
+  *Dropped, and stated:* DirectWrite mapped families to Unicode **ranges**, so it could order kana
+  independently of ideographs. A families list is global to the font; ordering by UI language
+  survives, per-range ordering does not. *Not ported:* upstream #254's second chain for interface
+  text, keyed on the app's chosen language rather than the system's — it is one of the 42 upstream
+  commits in "After 1.0.0". Tests: the ordering is read off a pure function of the language tag, so
+  it grades on every platform without assuming the host has any CJK face; the chain's arrival is
+  read off the layout's own families list (`qt_entry`, `cjk_order`). Fixture:
+  `tests/fixtures/cjk-fallback-155.md`. *Not witnessed:* nobody has compared a Japanese-locale
+  render against a Chinese-locale one by hand — the test grades the order, not the glyphs.
+
 - [x] **Input method (CJK) in the editor. Done 2026-10-12, and the item was worse than it said.**
   It read "CJK composition works but its candidate list does not follow the caret". In fact no
   widget set `Qt::WA_InputMethodEnabled`, so Qt kept every input method off and CJK text could

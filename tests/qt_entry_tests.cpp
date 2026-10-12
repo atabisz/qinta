@@ -183,6 +183,10 @@
 // installQtBackends' call resolves through here. qt_init.h still declares the Qt-named
 // wrappers, which is why every existing assertion below compiles unchanged.
 #include "text_formats.h"
+// The Qt text backend's own types, for the #155 block: QtTextFactory's fallback-family slot
+// and QtTextLayout::fontFamilies are the only way to witness the chain arriving on a layout
+// without assuming which CJK faces the host has installed.
+#include "text_qt.h"
 #include "theme_apply.h"
 #include "theme_data.h"
 // ISC-17's Win32 half, in its own TU so <windows.h>'s macro set never reaches this file. Compiled
@@ -2697,7 +2701,8 @@ int main(int argc, char** argv) {
               "unchanged fonts made applyTheme skip updateTextFormats (appliedZoomFactor untouched)");
 
         // Different fonts: forced by planting a family no theme uses, so updateTextFormats
-        // MUST run -- and it runs through the portable skeleton and the Qt no-op fallback.
+        // MUST run -- and it runs through the portable skeleton and, since 2026-10-12, a
+        // real Qt installFontFallback rather than the empty body that stood here.
         app.theme.fontFamily = L"tinta-theme-hooks-plant";
         app.appliedZoomFactor = -1.0f;
         applyTheme(app, themeBefore);
@@ -2710,6 +2715,230 @@ int main(int argc, char** argv) {
         // Out of range is refused without touching anything.
         applyTheme(app, themeCount());
         check(app.currentThemeIndex == themeBefore, "applyTheme ignores an out-of-range index");
+    }
+
+    // --- #155: CJK IDEOGRAPH FAMILIES ORDERED BY UI LANGUAGE --------------------
+    //
+    // Han unification shares code points across zh/ja/ko while the glyph SHAPES differ, so
+    // whichever family resolves first decides the variant every ideograph is drawn with.
+    // `src/theme_qt.cpp`'s installFontFallback was an empty body until 2026-10-12 and the
+    // comment above it said so: the Windows chain ordered the ideograph families by the UI
+    // language and the Qt arm had no counterpart.
+    //
+    // WHAT THIS BLOCK DOES NOT ASSERT, and the reason is the whole design: nothing here
+    // reads which CJK face the host actually resolved. It cannot -- no CI runner is
+    // guaranteed Yu Gothic UI or PingFang SC, and a check that needs them is a check that
+    // cannot grade the thing on two of three platforms. So the ORDER is read off a pure
+    // function of the language tag, which is gradable everywhere, and the chain's ARRIVAL
+    // is read off the layout's own families list.
+    {
+        const auto indexOf = [](const std::vector<std::wstring>& list,
+                                const wchar_t* family) -> int {
+            for (size_t i = 0; i < list.size(); i++) {
+                if (list[i] == family) return static_cast<int>(i);
+            }
+            return -1;
+        };
+        // The LAST position any of these names takes, and the FIRST -- the pair is what
+        // "this language's whole group leads" means, as against "one of its faces does".
+        const auto lastOf = [&](const std::vector<std::wstring>& list,
+                                std::initializer_list<const wchar_t*> names) {
+            int worst = -1;
+            for (const wchar_t* name : names) worst = std::max(worst, indexOf(list, name));
+            return worst;
+        };
+        const auto firstOf = [&](const std::vector<std::wstring>& list,
+                                 std::initializer_list<const wchar_t*> names) {
+            int best = -1;
+            for (const wchar_t* name : names) {
+                const int at = indexOf(list, name);
+                if (at >= 0 && (best < 0 || at < best)) best = at;
+            }
+            return best;
+        };
+        // One Windows, one macOS and one Linux face per language. Naming all three is what
+        // makes ISC-3 a claim about parity rather than about Windows: porting the deleted
+        // arm's four Windows families alone would have left macOS and Linux unchanged.
+        const std::initializer_list<const wchar_t*> jaFaces = {
+            L"Yu Gothic UI", L"Hiragino Sans", L"Noto Sans CJK JP"};
+        const std::initializer_list<const wchar_t*> zhFaces = {
+            L"Microsoft YaHei UI", L"PingFang SC", L"Noto Sans CJK SC"};
+        const std::initializer_list<const wchar_t*> koFaces = {
+            L"Malgun Gothic", L"Apple SD Gothic Neo", L"Noto Sans CJK KR"};
+
+        const std::vector<std::wstring> ja = cjkFallbackFamilies(L"ja-JP");
+        const std::vector<std::wstring> ko = cjkFallbackFamilies(L"ko-KR");
+        const std::vector<std::wstring> zh = cjkFallbackFamilies(L"zh-CN");
+        const std::vector<std::wstring> en = cjkFallbackFamilies(L"en-US");
+        const std::vector<std::wstring> unknown = cjkFallbackFamilies(L"xx-YY");
+        const std::vector<std::wstring> empty = cjkFallbackFamilies(L"");
+
+        std::printf("cjk_order ja=%d/%d ko=%d/%d zh=%d/%d n=%zu\n",
+                    lastOf(ja, jaFaces), firstOf(ja, zhFaces),
+                    lastOf(ko, koFaces), firstOf(ko, zhFaces),
+                    lastOf(zh, zhFaces), firstOf(zh, jaFaces), ja.size());
+
+        // ISC-1 / ISC-3. The three platform faces of the leading language ALL sit ahead of
+        // every other language's faces. Asserted as a span rather than as "first element
+        // is X", because a list that led with Yu Gothic UI and then put Microsoft YaHei UI
+        // second would satisfy the weaker reading while still rendering macOS and Linux
+        // kanji in a Chinese face.
+        check(lastOf(ja, jaFaces) >= 0 && firstOf(ja, zhFaces) >= 0 &&
+                  lastOf(ja, jaFaces) < firstOf(ja, zhFaces) &&
+                  lastOf(ja, jaFaces) < firstOf(ja, koFaces),
+              "a Japanese UI language puts every Japanese face -- Windows, macOS and Linux -- "
+              "ahead of the Chinese and Korean ones (#155)");
+        check(lastOf(ko, koFaces) >= 0 && lastOf(ko, koFaces) < firstOf(ko, zhFaces) &&
+                  lastOf(ko, koFaces) < firstOf(ko, jaFaces),
+              "a Korean UI language puts every Korean face ahead of the Chinese and Japanese ones");
+        check(lastOf(zh, zhFaces) >= 0 && lastOf(zh, zhFaces) < firstOf(zh, jaFaces) &&
+                  lastOf(zh, zhFaces) < firstOf(zh, koFaces),
+              "a Chinese UI language puts every Chinese face ahead of the Japanese and Korean ones");
+
+        // The default arm, which is the deleted code's own `: cjkZh` fallthrough. An
+        // unknown and an empty tag are the two readings a fresh container can produce.
+        check(en == zh && unknown == zh && empty == zh,
+              "en-US, an unknown tag and an empty tag all take the Simplified-Chinese-first "
+              "default, which is the Direct2D arm's own fallthrough");
+        check(cjkFallbackFamilies(L"ja") == ja && cjkFallbackFamilies(L"JA_jp.UTF-8") == ja,
+              "the primary subtag is what is read, so a bare \"ja\" and a POSIX-spelled "
+              "\"JA_jp.UTF-8\" order the same as \"ja-JP\"");
+
+        // ISC-2, the counter-case: a function that ignored its argument and returned one
+        // list would pass every ordering check above by accident.
+        check(ja != zh && ko != zh && ja != ko,
+              "CONTROL: the three orderings are three different lists, so the checks above are "
+              "not reading one constant");
+
+        // The emoji tail is last in all three, and the deleted arm's full-range mapping is
+        // what it replaces.
+        check(!ja.empty() && ja.back() == L"Segoe UI Symbol" && zh.back() == L"Segoe UI Symbol",
+              "the emoji and symbol faces come after every CJK face, as the Direct2D arm's "
+              "full-range mapping sat behind its three range mappings");
+
+        // ISC-4 / ISC-5. THE LIST IS SEATED AT STARTUP, which is the half the parity audit
+        // did not name: installFontFallback's one portable caller is updateTextFormats, and
+        // src/qt_launch.cpp calls that only when the saved zoom differs from the built one.
+        // So a default launch would never have seated it. A separate App on the heap rather
+        // than release-and-reinstall on this one, so nothing the rest of this file depends
+        // on is disturbed.
+        {
+            auto fresh = std::make_unique<App>();
+            check(fresh->textFactory == nullptr,
+                  "PRE-READING: the second App has no text factory at all, so a list read off it "
+                  "below cannot be a leftover from this file's own App");
+            installQtBackends(*fresh);
+            auto* freshFactory = dynamic_cast<QtTextFactory*>(fresh->textFactory);
+            const int seated = freshFactory
+                                   ? static_cast<int>(freshFactory->fallbackFamilies().size())
+                                   : -1;
+            std::printf("cjk_startup seated=%d\n", seated);
+            check(freshFactory != nullptr && seated == static_cast<int>(ja.size()),
+                  "installQtBackends ALONE seated the whole fallback list -- no updateTextFormats, "
+                  "no zoom change, no theme switch, which is what a default launch is");
+            releaseQtBackends(*fresh);
+        }
+
+        auto* factory = dynamic_cast<QtTextFactory*>(app.textFactory);
+        check(factory != nullptr, "PRECONDITION: this App's text factory is the Qt one");
+        const QStringList seatedHere = factory ? factory->fallbackFamilies() : QStringList();
+        check(seatedHere.size() == static_cast<int>(ja.size()),
+              "and updateTextFormats' own call seated the same number of families on this App's "
+              "factory, so both of installFontFallback's callers reach it");
+
+        // ISC-6 / ISC-7 / ISC-8 / ISC-9: the layout half.
+        //
+        // The family is taken from the font DATABASE rather than named, for the reason the
+        // FontFamilyExists block above gives: no family name is installed on every host.
+        const QStringList hostFamilies = QFontDatabase::families();
+        check(!hostFamilies.isEmpty(), "PRECONDITION: the font database still has families");
+        const QString hostFamily = hostFamilies.isEmpty() ? QString() : hostFamilies.front();
+        const std::wstring hostFamilyW = hostFamily.toStdWString();
+
+        auto makeFormat = [&](const wchar_t* family) {
+            return app.textFactory->CreateTextFormat(
+                family, tinta::FontWeight::Normal, tinta::FontStyle::Normal,
+                tinta::FontStretch::Normal, 16.0f, L"en-us");
+        };
+        const auto widthOf = [](tinta::TextLayout* layout) {
+            tinta::TextMetrics m{};
+            layout->GetMetrics(&m);
+            return m.width;
+        };
+
+        auto realFormat = makeFormat(hostFamilyW.c_str());
+        check(realFormat != nullptr, "PRECONDITION: a format on a family the host has");
+
+        auto mixed = app.textFactory->CreateTextLayout(L"Latin 漢字 あ", 11,
+                                                       realFormat.get(), 2000.0f, 2000.0f);
+        auto* qtMixed = dynamic_cast<QtTextLayout*>(mixed.get());
+        check(qtMixed != nullptr, "PRECONDITION: the layout is a QtTextLayout");
+
+        // ISC-8, and it is the claim src/render.cpp:59-80 measured and refused to give up:
+        // 15 sites create layouts through the factory and have never had a fallback, several
+        // of them MEASURE text. A factory that attached the chain itself would move their
+        // widths. So a layout nobody asked carries ONLY its own family.
+        const QStringList beforeApply = qtMixed ? qtMixed->fontFamilies() : QStringList();
+        check(beforeApply.size() == 1 && beforeApply.first() == hostFamily,
+              "a layout nobody asked carries its own family and nothing else -- CreateTextLayout "
+              "does not attach the chain (src/render.cpp's measured refusal)");
+
+        mixed->ApplyFontFallback();
+        const QStringList afterApply = qtMixed ? qtMixed->fontFamilies() : QStringList();
+        std::printf("cjk_layout before=%d after=%d seated=%d\n",
+                    static_cast<int>(beforeApply.size()),
+                    static_cast<int>(afterApply.size()),
+                    static_cast<int>(seatedHere.size()));
+
+        // ISC-6. The primary STAYS AT INDEX 0: a chain that displaced it would change the
+        // face of every Latin letter in the document, which is a bigger regression than the
+        // bug being fixed.
+        // `afterApply.size() > beforeApply.size()` is NOT redundant with the sum, and it was
+        // added because arm A proved it: with the factory's list empty the sum reads
+        // 1 == 1 + 0 and `mid(1) == seatedHere` compares two empty lists, so both halves
+        // passed while nothing whatever had been appended. A check that cannot fail when the
+        // feature is absent is not evidence for it, however well it reads.
+        check(afterApply.size() > beforeApply.size() &&
+                  afterApply.size() == beforeApply.size() + seatedHere.size() &&
+                  afterApply.first() == hostFamily,
+              "ApplyFontFallback appended the whole ordered list AFTER the layout's own family, "
+              "which stays at index 0");
+        check(!seatedHere.isEmpty() && afterApply.mid(1) == seatedHere,
+              "and appended it in the factory's order, not sorted or reversed -- the order IS the "
+              "content of #155");
+
+        mixed->ApplyFontFallback();
+        check(qtMixed && qtMixed->fontFamilies() == afterApply,
+              "a second ApplyFontFallback is idempotent rather than growing the list, which the "
+              "four call sites' repeat-per-paint frequency needs");
+
+        // ISC-7. The guard that keeps Latin text safe off Windows: Qt walks the families
+        // list for a missing FAMILY and not only a missing glyph, so an unguarded append
+        // behind a theme font the host lacks would resolve the whole document to the first
+        // CJK family in the list.
+        auto absentFormat = makeFormat(L"NoSuchFamily QINTA 12345");
+        auto absent = app.textFactory->CreateTextLayout(L"Latin only", 10, absentFormat.get(),
+                                                        2000.0f, 2000.0f);
+        auto* qtAbsent = dynamic_cast<QtTextLayout*>(absent.get());
+        const QStringList absentBefore = qtAbsent ? qtAbsent->fontFamilies() : QStringList();
+        absent->ApplyFontFallback();
+        check(qtAbsent && absentBefore.size() == 1 && qtAbsent->fontFamilies() == absentBefore,
+              "CONTROL: behind a family the host does NOT have, ApplyFontFallback leaves the font "
+              "alone, so Qt's own substitution still picks the body face rather than a CJK one");
+
+        // ISC-9, the parity claim (claim 16): a Latin string's measured width must not move.
+        // Read from the layout after the apply, which reshapes -- run_ is invalidated now,
+        // where the empty body deliberately did not invalidate it.
+        auto latin = app.textFactory->CreateTextLayout(L"The quick brown fox", 19,
+                                                       realFormat.get(), 2000.0f, 2000.0f);
+        const float latinBefore = widthOf(latin.get());
+        latin->ApplyFontFallback();
+        const float latinAfter = widthOf(latin.get());
+        std::printf("cjk_latin_width before=%.4f after=%.4f\n", latinBefore, latinAfter);
+        check(latinBefore > 0.0f, "PRECONDITION: the Latin string measured non-zero");
+        check(std::fabs(latinAfter - latinBefore) < 0.01f,
+              "attaching the chain did not move a Latin string's measured width, which is what "
+              "the 15 measuring sites would have paid for a format-level chain");
     }
 
     // THE TWO POSTED MESSAGES (slice 8). An async image download and a folder scan each run

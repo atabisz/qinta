@@ -96,9 +96,14 @@ static std::unique_ptr<tinta::TextLayout> createEditorLineLayout(App& app,
     //
     // No `app.fontFallback` guard any more, and dropping it is not a loosening:
     // ApplyFontFallback is documented to do nothing when the backend has no
-    // chain, or none built yet, which is exactly what that guard meant. The Qt
-    // backend implements it as a genuine no-op because QFontDatabase resolves
-    // missing glyphs during shaping.
+    // chain, or none built yet, which is exactly what that guard meant.
+    //
+    // The sentence that stood here -- "the Qt backend implements it as a genuine
+    // no-op because QFontDatabase resolves missing glyphs during shaping" -- was
+    // true until 2026-10-12 and is now wrong in the way that mattered: Qt does
+    // resolve a missing glyph by itself, but not in the UI language's order, and
+    // this comment's own first paragraph is about exactly that order. The Qt arm
+    // appends the ordered families to the layout's font (include/text_qt.h).
     if (layout) layout->ApplyFontFallback();
     return layout;
 }

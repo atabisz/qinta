@@ -71,6 +71,21 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(md4c)
 
+# GCC AND CLANG WARNINGS, the counterpart of the /W4 the if(MSVC) block above sets. AFTER md4c on
+# purpose: add_compile_options seeds the targets created after it, so md4c, a pinned third-party
+# parser, keeps its own flags and its one -Wextra warning is not ours to carry. -Wall -Wextra
+# measured 36 distinct warnings in this tree's own code on 2026-10-12 (GCC 13), all fixed in the
+# same change. QINTA_WARNINGS_AS_ERRORS makes a new one fail the build; the Linux CI job turns it
+# on, so the tree stays at zero there without a newer compiler on another host (MinGW's GCC,
+# AppleClang) blocking a run over a warning only it reports.
+option(QINTA_WARNINGS_AS_ERRORS "Treat GCC/Clang warnings in qinta's own code as errors" OFF)
+if(NOT MSVC)
+    add_compile_options(-Wall -Wextra)
+    if(QINTA_WARNINGS_AS_ERRORS)
+        add_compile_options(-Werror)
+    endif()
+endif()
+
 # Qt is found HERE rather than only at the bottom of this file because the seam
 # selection immediately below now depends on it, and the test targets that consume
 # the selection are declared hundreds of lines above the old find_package call.

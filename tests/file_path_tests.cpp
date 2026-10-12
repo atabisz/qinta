@@ -46,7 +46,8 @@ std::wstring clipboardText(HWND window) {
     CloseClipboard();
     return result;
 }
-#endif
+// documentCopy, clickTabCopy and tabCopy are Windows only, like every caller of theirs below:
+// the clipboard read-back they are checked with is.
 void documentCopy(App& app) {
     openContextMenu(app, 20, 80);
     app.hoveredContextMenuItem = CTX_COPY_PATH;
@@ -65,6 +66,7 @@ void tabCopy(App& app, int index) {
     openTabMenu(app, index, 20, 40);
     clickTabCopy(app);
 }
+#endif
 void renderStrip(App& app) {
     QImage strip(app.width, static_cast<int>(std::ceil(dpi(app, 80))),
                  QImage::Format_ARGB32_Premultiplied);

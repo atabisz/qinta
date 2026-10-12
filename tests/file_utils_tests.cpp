@@ -45,12 +45,6 @@ unsigned long long joined(const FILETIME& ft) {
            static_cast<unsigned long long>(ft.dwLowDateTime);
 }
 
-const wchar_t kSep = platform::pathSeparator();
-
-std::wstring join(const std::wstring& dir, const wchar_t* leaf) {
-    return dir + kSep + leaf;
-}
-
 void writeFile(const std::filesystem::path& p, const char* body) {
     std::ofstream out(p, std::ios::binary);
     out << body;

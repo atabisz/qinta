@@ -2224,6 +2224,7 @@ void editorClipboardCut(App& app, HWND hwnd) {
 }
 
 void editorClipboardCopy(App& app, HWND hwnd) {
+    (void)hwnd;
     if (app.editorHasSelection) {
         editorCopyToClipboard(editorGetSelectedText(app));
     }
@@ -2672,6 +2673,9 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
 }
 
 void handleEditorMouseUp(App& app, HWND hwnd, int x, int y) {
+    (void)hwnd;
+    (void)x;
+    (void)y;
     if (app.editorScrollbarDragging) {
         app.editorScrollbarDragging = false;
         releaseMouse();

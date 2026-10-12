@@ -1427,6 +1427,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
                 groupBorder,
                 1.2f * scale,
                 0.0f,
+                nullptr,  // geometry: built on first draw
             });
             tinta::RectF titleRect = tinta::rectF(
                 boxes[s].left + 8.0f * scale, boxes[s].top + 2.0f * scale,
@@ -1637,6 +1638,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
                 chipStroke,
                 1.2f * scale,
                 4.0f * scale,
+                nullptr,  // geometry: built on first draw
             });
             diagramLeft = std::min(diagramLeft, labelRect.left);
             diagramTop = std::min(diagramTop, labelRect.top);
@@ -1664,6 +1666,7 @@ static bool layoutMermaidDiagram(App& app, const std::string& source,
             style.stroke,
             style.strokeWidth,
             8.0f * scale,
+            nullptr,  // geometry: built on first draw
         });
 
         float insetX = paddingX;

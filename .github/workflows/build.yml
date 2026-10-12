@@ -226,7 +226,8 @@ jobs:
               ripgrep python3-pil
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        # Warnings as errors on this job only (CMakeLists.txt, QINTA_WARNINGS_AS_ERRORS).
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DQINTA_WARNINGS_AS_ERRORS=ON
 
       - name: Build
         run: cmake --build build --parallel "$(nproc)"

@@ -137,16 +137,6 @@ std::vector<std::string> readDumpedArgs(const std::filesystem::path& path, bool*
     return out;
 }
 
-// The test arguments are ASCII by construction, so this is a comparison helper and not
-// an encoding conversion -- anything outside ASCII would be a bug in the test data and
-// is reported as a mismatch rather than silently mangled.
-std::string narrow(const std::wstring& s) {
-    std::string out;
-    out.reserve(s.size());
-    for (wchar_t ch : s) out += (ch >= 0 && ch < 128) ? (char)ch : '?';
-    return out;
-}
-
 std::wstring widen(const std::string& s) {
     std::wstring out;
     out.reserve(s.size());

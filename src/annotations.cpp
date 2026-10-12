@@ -1167,6 +1167,7 @@ void renderAnnotationEditor(App& app) {
 }
 
 void annotationsCopyForAgent(App& app, HWND hwnd) {
+    (void)hwnd;
     if (app.annotations.empty() || app.currentFile.empty()) return;
     // A short task preamble so any agent knows what to do with the list
     std::wstring out = toWide(app.currentFile);

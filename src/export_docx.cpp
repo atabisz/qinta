@@ -647,6 +647,9 @@ struct RunProps {
 };
 
 struct DocxCtx {
+    // A constructor, so DocxCtx is not an aggregate and `DocxCtx ctx{app}` is not read as
+    // an initializer list that forgot its other members (-Wmissing-field-initializers).
+    explicit DocxCtx(App& a) : app(a) {}
     App& app;
     std::string body;
     std::vector<std::pair<std::string, std::string>> media;  // name, bytes

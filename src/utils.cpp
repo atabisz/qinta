@@ -189,6 +189,7 @@ std::wstring absoluteFilePath(const std::string& path) {
 }
 
 void copyFilePath(App& app, HWND hwnd, const std::string& path) {
+    (void)hwnd;
     if (platform::setClipboardText(absoluteFilePath(path)))
         signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
 }

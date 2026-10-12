@@ -83,7 +83,7 @@ the date given, not as a live reading.
 
 ## Quality
 
-- [ ] **A warning level for GCC and Clang.** MSVC builds at `/W4`. MinGW, Linux and macOS build at
+- [x] **Done 2026-10-12**: `-Wall -Wextra` on qinta's own targets (not md4c's), its 36 distinct warnings fixed, and warnings as errors on the Linux CI job (`QINTA_WARNINGS_AS_ERRORS`). Other hosts report but do not fail. The original item: **A warning level for GCC and Clang.** MSVC builds at `/W4`. MinGW, Linux and macOS build at
   the compilers' defaults, because the `if(MSVC)` block in `CMakeLists.txt` has no counterpart.
   Expect a first pass to surface warnings nobody has read.
 

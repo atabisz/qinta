@@ -73,11 +73,6 @@ bool equalsIgnoreCase(std::string_view left, std::string_view right) {
     return true;
 }
 
-bool startsWithIgnoreCase(std::string_view value, std::string_view prefix) {
-    return value.size() >= prefix.size() &&
-        equalsIgnoreCase(value.substr(0, prefix.size()), prefix);
-}
-
 bool startsWithAt(std::string_view value, size_t position, std::string_view prefix) {
     return position <= value.size() &&
         value.size() - position >= prefix.size() &&

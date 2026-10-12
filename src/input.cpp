@@ -1509,7 +1509,6 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
     }
 
     // Check if over text
-    bool wasOverText = app.overText;
     app.overText = (findTextRectAt(app, (int)docX, (int)docY) != nullptr);
 
     // Check if hovering over any code block (show copy button on whole block)

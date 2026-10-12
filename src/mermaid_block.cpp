@@ -316,6 +316,7 @@ void emitLeaf(BlockEmitCtx& ctx, BlockItem& item);
 // Lays out a container's children into the given content rect
 void emitContainer(BlockEmitCtx& ctx, BlockItem& container, float x1,
                    float y1, float x2, float y2) {
+    (void)y2;
     BlockMeasureCtx& mctx = *ctx.measure;
     float scale = mctx.scale;
     ContainerMetrics metrics = measureContainer(mctx, container);

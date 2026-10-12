@@ -99,7 +99,7 @@ std::string mathBoxSvg(const MathBoxPtr&, const std::string&, const std::string&
 }
 
 tinta::Color resolveDiagramRole(const App&, const mermaidext::Prim&,
-                                mermaidext::Role role) {
+                                mermaidext::Role) {
     reachedDiagramRole = true;
     return tinta::Color{0.0f, 0.0f, 0.0f, 1.0f};
 }

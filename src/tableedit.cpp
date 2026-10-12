@@ -17,20 +17,6 @@ namespace {
 // Source offsets from the parser are bytes into toUtf8(editorText);
 // edits happen in wide indices. One linear walk maps between them.
 
-size_t utf8LenOfRange(const std::wstring& text, size_t wideEnd) {
-    size_t bytes = 0;
-    for (size_t i = 0; i < wideEnd && i < text.size(); i++) {
-        wchar_t c = text[i];
-        if (c < 0x80) bytes += 1;
-        else if (c < 0x800) bytes += 2;
-        else if (c >= 0xD800 && c < 0xDC00 && i + 1 < text.size()) {
-            bytes += 4;
-            i++;
-        } else bytes += 3;
-    }
-    return bytes;
-}
-
 size_t wideIndexForUtf8(const std::wstring& text, size_t byteTarget) {
     size_t bytes = 0;
     for (size_t i = 0; i < text.size(); i++) {

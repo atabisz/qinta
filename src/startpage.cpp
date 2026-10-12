@@ -392,8 +392,8 @@ static std::wstring relativeWhen(App& app, unsigned long long when) {
     if (dayDiff == 0) return tr(app, "start.today");
     if (dayDiff == 1) return tr(app, "start.yesterday");
 
-    wchar_t buf[48];
 #ifdef _WIN32
+    wchar_t buf[48];
     // THE WINDOWS ARM IS UNCHANGED, CHARACTER FOR CHARACTER, and that is the point of
     // the #ifdef rather than a shared formatter: GetDateFormatEx renders "MMM d" in the
     // USER'S locale, so a German user sees "Sept. 14" and a Japanese user "9月14日".

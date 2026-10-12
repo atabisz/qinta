@@ -3527,6 +3527,37 @@ int main(int argc, char** argv) {
             tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
         }
         std::filesystem::remove_all(mdir, mec);
+        // THE RESIDUE READING, AND WHY IT IS ASSERTED RATHER THAN JUST PRINTED. This block
+        // left ONE DRAINING signal chip, and a draining chip animates: it turned the overlay
+        // frame run further down this file red on LINUX only, where two grabs of an unchanged
+        // window then differed over a 277x66 region instead of the 2 px that run's comment
+        // records. Its `reverts` check reads maskArea < 2500 and the mask was 18282. Windows
+        // read area 0 through the same change, so this was invisible on the host it was
+        // written on and CI is what caught it -- the frame run's own revert diffs were a
+        // perfect 0 and 0, so nothing about it looked like a drift problem.
+        //
+        // A test that leaves animating state is a test that breaks a LATER one, so the
+        // cleanup is a claim here rather than a tidy-up: assert the chips are gone, so this
+        // cannot regress silently into somebody else's run.
+        std::printf("midclick_residue chips=%d needs_ticks=%d chip=[%ls] selecting=%d "
+                    "has_sel=%d edit=%d over_text=%d mouse=%d,%d active=%d tabs=%d\n",
+                    (int)app.signalChips.size(), signalsNeedTicks(app) ? 1 : 0,
+                    app.signalChips.empty() ? L"-" : app.signalChips.back().text.c_str(),
+                    app.selecting ? 1 : 0, app.hasSelection ? 1 : 0, app.editMode ? 1 : 0,
+                    app.overText ? 1 : 0, app.mouseX, app.mouseY, app.activeTab,
+                    (int)app.tabs.size());
+        // THE ACTIVE CHIPS ONLY. The tray is parked and static, so it does not animate and is
+        // not what broke the frame run; a later block clears it for its own reasons. Narrow on
+        // purpose -- a cleanup that resets more than it dirtied is the next test's surprise.
+        //
+        // The chip's text named the cause: "Press Esc to exit edit mode", pushed by THIS
+        // block's own Esc keystroke -- the one testing the grab release.
+        app.signalChips.clear();
+        app.signalHoverChip = 0;
+        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        check(app.signalChips.empty() && !signalsNeedTicks(app),
+              "this block leaves no draining signal chip -- one did, and it turned the overlay "
+              "frame run red on Linux by animating between two grabs of an unchanged window");
     }
 
     // WM_CLOSE (slice 10). Five portable senders post it -- File > Exit, closing the start

@@ -104,6 +104,7 @@
 #include "settings_data.h"
 #include "tabs.h"  // tabOpenPath, for documents handed over by a second launch
 #include "theme_data.h"
+#include "utils.h"  // updateWindowTitle, the one caption computer
 #include "window_placement.h"
 
 namespace {
@@ -273,7 +274,17 @@ int main(int argc, char** argv) {
 
     tinta::applyLaunchFlags(app, options);
 
-    QString title = QStringLiteral("Qinta");
+    // NO TITLE COMPUTED HERE any more (2026-10-12). Three assignments stood in this function
+    // building `<full path> - Qinta` with QString::fromLocal8Bit, which disagreed with
+    // src/utils.cpp's updateWindowTitle on the word order, on path-versus-file-name, AND on
+    // the encoding -- src/qt_window.cpp's sibling copy argues at length for fromUtf8 here,
+    // because loadDocumentFromPath converts the same bytes with toWide, and that argument was
+    // never swept to this file. updateWindowTitle is called once below, after the launch mode
+    // is entered, and reads app.currentFile through the same toWide.
+    //
+    // Removing fromLocal8Bit removes a SYMPTOM and not a cause: argv[1] still arrives from the
+    // Microsoft runtime in the ANSI code page, so a non-ASCII command-line path still fails to
+    // open. That is its own item and wants QCoreApplication::arguments().
     // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
     // when a path was also given. With no file at all, the last session's active tab opens
     // (tinta::sessionToRestore has WinMain's conditions), and the rest of it joins the tab strip
@@ -287,14 +298,13 @@ int main(int argc, char** argv) {
     if (!options.inputFile.empty() && !options.quickNote) {
         if (loadDocumentFromPath(app, launchFile)) {
             namedOnCommandLine = true;
-            title = QStringLiteral("%1 - Qinta")
-                        .arg(QString::fromLocal8Bit(launchFile.c_str()));
         } else {
             std::fprintf(stderr, "qinta: cannot open '%s'\n", options.inputFile.c_str());
         }
-    } else if (!session.empty() && loadDocumentFromPath(app, session[sessionActive])) {
-        title = QStringLiteral("%1 - Qinta")
-                    .arg(QString::fromLocal8Bit(session[sessionActive].c_str()));
+    } else if (!session.empty()) {
+        // The load is still the condition this branch turns on -- it decides whether the
+        // start page stays up -- it just no longer has a title assignment hanging off it.
+        loadDocumentFromPath(app, session[sessionActive]);
     }
     tinta::restoreLaunchDocument(app, saved, options, namedOnCommandLine);
     if (!session.empty() && !app.currentFile.empty()) tabsSeedSession(app, session);
@@ -362,10 +372,19 @@ int main(int argc, char** argv) {
     // applyPlacement, where a test drives it. See qt_launch.h on why the sentinel is not
     // resolved by the placement seam.
     tinta::applyPlacement(window, placement);
-    window.setWindowTitle(title);
+    // Before the window is shown, so it never appears with Qt's default caption. The window
+    // installs the title sink in its constructor, which is why this reaches the caption at all
+    // -- the same call a line earlier would have been dropped on the floor.
+    updateWindowTitle(app);
     tinta::showPlaced(window, saved.windowMaximized);
     // After the window, as WinMain enters these after its first frame.
     tinta::enterLaunchMode(app, options);
+    // AGAIN, and it is not redundant: --new's quick note is entered by enterLaunchMode above,
+    // which clears currentFile and turns on edit mode, so the caption computed before it says
+    // "Qinta" where it should say "Qinta - Untitled". enterQuickNoteMode calls
+    // updateWindowTitle itself (src/editor.cpp), so this second call is belt and braces for
+    // the --edit arm, which does not.
+    updateWindowTitle(app);
 
     // And this window becomes the one later launches join. A document arriving opens as a tab and
     // the window comes forward, as WinMain's WM_COPYDATA case restores and foregrounds. If the

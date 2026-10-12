@@ -766,13 +766,13 @@ void scrollEditorToMatch(App& app) {
 static void scheduleReparse(App& app) {
     if (!app.editorDirty) {
         app.editorDirty = true;
-        // Update window title with dirty marker
-        std::wstring wpath = toWide(app.currentFile);
-        size_t lastSep = wpath.find_last_of(L"\\/");
-        std::wstring fname = (lastSep != std::wstring::npos) ? wpath.substr(lastSep + 1) : wpath;
-        if (fname.empty()) fname = tr(app, "title.untitled");  // quick note
-        std::wstring title = L"Qinta - * " + fname;
-        setWindowTitle(app.hwnd, title.c_str());
+        // The dirty marker, and the title it goes on, are updateWindowTitle's now (2026-10-12).
+        // What stood here was a verbatim copy of its basename extraction and its
+        // title.untitled fallback with a `* ` inserted -- so the two drifted by construction,
+        // and worse: writing the marker HERE made it a function of this one event, which the
+        // next updateWindowTitle call silently undid while the buffer was still dirty. The
+        // flag is set above, so this call reads it.
+        updateWindowTitle(app);
     }
     // No preview pane — nothing to keep in sync until it's shown again
     if (!app.editorShowPreview) return;

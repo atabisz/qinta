@@ -49,6 +49,7 @@
 #include "scroll.h"
 #include "scrollbar.h"
 #include "tab_ghost_qt.h"
+#include "utils.h"  // updateWindowTitle, the one caption computer
 #include "text_api.h"
 #include "text_utils.h"
 #include "theme_apply.h"
@@ -170,6 +171,17 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
 #ifdef _WIN32
         applyDwmWindowChrome(reinterpret_cast<HWND>(winId()), chrome);
 #endif
+    };
+    // The caption (2026-10-12). THIS IS QWidget::setWindowTitle, the call win32_api.h's
+    // setWindowTitle comment named as "the Qt path" for the whole port while its own body
+    // discarded the argument. All 13 updateWindowTitle call sites arrive here now.
+    //
+    // A COUNTER, like chrome's, and for the same reason: "the caption is unchanged" and "no
+    // sink was listening" are indistinguishable from the caption alone, and this member is
+    // the one a window could install three of its siblings and still forget.
+    sink.title = [this](const std::wstring& title) {
+        ++titleCount_;
+        setWindowTitle(QString::fromStdWString(title));
     };
     // The tab strip's pin (slice 22). Set on the NATIVE window rather than through
     // QWidget::setWindowFlag, which hides a visible widget and needs a show() to come back --
@@ -335,16 +347,27 @@ bool QtAppWindow::syncViewport() {
 bool QtAppWindow::openDocument(const std::string& path) {
     if (!loadDocumentFromPath(app_, path)) return false;
 
-    // fromUtf8, NOT fromLocal8Bit, and the two disagree on Windows for a non-ASCII
-    // path. loadDocumentFromPath converts the same bytes with toWide, which is a
-    // UTF-8 conversion, so this is the spelling that makes the title and the file that
-    // actually opened agree with each other. The remaining wrinkle is real and is
-    // upstream of here: main() passes argv[1], which the Microsoft runtime hands over
-    // in the ANSI code page, so a non-ASCII path on the command line will fail to open
-    // AND show mojibake -- one cause, two consistent symptoms, fixed by
-    // CommandLineToArgvW at the entry point rather than by guessing here. The dialog
-    // path below has no such problem: it arrives as a wstring and is converted once.
-    setWindowTitle(QStringLiteral("%1 - Qinta").arg(QString::fromUtf8(path.c_str())));
+    // updateWindowTitle, not a QWidget::setWindowTitle of its own (2026-10-12). What stood
+    // here built `<full path> - Qinta` while src/utils.cpp built `Qinta - <file name>` for the
+    // same document, and only this one was reachable off Windows -- so the caption's word
+    // order and path form depended on whether a file arrived by Ctrl+O or by a tab switch.
+    // Routing here instead also gets the dirty marker and the quick-note case, neither of
+    // which this line knew about.
+    //
+    // ITS fromUtf8 ARGUMENT IS PRESERVED BY THE MOVE RATHER THAN DISCARDED, and that is why
+    // this is a deletion and not a rewrite: the paragraph here argued for fromUtf8 over
+    // fromLocal8Bit because loadDocumentFromPath converts the same bytes with toWide, which
+    // is a UTF-8 conversion. updateWindowTitle reads app.currentFile through that very toWide,
+    // so the agreement the argument asked for is now structural instead of a spelling choice
+    // repeated at each site. main_qt.cpp's copy of this line had made the OPPOSITE choice,
+    // fromLocal8Bit, and has gone with it.
+    //
+    // The wrinkle that argument named is real, out of scope here, and NOT fixed by this
+    // change: main() passes argv[1], which the Microsoft runtime hands over in the ANSI code
+    // page, so a non-ASCII path on the command line will fail to open AND show mojibake --
+    // one cause, two consistent symptoms, fixed by QCoreApplication::arguments() at the entry
+    // point. Deleting the fromLocal8Bit conversion removes a symptom, not the cause.
+    updateWindowTitle(app_);
     update();
     return true;
 }

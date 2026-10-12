@@ -3196,6 +3196,126 @@ int main(int argc, char** argv) {
         std::filesystem::remove_all(dropDir, dropEc);
     }
 
+    // THE WINDOW CAPTION (2026-10-12). win32_api.h's setWindowTitle had a `(void)title;` body
+    // -- on EVERY platform, since there is one window stack -- so all 13 updateWindowTitle
+    // call sites computed a caption and dropped it. Two Qt files had worked around that with
+    // QWidget::setWindowTitle calls of their own, in the opposite word order and with a full
+    // path where updateWindowTitle puts a file name, and src/editor.cpp had a third copy for
+    // the dirty marker. One computer now, reached through the window sink.
+    //
+    // THE FORMAT IS ASSERTED AS AN EXACT STRING, NOT A `contains`. The pre-existing check at
+    // the tall-window run uses contains() and passed under BOTH formats, which is exactly why
+    // it could not see this: `<path> - Qinta` and `Qinta - <name>` both contain the file name.
+    // So each check below reads the whole caption, and the path case is caught by its own
+    // exclusion -- the caption must not hold a separator from the fixture's parent directory.
+    //
+    // Own window, for the reason the post block gives.
+    {
+        QtAppWindow titleWindow(app);
+        titleWindow.resize(800, 600);
+
+        const std::filesystem::path titleDir =
+            std::filesystem::temp_directory_path() / "qinta_title_probe";
+        std::error_code titleEc;
+        std::filesystem::remove_all(titleDir, titleEc);
+        std::filesystem::create_directories(titleDir, titleEc);
+        {
+            std::ofstream a(titleDir / "caption-one.md", std::ios::binary);
+            a << "# caption one\n";
+            std::ofstream b(titleDir / "caption-two.md", std::ios::binary);
+            b << "# caption two\n";
+        }
+
+        const bool fileBefore = !app.currentFile.empty();
+        const std::string currentBefore = app.currentFile;
+        const bool editBefore = app.editMode;
+        const bool dirtyBefore = app.editorDirty;
+        const size_t tabsAtStart = app.tabs.size();
+
+        // ISC-1/2: the seam reaches the window at all. The counter is read beside the caption
+        // because an unchanged caption and an uninstalled sink are the same string.
+        const int countBefore = titleWindow.titleCount();
+        check(loadDocumentFromPath(app, (titleDir / "caption-one.md").u8string()),
+              "the caption probe's first document loaded");
+        app.editMode = false;
+        app.editorDirty = false;
+        updateWindowTitle(app);
+        const int countAfterOne = titleWindow.titleCount();
+        const QString captionOne = titleWindow.windowTitle();
+
+        // ISC-3: a tab switch retitles, and BOTH directions are read -- a caption set once and
+        // never again passes a single-direction check.
+        tabOpenPath(app, nullptr, (titleDir / "caption-two.md").u8string(), true);
+        const QString captionTwo = titleWindow.windowTitle();
+        int backTo = -1;
+        for (size_t i = 0; i < app.tabs.size(); i++) {
+            if (app.tabs[i].path.find("caption-one.md") != std::string::npos ||
+                ((int)i == app.activeTab &&
+                 app.currentFile.find("caption-one.md") != std::string::npos)) {
+                backTo = (int)i;
+            }
+        }
+        if (backTo >= 0) tabActivate(app, nullptr, backTo);
+        const QString captionBack = titleWindow.windowTitle();
+
+        // ISC-13: the dirty marker, which used to be written once by editor.cpp at the
+        // transition and then wiped by the next retitle. The clean reading above is its
+        // counter-case: a function that always prefixed `* ` would have failed captionOne.
+        app.editMode = true;
+        app.editorDirty = true;
+        updateWindowTitle(app);
+        const QString captionDirty = titleWindow.windowTitle();
+        app.editorDirty = false;
+        updateWindowTitle(app);
+        const QString captionClean = titleWindow.windowTitle();
+
+        // ISC-4: the quick note, whose name comes from the i18n table and not a literal.
+        enterQuickNoteMode(app);
+        const QString captionNote = titleWindow.windowTitle();
+        const QString untitledExpected =
+            QStringLiteral("Qinta - ") + QString::fromWCharArray(tr(app, "title.untitled"));
+
+        std::printf("caption count=%d->%d one=[%s] two=[%s] back=[%s] dirty=[%s] clean=[%s] "
+                    "note=[%s] expect_note=[%s]\n",
+                    countBefore, countAfterOne, captionOne.toUtf8().constData(),
+                    captionTwo.toUtf8().constData(), captionBack.toUtf8().constData(),
+                    captionDirty.toUtf8().constData(), captionClean.toUtf8().constData(),
+                    captionNote.toUtf8().constData(), untitledExpected.toUtf8().constData());
+
+        check(countAfterOne == countBefore + 1,
+              "updateWindowTitle delivers exactly one caption through the window sink -- the "
+              "seam discarded its argument on every platform until this slice");
+        check(captionOne == QStringLiteral("Qinta - caption-one.md"),
+              "and the caption is updateWindowTitle's format exactly: 'Qinta - ' then the FILE "
+              "NAME");
+        check(!captionOne.contains(QStringLiteral("qinta_title_probe")) &&
+                  !captionOne.contains(QLatin1Char('\\')) &&
+                  !captionOne.contains(QLatin1Char('/')),
+              "and it holds no directory component -- the exclusion that catches the full-path "
+              "format the two deleted Qt sites used");
+        check(captionTwo == QStringLiteral("Qinta - caption-two.md") &&
+                  captionBack == QStringLiteral("Qinta - caption-one.md") &&
+                  captionTwo != captionBack,
+              "a tab switch retitles in BOTH directions -- one direction alone cannot tell a "
+              "live caption from one set once at launch");
+        check(captionDirty == QStringLiteral("Qinta - * caption-one.md"),
+              "a dirty buffer prefixes the marker, which editor.cpp used to write once at the "
+              "transition and the next retitle silently wiped");
+        check(captionClean == QStringLiteral("Qinta - caption-one.md"),
+              "and a clean buffer does NOT -- the counter-case for the marker");
+        check(captionNote == untitledExpected,
+              "a quick note titles from the i18n table's title.untitled, with no backing file");
+
+        // Restore. The quick note cleared currentFile and entered edit mode.
+        app.editMode = editBefore;
+        app.editorDirty = dirtyBefore;
+        app.currentFile = fileBefore ? currentBefore : std::string();
+        while (app.tabs.size() > tabsAtStart) {
+            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+        }
+        std::filesystem::remove_all(titleDir, titleEc);
+    }
+
     // WM_CLOSE (slice 10). Five portable senders post it -- File > Exit, closing the start
     // page, dragging off the last tab, the unsaved-changes dialog resuming a close -- and
     // the post sink used to refuse it, so each did nothing on qinta. And the window had no

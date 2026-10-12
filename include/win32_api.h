@@ -106,19 +106,41 @@ inline bool canRepaint([[maybe_unused]] HWND hwnd) {
 // tree already reaches windows.h through app.h on Windows, so a call routed here
 // costs the caller nothing, whereas a call guarded in place costs it the header.
 //
-// Off Windows this does nothing, so the title computed just above the call is
-// discarded. That is a visible gap of the same kind requestRepaint carries -- the
-// window keeps whatever caption it was given -- and not a wrong picture: no state
-// is corrupted and nothing is leaked. The Qt path is QWidget::setWindowTitle,
-// which is the same request; reaching it needs a window handle the App struct
-// does not hold yet (App has only `HWND hwnd`, and QtAppWindow is a QWidget on the
-// Qt side), so wiring it is that slice's job rather than a line this one can write.
+// THAT SLICE IS THIS ONE, 2026-10-12, AND THE PARAGRAPH IT REPLACES IS KEPT BECAUSE OF
+// WHAT IT GOT WRONG. It read: "Off Windows this does nothing, so the title computed just
+// above the call is discarded. That is a visible gap of the same kind requestRepaint
+// carries -- the window keeps whatever caption it was given -- and not a wrong picture: no
+// state is corrupted and nothing is leaked." The first two sentences were true. The last
+// one was not, and it is the reason this sat dead for the whole port: off Windows the
+// window did NOT keep "whatever caption it was given" in any meaningful sense, because two
+// Qt files had quietly written their own QWidget::setWindowTitle calls to fill the gap --
+// in the opposite word order, with a full path where this one puts a file name, and one of
+// them with a fromLocal8Bit conversion its own sibling argues against. So the honest
+// description of the gap was not "no caption changes" but "three implementations, two of
+// which are reachable and disagree". A gap that invites a workaround is not inert.
 //
-// const wchar_t* rather than const std::wstring& on purpose: it keeps this header
-// free of <string>, and every caller already has a c_str() to hand.
-inline void setWindowTitle(HWND hwnd, const wchar_t* title) {
-    (void)hwnd;
-    (void)title;
+// This now reaches include/window_sink.h, which the Qt window fills with
+// QWidget::setWindowTitle -- the same request, as the old paragraph said it would be.
+//
+// UNCONDITIONALLY, AND NOT BEHIND AN #ifdef _WIN32, which is worth stating because the
+// first draft of this fix wrote one. There is no second window stack to branch for: slice
+// 25 deleted the Direct2D app, qinta is a Qt app on all three platforms, and the HWND every
+// caller passes is permanently null -- so a `SetWindowTextW(hwnd, title)` arm would have
+// called it on a null handle and skipped the sink on the ONE platform that is used most.
+// requestRepaint, canRepaint, armTimer and the rest of this header all route
+// unconditionally for exactly this reason; there is no _WIN32 conditional anywhere in this
+// file, and adding the first one here would have been a lone exception that silently did
+// nothing. The old comment above still describes the branch as "off Windows" because that
+// was true when the seam was written, and the correction belongs next to it rather than
+// hidden in a rewrite.
+//
+// const wchar_t* rather than const std::wstring& on purpose: it keeps this header's
+// SIGNATURE free of <string>, and every caller already has a c_str() to hand. The SINK
+// takes a wstring, because its closure outlives the call, so the conversion happens here --
+// the one place that knows both shapes. window_sink.h, included at the top of this file,
+// brings <string>.
+inline void setWindowTitle([[maybe_unused]] HWND hwnd, const wchar_t* title) {
+    tinta::deliverWindowTitle(title ? std::wstring(title) : std::wstring());
 }
 
 // --- Timers -------------------------------------------------------------------

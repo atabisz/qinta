@@ -83,24 +83,47 @@ const App::TextRect* findTextRectAt(const App& app, int x, int y) {
 }
 
 
+// THE ONE PLACE A WINDOW CAPTION IS COMPUTED, as of 2026-10-12. It had 13 callers and was
+// one of FOUR implementations: src/editor.cpp built its own dirty-marker title with a
+// verbatim copy of the basename extraction below, and src/main_qt.cpp and src/qt_window.cpp
+// each called QWidget::setWindowTitle directly with the words in the opposite order and a
+// full path where this puts a file name. All three are gone and call this instead.
+//
+// THE DIRTY MARKER MOVED HERE FROM editor.cpp, and that is a deliberate behaviour change on
+// WINDOWS as well as a fix off it. editor.cpp wrote the `* ` once, at the transition to
+// dirty, so any later call to this function -- a tab switch, a start-page return, a draft
+// recovery -- recomputed a title WITHOUT it and the asterisk vanished while the buffer was
+// still unsaved. Deriving it here from the state instead means the marker is a function of
+// `editorDirty` rather than of which event fired last.
+//
+// NOT ROUTED THROUGH i18n's title.plain / title.dirty, which exist (src/i18n.cpp:186-187)
+// and say exactly `Qinta - %1$s` and `Qinta - * %1$s` -- with zero callers. Measured rather
+// than assumed: nothing in src/ consumes a `%1$s` key and the tree has no
+// format-substitution helper, so adopting them means writing that machinery for a change the
+// translation table shows to be identical in all four languages. Recorded as a finding for a
+// localisation slice; this comment is the pointer that keeps the keys from reading as live.
 void updateWindowTitle(App& app) {
     std::wstring title = L"Qinta";
+    std::wstring name;
     if (!app.currentFile.empty()) {
         std::wstring wpath = toWide(app.currentFile);
         size_t lastSep = wpath.find_last_of(L"\\/");
-        if (lastSep != std::wstring::npos)
-            title = L"Qinta - " + wpath.substr(lastSep + 1);
-        else
-            title = L"Qinta - " + wpath;
+        name = lastSep != std::wstring::npos ? wpath.substr(lastSep + 1) : wpath;
     } else if (app.editMode) {
         // Quick note (Ctrl+N): no backing file until the first save
-        title = L"Qinta - ";
-        title += tr(app, "title.untitled");
+        name = tr(app, "title.untitled");
     }
-    // win32_api.h's seam, not SetWindowTextW: unchanged on Windows, and off Windows
-    // the title computed above is discarded rather than shown. That header carries
-    // the argument for why a one-off call is routed at all, and names
-    // QWidget::setWindowTitle as what closes the gap.
+    if (!name.empty()) {
+        // The `* ` only ever accompanied a name, and a bare `Qinta - *` would be a caption
+        // about nothing: editor.cpp's version could not reach that state because it ran
+        // inside the editor, and neither can this one, because an empty name means no file
+        // and no edit buffer.
+        const bool dirty = app.editMode && app.editorDirty;
+        title = dirty ? L"Qinta - * " + name : L"Qinta - " + name;
+    }
+    // win32_api.h's seam. It reaches include/window_sink.h on every platform -- there is one
+    // window stack now -- and that header carries the argument for why a one-off call is
+    // routed at all.
     setWindowTitle(app.hwnd, title.c_str());
 }
 

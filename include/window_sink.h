@@ -67,6 +67,21 @@ struct WindowSink {
     // window that forgot it keeps the platform's title bar under every theme, and nothing
     // else about the window looks wrong.
     std::function<void(const WindowChrome&)> chrome;
+    // setWindowTitle's off-Win32 arm (2026-10-12), and it arrives with the same argument the
+    // cursor and chrome members carry: a window that forgot this one shows whatever caption it
+    // was constructed with, for the whole session, while every other thing about it is right.
+    //
+    // THAT WAS THE STATE UNTIL THIS MEMBER EXISTED. win32_api.h's setWindowTitle had a
+    // `(void)title;` body, so all 13 updateWindowTitle call sites -- tab switch, save, new
+    // note, start page, draft recovery -- computed a caption and dropped it. Two Qt files had
+    // written their own QWidget::setWindowTitle calls to work around it, in the opposite word
+    // order and with a full path where this one puts a file name; both are gone.
+    //
+    // const std::wstring& rather than const wchar_t*: the seam's own argument for the pointer
+    // is that it keeps <string> out of win32_api.h, and this header already includes <string>
+    // for ghostShow. The closure outlives the call, so a pointer would need a lifetime note
+    // the reference does not.
+    std::function<void(const std::wstring&)> title;
     // The tab strip's always-on-top pin (slice 22). Returns whether the window applied it, so
     // the pin flips App::alwaysOnTop only for a request that landed -- a pin drawn as set on a
     // window that is not on top is the wrong picture the Win32 branch never shows.
@@ -137,6 +152,18 @@ inline void deliverCursorShape(CursorShape shape) {
 inline void deliverWindowChrome(const WindowChrome& chrome) {
     WindowSink& sink = windowSinkSlot();
     if (sink.chrome) sink.chrome(chrome);
+}
+
+// Whether a window took the caption. The bool is NOT for the callers -- updateWindowTitle has
+// nothing to do with a refusal and win32_api.h's setWindowTitle returns void on both arms, as
+// SetWindowTextW's own return is dropped there. It is for the TEST: "the caption did not
+// change" and "no window was listening" are two different states, and a void delivery leaves
+// nothing to tell them apart. Same argument stayOnTop's bool makes, for a different reason.
+inline bool deliverWindowTitle(const std::wstring& title) {
+    WindowSink& sink = windowSinkSlot();
+    if (!sink.title) return false;
+    sink.title(title);
+    return true;
 }
 
 }  // namespace tinta

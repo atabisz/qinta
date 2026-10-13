@@ -13,6 +13,48 @@ void check(bool condition, const char* message) {
     failures++;
 }
 
+// The inline tree as one line, so a span test states its whole expected
+// shape: T"text", and Name[children] for the containers.
+std::string shape(const qmd::ElementPtr& e) {
+    using qmd::ElementType;
+    if (e->type == ElementType::Text) return "T\"" + e->text + "\"";
+    if (e->type == ElementType::SoftBreak) return "SB";
+    const char* name = "?";
+    switch (e->type) {
+        case ElementType::Paragraph: name = "P"; break;
+        case ElementType::Heading: name = "H"; break;
+        case ElementType::List: name = "List"; break;
+        case ElementType::ListItem: name = "Item"; break;
+        case ElementType::Code: name = "Code"; break;
+        case ElementType::Emphasis: name = "Em"; break;
+        case ElementType::Strong: name = "Strong"; break;
+        case ElementType::Link: name = "Link"; break;
+        case ElementType::Highlight: name = "Mark"; break;
+        case ElementType::Superscript: name = "Sup"; break;
+        case ElementType::Subscript: name = "Sub"; break;
+        case ElementType::Strikethrough: name = "Del"; break;
+        case ElementType::MathInline: name = "Math"; break;
+        default: break;
+    }
+    std::string out = name;
+    out += '[';
+    for (const auto& child : e->children) out += shape(child);
+    out += ']';
+    return out;
+}
+
+void checkShape(qmd::MarkdownParser& parser, const char* source, const std::string& expected) {
+    auto doc = parseDocument(parser, source, "notes.md");
+    std::string actual;
+    if (doc.success) {
+        for (const auto& block : doc.root->children) actual += shape(block);
+    }
+    if (actual == expected) return;
+    std::cerr << "FAIL: shape of " << source << "\n  expected " << expected
+              << "\n  actual   " << actual << '\n';
+    failures++;
+}
+
 } // namespace
 
 int main() {
@@ -77,6 +119,30 @@ int main() {
         check(strikes == 1, "one ~~strike~~ parsed");
         check(codeIntact == 1, "inline code untouched");
     }
+
+    // A delimiter pair spans the inline elements between its two halves, as
+    // GitHub's renderer does: md4c splits "~~*struck*~~" into Text "~~",
+    // Emphasis, Text "~~ and ~~plain~~", and pairing within one Text node
+    // struck " and " instead
+    checkShape(parser, "Body ~~*struck*~~ and ~~plain~~\n",
+               "P[T\"Body \"Del[Em[T\"struck\"]]T\" and \"Del[T\"plain\"]]");
+    checkShape(parser, "# Heading ~~*struck*~~ and ~~plain~~\n",
+               "H[T\"Heading \"Del[Em[T\"struck\"]]T\" and \"Del[T\"plain\"]]");
+    checkShape(parser, "~~**bold**~~ ~~[link](http://x) here~~ ~~`code`~~\n",
+               "P[Del[Strong[T\"bold\"]]T\" \"Del[Link[T\"link\"]T\" here\"]T\" \"Del[Code[T\"code\"]]]");
+    checkShape(parser, "A ~~two\nlines~~ b\n",
+               "P[T\"A \"Del[T\"two\"SBT\"lines\"]T\" b\"]");
+    checkShape(parser, "==*marked*== and ==plain==\n",
+               "P[Mark[Em[T\"marked\"]]T\" and \"Mark[T\"plain\"]]");
+    // Spans inside an atom are still found
+    checkShape(parser, "*a ~~b~~ c* ~~*d ==e==*~~\n",
+               "P[Em[T\"a \"Del[T\"b\"]T\" c\"]T\" \"Del[Em[T\"d \"Mark[T\"e\"]]]]");
+    // A line break is whitespace to ^sup^ and ~sub~, which never span it
+    checkShape(parser, "x^a\nb^ and H~2~O\n",
+               "P[T\"x^a\"SBT\"b^ and H\"Sub[T\"2\"]T\"O\"]");
+    // A block boundary still ends the run: GitHub leaves both halves literal
+    checkShape(parser, "- ~~item *x*\n  - nested~~\n",
+               "List[Item[T\"~~item \"Em[T\"x\"]List[Item[T\"nested~~\"]]]]");
 
     // GitHub alerts
     auto alert = parseDocument(parser, "> [!NOTE]\n> Body text here.\n", "notes.md");

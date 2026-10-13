@@ -538,6 +538,21 @@ static void detectGitHubAlerts(const ElementPtr& parent) {
     }
 }
 
+// The siblings one delimiter pair may span. A block (a nested list in a
+// tight list item) ends the run, as it does on GitHub.
+static bool isInlineAtom(ElementType type) {
+    switch (type) {
+        case ElementType::Text: case ElementType::MathInline: case ElementType::Code:
+        case ElementType::Emphasis: case ElementType::Strong: case ElementType::Link:
+        case ElementType::Image: case ElementType::SoftBreak: case ElementType::HardBreak:
+        case ElementType::Ruby: case ElementType::Highlight: case ElementType::Superscript:
+        case ElementType::Subscript: case ElementType::Strikethrough:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static void splitInlineExtensions(const ElementPtr& parent) {
     if (parent->type == ElementType::Code ||
         parent->type == ElementType::CodeBlock ||
@@ -549,23 +564,25 @@ static void splitInlineExtensions(const ElementPtr& parent) {
     bool changed = false;
     for (size_t i = 0; i < parent->children.size();) {
         auto child = parent->children[i];
-        if (child->type != ElementType::Text && child->type != ElementType::MathInline) {
+        if (!isInlineAtom(child->type)) {
             splitInlineExtensions(child);
             rebuilt.push_back(child);
             ++i;
             continue;
         }
 
-        // TeX is an opaque atom between text nodes: ==before $x$ after==
-        // must wrap the equation without interpreting delimiters inside it.
-        // Other wrappers and block boundaries keep their existing scope.
+        // Every inline element between text nodes is an opaque atom:
+        // ~~*struck*~~ and ==before $x$ after== wrap the element without
+        // interpreting delimiters inside it, which md4c split into separate
+        // Text nodes. The atom's own spans are found by recursing into it.
         size_t begin = i;
         while (i < parent->children.size()) {
             const auto& part = parent->children[i];
-            if (part->type != ElementType::Text && part->type != ElementType::MathInline) break;
+            if (!isInlineAtom(part->type)) break;
+            if (part->type != ElementType::Text) splitInlineExtensions(part);
             ++i;
         }
-        if (i == begin + 1 && child->type == ElementType::MathInline) {
+        if (i == begin + 1 && child->type != ElementType::Text) {
             rebuilt.push_back(child);
             continue;
         }
@@ -577,7 +594,11 @@ static void splitInlineExtensions(const ElementPtr& parent) {
             offsets.push_back(0);
             for (size_t j = begin; j < i; ++j) {
                 const auto& part = parent->children[j];
+                // A line break reads as whitespace, so ^sup^ and ~sub~
+                // still refuse to span one
                 if (part->type == ElementType::Text) combined += part->text;
+                else if (part->type == ElementType::SoftBreak ||
+                         part->type == ElementType::HardBreak) combined += '\n';
                 else combined += '\x01';
                 offsets.push_back(combined.size());
             }

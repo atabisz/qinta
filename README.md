@@ -453,6 +453,8 @@ context menu show whatever keys are currently bound.
 On macOS, F11 does not reach Qinta on a default keyboard: it is a media key, and
 fn+F11 is Show Desktop. Zen mode is also **View → Zen mode (⌃⌘F)** in the menu
 bar, alongside whatever key `zen` is bound to.
+Find and replace is Ctrl+H elsewhere; on macOS ⌘H hides the app, so it is
+**Edit → Find and Replace (⌥⌘F)** there.
 
 Other settings of note: `browserFocusPath=1` makes `B` open the file browser
 with the path box focused and selected, so paste + Enter jumps anywhere

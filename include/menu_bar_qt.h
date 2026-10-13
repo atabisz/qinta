@@ -32,11 +32,15 @@ void populateMenuBar(QMenuBar& bar, App& app, QWidget& window);
 // The ShortcutOverride answer: true when `event` is a key the window routes, so Qt delivers it to
 // keyPressEvent instead of firing a menu shortcut. Every key the router could act on stays with
 // it, as before the menu existed, except Cmd+Q, Cmd+H and Cmd+M, which stay the platform's, and
-// the View menu's zen key, which stays the menu's.
+// the menu's two Mac keys, zen and find-and-replace, which stay the menu's.
 bool keyStaysWithWindow(const QKeyEvent& event);
 
 // The View menu's Zen mode key: Meta+Ctrl+F, which macOS shows as ⌃⌘F.
 QKeyCombination zenMenuKey();
+
+// Edit's Find and Replace key: Alt+Ctrl+F, which macOS shows as ⌥⌘F. The router's own key is
+// Ctrl+H, which macOS takes for Hide.
+QKeyCombination findReplaceMenuKey();
 
 }  // namespace tinta
 

@@ -308,6 +308,7 @@ const Entry kEntries[] = {
     { "menu.file", L"File", L"\u6587\u4EF6", L"\u30D5\u30A1\u30A4\u30EB", L"\uD30C\uC77C" },
     { "menu.edit", L"Edit", L"\u7F16\u8F91", L"\u7DE8\u96C6", L"\uD3B8\uC9D1" },
     { "menu.view", L"View", L"\u663E\u793A", L"\u8868\u793A", L"\uBCF4\uAE30" },
+    { "menu.find_replace", L"Find and Replace", L"\u67E5\u627E\u548C\u66FF\u6362", L"\u691C\u7D22\u3068\u7F6E\u63DB", L"\uCC3E\uAE30 \uBC0F \uBC14\uAFB8\uAE30" },
     { "menu.help", L"Help", L"\u5E2E\u52A9", L"\u30D8\u30EB\u30D7", L"\uB3C4\uC6C0\uB9D0" },
 
     // ----- Settings dialog (post-#84 surface) -----
@@ -371,6 +372,8 @@ const Entry kEntries[] = {
     { "settings.reading_width_window.hint", L"Center the document in a column on wide screens", L"\u5BBD\u5C4F\u4E0B\u5C06\u6587\u6863\u5C45\u4E2D\u4E3A\u7A84\u680F", L"\u5E83\u3044\u753B\u9762\u3067\u6587\u66F8\u3092\u5217\u306E\u4E2D\u592E\u306B\u914D\u7F6E", L"\uB113\uC740 \uD654\uBA74\uC5D0\uC11C \uBB38\uC11C\uB97C \uC5F4\uC758 \uC911\uC559\uC5D0 \uBC30\uCE58" },
     { "settings.reading_width_full", L"Reading width \u2014 fullscreen", L"\u9605\u8BFB\u5BBD\u5EA6 \u2014 \u5168\u5C4F", L"\u8AAD\u66F8\u5E45 \u2014 \u30D5\u30EB\u30B9\u30AF\u30EA\u30FC\u30F3", L"\uC77D\uAE30 \uB108\uBE44 \u2014 \uC804\uCCB4 \uD654\uBA74" },
     { "settings.reading_width_full.hint", L"Column used in zen mode (F11)", L"\u7985\u6A21\u5F0F\uFF08F11\uFF09\u4F7F\u7528\u7684\u680F\u5BBD", L"\u30BC\u30F3\u30E2\u30FC\u30C9\uFF08F11\uFF09\u3067\u4F7F\u7528\u3059\u308B\u5217\u5E45", L"\uC820 \uBAA8\uB4DC(F11)\uC5D0\uC11C \uC0AC\uC6A9\uD558\uB294 \uC5F4 \uB108\uBE44" },
+    // macOS names its own zen key: F11 does not reach the app there (I18N_KEY_ZEN_WIDTH_HINT)
+    { "settings.reading_width_full.hint.macos", L"Column used in zen mode (\u2303\u2318F)", L"\u7985\u6A21\u5F0F\uFF08\u2303\u2318F\uFF09\u4F7F\u7528\u7684\u680F\u5BBD", L"\u30BC\u30F3\u30E2\u30FC\u30C9\uFF08\u2303\u2318F\uFF09\u3067\u4F7F\u7528\u3059\u308B\u5217\u5E45", L"\uC820 \uBAA8\uB4DC(\u2303\u2318F)\uC5D0\uC11C \uC0AC\uC6A9\uD558\uB294 \uC5F4 \uB108\uBE44" },
     { "settings.follow_windows", L"Follow Windows theme", L"\u8DDF\u968F Windows \u4E3B\u9898", L"Windows \u306E\u30C6\u30FC\u30DE\u306B\u5F93\u3046", L"Windows \uD14C\uB9C8 \uB530\uB974\uAE30" },
     { "settings.follow_windows.hint", L"Switch light and dark with the system", L"\u968F\u7CFB\u7EDF\u5207\u6362\u6D45\u8272\u4E0E\u6DF1\u8272", L"\u30B7\u30B9\u30C6\u30E0\u306B\u5408\u308F\u305B\u3066\u30E9\u30A4\u30C8 / \u30C0\u30FC\u30AF\u3092\u5207\u66FF", L"\uC2DC\uC2A4\uD15C\uC5D0 \uB530\uB77C \uBC1D\uC740 / \uC5B4\uB450\uC6B4 \uD14C\uB9C8 \uC804\uD658" },
     { "settings.toc_side", L"Table of contents", L"\u76EE\u5F55\u4F4D\u7F6E", L"\u76EE\u6B21\u306E\u4F4D\u7F6E", L"\uBAA9\uCC28 \uC704\uCE58" },
@@ -1007,6 +1010,10 @@ const BuiltinTranslation kBuiltinTranslations[] = {
       L"Darstellung",
       L"Pr\u00E9sentation",
       L"Vista" },
+    { "menu.find_replace",
+      L"Suchen und Ersetzen",
+      L"Rechercher et remplacer",
+      L"Trova e sostituisci" },
     { "menu.help",
       L"Hilfe",
       L"Aide",
@@ -1071,6 +1078,10 @@ const BuiltinTranslation kBuiltinTranslations[] = {
       L"Spaltenbreite im Zen-Modus (F11)",
       L"Colonne utilis\u00E9e en mode zen (F11)",
       L"Colonna usata in modalit\u00E0 zen (F11)" },
+    { "settings.reading_width_full.hint.macos",
+      L"Spaltenbreite im Zen-Modus (\u2303\u2318F)",
+      L"Colonne utilis\u00E9e en mode zen (\u2303\u2318F)",
+      L"Colonna usata in modalit\u00E0 zen (\u2303\u2318F)" },
     { "settings.follow_windows",
       L"Windows-Design folgen",
       L"Suivre le th\u00E8me Windows",

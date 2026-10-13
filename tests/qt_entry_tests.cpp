@@ -5276,9 +5276,9 @@ int main(int argc, char** argv) {
                 if (!item->shortcut().isEmpty()) ++keyed;
             }
         }
-        // File 7 (Settings moves to the application menu on macOS), Edit 3, View 1, Help 1; Export
+        // File 7 (Settings moves to the application menu on macOS), Edit 4, View 1, Help 1; Export
         // and Help have no key.
-        const bool shaped = menus == 4 && items == 12 && keyed == 10;
+        const bool shaped = menus == 4 && items == 13 && keyed == 11;
 
         // Arm 1, reading: the menu's Select All and the key select the same thing.
         app.hasSelection = false;
@@ -5370,11 +5370,39 @@ int main(int argc, char** argv) {
             check(zenOff == 1, "menu bar: and the item again turns it off");
         }
 
+        // Arm 6, FIND AND REPLACE'S MAC KEY. The router's key is Ctrl+H, ⌘H on macOS, which
+        // Cocoa's Hide takes. Edit shows ⌥⌘F and replays Ctrl+H, so from the reader it opens the
+        // editor with the replace row, as the key does. The window lets ⌥⌘F go to the menu.
+        QAction* replaceItem = actionFor(QKeySequence(tinta::findReplaceMenuKey()));
+        const bool replaceKeyToMenu = !claimed(Qt::Key_F, Qt::AltModifier | Qt::ControlModifier);
+        const bool replaceEditBefore = app.editMode;
+        app.searchReplaceMode = false;
+        if (replaceItem) replaceItem->trigger();
+        const bool replaceOpened = app.editMode && app.showSearch && app.searchReplaceMode;
+        // Back to reading, and no animating residue: entering edit mode can push a signal chip,
+        // and a draining chip broke a later frame run on Linux once (698cbfd).
+        app.showSearch = false;
+        app.searchActive = false;
+        app.searchReplaceMode = false;
+        app.editMode = replaceEditBefore;
+        app.signalChips.clear();
+        app.signalHoverChip = 0;
+        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        std::printf("menubar replace_item=%d replace_key_to_menu=%d replace_opened=%d\n",
+                    replaceItem ? 1 : 0, replaceKeyToMenu, replaceOpened);
+        check(replaceItem && replaceItem->text() == QString::fromWCharArray(tr(app, "menu.find_replace")),
+              "menu bar: Edit has Find and Replace on Alt+Ctrl+F (⌥⌘F)");
+        check(replaceKeyToMenu, "menu bar: the window lets ⌥⌘F go to the Edit menu");
+        check(replaceOpened,
+              "menu bar: Find and Replace opens the editor with the replace row, as Ctrl+H does");
+        check(app.signalChips.empty() && !signalsNeedTicks(app),
+              "menu bar: the find-and-replace arm leaves no animating signal chip");
+
         std::printf("menubar menus=%d items=%d keyed=%d menu_sel=%d key_sel=%d "
                     "command_missed_editor=%d menu_sel_editor=%d help=%d claims=%d leaves=%d\n",
                     menus, items, keyed, menuSelected, keySelected, commandMissedEditor,
                     menuSelectedEditor, helpOpened, claimsRouted, leavesPlatform);
-        check(shaped, "menu bar: File, Edit, View and Help, 12 items, 10 of them showing a key");
+        check(shaped, "menu bar: File, Edit, View and Help, 13 items, 11 of them showing a key");
         check(selectAll && menuSelected && keySelected,
               "menu bar: Select All from the menu selects the document, as Ctrl+A does");
         check(commandMissedEditor,

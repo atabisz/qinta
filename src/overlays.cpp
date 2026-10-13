@@ -3065,7 +3065,7 @@ void renderSettingsOverlay(App& app) {
                app.readingWidthPct, SET_SLIDER_READING, 0);
         cy += sliderCardH + cardGap;
         card(sliderCardH);
-        cardLabel(tr(app, "settings.reading_width_full"), tr(app, "settings.reading_width_full.hint"));
+        cardLabel(tr(app, "settings.reading_width_full"), tr(app, I18N_KEY_ZEN_WIDTH_HINT));
         slider(cx + cardPad, cy + dpi(app, 62.0f), cw - cardPad * 2,
                app.zenWidthPct, SET_SLIDER_ZEN, 1);
         cy += sliderCardH + cardGap;

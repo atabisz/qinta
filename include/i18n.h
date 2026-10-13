@@ -40,6 +40,14 @@ constexpr const char* I18N_KEY_REVEAL = "ctx.reveal.file_manager";
 constexpr const char* I18N_KEY_OPEN_IN_TABS_HINT = "settings.open_in_tabs.hint.file_manager";
 #endif
 
+// The zen-mode width hint names the zen key, and on macOS that is ⌃⌘F: F11 is a media key on a
+// default Mac keyboard and never reaches the app (include/menu_bar_qt.h).
+#if defined(__APPLE__)
+constexpr const char* I18N_KEY_ZEN_WIDTH_HINT = "settings.reading_width_full.hint.macos";
+#else
+constexpr const char* I18N_KEY_ZEN_WIDTH_HINT = "settings.reading_width_full.hint";
+#endif
+
 struct App;
 
 // Resolve a translation key for the given language index.

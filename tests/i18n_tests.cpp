@@ -193,6 +193,23 @@ int main() {
             std::wstring(tr(lang, I18N_KEY_REVEAL)) == std::wstring(tr(lang, "ctx.reveal"));
         const bool sameHint = std::wstring(tr(lang, I18N_KEY_OPEN_IN_TABS_HINT)) ==
                               std::wstring(tr(lang, "settings.open_in_tabs.hint"));
+        // The macOS menu bar's View and Find and Replace, and the zen hint that names ⌃⌘F there.
+        // menu.file is not here: Italian's File is the English word, so "translated" cannot hold.
+        for (const char* key : {"menu.view", "menu.find_replace",
+                                "settings.reading_width_full.hint.macos"}) {
+            check(std::wstring(tr(lang, key)) != std::wstring(key, key + std::strlen(key)),
+                  "every shipped language resolves the macOS menu and zen-hint keys");
+            if (lang != en)
+                check(std::wstring(tr(lang, key)) != std::wstring(tr(en, key)),
+                      "the macOS menu and zen-hint keys are translated, not English fallbacks");
+        }
+        const bool sameZenHint = std::wstring(tr(lang, I18N_KEY_ZEN_WIDTH_HINT)) ==
+                                 std::wstring(tr(lang, "settings.reading_width_full.hint"));
+#ifdef __APPLE__
+        check(!sameZenHint, "on macOS the zen width hint does not name F11");
+#else
+        check(sameZenHint, "off macOS the zen width hint keeps its F11 key");
+#endif
 #ifdef _WIN32
         check(sameReveal && sameHint, "Windows keeps the Explorer labels");
 #else

@@ -73,8 +73,9 @@ for fixture in "${fixtures[@]}"; do
         # Width and height are the IHDR fields, big-endian at bytes 16-23 of any PNG. A command
         # substitution and not `< <(...)`: MSYS2's bash can lack /dev/fd, the reason
         # check-readme-figures.sh stopped using process substitution.
+        # NF and exit: macOS's od ends with an empty record, which read as a second 0x0.
         size=$(od -An -tu1 -j16 -N8 "$dir/$png" |
-            awk '{ printf "%dx%d", $1*16777216 + $2*65536 + $3*256 + $4, $5*16777216 + $6*65536 + $7*256 + $8 }')
+            awk 'NF { printf "%dx%d", $1*16777216 + $2*65536 + $3*256 + $4, $5*16777216 + $6*65536 + $7*256 + $8; exit }')
         # macOS ships shasum, not GNU sha256sum
         if command -v sha256sum >/dev/null; then
             sum=$(sha256sum "$dir/$png" | cut -d' ' -f1)

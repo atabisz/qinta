@@ -1,13 +1,21 @@
 param(
-    [string]$Binary = 'build/Release/tinta.exe',
-    [string]$Output = 'out/blockquote-spacing/exports'
+    [string]$Binary = 'build/Release/qinta.exe',
+    [string]$Output = 'out/blockquote-spacing/exports',
+    # qinta.exe needs Qt's DLLs. Prepended to PATH for the runs, and refused before any launch
+    # when missing, because a Qt binary that cannot find Qt6Core.dll stops at a modal dialog.
+    [string]$QtBin = 'C:\Qt\6.8.3\msvc2022_64\bin'
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskOutput = Join-Path $repo $Output
 $taskBinary = if ([IO.Path]::IsPathRooted($Binary)) { $Binary } else { Join-Path $repo $Binary }
+if (!(Test-Path -LiteralPath $taskBinary)) { throw "$taskBinary not found -- pass -Binary" }
+if (!(Test-Path -LiteralPath (Join-Path $QtBin 'Qt6Core.dll'))) {
+    throw "Qt6Core.dll not found in $QtBin -- pass -QtBin with the kit's bin directory."
+}
+$env:PATH = "$QtBin;" + $env:PATH
 New-Item -ItemType Directory -Force "$taskOutput/runner" | Out-Null
-$taskExe = Join-Path $taskOutput 'runner/tinta.exe'
+$taskExe = Join-Path $taskOutput 'runner/qinta.exe'
 Copy-Item -LiteralPath $taskBinary -Destination $taskExe -Force
 @'
 [Settings]

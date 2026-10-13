@@ -1,15 +1,23 @@
 param(
-    [string]$Binary = 'build/Release/tinta.exe',
-    [string]$Output = 'out/inline-code-colors'
+    [string]$Binary = 'build/Release/qinta.exe',
+    [string]$Output = 'out/inline-code-colors',
+    # qinta.exe needs Qt's DLLs. Prepended to PATH for the runs, and refused before any launch
+    # when missing, because a Qt binary that cannot find Qt6Core.dll stops at a modal dialog.
+    [string]$QtBin = 'C:\Qt\6.8.3\msvc2022_64\bin'
 )
 $ErrorActionPreference = 'Stop'
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskOutput = Join-Path $repo $Output
 $taskBinary = if ([IO.Path]::IsPathRooted($Binary)) { $Binary } else { Join-Path $repo $Binary }
+if (!(Test-Path -LiteralPath $taskBinary)) { throw "$taskBinary not found -- pass -Binary" }
+if (!(Test-Path -LiteralPath (Join-Path $QtBin 'Qt6Core.dll'))) {
+    throw "Qt6Core.dll not found in $QtBin -- pass -QtBin with the kit's bin directory."
+}
+$env:PATH = "$QtBin;" + $env:PATH
 foreach ($variant in @(@('builtin',0), @('legacy',10), @('separate',11), @('dark',12))) {
     $variantDir = Join-Path $taskOutput $variant[0]
     New-Item -ItemType Directory -Force "$variantDir/runner" | Out-Null
-    $exe = Join-Path $variantDir 'runner/tinta.exe'
+    $exe = Join-Path $variantDir 'runner/qinta.exe'
     Copy-Item -LiteralPath $taskBinary -Destination $exe -Force
     Copy-Item -LiteralPath "$PSScriptRoot/fixtures/inline-code-themes.ini" -Destination "$variantDir/runner/themes.ini" -Force
     @"

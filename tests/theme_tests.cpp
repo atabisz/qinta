@@ -72,8 +72,10 @@ void checkFormatClassification() {
     giveFormat(app.codeItalicFormatStorage, app.codeItalicFormat);
     giveFormat(app.codeBoldItalicFormatStorage, app.codeBoldItalicFormat);
     giveFormat(app.supSubFormatStorage, app.supSubFormat);
-    for (int i = 0; i < 6; ++i)
+    for (int i = 0; i < 6; ++i) {
         giveFormat(app.headingFormatsStorage[i], app.headingFormats[i]);
+        giveFormat(app.headingItalicFormatsStorage[i], app.headingItalicFormats[i]);
+    }
 
     // Two chrome formats as the positive control: if releaseOverlayFormats is a no-op for
     // some reason, the document formats surviving proves nothing, so the test must also show
@@ -104,15 +106,19 @@ void checkFormatClassification() {
         app.italicFormat && app.boldItalicFormat && app.codeBoldFormat &&
         app.codeItalicFormat && app.codeBoldItalicFormat && app.supSubFormat &&
         app.headingFormats[0] && app.headingFormats[1] && app.headingFormats[2] &&
-        app.headingFormats[3] && app.headingFormats[4] && app.headingFormats[5];
+        app.headingFormats[3] && app.headingFormats[4] && app.headingFormats[5] &&
+        app.headingItalicFormats[0] && app.headingItalicFormats[1] &&
+        app.headingItalicFormats[2] && app.headingItalicFormats[3] &&
+        app.headingItalicFormats[4] && app.headingItalicFormats[5];
     check(documentsIntact,
-          "releaseOverlayFormats leaves all 16 document format objects standing");
+          "releaseOverlayFormats leaves all 22 document format objects standing");
 
     // And releaseDocumentFormats IS the function that owns them, which is the other half of
     // the invariant: the formats are not merely un-released, they are released elsewhere.
     app.releaseDocumentFormats();
     check(app.supSubFormat == nullptr && app.textFormat == nullptr &&
-          app.headingFormats[5] == nullptr,
+          app.headingFormats[5] == nullptr && app.headingItalicFormats[5] == nullptr &&
+          !app.headingItalicFormatsStorage[0],
           "releaseDocumentFormats is what clears the document formats");
 }
 std::string read(const std::filesystem::path& path) {

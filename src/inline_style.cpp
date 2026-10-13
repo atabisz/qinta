@@ -78,6 +78,17 @@ bool resolveFileRef(App& app, const std::string& raw, std::string& absOut) {
 }  // namespace
 
 tinta::TextFormat* emphasisFormat(App& app, tinta::TextFormat* base, bool bold, bool italic) {
+    // A heading keeps its own face and size. It is bold already, so **bold** leaves it as
+    // it is and *italic* slants it. Answering with the body formats below drew the word at
+    // 16px on a heading's line, top-aligned, where it read as a superscript.
+    for (int i = 0; i < 6; i++) {
+        if (base && (base == app.headingFormats[i] || base == app.headingItalicFormats[i])) {
+            if (italic && app.headingItalicFormats[i]) return app.headingItalicFormats[i];
+            return app.headingFormats[i];
+        }
+    }
+    // A table header cell lays out in boldFormat, so *italic* there stays bold
+    if (base && (base == app.boldFormat || base == app.boldItalicFormat)) bold = true;
     tinta::TextFormat* fmt = nullptr;
     if (bold && italic) fmt = app.boldItalicFormat ? app.boldItalicFormat : app.boldFormat;
     else if (bold) fmt = app.boldFormat;

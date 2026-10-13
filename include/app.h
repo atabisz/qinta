@@ -408,7 +408,7 @@ struct App {
     //
     // The document formats went first: the eleven that used to head this block --
     // nativeTextFormat through nativeHeadingFormats[6], plus nativeSupSubFormat -- because
-    // installDocumentTextFormats (include/text_formats.h) creates all sixteen through
+    // installDocumentTextFormats (include/text_formats.h) creates all twenty-two through
     // tinta::TextFactory::CreateTextFormat and hands back something that already owns
     // itself. There was no native pointer to hold and nothing to seat.
     //
@@ -423,7 +423,7 @@ struct App {
     //
     // AND THE CHROME STORAGES FOLLOWED, which is what the paragraph here predicted and then
     // deferred. All thirteen are plain std::unique_ptr<tinta::TextFormat> now, the same type the
-    // sixteen document formats below use, and the DirectWrite interface they named has NO live
+    // twenty-two document formats below use, and the DirectWrite interface they named has NO live
     // occurrence left in this header -- its forward declaration went out with the last one, so
     // the central header every translation unit includes declares no DirectWrite text type at
     // all. The deferral earned its keep: the type collapse rode a commit of its own, and the
@@ -458,6 +458,7 @@ struct App {
     std::unique_ptr<tinta::TextFormat> codeItalicFormatStorage;
     std::unique_ptr<tinta::TextFormat> codeBoldItalicFormatStorage;
     std::unique_ptr<tinta::TextFormat> headingFormatsStorage[6];
+    std::unique_ptr<tinta::TextFormat> headingItalicFormatsStorage[6];
     std::unique_ptr<tinta::TextFormat> searchTextFormatStorage;
     std::unique_ptr<tinta::TextFormat> themeTitleFormatStorage;
     std::unique_ptr<tinta::TextFormat> themeHeaderFormatStorage;
@@ -472,6 +473,8 @@ struct App {
     tinta::TextFormat* codeItalicFormat = nullptr;
     tinta::TextFormat* codeBoldItalicFormat = nullptr;
     tinta::TextFormat* headingFormats[6] = {};
+    // *italic* inside a heading: the heading's face, weight and size, slanted
+    tinta::TextFormat* headingItalicFormats[6] = {};
     tinta::TextFormat* searchTextFormat = nullptr;
     tinta::TextFormat* themeTitleFormat = nullptr;
     tinta::TextFormat* themeHeaderFormat = nullptr;
@@ -1495,6 +1498,8 @@ struct App {
         drop(codeBoldItalicFormatStorage, codeBoldItalicFormat);
         drop(supSubFormatStorage, supSubFormat);
         for (int i = 0; i < 6; ++i) drop(headingFormatsStorage[i], headingFormats[i]);
+        for (int i = 0; i < 6; ++i)
+            drop(headingItalicFormatsStorage[i], headingItalicFormats[i]);
     }
 
     void releaseOverlayFormats() {

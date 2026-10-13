@@ -1,7 +1,7 @@
 #ifndef TINTA_TEXT_FORMATS_H
 #define TINTA_TEXT_FORMATS_H
 
-// The sixteen cached DOCUMENT text formats, created through the seam and owned by App.
+// The twenty-two cached DOCUMENT text formats, created through the seam and owned by App.
 //
 // WHY THIS HEADER EXISTS: the same eleven declarations were being built TWICE, once per
 // backend, and the two copies were line-for-line parallel with one of them naming
@@ -14,10 +14,11 @@
 // about a shape, not a fix for it. There is now one copy of the numbers and both
 // initialisers call it.
 //
-// THE ELEVEN, WHICH IS SIXTEEN OBJECTS: textFormat, headingFormat, codeFormat,
+// THE TWELVE, WHICH IS TWENTY-TWO OBJECTS: textFormat, headingFormat, codeFormat,
 // boldFormat, italicFormat, boldItalicFormat, codeBoldFormat, codeItalicFormat,
-// codeBoldItalicFormat, supSubFormat and headingFormats[6]. Every bold/italic
-// combination exists because inline spans nest -- ***both***, **`code`**, *`code`*.
+// codeBoldItalicFormat, supSubFormat, headingFormats[6] and headingItalicFormats[6].
+// Every bold/italic combination exists because inline spans nest -- ***both***,
+// **`code`**, *`code`* -- and a heading's *italic* needs the heading's own size.
 //
 // THE CHROME FORMATS ARE HERE NOW TOO, and the paragraph that stood here is corrected
 // rather than deleted because it was the roadmap and the roadmap has been walked. It read:
@@ -35,7 +36,7 @@
 // and survived in the TYPE. That follow-on slice has landed. EVERY text-format storage in App
 // is std::unique_ptr<tinta::TextFormat> -- no count is written here on purpose, because the
 // theme-preview storages are three per installed theme and a figure would age the way the one
-// above it did -- one makeFormat serves all 24 call sites in src/text_formats_app.cpp, and
+// above it did -- one makeFormat serves all 25 call sites in src/text_formats_app.cpp, and
 // include/app.h declares no DirectWrite text type at all.
 //
 // THIS COMMENT IS WHY THE SWEEP FOR THAT SLICE WAS INCOMPLETE AT PLAN TIME, which is worth
@@ -115,17 +116,17 @@ inline Typography codeTypographySet() {
 // -- App used to hold two IDWriteTypography objects here and holds two values now.
 void installTypography(App& app);
 
-// Creates all sixteen against App's CURRENT theme, contentScale and zoomFactor, and
+// Creates all twenty-two against App's CURRENT theme, contentScale and zoomFactor, and
 // re-measures the four cached space widths. Idempotent: it releases first, so the theme
 // change, zoom step and DPI change that call it repeatedly cannot stack formats.
 //
 // Requires App::textFactory to be seated. Returns having created nothing if it is not --
 // stated rather than asserted, because the Windows caller seats it in initD2D and the Qt
-// caller in installQtBackends, and a caller that forgets would otherwise get sixteen
+// caller in installQtBackends, and a caller that forgets would otherwise get twenty-two
 // nulls and a blank document with no complaint from anything.
 void installDocumentTextFormats(App& app);
 
-// Drops all sixteen and zeroes the four space widths. A stale width against a released
+// Drops all twenty-two and zeroes the four space widths. A stale width against a released
 // format is the same class of bug as a stale wrapper over a released native, and it would
 // survive a reinstall silently because the new formats measure the same.
 void releaseDocumentTextFormats(App& app);

@@ -35,6 +35,9 @@ tinta::TextFormat* const kCode   = fake(6);
 tinta::TextFormat* const kCodeB  = fake(7);
 tinta::TextFormat* const kCodeI  = fake(8);
 tinta::TextFormat* const kCodeBI = fake(9);
+// Heading level i is fake(20 + i), its italic fake(30 + i)
+tinta::TextFormat* heading(int i) { return fake(20 + i); }
+tinta::TextFormat* headingItalic(int i) { return fake(30 + i); }
 
 // App::~App releases the NATIVE format pointers, which these sentinels never
 // occupy -- so teardown no longer touches them. The guard stays because the
@@ -51,6 +54,10 @@ struct FormatGuard {
         app.codeBoldFormat = kCodeB;
         app.codeItalicFormat = kCodeI;
         app.codeBoldItalicFormat = kCodeBI;
+        for (int i = 0; i < 6; i++) {
+            app.headingFormats[i] = heading(i);
+            app.headingItalicFormats[i] = headingItalic(i);
+        }
     }
     ~FormatGuard() {
         app.boldFormat = nullptr;
@@ -61,12 +68,17 @@ struct FormatGuard {
         app.codeBoldFormat = nullptr;
         app.codeItalicFormat = nullptr;
         app.codeBoldItalicFormat = nullptr;
+        for (int i = 0; i < 6; i++) {
+            app.headingFormats[i] = nullptr;
+            app.headingItalicFormats[i] = nullptr;
+        }
     }
 };
 
 // Flattens the first block's inline children the way layoutInlineContent does
 std::vector<StyledRun> flattenFirstBlock(App& app, qmd::MarkdownParser& parser,
-                                         const std::string& markdown) {
+                                         const std::string& markdown,
+                                         tinta::TextFormat* base = kBase) {
     std::vector<StyledRun> runs;
     auto result = parser.parse(markdown);
     if (!result.success || !result.root || result.root->children.empty()) {
@@ -74,7 +86,7 @@ std::vector<StyledRun> flattenFirstBlock(App& app, qmd::MarkdownParser& parser,
         return runs;
     }
     InlineStyle root;
-    root.format = kBase;
+    root.format = base;
     flattenInline(app, result.root->children[0]->children, root, 20.0f, runs);
     return runs;
 }
@@ -157,6 +169,49 @@ int main() {
               "*** applies bold and italic to the nested code");
         check(emphasisFormat(app, kBase, true, true) == kBoldIt,
               "bold italic text uses the bold italic face");
+    }
+
+    // Emphasis inside a heading keeps the heading's face and size. It used to answer
+    // with the body formats, so the word drew at 16px, top-aligned on the heading's line,
+    // and read as a superscript
+    {
+        auto runs = flattenFirstBlock(app, parser, "# H *it* **b** ***bi***\n", heading(0));
+        int seen = 0;
+        for (const auto& run : runs) {
+            if (run.elem->type != ElementType::Text) continue;
+            if (run.elem->text == "it") {
+                ++seen;
+                check(run.style.format == headingItalic(0), "*italic* in a heading slants the heading face");
+            } else if (run.elem->text == "b") {
+                ++seen;
+                check(run.style.format == heading(0), "**bold** in a heading keeps the heading face");
+            } else if (run.elem->text == "bi") {
+                ++seen;
+                check(run.style.format == headingItalic(0), "***both*** in a heading slants the heading face");
+            } else {
+                check(run.style.format == heading(0), "plain heading text keeps the heading face");
+            }
+        }
+        check(seen == 3, "all three emphasised heading words are reached");
+    }
+    {
+        for (int i = 0; i < 6; i++) {
+            check(emphasisFormat(app, heading(i), false, true) == headingItalic(i),
+                  "every heading level has its own italic");
+            check(emphasisFormat(app, headingItalic(i), true, true) == headingItalic(i),
+                  "bold nested in heading italic stays heading italic");
+        }
+        auto runs = flattenFirstBlock(app, parser, "# *a **b** c*\n", heading(2));
+        for (const auto& run : runs) {
+            check(run.style.format == headingItalic(2), "nested emphasis stays at the heading's level");
+        }
+    }
+    {
+        // A table header cell lays out in boldFormat: *italic* there keeps the bold
+        check(emphasisFormat(app, kBold, false, true) == kBoldIt,
+              "italic in a bold base is bold italic");
+        check(emphasisFormat(app, kBase, false, true) == kItalic,
+              "italic in body text is still the plain italic");
     }
 
     // Links carry their url and colour down to nested spans

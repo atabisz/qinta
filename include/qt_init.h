@@ -36,7 +36,7 @@ class RenderTarget;
 }
 
 // Installs every backend whose lifetime is the process: the text factory, the brush,
-// and the sixteen cached DOCUMENT text formats. Call once, after QApplication exists
+// and the twenty-two cached DOCUMENT text formats. Call once, after QApplication exists
 // and before the first paint.
 //
 // The brush joined this list when the window started drawing documents -- the paint

@@ -36,9 +36,9 @@ namespace {
 // differs only in the arguments and hides a copy-paste error beautifully.
 //
 // "SIXTEEN" WAS THE WORD HERE, TWICE, and both were true when only the document formats came
-// through this helper. It is the ONLY overload now and takes all 24 call sites below -- the
-// sixteen document formats plus the thirteen chrome storages, which overlap because two of
-// those sites sit inside loops. The count is written as call sites rather than formats on
+// through this helper. It is the ONLY overload now and takes all 25 call sites below -- the
+// twenty-two document formats plus the thirteen chrome storages, which overlap because three
+// of those sites sit inside loops. The count is written as call sites rather than formats on
 // purpose: `ensureThemePreviewFormats` creates three per theme, so the number of formats this
 // helper produces at runtime depends on how many themes are installed and is not a fact about
 // this file.
@@ -48,7 +48,7 @@ tinta::TextFormat* makeFormat(App& app, std::unique_ptr<tinta::TextFormat>& stor
     storage = app.textFactory->CreateTextFormat(family, weight, style,
                                                 tinta::FontStretch::Normal, size, L"en-us");
     if (!storage) return nullptr;
-    // Every one of the 24 gets this. On Windows it was a run of ten
+    // Every one of the 25 gets this. On Windows it was a run of ten
     // `if (native...) native...->SetParagraphAlignment(...)` lines plus a loop for the
     // heading array -- eleven statements that a twelfth format could be added without.
     // Setting it inside the helper makes that impossible rather than merely unlikely.
@@ -219,6 +219,9 @@ void installDocumentTextFormats(App& app) {
     for (int i = 0; i < 6; i++) {
         app.headingFormats[i] = makeFormat(app, app.headingFormatsStorage[i], headingFont,
                                            W::Bold, S::Normal, headingSizes[i] * scale);
+        app.headingItalicFormats[i] = makeFormat(app, app.headingItalicFormatsStorage[i],
+                                                 headingFont, W::Bold, S::Italic,
+                                                 headingSizes[i] * scale);
     }
 
     // THE SPACE WIDTHS ARE MEASURED, not defaulted, through the seam overload of

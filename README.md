@@ -95,8 +95,8 @@ artifact needs a GitHub login), each named by the commit it was built from:
 | `qinta-linux-appimage` | An x86_64 AppImage | every Qt library it loads is inside it; it prints pages in an Ubuntu 24.04 container with no Qt installed |
 
 CI runs all three headless. By hand, the released Windows package has opened on a second Windows
-machine and the macOS app on a Mac (2026-10-12); the Linux AppImage has not yet been opened on a
-desktop. The macOS app is **not notarized**: see [Download](#download) for opening it the first
+machine and the macOS app on a Mac (2026-10-12), and the Linux AppImage on Ubuntu, first under
+WSLg (2026-10-12) and then on a native GNOME desktop on X11 (v1.0.0, 2026-10-14). The macOS app is **not notarized**: see [Download](#download) for opening it the first
 time. Building from source, below, is the other way to get qinta.
 
 All three platforms build from the same CMake project, and they are not equally proven. The
@@ -105,7 +105,7 @@ state per platform, before any commands:
 | Platform | Target | State |
 |----------|--------|-------|
 | Windows | `qinta` — Qt 6 | Configures, builds, launches and stays running. Measured 2026-09-16. |
-| Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL. |
+| Linux | `qinta` — Qt 6 | Configures, builds, every ctest entry passes, launches windowed and headless. Measured 2026-09-16 on Ubuntu 24.04.2 under WSL, and again 2026-10-14 on a native Ubuntu GNOME desktop (X11, `LANG=en_AU.UTF-8`). |
 | macOS | `qinta` — Qt 6 | Configures, builds, launches (plain binary, offscreen and windowed). Every ctest entry passes. Measured 2026-09-19 on macOS 26.6.2 (Darwin 25.6.0), arm64. |
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) builds every target and runs the

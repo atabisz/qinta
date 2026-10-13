@@ -136,7 +136,12 @@ the date given, not as a live reading.
   - **Linux: done 2026-10-12.** The published v0.0.2 AppImage opened its window on an Ubuntu
     desktop (WSLg, X11) and rendered a mixed fixture with math and the tab strip. That Ubuntu has
     Qt's development packages installed, so the no-Qt half rests on CI, which runs the AppImage in
-    a bare Ubuntu 24.04 container.
+    a bare Ubuntu 24.04 container. **Native desktop, 2026-10-14:** the v1.0.0 AppImage opened and
+    rendered `reveal-in-file-manager.md` on a native Ubuntu GNOME desktop (X11). On the same
+    machine a master build's **Show in File Manager** opened Nautilus on `reveal tést/` with the
+    file selected. Running the AppImage registers nothing with the desktop, though:
+    `gio mime text/markdown` does not list qinta afterwards, so GNOME's Open With has no qinta
+    entry to offer until something installs `qinta.desktop`.
 ## Quality
 
 - [x] **Done 2026-10-12**: `-Wall -Wextra` on qinta's own targets (not md4c's), its 36 distinct warnings fixed, and warnings as errors on the Linux CI job (`QINTA_WARNINGS_AS_ERRORS`). Other hosts report but do not fail. The original item: **A warning level for GCC and Clang.** MSVC builds at `/W4`. MinGW, Linux and macOS build at

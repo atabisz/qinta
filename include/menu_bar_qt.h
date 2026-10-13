@@ -1,6 +1,7 @@
 #ifndef TINTA_MENU_BAR_QT_H
 #define TINTA_MENU_BAR_QT_H
 
+class QKeyCombination;
 class QKeyEvent;
 class QMenuBar;
 class QWidget;
@@ -24,14 +25,18 @@ struct App;
 // bar does not change them.
 namespace tinta {
 
-// Fills `bar` with the application menu's Settings, File, Edit and Help, labelled in the UI
+// Fills `bar` with the application menu's Settings, File, Edit, View and Help, labelled in the UI
 // language at the time of the call. On macOS a QMenuBar with no parent is the global menu bar.
 void populateMenuBar(QMenuBar& bar, App& app, QWidget& window);
 
 // The ShortcutOverride answer: true when `event` is a key the window routes, so Qt delivers it to
 // keyPressEvent instead of firing a menu shortcut. Every key the router could act on stays with
-// it, as before the menu existed, except Cmd+Q, Cmd+H and Cmd+M, which stay the platform's.
+// it, as before the menu existed, except Cmd+Q, Cmd+H and Cmd+M, which stay the platform's, and
+// the View menu's zen key, which stays the menu's.
 bool keyStaysWithWindow(const QKeyEvent& event);
+
+// The View menu's Zen mode key: Meta+Ctrl+F, which macOS shows as ⌃⌘F.
+QKeyCombination zenMenuKey();
 
 }  // namespace tinta
 

@@ -307,6 +307,7 @@ const Entry kEntries[] = {
     // The macOS menu bar's titles (include/menu_bar_qt.h).
     { "menu.file", L"File", L"\u6587\u4EF6", L"\u30D5\u30A1\u30A4\u30EB", L"\uD30C\uC77C" },
     { "menu.edit", L"Edit", L"\u7F16\u8F91", L"\u7DE8\u96C6", L"\uD3B8\uC9D1" },
+    { "menu.view", L"View", L"\u663E\u793A", L"\u8868\u793A", L"\uBCF4\uAE30" },
     { "menu.help", L"Help", L"\u5E2E\u52A9", L"\u30D8\u30EB\u30D7", L"\uB3C4\uC6C0\uB9D0" },
 
     // ----- Settings dialog (post-#84 surface) -----
@@ -990,6 +991,23 @@ const BuiltinTranslation kBuiltinTranslations[] = {
       L"Param\u00E8tres",
       L"Impostazioni" },
     { "ctx.help",
+      L"Hilfe",
+      L"Aide",
+      L"Aiuto" },
+    // The macOS menu bar's titles, as Apple's own menus name them in each language
+    { "menu.file",
+      L"Ablage",
+      L"Fichier",
+      L"File" },
+    { "menu.edit",
+      L"Bearbeiten",
+      L"\u00C9dition",
+      L"Modifica" },
+    { "menu.view",
+      L"Darstellung",
+      L"Pr\u00E9sentation",
+      L"Vista" },
+    { "menu.help",
       L"Hilfe",
       L"Aide",
       L"Aiuto" },

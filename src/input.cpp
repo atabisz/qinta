@@ -3462,7 +3462,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 // takes. Entering through a sink that is not installed returns an invalid restore, which the
 // check below already reads as "entering failed", so a Qt build with no window stays out of zen mode
 // rather than drawing a reading column for a window that never went fullscreen.
-static void toggleZenMode(App& app, HWND hwnd) {
+void toggleZenMode(App& app, HWND hwnd) {
     app.zenMode = !app.zenMode;
     (void)hwnd;
     if (app.zenMode) {

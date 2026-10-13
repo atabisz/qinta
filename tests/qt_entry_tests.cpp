@@ -5266,9 +5266,9 @@ int main(int argc, char** argv) {
                 if (!item->shortcut().isEmpty()) ++keyed;
             }
         }
-        // File 7 (Settings moves to the application menu on macOS), Edit 3, Help 1; Export and Help
-        // have no key.
-        const bool shaped = menus == 3 && items == 11 && keyed == 9;
+        // File 7 (Settings moves to the application menu on macOS), Edit 3, View 1, Help 1; Export
+        // and Help have no key.
+        const bool shaped = menus == 4 && items == 12 && keyed == 10;
 
         // Arm 1, reading: the menu's Select All and the key select the same thing.
         app.hasSelection = false;
@@ -5330,11 +5330,41 @@ int main(int argc, char** argv) {
                                     !claimed(Qt::Key_H, Qt::ControlModifier) &&
                                     !claimed(Qt::Key_M, Qt::ControlModifier);
 
+        // Arm 5, ZEN MODE'S MAC KEY. F11 never reaches the window on a default Mac (a media key;
+        // fn+F11 is Show Desktop), so the View menu carries ⌃⌘F. The window must let it go to the
+        // menu -- kept, the router reads it as ⌘F and opens search -- and must still keep ⌘F.
+        QAction* zenItem = actionFor(QKeySequence(tinta::zenMenuKey()));
+        const bool zenKeyToMenu = !claimed(Qt::Key_F, Qt::MetaModifier | Qt::ControlModifier);
+        const bool searchKeyKept = claimed(Qt::Key_F, Qt::ControlModifier);
+        // The click, offscreen only: it goes full screen through the window's own sink, which on a
+        // real platform covers the desktop (the zen_real block above skips for the same reason).
+        int zenOn = -1, zenOff = -1;
+        if (zenItem && QApplication::platformName() == QLatin1String("offscreen")) {
+            const bool zenBefore = app.zenMode;
+            zenItem->trigger();
+            QApplication::processEvents();
+            zenOn = app.zenMode && menuWindow.isFullScreen() ? 1 : 0;
+            zenItem->trigger();
+            QApplication::processEvents();
+            zenOff = !app.zenMode && !menuWindow.isFullScreen() ? 1 : 0;
+            app.zenMode = zenBefore;
+        }
+        std::printf("menubar zen_item=%d zen_key_to_menu=%d search_key_kept=%d zen_on=%d "
+                    "zen_off=%d\n", zenItem ? 1 : 0, zenKeyToMenu, searchKeyKept, zenOn, zenOff);
+        check(zenItem && zenItem->text() == QString::fromWCharArray(tr(app, "shortcuts.zen")),
+              "menu bar: View has a Zen mode item on Meta+Ctrl+F (⌃⌘F)");
+        check(zenKeyToMenu, "menu bar: the window lets ⌃⌘F go to the View menu");
+        check(searchKeyKept, "menu bar: COUNTER-CASE -- the window still keeps ⌘F for search");
+        if (zenOn >= 0) {
+            check(zenOn == 1, "menu bar: the Zen mode item turns zen mode on, full screen");
+            check(zenOff == 1, "menu bar: and the item again turns it off");
+        }
+
         std::printf("menubar menus=%d items=%d keyed=%d menu_sel=%d key_sel=%d "
                     "command_missed_editor=%d menu_sel_editor=%d help=%d claims=%d leaves=%d\n",
                     menus, items, keyed, menuSelected, keySelected, commandMissedEditor,
                     menuSelectedEditor, helpOpened, claimsRouted, leavesPlatform);
-        check(shaped, "menu bar: File, Edit and Help, 11 items, 9 of them showing a key");
+        check(shaped, "menu bar: File, Edit, View and Help, 12 items, 10 of them showing a key");
         check(selectAll && menuSelected && keySelected,
               "menu bar: Select All from the menu selects the document, as Ctrl+A does");
         check(commandMissedEditor,

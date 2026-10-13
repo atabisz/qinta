@@ -12,7 +12,7 @@
 
 #include "app.h"
 #include "i18n.h"
-#include "input.h"  // invokeMenuCommand
+#include "input.h"  // invokeMenuCommand, toggleZenMode
 #include "overlays.h"  // the CTX_* commands
 #include "qt_key_map.h"
 
@@ -77,13 +77,29 @@ void populateMenuBar(QMenuBar& bar, App& app, QWidget& window) {
     edit->addSeparator();
     addKeyItem(*edit, app, window, "ctx.search", Qt::Key_F, ctrl);
 
+    // ZEN MODE GETS A MAC KEY HERE. Its own key is F11, and on a default Mac F11 is a media
+    // key and fn+F11 is Show Desktop, so the window never sees it. ⌃⌘F is the platform's
+    // full-screen key. Qt prints Meta as ⌃ on macOS, and Ctrl as ⌘. The item calls the command
+    // rather than replaying a key: the router reads ⌃⌘F as ⌘F, which is search.
+    QMenu* view = bar.addMenu(label(app, "menu.view"));
+    QAction* zen = view->addAction(label(app, "shortcuts.zen"));
+    zen->setShortcut(QKeySequence(zenMenuKey()));
+    zen->setMenuRole(QAction::NoRole);
+    QObject::connect(zen, &QAction::triggered, zen, [&app]() { toggleZenMode(app, nullptr); });
+
     QMenu* help = bar.addMenu(label(app, "menu.help"));
     addCommandItem(*help, app, "ctx.help", CTX_HELP);
+}
+
+QKeyCombination zenMenuKey() {
+    return QKeyCombination(Qt::MetaModifier | Qt::ControlModifier, Qt::Key_F);
 }
 
 bool keyStaysWithWindow(const QKeyEvent& event) {
     // The same test keyPressEvent makes before it routes anything.
     if (vkFromQtKey(event.key()) == 0 && event.text().isEmpty()) return false;
+    // The View menu's zen key goes to the menu. Kept, the router would see ⌘F and open search.
+    if (event.keyCombination() == zenMenuKey()) return false;
     if (event.modifiers() & Qt::ControlModifier) {
         switch (event.key()) {
             case Qt::Key_Q:  // Quit

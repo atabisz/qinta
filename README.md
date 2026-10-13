@@ -450,6 +450,10 @@ help=?
 Ctrl combos (save, print, copy, word wrap…) are fixed. The help overlay and
 context menu show whatever keys are currently bound.
 
+On macOS, F11 does not reach Qinta on a default keyboard: it is a media key, and
+fn+F11 is Show Desktop. Zen mode is also **View → Zen mode (⌃⌘F)** in the menu
+bar, alongside whatever key `zen` is bound to.
+
 Other settings of note: `browserFocusPath=1` makes `B` open the file browser
 with the path box focused and selected, so paste + Enter jumps anywhere
 (also in Settings → General). `qinta --new` starts an untitled quick note

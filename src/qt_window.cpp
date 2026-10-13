@@ -374,11 +374,10 @@ bool QtAppWindow::openDocument(const std::string& path) {
     // repeated at each site. main_qt.cpp's copy of this line had made the OPPOSITE choice,
     // fromLocal8Bit, and has gone with it.
     //
-    // The wrinkle that argument named is real, out of scope here, and NOT fixed by this
-    // change: main() passes argv[1], which the Microsoft runtime hands over in the ANSI code
-    // page, so a non-ASCII path on the command line will fail to open AND show mojibake --
-    // one cause, two consistent symptoms, fixed by QCoreApplication::arguments() at the entry
-    // point. Deleting the fromLocal8Bit conversion removes a symptom, not the cause.
+    // The wrinkle that argument named was real and is fixed at the entry point, not here:
+    // main() parsed argv, which the Microsoft runtime hands over in the ANSI code page, so a
+    // non-ASCII path on the command line failed to open. Since 2026-10-14 main() parses
+    // tinta::launchArguments() (qt_launch.h), which is UTF-8 on every platform.
     updateWindowTitle(app_);
     update();
     return true;

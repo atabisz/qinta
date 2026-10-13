@@ -134,6 +134,15 @@ std::vector<std::string> sessionToRestore(const LaunchOptions& options, const Se
 // manager, qinta dropped it as missing (found 2026-10-12 in a real settings.ini). Empty stays empty.
 std::string absoluteLaunchPath(const std::string& path);
 
+// The command line after the program name, as UTF-8 -- what main() parses, in place of its own
+// argv (2026-10-14). On Windows the runtime fills a narrow argv in the ANSI code page, so on a
+// cp1252 host `café.md` arrived as the byte 0xE9 and `笔记.md` as `??`, and loadDocumentFromPath,
+// which reads every std::string as UTF-8, opened neither. QCoreApplication::arguments() is
+// rebuilt from the wide command line there, and Qt has already removed its own switches
+// (-platform, -style) from it, as it does from argv. Off Windows argv is UTF-8 already and this
+// is the same list. Needs the QCoreApplication constructed.
+std::vector<std::string> launchArguments();
+
 // Whether this window owns the session the close save writes: not a cascaded new window and not
 // a quick note, as in WinMain. Those keep what is on disk (storePreferences).
 bool ownsSession(const LaunchOptions& options);

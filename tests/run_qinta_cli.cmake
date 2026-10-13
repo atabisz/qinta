@@ -130,6 +130,26 @@ message(STATUS "nodoc rc=${rc} written=${nodoc_written}")
 check("CONTROL: with no document the exporter exits 1 and writes nothing"
       rc EQUAL 1 AND nodoc_written EQUAL 0)
 
+# --- A NON-ASCII PATH, in the document AND the output (2026-10-14) -------------------------
+# main() used to parse its narrow argv, which on Windows is in the ANSI code page: on a cp1252
+# host `café` arrived as the byte 0xE9 and the ideographs as `??`, and loadDocumentFromPath reads
+# a std::string as UTF-8, so neither opened -- exit 1, no pages, against an ASCII control that
+# printed. One name of each kind, because they fail differently: é exists in cp1252 and the
+# ideographs do not. The output directory carries one too, since the four harness paths travel
+# the same command line. Off Windows argv was already UTF-8, so there this is a control.
+set(intl_dir "${WORK_DIR}/über")
+file(MAKE_DIRECTORY "${intl_dir}")
+foreach(name "café" "笔记")
+    file(COPY_FILE "${doc}" "${intl_dir}/${name}.md")
+    set(intl_pages "${intl_dir}/pages-${name}")
+    run_qinta(rc err --printpages "${intl_pages}" "${intl_dir}/${name}.md")
+    file(GLOB intl_pngs "${intl_pages}/page-*.png")
+    list(LENGTH intl_pngs intl_count)
+    message(STATUS "non-ascii '${name}' rc=${rc} pngs=${intl_count}")
+    check("--printpages opens '${name}.md' under 'über' and writes its pages there"
+          rc EQUAL 0 AND intl_count GREATER 0 AND intl_count EQUAL png_count)
+endforeach()
+
 message(STATUS "qinta_cli checks=${checks} failures=${failures}")
 if(NOT failures EQUAL 0)
     message(FATAL_ERROR "qinta_cli: ${failures} of ${checks} checks failed")

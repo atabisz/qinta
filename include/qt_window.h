@@ -212,8 +212,9 @@ public:
     // PUBLIC AND SEPARATE FROM THE DIALOG ON PURPOSE. promptOpenDocument below shows a
     // modal file dialog, so no test can call it without a human clicking; everything
     // that happens AFTER the dialog returns is in here, where a test drives it with a
-    // path it wrote itself. main() takes this same path for argv[1], so the argument
-    // and the menu cannot drift apart -- which is the defect main_d2d.cpp has, where
+    // path it wrote itself. main() loads the command-line document through the same
+    // loadDocumentFromPath, so the argument and the menu cannot drift apart -- which is
+    // the defect main_d2d.cpp had, where
     // the load logic is two lambdas inside WinMain and the Qt side had to write its own.
     bool openDocument(const std::string& path);
 

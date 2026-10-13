@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <system_error>
 
+#include <QCoreApplication>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QList>
@@ -155,6 +156,13 @@ std::vector<std::string> sessionToRestore(const LaunchOptions& options, const Se
 std::string absoluteLaunchPath(const std::string& path) {
     if (path.empty()) return path;
     return QFileInfo(QString::fromStdString(path)).absoluteFilePath().toStdString();
+}
+
+std::vector<std::string> launchArguments() {
+    const QStringList all = QCoreApplication::arguments();
+    std::vector<std::string> args;
+    for (qsizetype i = 1; i < all.size(); i++) args.push_back(all[i].toStdString());
+    return args;
 }
 
 bool ownsSession(const LaunchOptions& options) {

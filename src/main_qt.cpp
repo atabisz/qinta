@@ -152,7 +152,9 @@ int main(int argc, char** argv) {
     // -style, -stylesheet and friends -- from argc/argv during construction, so parsing here
     // means `-platform offscreen` is Qt's business and never reaches `unknown`. Parsing before
     // construction would report every Qt switch as an unknown tinta option.
-    const tinta::LaunchOptions options = tinta::parseLaunchOptions(argc, argv);
+    // launchArguments, not argc/argv (2026-10-14): on Windows argv is in the ANSI code page and
+    // a non-ASCII path in it did not open. See qt_launch.h.
+    const tinta::LaunchOptions options = tinta::parseLaunchOptions(tinta::launchArguments());
 
     // Said out loud before anything is honoured, so the order of the output matches the order
     // of the command line's problems rather than the order this file happens to check them.
@@ -286,9 +288,9 @@ int main(int argc, char** argv) {
     // never swept to this file. updateWindowTitle is called once below, after the launch mode
     // is entered, and reads app.currentFile through the same toWide.
     //
-    // Removing fromLocal8Bit removes a SYMPTOM and not a cause: argv[1] still arrives from the
-    // Microsoft runtime in the ANSI code page, so a non-ASCII command-line path still fails to
-    // open. That is its own item and wants QCoreApplication::arguments().
+    // Removing fromLocal8Bit removed a SYMPTOM and not the cause, which was argv itself: the
+    // Microsoft runtime fills it in the ANSI code page, so a non-ASCII path did not open. The
+    // parse above reads tinta::launchArguments() instead, since 2026-10-14.
     // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
     // when a path was also given. With no file at all, the last session's active tab opens
     // (tinta::sessionToRestore has WinMain's conditions), and the rest of it joins the tab strip

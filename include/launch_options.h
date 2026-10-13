@@ -112,8 +112,10 @@ constexpr SlashPolicy kNativeSlashPolicy =
 LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
                                  SlashPolicy slashPolicy = kNativeSlashPolicy);
 
-// The argv-shaped overload both entry points actually call. It performs the argv[0] skip in
-// ONE place; that is its whole reason for existing.
+// The argv-shaped overload. It performs the argv[0] skip in ONE place; that is its whole reason
+// for existing. src/main_qt.cpp no longer calls it (2026-10-14): a Windows argv is in the ANSI
+// code page, so main() parses tinta::launchArguments() (qt_launch.h) instead, which skips the
+// program name itself. Use this one only where argv is already UTF-8.
 LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
                                  SlashPolicy slashPolicy = kNativeSlashPolicy);
 

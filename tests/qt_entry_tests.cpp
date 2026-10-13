@@ -517,6 +517,16 @@ int main(int argc, char** argv) {
     const QString platform = QApplication::platformName();
     std::printf("platform=%s\n", platform.toUtf8().constData());
 
+    // THE LIST main() PARSES (qt_launch.h). ctest starts this binary with no arguments, so it
+    // must be empty: the program name is skipped there rather than in parseLaunchOptions, and a
+    // list that kept it would hand the exe's own path over as the launch document.
+    {
+        const std::vector<std::string> args = tinta::launchArguments();
+        std::printf("launch_arguments n=%zu first=%s\n", args.size(),
+                    args.empty() ? "-" : args[0].c_str());
+        check(args.empty(), "launchArguments leaves out the program name");
+    }
+
     // The same guard tests/qt_text_tests.cpp carries, and for the same measured
     // reason: offscreen has a real font database OFF Windows and none ON it, so the
     // platform is pinned per OS in CMakeLists.txt. Without a font database the text

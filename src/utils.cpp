@@ -218,7 +218,7 @@ void copyFilePath(App& app, HWND hwnd, const std::string& path) {
 }
 
 void refuseWindowFeature(App& app, const char* what, const wchar_t* chip) {
-    std::fprintf(stderr, "qinta: %s is not available in the Qt build yet -- it needs the "
-                         "Win32 window stack\n", what);
+    std::fprintf(stderr, "qinta: %s is not available -- the window did not take the "
+                         "request\n", what);
     signalPush(app, SIG_WARN, SIGI_WARNING, chip);
 }

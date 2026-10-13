@@ -60,10 +60,11 @@ void launchTornOffTabWindow(int x, int y, const std::string& utf8Path);
 // The plain second launch, `qinta <path>`, for a macOS file-open event this window does not join
 // (include/qt_launch.h, openFileOpenEventDocument). Qt only: Windows starts that process itself.
 void launchSecondInstance(const std::string& utf8Path);
-// THE OTHER ARM OF THE SAME GUARD: where the Win32 window stack opens a window, every
-// other stack refuses by name -- a chip and a line on stderr, src/print_qt.cpp's two
-// channels. `what` names the feature on stderr; the chip is English only, for the reason
-// print_qt.cpp gives. Declared only here so tinta cannot reach it.
+// A window feature whose request no window took -- no window sink, no native window, or
+// a window system that did not keep the change -- is refused by name: a chip and a line on
+// stderr, src/print_qt.cpp's two channels. `what` names the feature on stderr; the chip is
+// English only, for the reason print_qt.cpp gives. Declared only here so tinta cannot
+// reach it.
 void refuseWindowFeature(App& app, const char* what, const wchar_t* chip);
 // openUrl IS GONE. Its ShellExecuteA body is platform::openExternalUrl in
 // include/platform_paths.h, with both halves already written; handleLinkClick below

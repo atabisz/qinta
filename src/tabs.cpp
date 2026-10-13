@@ -1099,10 +1099,10 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             return true;
         }
         if (hit.index == -4) {
-            // Pin: toggle always-on-top for this window. Off the Win32 window stack the request
-            // goes through the window sink (include/window_sink.h) since 2026-10-06, and
-            // alwaysOnTop flips only if a window took it -- so the pin never draws as set on a
-            // window that is not on top. With no window to take it, the click is refused by name.
+            // Pin: toggle always-on-top for this window. The request goes through the window
+            // sink (include/window_sink.h) since 2026-10-06, and alwaysOnTop flips only if a
+            // window took it -- so the pin never draws as set on a window that is not on top.
+            // When no window takes it, the click is refused by name.
             if (!middle) {
                 if (tinta::deliverStayOnTop(!app.alwaysOnTop)) {
                     app.alwaysOnTop = !app.alwaysOnTop;
@@ -1477,8 +1477,8 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
     // Clear of the strip: the tab floats as a ghost card until release
     float stripH = chromeTopHeight(app);
     bool outside = tinta::tabGhostShouldDetach(app.contentScale, (float)y, stripH);
-    // Off the Win32 window stack the same detach runs through the window sink since
-    // 2026-10-06 (include/window_sink.h): toScreen for the pointer's screen position and the
+    // The detach runs through the window sink since 2026-10-06 (include/window_sink.h),
+    // on every platform: toScreen for the pointer's screen position and the
     // ghost card's show/move/hide. A window that answers none of them keeps reordering, which
     // is what every Qt window did before.
     {

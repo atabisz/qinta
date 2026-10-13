@@ -561,6 +561,9 @@ set(QINTA_APP_SOURCES
     # The single-instance hand-off: a second launch hands its document to the running window
     # over QLocalSocket, WinMain's FindWindowW + WM_COPYDATA (2026-10-06).
     src/instance_channel_qt.cpp
+    # The macOS menu bar (2026-10-13), built only there but compiled everywhere, so the test
+    # that reads its items and replays its keys runs on every platform.
+    src/menu_bar_qt.cpp
     src/settings_app.cpp
     src/theme_apply_app.cpp
     src/theme_qt.cpp

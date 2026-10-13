@@ -51,6 +51,10 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned key);
 // ignored entirely when fromKeyboard is true (the menu opens centred).
 void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
                        bool fromKeyboard);
+// One of the drawn menus' CTX_* commands, run as a click on its item runs it,
+// then a repaint. For a caller outside those menus: the macOS menu bar's items
+// that have no key to replay (include/menu_bar_qt.h).
+void invokeMenuCommand(App& app, HWND hwnd, int command);
 // NOT ONLY TYPED TEXT. `character` also carries SHORTCUT ROUTING: under the vim
 // key profile the punctuation bindings are matched on the character rather than
 // the virtual key, so '?' reaching here is what opens Help, and a full-width

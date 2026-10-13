@@ -92,6 +92,8 @@
 #include <QDropEvent>
 #include <QEventLoop>
 #include <QFileOpenEvent>
+#include <QMenu>
+#include <QMenuBar>
 #include <QMimeData>
 #include <QFontDatabase>
 #include <QGuiApplication>
@@ -159,6 +161,7 @@
 #include "platform_paths.h"
 #include "print.h"
 #include "instance_channel_qt.h"
+#include "menu_bar_qt.h"  // populateMenuBar, keyStaysWithWindow
 #include "window_launch_qt.h"  // the relaunch test hook
 #include "utils.h"            // launchQuickNoteWindow, launchDocumentWindow  // the single-instance hand-off
 #include "print_qt.h"  // printDocumentTo, the testable half of the Qt print arm
@@ -5224,6 +5227,123 @@ int main(int argc, char** argv) {
         check(offShellTook,
               "file-open: with tabs off the start page still takes the document, launching nothing");
         std::filesystem::remove_all(openDir, openEc);
+    }
+
+    // ---- THE macOS MENU BAR (2026-10-13) ------------------------------------------------------
+    //
+    // main() installs it on macOS only, but it is built and driven here on every platform: on the
+    // offscreen platform a QMenuBar is an ordinary widget whose actions trigger() like the native
+    // ones. What is asserted is the design in menu_bar_qt.h -- an item with a key REPLAYS the key,
+    // so a click does what the keystroke does in each mode -- and the ShortcutOverride answer that
+    // keeps those keys with the window. Whether Cocoa respects that answer is not something this
+    // binary can see; it was measured with real posted keystrokes against the packaged app.
+    {
+        QtAppWindow menuWindow(app);
+        menuWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
+        menuWindow.resize(800, 500);
+        check(menuWindow.openDocument(tmpUtf8), "menu bar: the window has a document open");
+        grabWindow(menuWindow);
+
+        QMenuBar bar;
+        tinta::populateMenuBar(bar, app, menuWindow);
+        const QKeySequence ctrlA(QKeyCombination(Qt::ControlModifier, Qt::Key_A));
+        auto actionFor = [&bar](const QKeySequence& keys) -> QAction* {
+            for (QAction* top : bar.actions()) {
+                if (!top->menu()) continue;
+                for (QAction* item : top->menu()->actions()) {
+                    if (item->shortcut() == keys) return item;
+                }
+            }
+            return nullptr;
+        };
+        int menus = 0, items = 0, keyed = 0;
+        for (QAction* top : bar.actions()) {
+            if (!top->menu()) continue;
+            ++menus;
+            for (QAction* item : top->menu()->actions()) {
+                if (item->isSeparator()) continue;
+                ++items;
+                if (!item->shortcut().isEmpty()) ++keyed;
+            }
+        }
+        // File 7 (Settings moves to the application menu on macOS), Edit 3, Help 1; Export and Help
+        // have no key.
+        const bool shaped = menus == 3 && items == 11 && keyed == 9;
+
+        // Arm 1, reading: the menu's Select All and the key select the same thing.
+        app.hasSelection = false;
+        QAction* selectAll = actionFor(ctrlA);
+        if (selectAll) selectAll->trigger();
+        const bool menuSelected = app.hasSelection && app.selAnchor == 0 &&
+                                  app.selFocus == app.docText.size() && app.selFocus > 0;
+        app.hasSelection = false;
+        {
+            QKeyEvent press(QEvent::KeyPress, Qt::Key_A, Qt::ControlModifier);
+            QCoreApplication::sendEvent(&menuWindow, &press);
+            QKeyEvent release(QEvent::KeyRelease, Qt::Key_A, Qt::ControlModifier);
+            QCoreApplication::sendEvent(&menuWindow, &release);
+        }
+        const bool keySelected = app.hasSelection && app.selFocus == app.docText.size();
+        app.hasSelection = false;
+
+        // Arm 2, editing: the same item selects the EDITOR's buffer, not the document. The
+        // counter-case first: the drawn menu's CTX_SELECT_ALL, called directly as an item with no
+        // key would be, does NOT -- which is why an item with a key replays it.
+        const bool editBefore = app.editMode;
+        const std::wstring editorTextBefore = app.editorText;
+        app.editMode = true;
+        app.editorText = L"menu bar select all";
+        app.editorHasSelection = false;
+        invokeMenuCommand(app, nullptr, CTX_SELECT_ALL);
+        const bool commandMissedEditor = !app.editorHasSelection;
+        app.hasSelection = false;
+        if (selectAll) selectAll->trigger();
+        const bool menuSelectedEditor = app.editorHasSelection && app.editorSelStart == 0 &&
+                                        app.editorSelEnd == app.editorText.size();
+        app.editorHasSelection = false;
+        app.editorText = editorTextBefore;
+        app.editMode = editBefore;
+
+        // Arm 3, an item with no key runs the drawn menu's command.
+        app.showHelp = false;
+        for (QAction* top : bar.actions()) {
+            if (!top->menu()) continue;
+            for (QAction* item : top->menu()->actions()) {
+                if (item->text() == QString::fromWCharArray(tr(app, "ctx.help"))) item->trigger();
+            }
+        }
+        const bool helpOpened = app.showHelp;
+        app.showHelp = false;
+
+        // Arm 4, ShortcutOverride. Qt ignores the event before it asks, so this does too: an event
+        // left accepted would read as claimed whatever the window answered.
+        auto claimed = [&menuWindow](Qt::Key key, Qt::KeyboardModifiers mods) {
+            QKeyEvent ask(QEvent::ShortcutOverride, key, mods);
+            ask.ignore();
+            QCoreApplication::sendEvent(&menuWindow, &ask);
+            return ask.isAccepted();
+        };
+        const bool claimsRouted = claimed(Qt::Key_A, Qt::ControlModifier) &&
+                                  claimed(Qt::Key_S, Qt::ControlModifier | Qt::ShiftModifier) &&
+                                  claimed(Qt::Key_Comma, Qt::ControlModifier);
+        const bool leavesPlatform = !claimed(Qt::Key_Q, Qt::ControlModifier) &&
+                                    !claimed(Qt::Key_H, Qt::ControlModifier) &&
+                                    !claimed(Qt::Key_M, Qt::ControlModifier);
+
+        std::printf("menubar menus=%d items=%d keyed=%d menu_sel=%d key_sel=%d "
+                    "command_missed_editor=%d menu_sel_editor=%d help=%d claims=%d leaves=%d\n",
+                    menus, items, keyed, menuSelected, keySelected, commandMissedEditor,
+                    menuSelectedEditor, helpOpened, claimsRouted, leavesPlatform);
+        check(shaped, "menu bar: File, Edit and Help, 11 items, 9 of them showing a key");
+        check(selectAll && menuSelected && keySelected,
+              "menu bar: Select All from the menu selects the document, as Ctrl+A does");
+        check(commandMissedEditor,
+              "menu bar: COUNTER-CASE -- CTX_SELECT_ALL called directly misses the editor");
+        check(menuSelectedEditor,
+              "menu bar: while editing, the menu's Select All selects the editor's buffer");
+        check(helpOpened, "menu bar: an item with no key runs the drawn menu's command");
+        check(claimsRouted, "menu bar: the window claims keys it routes, so a menu cannot take them");
+        check(leavesPlatform, "menu bar: Cmd+Q, Cmd+H and Cmd+M stay the platform's");
     }
 
     // ---- TAB TEAR-OFF (slice 24), AND THE RELAUNCHES RUN AT LAST --------------------------

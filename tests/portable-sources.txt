@@ -1394,6 +1394,10 @@ window_launch_qt.cpp
 # qt_entry_tests, which hands a path from a second thread to a listening window.
 instance_channel_qt.cpp
 
+# The macOS menu bar (2026-10-13); linked into qinta everywhere, installed on macOS only, and
+# read and triggered by qt_entry_tests.
+menu_bar_qt.cpp
+
 # --- print_qt.cpp, the refusing Qt arm of print.cpp, NOT linked -----------------
 # SUPERSEDED 2026-10-06 by the section above. This file no longer defines the seven
 # refusals described below; it defines printDocument (still a refusal) and

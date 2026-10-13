@@ -302,6 +302,10 @@ const Entry kEntries[] = {
     { "ctx.theme", L"Theme", L"\u4E3B\u9898", L"\u30C6\u30FC\u30DE", L"\uD14C\uB9C8" },
     { "ctx.settings", L"Settings", L"\u8BBE\u7F6E", L"\u8A2D\u5B9A", L"\uC124\uC815" },
     { "ctx.help", L"Help", L"\u5E2E\u52A9", L"\u30D8\u30EB\u30D7", L"\uB3C4\uC6C0\uB9D0" },
+    // The macOS menu bar's titles (include/menu_bar_qt.h).
+    { "menu.file", L"File", L"\u6587\u4EF6", L"\u30D5\u30A1\u30A4\u30EB", L"\uD30C\uC77C" },
+    { "menu.edit", L"Edit", L"\u7F16\u8F91", L"\u7DE8\u96C6", L"\uD3B8\uC9D1" },
+    { "menu.help", L"Help", L"\u5E2E\u52A9", L"\u30D8\u30EB\u30D7", L"\uB3C4\uC6C0\uB9D0" },
 
     // ----- Settings dialog (post-#84 surface) -----
     { "settings.title", L"Settings", L"\u8BBE\u7F6E", L"\u8A2D\u5B9A", L"\uC124\uC815" },

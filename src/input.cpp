@@ -1768,6 +1768,11 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
     }
 }
 
+void invokeMenuCommand(App& app, HWND hwnd, int command) {
+    invokeContextMenuAction(app, hwnd, command);
+    requestRepaint(hwnd);
+}
+
 void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
                        bool fromKeyboard) {
     // App panels own both mouse buttons in either reading or editing mode.

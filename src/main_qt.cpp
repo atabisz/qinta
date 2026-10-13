@@ -85,6 +85,7 @@
 // item was one of the limits README.md's basis F measures.
 #include <QApplication>
 #include <QFileInfo>
+#include <QMenuBar>
 
 #include <cstdio>
 #include <string>
@@ -94,6 +95,7 @@
 #include "file_utils.h"
 #include "instance_channel_qt.h"
 #include "launch_options.h"
+#include "menu_bar_qt.h"
 #include "platform_paths.h"  // regularFileExists, for the output guard
 #include "print.h"           // printDebugPages
 #include "text_utils.h"      // toWide
@@ -402,6 +404,14 @@ int main(int argc, char** argv) {
         tinta::openFileOpenEventDocument(app, window, path);
     });
     qapp.installEventFilter(&fileOpenRouter);
+
+#ifdef __APPLE__
+    // The platform's menu bar: a QMenuBar with no parent is the one at the top of the screen.
+    // Not on Windows or Linux, where it would be a second bar inside a window that draws its own
+    // chrome and application menu. See menu_bar_qt.h for why its items replay keys.
+    QMenuBar menuBar(nullptr);
+    tinta::populateMenuBar(menuBar, app, window);
+#endif
 
     const int rc = QApplication::exec();
 

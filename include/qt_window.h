@@ -230,6 +230,9 @@ public:
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
 
 protected:
+    // ShortcutOverride only: a key the window routes is claimed before a menu-bar shortcut can
+    // fire, so the macOS menu bar shows keys without taking them (include/menu_bar_qt.h).
+    bool event(QEvent* event) override;
     void paintEvent(QPaintEvent* event) override;
     // A commit goes through handleCharInput one UTF-16 unit at a time, as typed characters do;
     // the composition in progress goes to App::imePreedit, which the editor draws at the caret.

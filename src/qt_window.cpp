@@ -36,6 +36,7 @@
 #include "file_utils.h"
 #include "input.h"
 #include "keyboard.h"
+#include "menu_bar_qt.h"  // keyStaysWithWindow
 #include "overlays.h"
 #include "paint_document.h"
 #include "render_frame.h"
@@ -435,6 +436,17 @@ void QtAppWindow::wheelEvent(QWheelEvent* event) {
 
     event->accept();
     update();
+}
+
+bool QtAppWindow::event(QEvent* event) {
+    // Before keyPressEvent, which is where these keys go once accepted. Without this a menu-bar
+    // shortcut would take Cmd+A from the editor and the router would never see it.
+    if (event->type() == QEvent::ShortcutOverride &&
+        tinta::keyStaysWithWindow(*static_cast<QKeyEvent*>(event))) {
+        event->accept();
+        return true;
+    }
+    return QWidget::event(event);
 }
 
 void QtAppWindow::keyPressEvent(QKeyEvent* event) {

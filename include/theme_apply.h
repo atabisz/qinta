@@ -4,6 +4,9 @@
 #include "app.h"
 #include "window_sink.h"  // tinta::WindowChrome
 
+#include <string>
+#include <vector>
+
 // Switching theme and rebuilding the text formats, for both stacks.
 //
 // applyTheme and updateTextFormats are PORTABLE and live in src/theme_apply_app.cpp. They
@@ -44,12 +47,47 @@ tinta::WindowChrome windowChromeFor(const App& app);
 // the title bar keeps the platform's colours. See src/theme_qt.cpp.
 void applyWindowChrome(App& app);
 
-// Builds the emoji/CJK font fallback chain once and hands it to the text factory. Called by
-// updateTextFormats on every format rebuild; the build is guarded, the handoff is not.
-// Qt: does nothing, because QFont resolves fallback per font from the system's own
-// configuration. The Windows chain's explicit CJK ordering by UI language therefore has no
-// Qt counterpart, and that is a divergence stated rather than solved.
+// Hands the emoji/CJK fallback families to the text factory, which holds them and applies
+// them to no layout: a layout gets them only where a caller asks, through
+// tinta::TextLayout::ApplyFontFallback, and there are four such callers. Called by
+// updateTextFormats on every format rebuild AND by installQtBackends at startup -- the
+// second because updateTextFormats is not on the Qt startup path at all (src/qt_init.cpp
+// says why), so the installer alone would never run at a default launch.
+//
+// The CJK ordering by UI language (#155) is live on every platform since 2026-10-12, where
+// this used to say it "has no Qt counterpart". It does: a QFont walks its families list in
+// order. What has no Qt counterpart is DirectWrite's per-RANGE mapping -- see
+// src/theme_qt.cpp for what that costs.
 void installFontFallback(App& app);
+
+// The ordered family list #155 is about, as a PURE function of a BCP 47 UI language tag:
+// "ja"/"ja-JP" lead with the Japanese faces, "ko"/"ko-KR" with the Korean ones, and
+// everything else -- including an unknown or empty tag -- takes the Simplified-Chinese-first
+// default the deleted Direct2D arm used. Each language's group carries the Windows, macOS and
+// Linux faces, and the emoji faces come last.
+//
+// Separated from installFontFallback, and declared here rather than left file-static, so the
+// ordering is testable WITHOUT depending on which families the host happens to have
+// installed -- which families resolve is Qt's business at shaping time, and asserting on it
+// would make this untestable in CI. Defined in src/theme_qt.cpp.
+std::vector<std::wstring> cjkFallbackFamilies(const std::wstring& uiLanguageTag);
+
+// The families of `families` the host has installed, in their original order. What
+// installFontFallback seats, with QFontDatabase::hasFamily as `installed`.
+//
+// NOT AN OPTIMISATION: an absent family is not free on macOS. NanumGothic is in Apple's
+// downloadable-font catalogue, so when Qt walks the list to it for a glyph nothing earlier
+// covers, QCoreTextFontDatabase::fallbacksForFamily asks CoreText to match it and CoreText
+// downloads the asset SYNCHRONOUSLY, blocking the layout until it lands. Measured 2026-10-13:
+// blockquote_layout and math_layout sat at 0% CPU in TDownloadableFontManager::Download from
+// 09:28, and the asset (com_apple_MobileAsset_Font8, NanumGothic.ttc) arrived at 10:12 -- 44
+// minutes. The CI job was killed at 55 without it. With this filter the suite runs in 12 s.
+// hasFamily enumerates installed faces, not downloadable ones, so it reads Nanum as absent --
+// and still does after the download. Pure, with the predicate passed in, so the filter is
+// testable on a host that has none of the families.
+std::vector<std::wstring> installedFamiliesOnly(
+    const std::vector<std::wstring>& families,
+    bool (*installed)(const std::wstring& family));
 
 // Fills app.systemFontFamilies, sorted, on first call; later calls do nothing.
 void enumerateSystemFontFamilies(App& app);

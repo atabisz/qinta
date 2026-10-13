@@ -36,6 +36,60 @@ the date given, not as a live reading.
   It is an unknown option now, and the path after it is an ordinary argument, not an output
   (`launch_options_tests`). The original item: **`--dumpchrome`** is refused (`src/main_qt.cpp`): its body was `chrome_dump_d2d.cpp`, deleted
   with the Direct2D stack. Port it onto the Qt render target or delete the switch.
+- [x] **CJK ideograph families follow the UI language (upstream #155). Done 2026-10-13, on the
+  second attempt; the first hung macOS CI and was reverted off master (`6a3586a`).**
+  **Why it hung, measured on a Mac.** One of the 26 families, `NanumGothic`, is not installed on
+  macOS but is in Apple's downloadable-font catalogue. When Qt walks a layout's list to it for a
+  glyph nothing earlier covers, `QCoreTextFontDatabase::fallbacksForFamily` asks CoreText to match
+  it, and CoreText downloads the asset synchronously. The sampled stack of the stuck test ends in
+  `TDownloadableFontManager::Download` → `CFMessagePortSendRequest`, at 0% CPU. On the Mac that
+  measured it the asset landed 44 minutes later; the CI job was killed at 55. The stuck tests were
+  `blockquote_layout` and `math_layout`, not `qt_entry` — the runner's cleanup named
+  `qt_entry_tests` as the orphan, and `qt_entry` alone passes in 2.5 s.
+  **Both earlier theories were wrong.** It was not CJK text in the test (the second push removed it
+  and hung again), not per-requested-family cost (a probe of 200 distinct font requests ran in
+  60-215 ms), and not the `hasFamily` call per layout.
+  **The fix:** `installFontFallback` seats only the families `QFontDatabase::hasFamily` confirms
+  (`installedFamiliesOnly`, `include/theme_apply.h`) — 5 of 26 on macOS. `hasFamily` enumerates
+  installed faces, not downloadable ones, so Nanum stays out even after a download. The full suite
+  went from two 120 s timeouts to 13 s on that Mac. **Every test now has a ctest `TIMEOUT` of
+  120 s** (`CMakeLists.txt`), so the next hang of this kind is a red naming the test in two
+  minutes rather than a stalled job.
+  **A second defect the macOS run found, in the test:** the Latin-width check laid out in
+  `QFontDatabase::families().front()`, which on macOS is `.Apple Symbols Fallback` — a private face
+  with no Latin glyphs — so it measured Qt's substitute before the apply and a CJK face after it. It
+  now uses a Latin, non-dot family. Real body fonts (Helvetica, Menlo, Times New Roman) read
+  identical widths with and without the macOS families appended.
+  **The design half, measured on Windows on 2026-10-12, stands.** `installFontFallback` was `void
+  installFontFallback(App&) {}` (`src/theme_qt.cpp`) under "nothing to install, QFont resolves
+  missing glyphs from the system's fallback configuration" — true of *whether* a glyph resolves and
+  false of the thing #155 is about. Han unification shares code points across Chinese, Japanese and
+  Korean while the shapes differ, so whichever family resolves first decides the variant every
+  ideograph is drawn with, and a QFont walks its families list in order. So the chain is an ordered
+  list per language (`cjkFallbackFamilies`), attached by `QtTextLayout::ApplyFontFallback`, which
+  was the second empty body. Each language's group carries the **Windows, macOS and Linux** faces.
+  `installFontFallback`'s only caller was `updateTextFormats`, which on this stack runs only from a
+  zoom mismatch or a theme change, so `installQtBackends` calls it at startup now. The append is
+  guarded on the layout's own family being installed, because Qt walks the list for a missing
+  family as well as a missing glyph.
+  *Dropped, and stated:* DirectWrite mapped families to Unicode **ranges**, so it could order kana
+  independently of ideographs. A families list is global to the font; ordering by UI language
+  survives, per-range ordering does not. *Not ported:* upstream #254's second chain for interface
+  text — one of the 42 upstream commits in "After 1.0.0".
+  **Tests** (`qt_entry`): the ordering off the pure function; the filter with a fake predicate;
+  the installer's seat against the installed subset, at startup and through `updateTextFormats`
+  (a sentinel pre-reading, so it grades on a host with none of the families); the chain's arrival
+  against a list the test seats from host families; Latin width unmoved against the installer's
+  seat; and every seated family loading its engine for U+E000. Three mutations each go red:
+  unfiltered installer (2), a filter that keeps everything (3), the old host-font choice (1).
+  **The U+E000 walk can only go red on a Mac that has not downloaded Nanum** — every fresh CI
+  runner, but no longer the Mac that measured this, which downloaded it during the measurement.
+  On the Linux job the installer's seat is empty, and `qt_entry` prints `cjk_startup UNWITNESSED`
+  rather than pretending an empty seat proves the call.
+  Fixture: `tests/fixtures/cjk-fallback-155.md`.
+  *Not witnessed:* nobody has compared a Japanese-locale render against a Chinese-locale one by
+  hand — the test grades the order, not the glyphs.
+
 - [x] **Input method (CJK) in the editor. Done 2026-10-12, and the item was worse than it said.**
   It read "CJK composition works but its candidate list does not follow the caret". In fact no
   widget set `Qt::WA_InputMethodEnabled`, so Qt kept every input method off and CJK text could

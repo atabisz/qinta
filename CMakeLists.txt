@@ -2961,6 +2961,20 @@ if(WIN32 AND Qt6_FOUND AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
     endif()
 endif()
 
+# A TIMEOUT on every test, so a hang is a red naming the test rather than a stalled job. On
+# 2026-10-12 the macOS job sat 55 minutes against a 4-minute baseline before the runner killed
+# it, and the only name in the log was the orphan the runner's cleanup reaped -- which was not
+# even the test that hung (blockquote_layout and math_layout were; NanumGothic, see
+# include/theme_apply.h). 120 s against a slowest measured test of 8.5 s (qt_entry, Windows)
+# and 2.5 s (macOS). A test given its own TIMEOUT keeps it.
+get_property(TINTA_TIMEOUT_TESTS DIRECTORY PROPERTY TESTS)
+foreach(tinta_test IN LISTS TINTA_TIMEOUT_TESTS)
+    get_test_property(${tinta_test} TIMEOUT tinta_test_timeout)
+    if(NOT tinta_test_timeout)
+        set_tests_properties(${tinta_test} PROPERTIES TIMEOUT 120)
+    endif()
+endforeach()
+
 # Install
 if(TARGET qinta)
     install(TARGETS qinta RUNTIME DESTINATION bin)

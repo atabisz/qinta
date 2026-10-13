@@ -88,6 +88,7 @@
 #include <QMenuBar>
 
 #include <cstdio>
+#include "i18n.h"  // loadLanguageOverrides
 #include <string>
 
 #include "app.h"
@@ -136,6 +137,12 @@ int main(int argc, char** argv) {
     // theme -- and before installQtBackends, which sizes the theme picker's preview formats
     // to themeCount() at install.
     loadCustomThemes();
+    // AND THE LANGUAGES, which WinMain loaded on the very next line and this file did not until
+    // 2026-10-14. Without it German, French and Italian -- seeded into the override table by this
+    // call, not compiled into a column -- drew every string in English, and languages.ini was
+    // never read on any platform. Before the settings load for the same reason as the themes: an
+    // ini-only language has no index until this registers it, so a saved one would fall back.
+    loadLanguageOverrides();
 
     // Before the window, because the first paint can arrive during show().
     installQtBackends(app);

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Mermaid diagrams (.mmd). shared-mime-info defines no Mermaid type and IANA has registered
+     none (both read 2026-10-13), so this is the unregistered x- name. The desktop entry lists the
+     same name in MimeType=, which is what makes Qinta an "Open With" choice for *.mmd. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-mermaid">
+    <comment>Mermaid diagram</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.mmd"/>
+  </mime-type>
+</mime-info>

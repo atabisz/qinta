@@ -74,8 +74,29 @@ cat > "$app/Contents/Info.plist" <<EOF
             <key>CFBundleTypeRole</key><string>Editor</string>
             <key>LSItemContentTypes</key>
             <array><string>net.daringfireball.markdown</string></array>
-            <key>CFBundleTypeExtensions</key>
-            <array><string>md</string><string>markdown</string><string>mmd</string></array>
+        </dict>
+        <dict>
+            <key>CFBundleTypeName</key><string>Mermaid diagram</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSItemContentTypes</key>
+            <array><string>io.github.atabisz.qinta.mermaid</string></array>
+        </dict>
+    </array>
+    <!-- macOS has no type for .mmd (it resolves to a dynamic dyn.* UTI that no document type can
+         name), and with LSItemContentTypes present a CFBundleTypeExtensions list is ignored -- so
+         mmd sat in the Markdown entry's extensions and associated nothing. This declares the
+         type; the second document type above claims it. -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key><string>io.github.atabisz.qinta.mermaid</string>
+            <key>UTTypeDescription</key><string>Mermaid diagram</string>
+            <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key><array><string>mmd</string></array>
+                <key>public.mime-type</key><array><string>text/x-mermaid</string></array>
+            </dict>
         </dict>
     </array>
 </dict>

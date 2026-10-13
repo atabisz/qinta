@@ -74,6 +74,12 @@ export APPIMAGE_EXTRACT_AND_RUN=1
 export LDAI_OUTPUT="qinta-$version-x86_64.AppImage"
 export OUTPUT="$LDAI_OUTPUT"
 
+# The .mmd MIME type travels in the AppDir, where a desktop integrator (or a person running
+# xdg-mime install on it) finds it beside the desktop entry that names it. linuxdeploy keeps
+# what is already in the AppDir.
+mkdir -p "$appdir/usr/share/mime/packages"
+cp "$root/packaging/linux/qinta-mermaid.xml" "$appdir/usr/share/mime/packages/qinta-mermaid.xml"
+
 cd "$out"
 "$tools/linuxdeploy-x86_64.AppImage" --appdir "$appdir" \
     --executable "$build/qinta" \
@@ -93,6 +99,10 @@ qt_libs=$(ldd "$appdir/usr/bin/qinta" | grep -c 'libQt6' || true)
 outside=$(ldd "$appdir/usr/bin/qinta" | grep 'libQt6' | grep -vc "$appdir" || true)
 if [ "$qt_libs" -lt 6 ] || [ "$outside" -ne 0 ]; then
     echo "package-linux: $qt_libs Qt libraries linked, $outside of them from outside the AppDir" >&2
+    exit 1
+fi
+if [ ! -f "$appdir/usr/share/mime/packages/qinta-mermaid.xml" ]; then
+    echo "package-linux: the AppDir has no Mermaid MIME package" >&2
     exit 1
 fi
 for plugin in platforms/libqxcb.so platforms/libqoffscreen.so imageformats/libqsvg.so tls/libqopensslbackend.so; do

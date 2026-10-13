@@ -51,7 +51,7 @@ stacks side by side, because that is how the work was done.
 beside it keeps its own registration (2026-10-07). As on every Windows 10 and 11 app, it then opens
 Settings > Default apps, because only the user can make it the default. Off Windows, `/register`
 is refused, and says how to make qinta the default there instead: the macOS app and the Linux
-AppImage declare Markdown files themselves. `--dumpchrome` was removed with the DirectWrite chrome formats it read back, and is now an unknown option.
+AppImage declare Markdown and Mermaid (`.mmd`) files themselves. `--dumpchrome` was removed with the DirectWrite chrome formats it read back, and is now an unknown option.
 There is no update check and no MSIX package.
 
 ## Download

@@ -221,12 +221,14 @@ int main(int argc, char** argv) {
     // says how to make it rather than only that it cannot be made here.
     if (options.forceRegister) {
 #ifdef __APPLE__
-        refuse("/register", "Qinta.app declares Markdown files itself; to make it the default, "
-                            "use Get Info > Open with > Change All on any .md file in Finder");
+        refuse("/register", "Qinta.app declares Markdown and Mermaid files itself; to make it the "
+                            "default, use Get Info > Open with > Change All on any .md or .mmd "
+                            "file in Finder");
 #else
         refuse("/register", "the desktop owns file associations; choose Qinta under Open With in "
-                            "your file manager (an AppImage's entry, which declares Markdown, "
-                            "appears once the AppImage is integrated into the desktop)");
+                            "your file manager (an AppImage's entry, which declares Markdown "
+                            "and Mermaid, appears once the AppImage is integrated into the "
+                            "desktop)");
 #endif
     }
 #endif

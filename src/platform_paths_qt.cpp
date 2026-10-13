@@ -1,6 +1,7 @@
 #include "platform_paths.h"
 
 #include <QByteArray>
+#include <QDate>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -512,6 +513,17 @@ void revealInFileManager(const std::wstring& path) {
     });
     proc->start(toQString(cmd.program), args);
 #endif
+}
+
+std::wstring formatMonthDay(int year, int month, int day, const std::string& localeName) {
+    // QLocale::system() is the user's REGION format (macOS Language & Region, LC_TIME
+    // on Linux), which is what LOCALE_NAME_USER_DEFAULT names on Windows, rather than
+    // the UI language the rest of the app follows. The same picture string as the
+    // Windows arm, so only the locale differs between the two.
+    const QLocale locale = localeName.empty()
+        ? QLocale::system()
+        : QLocale(QString::fromStdString(localeName));
+    return locale.toString(QDate(year, month, day), QStringLiteral("MMM d")).toStdWString();
 }
 
 RevealCommand revealCommandFor(const std::wstring& path) {

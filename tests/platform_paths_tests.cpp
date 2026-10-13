@@ -315,6 +315,30 @@ int main(int argc, char** argv) {
     check(replaced.find(static_cast<wchar_t>(0xFFFD)) != std::wstring::npos,
           "malformed UTF-8 becomes U+FFFD rather than being dropped");
 
+    // --- formatMonthDay -----------------------------------------------------
+    // The start page's date off Windows. Named locales, because the system one is
+    // whatever the machine has. The English reading pins the shape the C-locale
+    // strftime arm produced (no zero or space padding on the day); the other three
+    // are the point -- they used to read "Sep 14" too.
+    {
+        const std::wstring en = platform::formatMonthDay(2026, 9, 14, "en_US");
+        const std::wstring de = platform::formatMonthDay(2026, 9, 14, "de_DE");
+        const std::wstring ja = platform::formatMonthDay(2026, 9, 14, "ja_JP");
+        const std::wstring fr = platform::formatMonthDay(2026, 9, 14, "fr_FR");
+        std::cout << "formatMonthDay en='" << platform::toUtf8(en) << "' de='"
+                  << platform::toUtf8(de) << "' fr='" << platform::toUtf8(fr) << "' ja='"
+                  << platform::toUtf8(ja) << "'\n";
+        check(en == L"Sep 14", "en_US reads 'Sep 14', the shape the start page always had");
+        check(platform::formatMonthDay(2026, 9, 4, "en_US") == L"Sep 4",
+              "a one-digit day is not padded");
+        check(de != en && fr != en && de != fr,
+              "German and French months are their own, not English");
+        check(ja.find(L'\u6708') != std::wstring::npos,
+              "Japanese carries the month character");
+        check(!platform::formatMonthDay(2026, 9, 14).empty(),
+              "the system locale produces a date");
+    }
+
     // --- revealCommandFor ---------------------------------------------------
     // The command line revealInFileManager starts, read as data: running it would
     // bring a file manager forward on the machine running the suite. A relative

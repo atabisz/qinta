@@ -409,24 +409,12 @@ static std::wstring relativeWhen(App& app, unsigned long long when) {
         return buf;
     }
 #else
-    // A DIVERGENCE THAT IS REAL AND IS NOT HIDDEN: this is the C locale, so the month
-    // abbreviation is always English regardless of the user's system language, where
-    // the Windows arm above is localised. Stated rather than papered over, because a
-    // reader comparing screenshots deserves to know which half is the limitation.
-    // "%b %e" is strftime's abbreviated month plus space-padded day; the padding is
-    // then stripped so "Sep  4" reads "Sep 4" as GetDateFormatEx's "MMM d" does.
-    char narrow[48];
-    if (std::strftime(narrow, sizeof(narrow), "%b %e", &whenLocal) > 0) {
-        std::wstring out;
-        for (const char* p = narrow; *p; ++p) {
-            // ASCII by construction in the C locale, so a widening cast is the whole
-            // conversion; a multibyte decoder here would be machinery for a case that
-            // cannot arise.
-            if (*p == ' ' && !out.empty() && out.back() == L' ') continue;
-            out.push_back((wchar_t)(unsigned char)*p);
-        }
-        return out;
-    }
+    // Off Windows the same "MMM d" picture goes through QLocale::system(), so the
+    // month follows the user's region here too. Until 2026-10-13 this was strftime
+    // in the C locale, which this process never changes: always English.
+    std::wstring out = platform::formatMonthDay(whenLocal.tm_year + 1900,
+                                                whenLocal.tm_mon + 1, whenLocal.tm_mday);
+    if (!out.empty()) return out;
 #endif
     return tr(app, "start.today");
 }

@@ -276,6 +276,15 @@ struct RevealCommand {
 };
 RevealCommand revealCommandFor(const std::wstring& path);
 
+// "MMM d" -- abbreviated month, then day -- in the user's regional format: "Sep 14",
+// "14. Sept.", "9月 14". The start page's recent-file dates off Windows, where they
+// were the C locale's English month whatever the user's region. Windows keeps
+// GetDateFormatEx at the call site. `localeName` is a Qt locale name ("de_DE");
+// empty means the system locale, and only tests pass one, because the system locale
+// is resolved once per process and cannot be forced after it has been read.
+std::wstring formatMonthDay(int year, int month, int day,
+                            const std::string& localeName = {});
+
 // Do these two paths name the same file, by the platform's own case rule?
 //
 // This is a seam and not a helper because the answer differs by platform and

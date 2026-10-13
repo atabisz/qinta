@@ -35,8 +35,14 @@ fi
 version=${QINTA_VERSION:-$(git -C "$root" describe --tags --exact-match 2>/dev/null || git -C "$root" rev-parse --short HEAD)}
 short_version=$(sed -n 's/^project([a-z]* VERSION \([0-9.]*\).*/\1/p' "$root/CMakeLists.txt")
 arch=$(uname -m)
-app="$out/Qinta.app"
-rm -rf "$app" "$out"/qinta-*-macos-*.zip "$out/qinta.iconset"
+# ASSEMBLED OFF TO THE SIDE and moved into place only once it is signed. Built at its final path,
+# the bundle spent the minutes between macdeployqt rewriting the binary and the codesign below
+# holding an invalid signature, and an app launched in that window was killed by the kernel
+# (SIGKILL, Code Signature Invalid) before dyld got past its own header. That happened.
+final="$out/Qinta.app"
+stage="$out/.stage"
+app="$stage/Qinta.app"
+rm -rf "$stage" "$out"/qinta-*-macos-*.zip "$out/qinta.iconset"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$build/qinta" "$app/Contents/MacOS/qinta"
 
@@ -177,6 +183,10 @@ fi
 
 codesign --force --deep --sign - "$app"
 codesign --verify --deep --strict "$app"
+rm -rf "$final"
+mv "$app" "$final"
+rmdir "$stage"
+app="$final"
 
 zip="$out/qinta-$version-macos-$arch.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"

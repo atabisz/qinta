@@ -19,8 +19,6 @@ cmake-build-*/
 *.pdb
 
 # Packaging
-packaging/msix/out/
-*.msix
 *.pfx
 Package.StoreAssociation.xml
 

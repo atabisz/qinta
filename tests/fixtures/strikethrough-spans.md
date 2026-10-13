@@ -5,6 +5,9 @@ A `~~` or `==` pair spans the inline elements between its two halves, as on GitH
 next two pairs matched the wrong runs. Every line below should strike exactly the words named in
 it, and nothing else.
 
+The line crosses the middle of the lowercase letters, in code spans too. It used to sit on the
+baseline, where it read as an underline, and a code span inside a strike was not struck at all.
+
 Body ~~*struck italic*~~ and ~~plain struck~~, then plain again.
 
 ~~**struck bold**~~, ~~[a struck link](https://example.com) and words~~, ~~`struck code`~~.

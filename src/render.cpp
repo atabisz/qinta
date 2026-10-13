@@ -416,6 +416,14 @@ static float textGlyphHeight(App& app, tinta::TextFormat* format) {
     return height;
 }
 
+// Where a ~~strike~~ crosses a run of `format`, below the top of its drawn text: a third
+// of the ascent above the baseline, which is where Qt draws a font's own strike-out
+// (strike_layout_tests compares the two). It was a fixed fraction of the 1.7x line slot,
+// which put the line on the baseline, where it read as an underline.
+static float strikeDrop(App& app, tinta::TextFormat* format) {
+    return textBaseline(app, format) * (2.0f / 3.0f);
+}
+
 static float getSpaceWidth(App& app, tinta::TextFormat* format) {
     if (format == app.textFormat) return app.spaceWidthText;
     if (format == app.boldFormat) return app.spaceWidthBold;
@@ -582,6 +590,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         // ==highlight== hugs the glyphs where they are drawn, not the whole line slot,
         // which hung half a font-size of marker below the descenders
         float bgHeight = hasBg ? textGlyphHeight(app, format ? format : baseFormat) : 0.0f;
+        // Below the line's y, which moves as the run wraps
+        float strikeOffset = hasStrike ? drawYOffset + strikeDrop(app, format ? format : baseFormat) : 0.0f;
 
         std::wstring text;
 
@@ -625,6 +635,12 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                                  y + verticalOffset + info.height + chipPad)),
                     app.theme.codeBackground});
 
+                // Struck across the code's own glyphs, as GitHub strikes <del><code>
+                if (hasStrike) {
+                    float strikeY = y + verticalOffset + strikeDrop(app, format);
+                    app.layoutLines.push_back({tinta::pointF(x, strikeY),
+                                               tinta::pointF(x + textWidth, strikeY), color, 1.0f});
+                }
                 tinta::PointF pos = tinta::pointF(x, y + verticalOffset);
                 tinta::RectF bounds = tinta::rectF(x, y, x + textWidth, y + lineHeight);
                 addTextRun(app, std::move(info), pos, bounds, color,
@@ -667,7 +683,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                         bgColor});
                 }
                 if (hasStrike) {
-                    float strikeY = y + mathTextOffset + normalLineHeight * 0.55f;
+                    float strikeY = y + strikeOffset;
                     app.layoutLines.push_back({tinta::pointF(x, strikeY),
                                                tinta::pointF(x + w, strikeY), color, 1.0f});
                 }
@@ -946,7 +962,7 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                     bgColor});
             }
             if (hasStrike) {
-                float strikeY = y + mathTextOffset + normalLineHeight * 0.55f;
+                float strikeY = y + strikeOffset;
                 app.layoutLines.push_back({tinta::pointF(segX, strikeY),
                                            tinta::pointF(segX + segWidth, strikeY),
                                            color, 1.0f});

@@ -282,6 +282,14 @@ machine differ from CI's on 23, so the comparison can see a difference. A differ
 page size fails the run from now on; pixel differences are reported without failing, because a Qt
 release can move glyph rasterisation.
 
+**macOS and Linux joined it on 2026-10-14, for structure only.** Each of those jobs prints the same
+five fixtures twice and fails unless the two manifests are identical, so a page that differs
+between runs of one build on one host is caught there. `print-pages-agree` then fails if either
+leaves a fixture out or prints a page at a size other than the Windows pages'. Their page counts are
+in the job summary and are not compared: each OS draws in its own default fonts (Segoe UI,
+Helvetica Neue, DejaVu Sans), so line breaks and page breaks differ for reasons that are not
+defects.
+
 ### Status
 
 One row per slice, newest last, each with its own date. The detail of each slice, and the measurements

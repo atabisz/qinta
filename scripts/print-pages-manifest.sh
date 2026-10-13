@@ -75,7 +75,12 @@ for fixture in "${fixtures[@]}"; do
         # check-readme-figures.sh stopped using process substitution.
         size=$(od -An -tu1 -j16 -N8 "$dir/$png" |
             awk '{ printf "%dx%d", $1*16777216 + $2*65536 + $3*256 + $4, $5*16777216 + $6*65536 + $7*256 + $8 }')
-        sum=$(sha256sum "$dir/$png" | cut -d' ' -f1)
+        # macOS ships shasum, not GNU sha256sum
+        if command -v sha256sum >/dev/null; then
+            sum=$(sha256sum "$dir/$png" | cut -d' ' -f1)
+        else
+            sum=$(shasum -a 256 "$dir/$png" | cut -d' ' -f1)
+        fi
         echo "page $name $png $size $sum" >> "$manifest"
     done
     echo "print-pages: $fixture: $count pages"

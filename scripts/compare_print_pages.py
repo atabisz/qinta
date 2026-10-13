@@ -11,6 +11,13 @@ releases, and glyph rasterisation moves between Qt releases, so byte-identical p
 something these two builds can promise. Each differing page gets the share of its pixels that
 changed and the largest channel difference, so a reader can tell anti-aliasing from a moved
 line. That needs Pillow; without it the hashes are still compared and the pixel columns say so.
+
+    python3 scripts/compare_print_pages.py --structure <label>=<dir> <label>=<dir> ...
+
+Checks the STRUCTURE of every build's pages, for builds on different operating systems: each
+prints the reference's fixtures (the first build named), and every page has the reference's page
+size. Page counts are reported side by side and do NOT fail: each OS draws in its own default
+fonts, so line breaks, and with them page breaks, are not something two OSes can share.
 """
 import os
 import sys
@@ -45,7 +52,55 @@ def pixel_difference(a_path, b_path):
         return changed / (diff.width * diff.height), largest
 
 
+def structure(builds):
+    labels = [label for label, _ in builds]
+    manifests = {label: read_manifest(directory) for label, directory in builds}
+    ref_label = labels[0]
+    ref_pages, ref_files = manifests[ref_label]
+    if not ref_pages:
+        print(f"compare: {ref_label}'s manifest lists no fixtures", file=sys.stderr)
+        return 1
+    ref_size = {fixture: size for (fixture, _), (size, _) in ref_files.items()}
+
+    failures = []
+    rows = ["| Fixture | " + " | ".join(f"{label} pages" for label in labels) + " |",
+            "|---" * (len(labels) + 1) + "|"]
+    for fixture in sorted(ref_pages):
+        counts = []
+        for label in labels:
+            pages, files = manifests[label]
+            count = pages.get(fixture)
+            counts.append("-" if count is None else str(count))
+            if count is None:
+                failures.append(f"{label}: {fixture} was not printed")
+                continue
+            listed = [size for (fx, _), (size, _) in files.items() if fx == fixture]
+            if len(listed) != count:
+                failures.append(f"{label}: {fixture} reports {count} pages and lists {len(listed)}")
+            for size in listed:
+                if size != ref_size[fixture]:
+                    failures.append(f"{label}: {fixture} has a {size} page, {ref_label}'s are {ref_size[fixture]}")
+                    break
+        rows.append(f"| {fixture} | " + " | ".join(counts) + " |")
+
+    table = "\n".join(rows)
+    print(table)
+    summary = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary:
+        with open(summary, "a", encoding="utf-8") as f:
+            f.write("## Printed pages on every OS (counts reported, not compared)\n\n" + table + "\n")
+    for failure in failures:
+        print("FAIL: " + failure, file=sys.stderr)
+    return 1 if failures else 0
+
+
 def main(argv):
+    if len(argv) >= 3 and argv[1] == "--structure":
+        builds = [arg.split("=", 1) for arg in argv[2:]]
+        if any(len(build) != 2 for build in builds):
+            print("compare: --structure takes <label>=<dir> arguments", file=sys.stderr)
+            return 2
+        return structure(builds)
     if len(argv) != 3:
         print(__doc__.strip().splitlines()[2].strip(), file=sys.stderr)
         return 2

@@ -1,6 +1,7 @@
 #ifndef TINTA_TAB_GHOST_QT_H
 #define TINTA_TAB_GHOST_QT_H
 
+#include <QFont>
 #include <QImage>
 #include <QString>
 #include <QWidget>
@@ -32,6 +33,10 @@ namespace tinta {
 // drift this seam exists to prevent, and an antialiased path would put fringe alpha in the corners
 // where this arm must match Windows' hard cut.
 void tabGhostPaint(QImage& target, const TabGhostCard& card, const QString& title);
+
+// The title's font: the chrome's UI family (kDefaultFont, which the tab strip's own titles
+// use) at `pixelSize`. Separate so a test can read which family the card asks for.
+QFont tabGhostFont(int pixelSize);
 
 // The card as a live widget. Deliberately no Q_OBJECT: it has no signals, no slots and no
 // translations, so it needs no moc pass and cannot acquire one by accident.

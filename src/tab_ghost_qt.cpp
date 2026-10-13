@@ -1,4 +1,5 @@
 #include "tab_ghost_qt.h"
+#include "theme_data.h"
 
 #include <QColor>
 #include <QFont>
@@ -21,6 +22,15 @@ QColor toQColor(const Color& c) {
 }
 
 }  // namespace
+
+QFont tabGhostFont(int pixelSize) {
+    // Not a literal "Segoe UI", which this was on every platform: off Windows it resolved
+    // only through Qt's alias table, so the ghost drew in whatever Qt substituted while the
+    // tab strip drew in Helvetica Neue or DejaVu Sans.
+    QFont font(QString::fromWCharArray(kDefaultFont));
+    font.setPixelSize(pixelSize);
+    return font;
+}
 
 void tabGhostPaint(QImage& target, const TabGhostCard& card, const QString& title) {
     const TabGhostGeometry& g = card.geometry;
@@ -45,9 +55,9 @@ void tabGhostPaint(QImage& target, const TabGhostCard& card, const QString& titl
         painter.drawRoundedRect(QRectF(0.5, 0.5, g.width - 1.0, g.height - 1.0), g.radius, g.radius);
 
         // The title, elided rather than clipped, which is what DT_END_ELLIPSIS does on the other
-        // arm. Same family, same pixel size, same insets, same vertical centring.
-        QFont font("Segoe UI");
-        font.setPixelSize(static_cast<int>(g.fontHeight));
+        // arm. Same family as the tab it was torn from, same pixel size, same insets, same
+        // vertical centring.
+        const QFont font = tabGhostFont(static_cast<int>(g.fontHeight));
         painter.setFont(font);
         painter.setPen(toQColor(card.text));
         const QRect textRect(g.textLeftInset, 0, g.width - g.textRightInset - g.textLeftInset,

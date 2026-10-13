@@ -17,8 +17,10 @@
 // screen -- which is also why this can run under the tree's per-platform QPA pin rather than needing
 // its own.
 #include "tab_ghost_qt.h"
+#include "theme_data.h"
 
 #include <QFontDatabase>
+#include <QFontInfo>
 #include <QGuiApplication>
 #include <QImage>
 
@@ -242,6 +244,22 @@ int main(int argc, char** argv) {
         // idea of the size: the bottom-right would still be sentinel magenta.
         check(large.pixel(379, 34) != kSentinel && large.pixel(190, 67) != kSentinel,
               "QT CONTROL: and the far edges are not sentinel, so the whole image was covered");
+    }
+
+    // --- The title's family is the tab strip's ---------------------------------
+    // The ghost asks for kDefaultFont, the family the tab titles draw in, at the card's pixel
+    // size. Where that family is installed -- always on Windows and macOS -- Qt must resolve it
+    // to itself, which a literal "Segoe UI" off Windows did not: it came back as a substitute.
+    {
+        const QFont font = tinta::tabGhostFont(13);
+        const QString wanted = QString::fromWCharArray(kDefaultFont);
+        check(font.family() == wanted, "QT: the ghost asks for the chrome's UI family");
+        check(font.pixelSize() == 13, "QT: at the pixel size it is given");
+        const QString resolved = QFontInfo(font).family();
+        std::printf("tab ghost font: wanted '%s' resolved '%s'\n", wanted.toUtf8().constData(),
+                    resolved.toUtf8().constData());
+        if (QFontDatabase::hasFamily(wanted))
+            check(resolved == wanted, "QT: and resolves to that family, not a substitute");
     }
 
     // --- ISC-9 note: nothing above touched a native surface ------------------

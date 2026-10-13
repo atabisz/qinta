@@ -2627,6 +2627,9 @@ if(BUILD_TESTING)
             tinta_qt_app_test(blockquote_layout_tests blockquote_layout
                 tests/blockquote_layout_tests.cpp
                 TINTA_QUOTE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/blockquote-spacing.md")
+            tinta_qt_app_test(highlight_layout_tests highlight_layout
+                tests/highlight_layout_tests.cpp
+                TINTA_HIGHLIGHT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/highlight-layout.md")
             tinta_qt_app_test(html_layout_tests html_layout
                 tests/html_layout_tests.cpp
                 TINTA_HTML_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/html-align-links.md")

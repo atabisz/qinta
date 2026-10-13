@@ -405,6 +405,17 @@ static float textBaseline(App& app, tinta::TextFormat* format) {
     return baseline;
 }
 
+// Height of one laid-out line of `format` -- the glyph box, not the 1.7x line slot
+static float textGlyphHeight(App& app, tinta::TextFormat* format) {
+    float height = format->GetFontSize() * 1.2f;
+    if (auto probe = app.textFactory->CreateTextLayout(L"Ag", 2, format, 1000, 1000)) {
+        tinta::LineMetrics metrics{};
+        uint32_t count = 1;
+        if (probe->GetLineMetrics(&metrics, 1, &count)) height = metrics.height;
+    }
+    return height;
+}
+
 static float getSpaceWidth(App& app, tinta::TextFormat* format) {
     if (format == app.textFormat) return app.spaceWidthText;
     if (format == app.boldFormat) return app.spaceWidthBold;
@@ -568,6 +579,9 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
         bool hasStrike = run.style.hasStrike;
         tinta::Color bgColor = run.style.bgColor;
         float drawYOffset = run.style.drawYOffset + mathTextOffset;
+        // ==highlight== hugs the glyphs where they are drawn, not the whole line slot,
+        // which hung half a font-size of marker below the descenders
+        float bgHeight = hasBg ? textGlyphHeight(app, format ? format : baseFormat) : 0.0f;
 
         std::wstring text;
 
@@ -648,8 +662,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
                 float boxTop = y + drawYOffset + textBaseline - mathBoxBaseline(box);
                 if (hasBg) {
                     app.layoutRects.push_back({tinta::rectF(x - 2,
-                        std::min(boxTop, y + mathTextOffset + 1), x + w + 2,
-                        std::max(boxTop + mathBoxHeight(box), y + mathTextOffset + normalLineHeight - 1)),
+                        std::min(boxTop, y + drawYOffset), x + w + 2,
+                        std::max(boxTop + mathBoxHeight(box), y + drawYOffset + bgHeight)),
                         bgColor});
                 }
                 if (hasStrike) {
@@ -927,8 +941,8 @@ static void layoutInlineContent(App& app, const std::vector<ElementPtr>& element
             float segWidth = widthOf(segStart, segEnd);
             if (hasBg) {
                 app.layoutRects.push_back({
-                    tinta::rectF(segX - 2, y + mathTextOffset + 1, segX + segWidth + 2,
-                                y + mathTextOffset + normalLineHeight - 1),
+                    tinta::rectF(segX - 2, y + drawYOffset, segX + segWidth + 2,
+                                y + drawYOffset + bgHeight),
                     bgColor});
             }
             if (hasStrike) {

@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- `==highlight==` marks only the height of its text. The marker used to fill the whole line,
+  so a band of colour hung about half a letter's height below every highlighted word.
+
 ## [v1.0.0] - 2026-10-12
 
 Qinta 1.0.0: the port to one Qt 6 stack is finished. The same viewer and editor runs on Windows,

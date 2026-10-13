@@ -501,7 +501,8 @@ Windows; [Building](#building) has how to launch it per platform.
 
 To copy a document's full path, right-click the document or its tab (the filename
 in the title bar when only one file is open) and choose
-**Copy file path**, beside **Reveal in Explorer**. The tab menu copies the clicked
+**Copy file path**, beside **Reveal in Explorer** (**Reveal in Finder** on macOS, **Show in
+File Manager** on Linux), which opens the folder with the file selected. The tab menu copies the clicked
 tab's path, even if another tab is active. Untitled notes have no path until saved.
 
 ## File Association

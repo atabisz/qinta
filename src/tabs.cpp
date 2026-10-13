@@ -1181,7 +1181,7 @@ const TabMenuEntry TAB_MENU[TM_ITEM_COUNT] = {
     { "tab.menu.close_left",   L"",       false },
     { "tab.menu.close_right",  L"",       true  },
     { "tab.menu.copy_path",    L"",       false },
-    { "ctx.reveal",            L"",       false },
+    { I18N_KEY_REVEAL,         L"",       false },
 };
 
 float tabMenuItemHeight(const App& app) { return dpi(app, 30.0f); }

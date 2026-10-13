@@ -315,6 +315,46 @@ int main(int argc, char** argv) {
     check(replaced.find(static_cast<wchar_t>(0xFFFD)) != std::wstring::npos,
           "malformed UTF-8 becomes U+FFFD rather than being dropped");
 
+    // --- revealCommandFor ---------------------------------------------------
+    // The command line revealInFileManager starts, read as data: running it would
+    // bring a file manager forward on the machine running the suite. A relative
+    // path with a space, so the absolute-path step and the one-argument-per-path
+    // shape are both on the line.
+    {
+        const platform::RevealCommand cmd = platform::revealCommandFor(L"reveal dir/doc.md");
+#ifdef _WIN32
+        check(cmd.program.empty() && cmd.arguments.empty(),
+              "Windows reveals through ShellExecuteW, not a described process");
+#elif defined(__APPLE__)
+        check(cmd.program == L"/usr/bin/open", "macOS reveals through open");
+        check(cmd.arguments.size() == 2 && cmd.arguments[0] == L"-R",
+              "open is asked to REVEAL (-R), which selects, not to open the folder");
+        const std::wstring suffix = L"/reveal dir/doc.md";
+        check(cmd.arguments.size() == 2 && !cmd.arguments[1].empty() &&
+                  cmd.arguments[1][0] == L'/' && cmd.arguments[1].size() > suffix.size() &&
+                  cmd.arguments[1].compare(cmd.arguments[1].size() - suffix.size(),
+                                           suffix.size(), suffix) == 0,
+              "the revealed path is absolute and carried as ONE argument, space intact");
+#else
+        check(cmd.program == L"dbus-send", "Linux reveals through dbus-send");
+        auto has = [&](const std::wstring& a) {
+            for (const auto& x : cmd.arguments) if (x == a) return true;
+            return false;
+        };
+        check(has(L"org.freedesktop.FileManager1.ShowItems"),
+              "the FileManager1 ShowItems method is the one called");
+        check(has(L"--print-reply"),
+              "--print-reply, without which a missing service still exits 0 and "
+              "the folder fallback never runs");
+        bool uri = false;
+        for (const auto& x : cmd.arguments)
+            if (x.rfind(L"array:string:file:///", 0) == 0 &&
+                x.size() > 22 && x.find(L"/reveal%20dir/doc.md") != std::wstring::npos)
+                uri = true;
+        check(uri, "the item is an absolute, percent-encoded file:// URI");
+#endif
+    }
+
     // --- preferredUiLanguages ----------------------------------------------
     // openInDefaultApplication is deliberately NOT exercised here. Calling it
     // would launch a real application on the machine running the test suite,

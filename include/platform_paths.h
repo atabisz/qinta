@@ -256,16 +256,25 @@ void openExternalUrl(const std::string& url);
 // to openInDefaultApplication here would launch the editor the user was trying
 // to locate the file for.
 //
-// THE TWO HALVES ARE NOT AT PARITY AND THIS IS WHERE THAT IS WRITTEN DOWN.
-// Win32 has `explorer.exe /select,<path>`, which selects the entry. There is no
-// cross-desktop equivalent -- freedesktop.org defines no "reveal" verb, and the
-// file managers that do support one disagree on how to ask -- so the Qt half
-// opens the containing DIRECTORY and selects nothing. The folder still comes up
-// and the user still finds the file, one step short of where Windows puts them.
-// Named here rather than left to be discovered, the way openExternalUrl's ANSI
-// mangling is: a divergence a seam carries is only acceptable while it is
-// legible at the seam.
+// EVERY PLATFORM SELECTS THE ENTRY, BY A DIFFERENT ROUTE, AND ONE CAN FALL SHORT.
+// Windows: `explorer.exe /select,<path>`. macOS: `open -R`. Linux: the
+// org.freedesktop.FileManager1 ShowItems call, which the common file managers
+// implement and nothing requires -- so when it fails (no owner on the session bus,
+// no dbus-send) the seam opens the containing DIRECTORY and selects nothing, the
+// one-step-short answer every platform but Windows gave before 2026-10-13. Named
+// here rather than left to be discovered, the way openExternalUrl's ANSI mangling
+// is: a divergence a seam carries is only acceptable while it is legible at the
+// seam.
 void revealInFileManager(const std::wstring& path);
+
+// The process revealInFileManager starts off Windows, as data, so the command line
+// can be tested without starting a file manager. Empty `program` on Windows, whose
+// reveal is a ShellExecuteW call rather than a process. `path` is made absolute.
+struct RevealCommand {
+    std::wstring program;
+    std::vector<std::wstring> arguments;
+};
+RevealCommand revealCommandFor(const std::wstring& path);
 
 // Do these two paths name the same file, by the platform's own case rule?
 //

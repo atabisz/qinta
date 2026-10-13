@@ -1,6 +1,7 @@
 #include "i18n.h"
 #include "app.h"
 
+#include <cstring>
 #include <iostream>
 #include <string>
 
@@ -172,6 +173,33 @@ int main() {
     app.currentLanguageIndex = de;
     check(std::wstring(tr(app, "title.no_file")) == L"Qinta",
           "an untranslated key still falls back to English through the App overload");
+
+    // The file manager's name, per OS. Every shipped language carries both of the
+    // per-OS keys, and off Windows the key a caller is handed is NOT the Explorer
+    // one in any language -- the label used to say Explorer on all three OSes. On
+    // Windows the counter-case: the caller's key IS the Explorer one, unchanged.
+    for (int lang : {en, zh, de, fr, it, ja, ko}) {
+        for (const char* key : {"ctx.reveal.finder", "ctx.reveal.file_manager",
+                                "settings.open_in_tabs.hint.finder",
+                                "settings.open_in_tabs.hint.file_manager"}) {
+            // tr returns the key itself when no table has it.
+            check(std::wstring(tr(lang, key)) != std::wstring(key, key + std::strlen(key)),
+                  "every shipped language resolves the per-OS file-manager keys");
+            if (lang != en)
+                check(std::wstring(tr(lang, key)) != std::wstring(tr(en, key)),
+                      "the per-OS file-manager keys are translated, not English fallbacks");
+        }
+        const bool sameReveal =
+            std::wstring(tr(lang, I18N_KEY_REVEAL)) == std::wstring(tr(lang, "ctx.reveal"));
+        const bool sameHint = std::wstring(tr(lang, I18N_KEY_OPEN_IN_TABS_HINT)) ==
+                              std::wstring(tr(lang, "settings.open_in_tabs.hint"));
+#ifdef _WIN32
+        check(sameReveal && sameHint, "Windows keeps the Explorer labels");
+#else
+        check(!sameReveal, "off Windows the reveal label does not name Explorer");
+        check(!sameHint, "off Windows the open-in-tabs hint does not name Explorer");
+#endif
+    }
 
     if (failures == 0) {
         // The count is printed on success, which this test did not do for its

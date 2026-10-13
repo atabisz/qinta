@@ -1,4 +1,5 @@
 #include "overlays.h"
+#include "i18n.h"
 
 #include <algorithm>
 
@@ -15,7 +16,7 @@ const std::vector<ContextMenuEntry>& contextMenuEntries(const App& app) {
         {CTX_TOC, "ctx.toc", L"", true},
         {CTX_BROWSE, "ctx.browse", L"", false},
         {CTX_COPY_PATH, "tab.menu.copy_path", L"", false},
-        {CTX_REVEAL, "ctx.reveal", L"", true},
+        {CTX_REVEAL, I18N_KEY_REVEAL, L"", true},
         {CTX_THEME, "ctx.theme", L"", false},
         {CTX_SETTINGS, "ctx.settings", L"Ctrl+,", false},
         {CTX_HELP, "ctx.help", L"", false},

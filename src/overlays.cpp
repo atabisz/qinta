@@ -3041,7 +3041,7 @@ void renderSettingsOverlay(App& app) {
                        app.browserFocusPath, SET_TOGGLE_BROWSEFOCUS, anim);
         cy += rowCardH + cardGap;
         card(rowCardH);
-        cardLabel(tr(app, "settings.open_in_tabs"), tr(app, "settings.open_in_tabs.hint"), dpi(app, 60.0f));
+        cardLabel(tr(app, "settings.open_in_tabs"), tr(app, I18N_KEY_OPEN_IN_TABS_HINT), dpi(app, 60.0f));
         settingsToggle(app, cx + cw - cardPad - dpi(app, 40.0f),
                        cy + (rowCardH - dpi(app, 20.0f)) * 0.5f,
                        app.openInTabs, SET_TOGGLE_OPENTABS, anim);

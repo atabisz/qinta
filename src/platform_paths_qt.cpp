@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLocale>
+#include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QString>
@@ -21,7 +22,8 @@
 // same behaviour: executableDirectory (no instance-free Qt call), and on Windows
 // expandEnvironmentPlaceholders (ExpandEnvironmentStringsW, so %VAR% expands exactly
 // as it always did) and revealInFileManager (ShellExecuteW, so Explorer selects the
-// entry). Everything else is a choice between Qt calls.
+// entry). Everything else is a choice between Qt calls -- revealInFileManager's
+// macOS and Linux halves start a process through QProcess.
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -470,17 +472,78 @@ void revealInFileManager(const std::wstring& path) {
     ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr,
                   SW_SHOWNORMAL);
 #else
-    // The third Qt Gui call in this file, and the only seam here whose platforms
-    // do DIFFERENT amounts of work -- see the header. This opens the containing
-    // directory; it does not select the entry, because no portable way to ask for
-    // that exists off Windows.
+    // Off Windows the selecting call is a process (revealCommandFor), and the
+    // fallback is the third Qt Gui call in this file: open the containing directory,
+    // which is what this seam did everywhere off Windows before 2026-10-13.
     //
     // QFileInfo::absolutePath, not a manual search for the last separator: the
     // input may be relative, and absolutePath resolves against the working
     // directory rather than returning something the file manager cannot open.
-    QFileInfo info(toQString(path));
-    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absolutePath()));
+    const QString folder = QFileInfo(toQString(path)).absolutePath();
+    const RevealCommand cmd = revealCommandFor(path);
+    auto openFolder = [folder] {
+        QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+    };
+    if (cmd.program.empty()) {
+        openFolder();
+        return;
+    }
+    QStringList args;
+    for (const std::wstring& a : cmd.arguments) args << toQString(a);
+
+    // Started and watched rather than startDetached, because the fallback depends on
+    // the ANSWER: dbus-send exits non-zero when no file manager owns
+    // org.freedesktop.FileManager1 (a bare window manager, a minimal desktop), and
+    // startDetached only reports whether the program started. Asynchronous, so the
+    // UI thread never waits on the session bus; the process deletes itself.
+    auto* proc = new QProcess();
+    QObject::connect(proc, &QProcess::finished, proc,
+                     [proc, openFolder](int code, QProcess::ExitStatus status) {
+        if (status != QProcess::NormalExit || code != 0) openFolder();
+        proc->deleteLater();
+    });
+    QObject::connect(proc, &QProcess::errorOccurred, proc,
+                     [proc, openFolder](QProcess::ProcessError error) {
+        // FailedToStart never emits finished, so it is the one error that has to
+        // fall back here; the others are followed by finished, which already does.
+        if (error != QProcess::FailedToStart) return;
+        openFolder();
+        proc->deleteLater();
+    });
+    proc->start(toQString(cmd.program), args);
 #endif
+}
+
+RevealCommand revealCommandFor(const std::wstring& path) {
+    RevealCommand cmd;
+#if defined(_WIN32)
+    // Explorer is reached through ShellExecuteW in revealInFileManager, not a
+    // process this function could describe, so Windows has no command here.
+    (void)path;
+#else
+    const QString absolute = QFileInfo(toQString(path)).absoluteFilePath();
+#if defined(__APPLE__)
+    // `open -R` is LaunchServices' own reveal: Finder comes forward with the entry
+    // selected. One argument per file, so a path with spaces needs no quoting.
+    cmd.program = L"/usr/bin/open";
+    cmd.arguments = {L"-R", absolute.toStdWString()};
+#else
+    // freedesktop.org's FileManager1 interface, which Nautilus, Dolphin, Nemo, Caja
+    // and Thunar implement: ShowItems(as uris, s startup_id). Through dbus-send rather
+    // than QtDBus so the seam's link line stays Core + Gui on all 17 targets that
+    // build it. --print-reply is what makes the exit code carry the answer: without
+    // it dbus-send does not wait, and a missing service would still exit 0.
+    const QString uri = QString::fromUtf8(QUrl::fromLocalFile(absolute).toEncoded());
+    cmd.program = L"dbus-send";
+    cmd.arguments = {L"--session", L"--print-reply",
+                     L"--dest=org.freedesktop.FileManager1",
+                     L"--type=method_call", L"/org/freedesktop/FileManager1",
+                     L"org.freedesktop.FileManager1.ShowItems",
+                     (QStringLiteral("array:string:") + uri).toStdWString(),
+                     L"string:"};
+#endif
+#endif
+    return cmd;
 }
 
 bool documentPathsEqual(const std::string& a, const std::string& b) {

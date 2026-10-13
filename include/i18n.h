@@ -25,6 +25,21 @@ struct Language {
 
 extern const Language LANGUAGES[LANG_COUNT];
 
+// The strings that name the file manager have one key per OS, because the file
+// manager has a different name on each: Explorer, the Finder, and no single name on
+// Linux. Callers ask for these rather than a literal key. Windows keeps the original
+// keys, so a languages.ini that amends ctx.reveal there still applies.
+#if defined(_WIN32)
+constexpr const char* I18N_KEY_REVEAL = "ctx.reveal";
+constexpr const char* I18N_KEY_OPEN_IN_TABS_HINT = "settings.open_in_tabs.hint";
+#elif defined(__APPLE__)
+constexpr const char* I18N_KEY_REVEAL = "ctx.reveal.finder";
+constexpr const char* I18N_KEY_OPEN_IN_TABS_HINT = "settings.open_in_tabs.hint.finder";
+#else
+constexpr const char* I18N_KEY_REVEAL = "ctx.reveal.file_manager";
+constexpr const char* I18N_KEY_OPEN_IN_TABS_HINT = "settings.open_in_tabs.hint.file_manager";
+#endif
+
 struct App;
 
 // Resolve a translation key for the given language index.

@@ -335,8 +335,10 @@ int main(int argc, char** argv) {
               "German and French months are their own, not English");
         check(ja.find(L'\u6708') != std::wstring::npos,
               "Japanese carries the month character");
-        check(!platform::formatMonthDay(2026, 9, 14).empty(),
-              "the system locale produces a date");
+        // The system-locale reading is NOT here: it resolves QLocale::system(), which
+        // Qt caches, and on a machine whose environment names a language that cached
+        // answer is what the forced LANGUAGE below would then never replace. It sits
+        // after the preferredUiLanguages block instead.
     }
 
     // --- revealCommandFor ---------------------------------------------------
@@ -440,6 +442,14 @@ int main(int argc, char** argv) {
         check(tag != L"C" && tag != L"POSIX", "the C/POSIX locale is not a language");
     }
     check(platform::preferredUiLanguages() == tags, "the language list is stable across calls");
+
+    // formatMonthDay with no locale name, deliberately AFTER the first
+    // preferredUiLanguages() call: it reads QLocale::system(), and reading that
+    // before LANGUAGE is forced above pins the machine's own locale for the rest of
+    // the process (measured: LANG=en_AU.UTF-8, LANGUAGE=en_AU:en failed the zh
+    // control below with 8 en tags).
+    check(!platform::formatMonthDay(2026, 9, 14).empty(),
+          "the system locale produces a date");
 
     // POSITIVE CONTROL. Every assertion in the loop above passes vacuously on an
     // empty list, and an empty list is a legitimate result on a container with no

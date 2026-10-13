@@ -26,8 +26,12 @@ struct App;
 namespace tinta {
 
 // Fills `bar` with the application menu's Settings, File, Edit, View and Help, labelled in the UI
-// language at the time of the call. On macOS a QMenuBar with no parent is the global menu bar.
+// language. On macOS a QMenuBar with no parent is the global menu bar. The labels follow a later
+// language change: the bar relabels itself on the window's next paint after the index moves.
 void populateMenuBar(QMenuBar& bar, App& app, QWidget& window);
+
+// Redoes every title and item text from its translation key in the current UI language.
+void relabelMenuBar(QMenuBar& bar, const App& app);
 
 // The ShortcutOverride answer: true when `event` is a key the window routes, so Qt delivers it to
 // keyPressEvent instead of firing a menu shortcut. Every key the router could act on stays with

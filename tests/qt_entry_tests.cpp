@@ -5398,6 +5398,35 @@ int main(int argc, char** argv) {
         check(app.signalChips.empty() && !signalsNeedTicks(app),
               "menu bar: the find-and-replace arm leaves no animating signal chip");
 
+        // Arm 7, THE LABELS FOLLOW THE UI LANGUAGE. Settings moves currentLanguageIndex and asks
+        // for a repaint; the bar relabels on the window's next paint. Read the German text, then
+        // back to the starting language, so a bar that never relabels cannot pass either half.
+        auto titleOf = [&bar](const char* key) -> QString {
+            for (QAction* top : bar.actions())
+                if (top->data().toString() == QLatin1String(key)) return top->text();
+            return {};
+        };
+        // German is seeded by loadLanguageOverrides, as main() does at startup; without it every
+        // de/fr/it string is English and this arm would read English as "German".
+        loadLanguageOverrides();
+        const int langBefore = app.currentLanguageIndex;
+        const QString editBeforeText = titleOf("menu.edit");
+        app.currentLanguageIndex = languageIndexById("de");
+        grabWindow(menuWindow);
+        const QString editGerman = titleOf("menu.edit");
+        const QString zenGerman = zenItem ? zenItem->text() : QString();
+        app.currentLanguageIndex = langBefore;
+        grabWindow(menuWindow);
+        const QString editAfter = titleOf("menu.edit");
+        std::printf("menubar relabel before=[%s] de=[%s] zen_de=[%s] after=[%s]\n",
+                    editBeforeText.toUtf8().constData(), editGerman.toUtf8().constData(),
+                    zenGerman.toUtf8().constData(), editAfter.toUtf8().constData());
+        check(editGerman == QStringLiteral("Bearbeiten") &&
+                  zenGerman == QString::fromWCharArray(tr(languageIndexById("de"), "shortcuts.zen")),
+              "menu bar: a language change relabels the titles and items on the next paint");
+        check(!editBeforeText.isEmpty() && editAfter == editBeforeText,
+              "menu bar: and changing back restores the starting language's labels");
+
         std::printf("menubar menus=%d items=%d keyed=%d menu_sel=%d key_sel=%d "
                     "command_missed_editor=%d menu_sel_editor=%d help=%d claims=%d leaves=%d\n",
                     menus, items, keyed, menuSelected, keySelected, commandMissedEditor,

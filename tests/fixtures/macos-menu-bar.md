@@ -27,6 +27,8 @@ the menu bar at the top of the screen. Every item with a key must do what the ke
 - Press ⌥⌘F while reading: the editor opens with the replace row, as Ctrl+H does on
   Windows. ⌘H still hides Qinta.
 - Settings → Appearance: the zen-mode width hint names ⌃⌘F, not F11.
+- Settings → Language → Deutsch: the menu bar reads Ablage, Bearbeiten, Darstellung, Hilfe at
+  once, without a restart. Back to English restores File, Edit, View, Help.
 - [A link](https://example.com) and **bold** text are part of the selection.
 
 ```text

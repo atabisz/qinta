@@ -7,6 +7,8 @@
 #include <QKeySequence>
 #include <QMenu>
 #include <QMenuBar>
+#include <QObject>
+#include <QVariant>
 #include <QString>
 #include <QWidget>
 
@@ -24,6 +26,41 @@ QString label(const App& app, const char* key) {
     return QString::fromWCharArray(tr(app, key));
 }
 
+// Every item and menu title carries its translation key, so relabelMenuBar can redo the text.
+QAction* labelled(QAction* action, const char* key) {
+    action->setData(QString::fromLatin1(key));
+    return action;
+}
+
+QMenu* addMenu(QMenuBar& bar, const App& app, const char* key) {
+    QMenu* menu = bar.addMenu(label(app, key));
+    labelled(menu->menuAction(), key);
+    return menu;
+}
+
+// THE MENU FOLLOWS THE UI LANGUAGE. Settings changes app.currentLanguageIndex and asks for a
+// repaint, and nothing else hears about it, so the bar watches the window's paints and relabels
+// when the index has moved. One int compare per paint otherwise.
+class LanguageWatcher : public QObject {
+public:
+    LanguageWatcher(QMenuBar& bar, const App& app)
+        : QObject(&bar), bar_(bar), app_(app), labelled_(app.currentLanguageIndex) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override {
+        if (event->type() == QEvent::Paint && app_.currentLanguageIndex != labelled_) {
+            labelled_ = app_.currentLanguageIndex;
+            relabelMenuBar(bar_, app_);
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    QMenuBar& bar_;
+    const App& app_;
+    int labelled_;
+};
+
 // The key as the window would have received it: press and release, through sendEvent, so
 // keyPressEvent's own Ctrl+O and the router's modifier scope run exactly as for a keystroke.
 void replayKey(QWidget& window, Qt::Key key, Qt::KeyboardModifiers modifiers) {
@@ -38,7 +75,7 @@ void replayKey(QWidget& window, Qt::Key key, Qt::KeyboardModifiers modifiers) {
 void addKeyItem(QMenu& menu, const App& app, QWidget& window, const char* labelKey, Qt::Key key,
                 Qt::KeyboardModifiers modifiers,
                 QAction::MenuRole role = QAction::NoRole) {
-    QAction* action = menu.addAction(label(app, labelKey));
+    QAction* action = labelled(menu.addAction(label(app, labelKey)), labelKey);
     action->setShortcut(QKeySequence(QKeyCombination(modifiers, key)));
     action->setMenuRole(role);
     QObject::connect(action, &QAction::triggered, &window,
@@ -49,7 +86,7 @@ void addKeyItem(QMenu& menu, const App& app, QWidget& window, const char* labelK
 // window gets `key` as if it had been typed. For keys macOS takes before the window sees them.
 void addMacKeyItem(QMenu& menu, const App& app, QWidget& window, const char* labelKey,
                    QKeyCombination shown, Qt::Key key, Qt::KeyboardModifiers modifiers) {
-    QAction* action = menu.addAction(label(app, labelKey));
+    QAction* action = labelled(menu.addAction(label(app, labelKey)), labelKey);
     action->setShortcut(QKeySequence(shown));
     action->setMenuRole(QAction::NoRole);
     QObject::connect(action, &QAction::triggered, &window,
@@ -58,7 +95,7 @@ void addMacKeyItem(QMenu& menu, const App& app, QWidget& window, const char* lab
 
 // An item with no key: the drawn application menu's own command.
 void addCommandItem(QMenu& menu, App& app, const char* labelKey, int command) {
-    QAction* action = menu.addAction(label(app, labelKey));
+    QAction* action = labelled(menu.addAction(label(app, labelKey)), labelKey);
     action->setMenuRole(QAction::NoRole);
     QObject::connect(action, &QAction::triggered, action,
                      [&app, command]() { invokeMenuCommand(app, nullptr, command); });
@@ -69,7 +106,7 @@ void addCommandItem(QMenu& menu, App& app, const char* labelKey, int command) {
 void populateMenuBar(QMenuBar& bar, App& app, QWidget& window) {
     const Qt::KeyboardModifiers ctrl = Qt::ControlModifier;
 
-    QMenu* file = bar.addMenu(label(app, "menu.file"));
+    QMenu* file = addMenu(bar, app, "menu.file");
     addKeyItem(*file, app, window, "ctx.new", Qt::Key_N, ctrl);
     addKeyItem(*file, app, window, "ctx.open", Qt::Key_O, ctrl);
     file->addSeparator();
@@ -82,7 +119,7 @@ void populateMenuBar(QMenuBar& bar, App& app, QWidget& window) {
     addKeyItem(*file, app, window, "ctx.settings", Qt::Key_Comma, ctrl,
                QAction::PreferencesRole);
 
-    QMenu* edit = bar.addMenu(label(app, "menu.edit"));
+    QMenu* edit = addMenu(bar, app, "menu.edit");
     addKeyItem(*edit, app, window, "ctx.copy", Qt::Key_C, ctrl);
     addKeyItem(*edit, app, window, "ctx.select_all", Qt::Key_A, ctrl);
     edit->addSeparator();
@@ -96,14 +133,28 @@ void populateMenuBar(QMenuBar& bar, App& app, QWidget& window) {
     // key and fn+F11 is Show Desktop, so the window never sees it. ⌃⌘F is the platform's
     // full-screen key. Qt prints Meta as ⌃ on macOS, and Ctrl as ⌘. The item calls the command
     // rather than replaying a key: the router reads ⌃⌘F as ⌘F, which is search.
-    QMenu* view = bar.addMenu(label(app, "menu.view"));
-    QAction* zen = view->addAction(label(app, "shortcuts.zen"));
+    QMenu* view = addMenu(bar, app, "menu.view");
+    QAction* zen = labelled(view->addAction(label(app, "shortcuts.zen")), "shortcuts.zen");
     zen->setShortcut(QKeySequence(zenMenuKey()));
     zen->setMenuRole(QAction::NoRole);
     QObject::connect(zen, &QAction::triggered, zen, [&app]() { toggleZenMode(app, nullptr); });
 
-    QMenu* help = bar.addMenu(label(app, "menu.help"));
+    QMenu* help = addMenu(bar, app, "menu.help");
     addCommandItem(*help, app, "ctx.help", CTX_HELP);
+
+    window.installEventFilter(new LanguageWatcher(bar, app));
+}
+
+void relabelMenuBar(QMenuBar& bar, const App& app) {
+    auto relabel = [&app](QAction* action) {
+        const QByteArray key = action->data().toString().toLatin1();
+        if (!key.isEmpty()) action->setText(label(app, key.constData()));
+    };
+    for (QAction* top : bar.actions()) {
+        relabel(top);
+        if (!top->menu()) continue;
+        for (QAction* item : top->menu()->actions()) relabel(item);
+    }
 }
 
 QKeyCombination findReplaceMenuKey() {

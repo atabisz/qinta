@@ -25,38 +25,55 @@ bool isMarker(const App& app, tinta::Color c) {
     return c.r > 0.95f && c.g > 0.75f && c.b < 0.3f && closeEnough(c.a, alpha, 0.01f);
 }
 
-size_t layout(App& app, const std::string& source) {
+struct Counts { size_t highlights = 0, mathInHighlight = 0; };
+
+Counts layout(App& app, const std::string& source) {
     auto doc = app.parser.parse(source);
     check(doc.success, "highlight fixture parses");
     app.root = doc.root;
     layoutDocument(app);
-    size_t highlights = 0;
-    std::function<void(const qmd::ElementPtr&)> visit = [&](const qmd::ElementPtr& e) {
+    Counts counts;
+    std::function<void(const qmd::ElementPtr&, bool)> visit = [&](const qmd::ElementPtr& e, bool marked) {
         if (!e) return;
-        if (e->type == qmd::ElementType::Highlight) ++highlights;
-        for (const auto& child : e->children) visit(child);
+        if (e->type == qmd::ElementType::Highlight) { ++counts.highlights; marked = true; }
+        if (marked && e->type == qmd::ElementType::MathInline) ++counts.mathInHighlight;
+        for (const auto& child : e->children) visit(child, marked);
     };
-    if (doc.success) visit(doc.root);
-    return highlights;
+    if (doc.success) visit(doc.root, false);
+    return counts;
 }
 
+struct Markers { size_t total = 0, math = 0; };
+
 // Every marker over text matches that text's glyph box. A marker over inline math is
-// left alone: it grows to the math box on purpose. Returns the marker count.
-size_t checkMarkers(const App& app) {
-    size_t markers = 0;
+// only counted: it grows to the math box on purpose, and how far depends on the font,
+// so its geometry is not the glyph line's. Counting it keeps that leniency from hiding
+// a text marker: the caller caps it at the math spans inside highlights.
+Markers checkMarkers(const App& app) {
+    Markers markers;
     for (const auto& item : app.layoutRects) {
         if (!isMarker(app, item.color)) continue;
-        ++markers;
+        ++markers.total;
         const auto& r = item.rect;
         const App::LayoutTextRun* under = nullptr;
+        bool overMath = false;
         for (const auto& run : app.layoutTextRuns) {
             if (!run.layout || run.pos.x < r.left || run.pos.x > r.left + 4) continue;
+            if (run.docLength == 0) {
+                // A math glyph: inside the marker's span, not necessarily enclosing it
+                if (run.bounds.bottom > r.top && run.bounds.top < r.bottom) overMath = true;
+                continue;
+            }
             if (run.bounds.top > r.top + 1 || run.bounds.bottom < r.bottom - 1) continue;
             under = &run;
             break;
         }
+        if (!under && overMath) { ++markers.math; continue; }
+        if (!under)
+            std::cerr << "unmatched marker " << r.left << ',' << r.top << ' '
+                      << r.right << ',' << r.bottom << '\n';
         check(under != nullptr, "every marker covers a run");
-        if (!under || under->docLength == 0) continue;
+        if (!under) continue;
         tinta::LineMetrics metrics{};
         uint32_t count = 1;
         check(under->layout->GetLineMetrics(&metrics, 1, &count), "marked run has line metrics");
@@ -90,17 +107,21 @@ int main(int argc, char** argv) {
                 for (int width : {1050, 650}) {
                     app.width = width;
                     layout(app, "Plain ==highlight== text.\n");
-                    check(checkMarkers(app) == 1, "one marker for one highlight");
+                    Markers plain = checkMarkers(app);
+                    check(plain.total == 1 && plain.math == 0, "one text marker for one highlight");
 
                     layout(app, "==A highlight long enough to wrap onto a second line at every "
                                 "width this test lays out, so each wrapped line carries its own "
                                 "marker, and every one of them is as tall as its text and no "
                                 "taller than the glyphs it sits behind.==\n");
-                    check(checkMarkers(app) >= 2, "a wrapped highlight is marked on each line");
+                    check(checkMarkers(app).total >= 2, "a wrapped highlight is marked on each line");
 
-                    const size_t highlights = layout(app, fixture);
-                    check(highlights >= 15, "fixture highlights parse");
-                    check(checkMarkers(app) >= highlights, "every fixture highlight is marked");
+                    const Counts counts = layout(app, fixture);
+                    check(counts.highlights >= 15, "fixture highlights parse");
+                    const Markers marked = checkMarkers(app);
+                    check(marked.total >= counts.highlights, "every fixture highlight is marked");
+                    check(marked.math <= counts.mathInHighlight,
+                          "only markers over highlighted math skip the glyph check");
                     check(app.docText.find(L"==not a highlight inside code==") != std::wstring::npos,
                           "highlight syntax inside code stays literal");
                     check(app.docText.find(L"Closing paragraph") != std::wstring::npos,

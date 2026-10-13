@@ -9,7 +9,7 @@
 //
 // `tinta::monitorsFromQt()` (src/qt_launch.cpp) is what the Qt arm feeds to choosePlacement. The
 // question ISC-17 asks is whether the Win32 arm's own enumeration -- EnumDisplayMonitors plus
-// GetMonitorInfoW, which is what src/main_d2d.cpp's placement path has always used -- describes the
+// GetMonitorInfoW, which is what the retired src/main_d2d.cpp's placement path always used -- describes the
 // SAME displays. A port that silently changes which rectangles the placement decision is made over
 // has changed the decision, and every green in the portable placement suite would stay green through
 // it, because that suite is handed its monitors as data.
@@ -35,8 +35,8 @@ std::vector<MonitorArea> monitorsFromWin32();
 // while Qt 6 reports QScreen::geometry() in LOGICAL pixels -- physical divided by the screen's
 // devicePixelRatio. So the two enumerations can only be compared as equal where every ratio is 1,
 // and an agreement read without knowing that is an agreement that expires the moment somebody
-// scales a display. src/main_d2d.cpp calls SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2) at
-// WinMain entry; this reports what the TEST process ended up with rather than assuming it matches.
+// scales a display. The retired src/main_d2d.cpp called SetProcessDpiAwarenessContext(PER_MONITOR_AWARE_V2)
+// at WinMain entry; this reports what the TEST process ended up with rather than assuming it matches.
 const char* processDpiAwareness();
 
 }  // namespace tinta

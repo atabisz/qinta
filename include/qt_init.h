@@ -4,11 +4,11 @@
 // The Qt half of App's backend installation: the two calls that put a Qt
 // implementation into App's seam storage.
 //
-// This is the counterpart to what src/d2d_init.cpp does with seat<D2DRenderTarget>
-// and seat<D2DTextFactory>, and it is a separate file for the same reason
-// render_qt.cpp is separate from render_d2d.cpp: nothing off Windows can produce a
-// native COM pointer, so seat() is unreachable there and Seated<>::install() is the
-// only door. That door had ZERO callers until this file existed -- include/seated.h
+// This was the counterpart to what the retired src/d2d_init.cpp did with
+// seat<D2DRenderTarget> and seat<D2DTextFactory>, and a separate file for the same
+// reason render_qt.cpp was separate from render_d2d.cpp: nothing off Windows can produce
+// a native COM pointer, so Seated<>::install() was the only door there. Since 0b39ae6 it
+// is the only installer on every platform. That door had ZERO callers until this file existed -- include/seated.h
 // said so in its own comment, and a template member with no callers had never been
 // instantiated, so nothing had ever type-checked it.
 //
@@ -22,8 +22,8 @@
 // device that has moved on at worst. That asymmetry is why installation is one
 // function and the render target is an RAII type rather than both being one call.
 //
-// Direct2D does not have this split -- an ID2D1HwndRenderTarget is device-lifetime
-// and BeginDraw/EndDraw bracket the frame -- which is why App's storage has no
+// Direct2D did not have this split -- an ID2D1HwndRenderTarget was device-lifetime
+// and BeginDraw/EndDraw bracketed the frame -- which is why App's storage has no
 // scoping helper today and why this one lives on the Qt side rather than in app.h.
 
 #include <memory>
@@ -44,8 +44,8 @@ class RenderTarget;
 // process-lifetime side because QtBrush holds a colour and no device.
 //
 // THE FORMATS ARE THE THIRD THING AND THEY WERE FOUND BY A CRASH, which is worth
-// recording at the declaration rather than only at the definition. On Windows they come
-// from updateTextFormats in src/d2d_init.cpp, a file with no non-Windows half, so off
+// recording at the declaration rather than only at the definition. On Windows they came
+// from updateTextFormats in the retired src/d2d_init.cpp, a file with no non-Windows half, so off
 // Windows App had a text factory and every one of app.textFormat,
 // app.headingFormats[0..5], app.codeFormat and the bold/italic combinations null. The
 // first document handed to a Qt window segfaulted in src/render.cpp:378 on the null.
@@ -61,9 +61,10 @@ class RenderTarget;
 // The real split, as it was measured then: 11 declarations of DOCUMENT formats -- 16
 // objects, because nativeHeadingFormats is a [6] -- plus the 3 of the per-theme preview
 // triple, plus TEN chrome (search, signals, theme title, theme header, stats, folder
-// browser, both TOC, editor text, editor gutter). The ten agree with what
-// updateOverlayFormats assigns in src/d2d_init.cpp, which is the authority on which formats
-// are chrome; the member list is only a proxy for it. This call creates those ten.
+// browser, both TOC, editor text, editor gutter). The ten agreed with what
+// updateOverlayFormats assigned in the retired src/d2d_init.cpp, then the authority on which
+// formats are chrome; installChromeFormats in src/text_formats_app.cpp is that authority now,
+// and the member list is only a proxy for it. This call creates those ten.
 // Corrected rather than deleted, because the figure appeared in two files and a reader who
 // checks one and not the other should find the same number -- and it had TWO different
 // wrong explanations before this one, so the derivation is written down here rather than

@@ -1630,9 +1630,10 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 // CITED BY FUNCTION, NOT BY LINE, because the line form of this
                 // sentence was wrong twice over: `input.cpp:3640` had drifted, and
                 // then the function it pointed at LEFT input.cpp altogether --
-                // launchDocumentWindow is src/quicknote_win32.cpp now, beside
-                // launchQuickNoteWindow and for the same reason. What remains in
-                // input.cpp is the guarded CALL, which is what this sentence means.
+                // launchDocumentWindow is in src/window_launch_qt.cpp now, beside
+                // launchQuickNoteWindow (the retired src/quicknote_win32.cpp held both
+                // first). What remains in input.cpp is the CALL, which is what this
+                // sentence means.
                 //
                 // ANSWERED 2026-10-06: Ctrl+Shift+N opens a new window on both stacks now --
                 // src/window_launch_qt.cpp is the Qt arm, and qinta honours --new.

@@ -342,8 +342,8 @@ text_utils_app.cpp
 # the paragraph above applies unchanged rather than by analogy: installQtChromeFormats and
 # ensureQtThemePreviewFormats were both already on this manifest under qt_init.cpp, both
 # already running under tests/qt_entry_tests.cpp, so this is again a body crossing a line
-# here and not a portable surface growing. `updateOverlayFormats` is gone from
-# src/d2d_init.cpp, which now creates no text format of any kind.
+# here and not a portable surface growing. `updateOverlayFormats` went from
+# src/d2d_init.cpp, which created no text format of any kind from then until it was retired.
 #
 # ONE THING WAS GENUINELY NEW AND IT IS NOT COVERAGE, IT IS A CONTRACT: the merged
 # installChromeFormats releases before it installs. Neither original body needed that --
@@ -364,13 +364,14 @@ text_formats_app.cpp
 # things, and only two of them were Windows at all:
 #
 #   * measureText(IDWriteTextFormat*) -- moved to src/d2d_init.cpp, whose
-#     updateTextFormats holds all four of its callers in the tree. This is what needed
+#     updateTextFormats held all four of its callers in the tree. This is what needed
 #     dwrite.h. Its portable twin was ALREADY in text_utils_app.cpp, so the file had been
 #     unbuildable off Windows for one function nothing but the Direct2D initialiser used.
-#   * launchQuickNoteWindow -- moved to src/quicknote_win32.cpp, which must never appear
-#     here. This is what needed shellapi.h. There is no Qt half and that is deliberate:
-#     it re-launches the executable with `--cascade --new`, and `--new` cannot be honoured
-#     on the Qt arm, so a Qt half would open a window and decline to make it a quick note.
+#   * launchQuickNoteWindow -- moved to src/quicknote_win32.cpp, which was never to appear
+#     here. This is what needed shellapi.h. There was no Qt half then, deliberately: it
+#     re-launched the executable with `--cascade --new`, and `--new` could not be honoured
+#     on the Qt arm, so a Qt half would have opened a window and declined to make it a quick
+#     note. Since 2026-10-06 src/window_launch_qt.cpp is its only definition, on every platform.
 #
 #     THIS BLOCK HAS NOW BEEN CORRECTED TWICE AND THE SECOND CORRECTION REFUTES PART OF THE
 #     FIRST. 2026-09-19 it read "src/main_qt.cpp parses a file argument and nothing else, so
@@ -388,7 +389,7 @@ text_formats_app.cpp
 #     seam, and the middle link is src/input.cpp, now 4,394 lines reading `fatal 0,
 #     errors 98` rather than fatal on windowsx.h -- and still scoring ZERO under the
 #     README's native-mention pattern, so it is a windowing port and not a Direct2D one.
-#     Read the full argument at the comment in src/quicknote_win32.cpp; this copy exists
+#     The full argument was the comment in the retired src/quicknote_win32.cpp; this copy exists
 #     because the claim was here too and a correction remembered in one place is a
 #     correction half made -- which is why this file is being corrected a second time
 #     rather than left at a wording that was accurate for two days.
@@ -881,8 +882,8 @@ mermaid_uml.cpp
 # day: 33 stream constructions under src/ and include/ outside the Qt backends, 19
 # already portable, 14 live C58, of which 9 sat behind a fatal include and so could never
 # have appeared in a compiler-derived figure. The 11 in portable-destined files were
-# fixed the same day; the 3 left are in main_d2d.cpp, image_win32.cpp and
-# chrome_dump_d2d.cpp, which the cutover deletes or which are per-backend by design.
+# fixed the same day; the 3 left were in main_d2d.cpp, image_win32.cpp and
+# chrome_dump_d2d.cpp, all three deleted with the Direct2D stack in 0b39ae6.
 # The full derivation, including why the compiler is the cross-check and not the
 # denominator, is in src/file_utils.cpp above loadDocumentFromPath.
 #
@@ -939,7 +940,7 @@ render.cpp
 # paint_document.cpp. The document paint pass -- 332 lines lifted verbatim out of
 # src/main_d2d.cpp's WM_PAINT, where it was unreachable from any other stack -- plus the
 # viewport arithmetic it needs. Compiled, linked and RUN off Windows by qt_entry_tests,
-# and compiled on Windows into the tinta binary that has always run it.
+# and compiled on Windows into qinta, as it was into the retired tinta binary.
 #
 # THE CLAIM ON THIS LINE IS NARROWER THAN THE FILE. What being on this manifest says is
 # that a non-Windows compiler accepts it. What makes the line worth anything is a
@@ -1045,9 +1046,9 @@ scroll.cpp
 # latch from the same function. Compiled, linked and RUN off Windows by qt_entry_tests,
 # and compiled with NO Qt by portable_compile_only.
 #
-# THIS ONE IS A DELETION, WHICH paint_document.cpp ABOVE IS NOT: that file stands BESIDE a
+# THIS ONE WAS A DELETION, WHICH paint_document.cpp ABOVE WAS NOT: that file stood BESIDE a
 # Windows copy. (scroll.cpp did too, until its copy of input.cpp's numbers was deleted on
-# 2026-09-25 -- see its block.) This file has no second copy: main_d2d.cpp calls it. So "both stacks draw the same scrollbar" is a claim about the
+# 2026-09-25 -- see its block.) This file has no second copy: the retired main_d2d.cpp called it, and src/render_frame.cpp's renderFrame does now. So "both stacks draw the same scrollbar" was a claim about the
 # PROGRAM here and not just about a file, which is the shape the other two are aiming for.
 #
 # WHY IT IS NOT A QScrollBar, since that is what the slice was scoped as: tinta's scrollbar
@@ -1064,16 +1065,16 @@ scrollbar.cpp
 
 # --- The frame, compiled AND RUN off Windows -------------------------------------
 #
-# src/main_d2d.cpp's render() body, moved 2026-10-06 so the Qt window draws tinta's whole frame.
-# Linked into qinta and qt_entry_tests; the Windows render() is its Direct2D bracket.
+# The retired src/main_d2d.cpp's render() body, moved 2026-10-06 so the Qt window draws tinta's
+# whole frame. Linked into qinta and qt_entry_tests; QtAppWindow::paintEvent is its bracket.
 render_frame.cpp
 
 # --- The Qt frontend: the entry point the whole port is aimed at ---------------
 #
 # These three are a DIFFERENT KIND of entry from everything above. Every other line
 # in this file is a file that used to need Windows and stopped; these were written
-# for the Qt stack and have never had a Windows half at all. They are the beginning
-# of what replaces src/main_d2d.cpp rather than a portability repair.
+# for the Qt stack and have never had a Windows half at all. They were the beginning
+# of what replaced the retired src/main_d2d.cpp rather than a portability repair.
 #
 # LINKED AND RUN, not compile-only: tests/qt_entry_tests.cpp constructs the same
 # QtAppWindow src/main_qt.cpp runs, grabs it, and reads the pixels back. It is the
@@ -1149,14 +1150,14 @@ main_qt.cpp
 # --- The launch CONVENTION: three files neither arm owns -----------------------
 #
 # A FOURTH KIND OF ENTRY, and the distinction is the reason these three are not folded
-# into the section above. Those files are the Qt frontend. These are shared BY BOTH
-# ARMS -- WinMain in src/main_d2d.cpp calls every one of them -- so they are not a
-# portability repair and not part of what replaces the Direct2D entry point either.
+# into the section above. Those files are the Qt frontend. These were shared BY BOTH
+# ARMS -- WinMain in the retired src/main_d2d.cpp called every one of them -- so they are not
+# a portability repair and were not part of what replaced the Direct2D entry point either.
 # They are the shape include/win32_command_line.h named: an algorithm over values,
 # which is neither a type that can be stood in for nor a call that cannot be.
 #
 # launch_options.cpp is the ONE parse. It reads thirteen options in sixteen spellings,
-# and both entry points call it, which is its whole point -- two if/else chains that
+# and both entry points called it, which was its whole point -- two if/else chains that
 # agree today are two that disagree later. It replaced a loop inside WinMain that
 # promoted an unrecognised flag to a FILENAME and then dropped the real filename, so
 # `tinta --light notes.md` opened nothing; tests/launch_options_tests.cpp opens with
@@ -1177,9 +1178,10 @@ main_qt.cpp
 # cannot fail on a defect planted in main()'s copy. tests/qt_entry_tests.cpp calls the
 # same functions main_qt.cpp does.
 #
-# Its Win32 counterpart has no file: monitor ENUMERATION stays platform work and lives
-# in src/main_d2d.cpp, because MonitorFromRect and QScreen::availableGeometry are
-# genuinely different calls returning the same kind of value. Only the DECISION moved.
+# Its Win32 counterpart had no file: monitor ENUMERATION stayed platform work and lived
+# in the retired src/main_d2d.cpp, because MonitorFromRect and QScreen::availableGeometry are
+# genuinely different calls returning the same kind of value. Only the DECISION moved. On
+# every platform now the monitors come from qt_launch.cpp's monitorsFromQt.
 # tests/win32_monitor_dump.cpp is the test instrument that compares the two
 # enumerations and must never appear here: it is a TEST file, in one target, and it is
 # not in ${QINTA_APP_SOURCES} -- compiling it into the app would ship a second monitor
@@ -1206,9 +1208,10 @@ qt_launch.cpp
 #
 # SUPERSEDED 2026-09-25 FOR LINKS, RECORDED 2026-09-29: overlays.cpp, tabs.cpp and
 # input.cpp are all in QINTA_APP_SOURCES since the key router, so this file LINKS. RUNS
-# is still NO, for a different reason than the one above: input.cpp runs now, but nothing
-# off Windows DRAWS an overlay. Fifteen of its sixteen render* functions are called only
-# from src/main_d2d.cpp; CMakeLists.txt's overlays.cpp entry names the sixteenth.
+# was still NO then, for a different reason than the one above: input.cpp ran, but nothing
+# off Windows DREW an overlay. Fifteen of its sixteen render* functions were called only
+# from src/main_d2d.cpp; CMakeLists.txt's overlays.cpp entry names the sixteenth. Since
+# 2026-10-06 they are called from src/render_frame.cpp's renderFrame, which qinta runs.
 #
 # The count above it is why the number in the last paragraph moved: 23 of 24 becomes
 # 22 of 23, and the file-count bases in README.md all shifted with it.
@@ -1229,7 +1232,8 @@ overlays.cpp
 # the hero draws without its mark -- and that is a gap, not a regression, because this
 # file had never compiled off Windows at all before today.
 # SUPERSEDED 2026-09-25 FOR LINKS: this file is in QINTA_APP_SOURCES with the key
-# router, so it links. RUNS is still no: renderStartPage's only caller is src/main_d2d.cpp.
+# router, so it links. RUNS was still no then: renderStartPage's only caller was
+# src/main_d2d.cpp. Since 2026-10-06 it is src/render_frame.cpp's renderFrame, which qinta runs.
 #
 # THE MEASUREMENT NOTE THAT MATTERS HERE IS THE OPPOSITE ONE TO overlays.cpp ABOVE. This
 # file read 0 errors on its FIRST compile after the port, which by this tree's own rule
@@ -1288,8 +1292,8 @@ tab_ghost.cpp
 # render_qt.cpp above: the Qt targets are opt-in, so this arm's ABSENCE would be
 # silent, and a listed-but-not-compiled file fails MISSING instead of passing quietly.
 #
-# Its Win32 counterpart, src/tab_ghost_win32.cpp, must NEVER appear here -- it calls
-# CreateWindowExW and UpdateLayeredWindow and is in the Windows-only ${SOURCES} target.
+# Its Win32 counterpart, src/tab_ghost_win32.cpp (deleted in 0b39ae6), must NEVER appear
+# here -- it called CreateWindowExW and UpdateLayeredWindow and was Windows-only.
 # probe-portable-linux.sh asserts its absence by name, alongside main_d2d.cpp, rather
 # than relying on this manifest's silence about a file nobody listed.
 tab_ghost_qt.cpp
@@ -1352,10 +1356,10 @@ zen_mode_qt.cpp
 #
 # applyTheme and updateTextFormats, moved out of src/d2d_init.cpp on 2026-09-24 because
 # input.cpp's link needed them and neither named a Windows type. qt_entry_tests calls both,
-# so these are linked and executed, not compile-only. src/theme_qt.cpp is the Qt arm of the
-# three backend hooks in include/theme_apply.h; the Windows arm stays in src/d2d_init.cpp,
-# which must never appear here. Nor must src/window_chrome_win32.cpp (slice 13): the four DWM
-# title-bar calls both Windows stacks make, which qinta links under WIN32 only. theme_qt.cpp's
+# so these are linked and executed, not compile-only. src/theme_qt.cpp is the only arm of the
+# three backend hooks in include/theme_apply.h; the Windows arm was in the retired
+# src/d2d_init.cpp. src/window_chrome_win32.cpp (slice 13) must never appear here: the four DWM
+# title-bar calls, which qinta links under WIN32 only. theme_qt.cpp's
 # applyWindowChrome reaches it through the window sink, never by name.
 theme_apply_app.cpp
 theme_qt.cpp

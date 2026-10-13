@@ -172,10 +172,10 @@ void populateFolderItems(App& app) {
 // Read a document off disk and put it in App. The Qt entry point's whole command line.
 //
 // WHY IT IS A NAMED FUNCTION IN A PORTABLE FILE rather than the body of an `if` in
-// main(). src/main_d2d.cpp has the other shape and it is the reason this function had
-// to be written at all: the equivalent logic there is two lambdas INSIDE WinMain --
-// `loadDocumentContent` at :1765 and `loadFile` at :1777 -- so nothing outside that
-// function can call it, no test can reach it, and src/main_qt.cpp could not reuse a
+// main(). The retired src/main_d2d.cpp had the other shape and it is the reason this
+// function had to be written at all: the equivalent logic there was two lambdas INSIDE
+// WinMain -- `loadDocumentContent` and `loadFile` -- so nothing outside that function
+// could call it, no test could reach it, and src/main_qt.cpp could not reuse a
 // line of it. Eleven lines of duplication was the cheap option; this is the one that
 // leaves a caller for the second frontend and a target for a test.
 //
@@ -184,7 +184,7 @@ void populateFolderItems(App& app) {
 // it was an honest reading of a call it turned out nobody could make.
 //
 // THE ifstream IS THE INTERESTING PART, and it is C58's fix pattern rather than
-// another instance of C58's defect. main_d2d.cpp's loadFile does this:
+// another instance of C58's defect. The retired main_d2d.cpp's loadFile did this:
 //
 //     std::wstring widePath = toWide(path);
 //     std::ifstream file(widePath);          // <-- MSVC extension, no POSIX spelling
@@ -226,12 +226,12 @@ void populateFolderItems(App& app) {
 //
 // C58 IS NOW CLOSED IN EVERY FILE DESTINED TO BE PORTABLE. The 11 live sites in
 // input.cpp, pandoc.cpp, export_docx.cpp and print.cpp were fixed on 2026-09-20. THREE
-// REMAIN, each for a stated reason rather than because nobody counted it: main_d2d.cpp's
-// loadFile above, which the Qt cutover deletes; image_win32.cpp's, paired with
-// image_qt.cpp through CMake's PLATFORM_IMAGE_SOURCE so it is never compiled off
-// Windows, and documented as per-backend at the site; and chrome_dump_d2d.cpp's, which
-// goes with the D2D backend. Re-derive rather than quote: the classification is a grep
-// for stream constructions plus a read of each argument's declared type.
+// REMAINED, each for a stated reason rather than because nobody counted it: main_d2d.cpp's
+// loadFile above; image_win32.cpp's, paired with image_qt.cpp through CMake's
+// PLATFORM_IMAGE_SOURCE so it was never compiled off Windows; and chrome_dump_d2d.cpp's.
+// All three files were deleted with the Direct2D stack in 0b39ae6. Re-derive rather than
+// quote: the classification is a grep for stream constructions plus a read of each
+// argument's declared type.
 //
 // ANNOTATIONS ARE STILL DELIBERATELY NOT PARSED HERE, and the paragraph that used to
 // sit here PREDICTED THE WRONG TRIGGER, so it is corrected in place rather than

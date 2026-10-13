@@ -66,11 +66,10 @@
 // Two things about this batch are worth pointing at, both of them shapes that mislead a
 // reader rather than the compiler.
 //
-// VK_F10 has a SECOND user, src/main_d2d.cpp:1169 -- and that site is not why it is here.
-// main_d2d.cpp is Windows-only by construction and takes the <windows.h> arm below, so it
-// has never needed a fallback and never will. A reader who greps VK_F10, finds two sites
-// and concludes the Direct2D file justified the admission would have the rule backwards:
-// the code is admitted because a file DESTINED TO BE PORTABLE names it. Windows-only sites
+// VK_F10 had a SECOND user, in the retired src/main_d2d.cpp -- and that site was never why
+// it is here. main_d2d.cpp was Windows-only by construction and took the <windows.h> arm
+// below, so it never needed a fallback. Both users now are in src/input.cpp handleKeyDown,
+// the file DESTINED TO BE PORTABLE that the admission was always for. Windows-only sites
 // are invisible to this block on purpose.
 //
 // VK_OEM_COMMA is 0xBC and sits three below the VK_OEM_2 (0xBF) already here, in a range

@@ -111,12 +111,11 @@
 //     own by the 73 sites that create and measure a layout without drawing it,
 //     and the reasoning behind its cut -- which turned out to contradict the plan
 //     of record -- is long enough to deserve its own file to be argued in.
-//   * Text ANTIALIASING. SetTextAntialiasMode and SetTextRenderingParams are one
-//     site each, both in src/d2d_init.cpp, and both are ClearType gamma tuning on
-//     a device this seam does not own. d2d_init.cpp is the Direct2D backend's own
-//     construction and will never be portable, so those two sites keep talking to
-//     the Direct2D object directly rather than being smuggled through a portable
-//     interface that only one backend could mean anything by.
+//   * Text ANTIALIASING. SetTextAntialiasMode and SetTextRenderingParams were one
+//     site each, both in the retired src/d2d_init.cpp, and both were ClearType gamma
+//     tuning on a device this seam does not own. They talked to the Direct2D object
+//     directly and went with the Direct2D stack, rather than being smuggled through a
+//     portable interface that only one backend could mean anything by.
 //   * Object creation and device lifetime. BeginDraw/EndDraw, CreateSolidColorBrush,
 //     resize and device-loss handling are backend-specific in kind, not just in
 //     implementation: D2D's EndDraw returns an HRESULT that callers inspect, and
@@ -204,8 +203,8 @@
 //         unconditionally rather than at app.useHardwareRT's discretion, so the
 //         instrument cannot become a function of the driver for any caller.
 //         THIS SENTENCE SAID "AND THE OLD BODY RASTERISED ON THE GPU" UNTIL THE
-//         HASHES WERE READ, and that was wrong: useHardwareRT starts false and
-//         src/main_d2d.cpp returns from --printpages ~40 lines before it starts the
+//         HASHES WERE READ, and that was wrong: useHardwareRT starts false and the
+//         retired src/main_d2d.cpp returned from --printpages ~40 lines before it started the
 //         GPU warm-up, so the harness path was ALREADY software and all 143 baseline
 //         pages came back byte-identical. Holding an ID2D1Device is not evidence of
 //         hardware rasterisation, which is the inference that produced the error.
@@ -244,11 +243,12 @@
 //         not a direct one -- but the reason written here was wrong until 2026-09-20.
 //         It read: "src/print.cpp appears exactly once in CMakeLists.txt, in the
 //         application target, so no test binary compiles renderPeekBitmap itself."
-//         SIX targets compile that file: it is in set(SOURCES), and CMakeLists re-uses
-//         SOURCES as INPUT_TEST_SOURCES minus src/main_d2d.cpp alone, so five test
-//         binaries carry it besides the app. What makes this arm indirect is not the
-//         build but the coverage -- none of those six calls renderPeekBitmap, and the
-//         two targets holding these assertions do not compile the file at all.
+//         SIX targets compiled that file then: it was in set(SOURCES), and CMakeLists
+//         re-used SOURCES as INPUT_TEST_SOURCES minus the retired src/main_d2d.cpp alone,
+//         so five test binaries carried it besides the app. What made this arm indirect
+//         was not the build but the coverage -- none of those six called renderPeekBitmap
+//         (tests/qt_entry_tests.cpp calls it now), and the two targets holding these
+//         assertions did not compile the file at all.
 //         Compiled is not covered, and a count of a file's appearances in CMakeLists'
 //         TEXT says nothing about how many TARGETS consume it.
 //         WHAT THIS DID NOT BUY, AT THE TIME: src/print.cpp stayed Windows-bound and
@@ -256,8 +256,8 @@
 //         dialog stayed. (They moved to src/print_win32.cpp on 2026-10-06, and
 //         print.cpp joined the manifest.) One Direct2D-terminal BODY and this seam's second caller is
 //         the whole of it. (printDebugPages made it TWO bodies and a third caller
-//         on 2026-09-20, and the sentence above still holds for the file: the
-//         printer dialog and the XPS package target are what keep it here.)
+//         on 2026-09-20; the printer dialog and the XPS package target were what kept
+//         the file Windows-bound until 2026-10-06.)
 //     THE COUNT IN THE OLD ENTRY WAS WRONG, and wrong in the way a comment count
 //     usually is: it said "CreateBitmap 2" having grepped only src/render.cpp. The
 //     tree has THREE CPU-buffer sites -- the two in src/render.cpp and the print
@@ -301,7 +301,7 @@ namespace tinta {
 //
 // BOTH VALUES ARE LIVE, and an earlier version of this comment said otherwise. It
 // claimed all 9 PushAxisAlignedClip sites pass D2D1_ANTIALIAS_MODE_ALIASED. Five
-// do (src/editor.cpp x2, src/editrail.cpp, src/main_d2d.cpp, src/overlays.cpp);
+// do (src/editor.cpp x2, src/editrail.cpp, src/render_frame.cpp, src/overlays.cpp);
 // the other four pass D2D1_ANTIALIAS_MODE_PER_PRIMITIVE (src/overlays.cpp x3,
 // src/tabs.cpp). The method count was right and the uniformity was invented. It
 // matters because render_qt.cpp branches on this value, and a reader who believed
@@ -536,9 +536,9 @@ public:
     // static type, so App::renderTarget cannot become a tinta::RenderTarget*
     // until the calls made THROUGH it are all expressible here.
     //
-    // The defaulted options argument matters: 104 of the 106 DrawText sites pass
-    // nothing, and the two that do (main_d2d.cpp, math_render.cpp) pass
-    // EnableColorFont. Both forms bind without an edit.
+    // The defaulted options argument matters: no DrawText site in src/ passes one,
+    // and the two EnableColorFont sites (paint_document.cpp, math_render.cpp) are
+    // DrawTextLayout calls. Every site binds without an edit.
     virtual void DrawText(const wchar_t* string, uint32_t stringLength,
                           TextFormat* format, const RectF& layoutRect, Brush* brush,
                           DrawTextOptions options = DrawTextOptions::None) = 0;

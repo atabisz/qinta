@@ -244,7 +244,7 @@ struct TextRange {
 // Qt stack ran with two empty sets. The builders are now tinta::bodyTypographySet()
 // and tinta::codeTypographySet() in include/text_formats.h, App-free and inline so a
 // header-only test can call them, seated onto App by installTypography() in
-// src/text_formats_app.cpp, which BOTH stacks call. Do not read the five tags below
+// src/text_formats_app.cpp, which src/qt_init.cpp calls. Do not read the five tags below
 // as cosmetic: on the DirectWrite backend, installing no set at all differs from the
 // shipped rendering on 85 of 121 printed pages.
 //

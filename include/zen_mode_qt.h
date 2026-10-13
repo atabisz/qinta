@@ -15,7 +15,7 @@
 // IT TAKES `QWidget&`, NOT THE APP'S OWN WINDOW CLASS, and not `App&`. Zen mode needs a top-level
 // widget and nothing else -- no document, no theme, no layout -- so a test can drive both functions
 // against a bare QWidget, which is the difference between this arm being a reading and being a
-// screenshot somebody looked at once. Same argument tab_ghost_win32.h makes for not taking `App&`.
+// screenshot somebody looked at once. Same argument the retired tab_ghost_win32.h made for not taking `App&`.
 //
 // WHY `zenFullscreenRect` AND NOT `widget.screen()->geometry()`, WHICH IS THE OBVIOUS SPELLING.
 // They differ in exactly the case this tree already fixed once. Qt's `QWidget::screen()` reports

@@ -14,12 +14,12 @@
 #include "tableedit.h"
 #include "editor.h"
 #include "startpage.h"
-// BOTH GHOST HEADERS, and the portable one is not redundant. tab_ghost_win32.h is
-// guarded `#ifdef _WIN32` inside itself and includes tab_ghost.h only under that
+// THE PORTABLE GHOST HEADER, named directly. It sat beside tab_ghost_win32.h, which was
+// guarded `#ifdef _WIN32` inside itself and included tab_ghost.h only under that
 // guard, so off Windows it brought in nothing -- and tabGhostShouldDetach,
 // tabGhostPlacement and TabGhostCard, which are portable geometry, went missing with
 // the three window calls that are not. Named directly they stay declared on every
-// platform, and the only ghost names off Windows that fail are the ones that should.
+// platform; the Win32 header was deleted in 0b39ae6 and this one is all that remains.
 #include "tab_ghost.h"
 #include "file_utils.h"
 #include "i18n.h"
@@ -1590,16 +1590,16 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
 // asked the next file routed through the seam to re-measure the bracket instead of
 // inheriting the paragraph, which is how this was found rather than shipped.
 //
-// TWO callers reach here and NEITHER is a mouse-up. src/input.cpp's handleKeyDown
-// calls it on VK_ESCAPE, and src/main_d2d.cpp's WM_CAPTURECHANGED calls it when
-// something else takes the mouse. Qt holds its implicit grab from press to release
+// ONE caller reaches here and it is not a mouse-up: src/input.cpp's handleKeyDown
+// calls it on VK_ESCAPE. (The retired src/main_d2d.cpp's WM_CAPTURECHANGED was a
+// second, when something else took the mouse.) Qt holds its implicit grab from press to release
 // and a keystroke does not end it, so on Qt an Esc here would abort the drag's STATE
 // while the widget kept grabbing the mouse -- the ghost vanishes and the next click
 // still goes to the tab strip. That needs an explicit QWidget::releaseMouse, so the
 // empty arm is a REAL GAP at this site and not the settled answer it is elsewhere.
 //
-// The WM_CAPTURECHANGED caller is the interesting half: capture has ALREADY been lost
-// by the time it runs, so the guard makes the call a no-op on Windows too and the
+// The WM_CAPTURECHANGED caller was the interesting half: capture had ALREADY been lost
+// by the time it ran, so the guard made the call a no-op on Windows too and the
 // Qt equivalent is not a release at all but QEvent::UngrabMouse arriving on the
 // widget. Two callers, two different Qt shapes, one of them not a call.
 void tabDragCancel(App& app, HWND hwnd) {

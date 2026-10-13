@@ -3,9 +3,10 @@
 
 // WHERE postWindowMessage GOES WHEN THERE IS NO HWND.
 //
-// On Windows postWindowMessage is PostMessageW, and main_d2d.cpp's window procedure hands
-// WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH to completeAsyncImage and completeFolderSearch.
-// Off the Win32 window stack it returned false, which every owning caller already treats as
+// On the Direct2D stack postWindowMessage was PostMessageW, and the retired main_d2d.cpp's
+// window procedure handed WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH to completeAsyncImage
+// and completeFolderSearch; now every platform posts here, and src/input.cpp's
+// handlePostedMessage hands them over. Off the Win32 window stack it returned false, which every owning caller already treats as
 // "the window is gone" and answers with a `delete`. That was the right placeholder and the
 // wrong behaviour: on qinta the async image worker threw away every download, so a remote
 // image stayed `pending` for the life of the document, and the folder scan threw away its

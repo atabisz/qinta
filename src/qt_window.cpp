@@ -500,8 +500,8 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
     update();
 }
 
-// THE MOUSE ROUTER. Each handler makes the one call WinMain's matching message makes
-// (src/main_d2d.cpp), with the position in this widget's logical pixels -- the same space
+// THE MOUSE ROUTER. Each handler makes the one call WinMain's matching message made
+// (the retired src/main_d2d.cpp), with the position in this widget's logical pixels -- the same space
 // syncViewport gives app_.width/height, so hit tests and the viewport agree. No update()
 // here, unlike keyPressEvent: WM_MOUSEMOVE does not invalidate, the handlers request their
 // own repaints through the sink, and a repaint per hover move would redraw constantly.
@@ -724,8 +724,8 @@ void QtAppWindow::paintEvent(QPaintEvent* event) {
     // is what WinMain's WM_SIZE asks for with the same flag.
     if (syncViewport()) app_.layoutDirty = true;
 
-    // THE WHOLE FRAME, tinta's, since 2026-10-06: src/render_frame.cpp is the body of
-    // main_d2d.cpp's render(), and this function is its Qt bracket. Until then this window drew
+    // THE WHOLE FRAME, tinta's, since 2026-10-06: src/render_frame.cpp is the body that was
+    // the retired main_d2d.cpp's render(), and this function is its bracket. Until then this window drew
     // the document and its scrollbars itself, and after the print slice the preview and the
     // link peek -- so the start page, the editor, the tab strip, search and every overlay and
     // dialog were invisible here while the key and mouse routers drove them. With no document

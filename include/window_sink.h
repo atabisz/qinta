@@ -6,9 +6,9 @@
 // The second sink after include/repaint_sink.h, for the two window requests src/input.cpp
 // makes that are not repaints: requestQuit (win32_api.h, Escape with nothing open and the
 // Q shortcut) and toggleZenMode (F11, and Escape while in zen). On the Win32 window stack
-// both have their answer -- PostQuitMessage, and zen_mode_win32.h over the HWND. On the Qt
-// stack the HWND those sites hold is nullptr, permanently: App::hwnd is assigned only by
-// src/main_d2d.cpp's window creation. So the Qt window registers what to do instead, the
+// both had their answer -- PostQuitMessage, and zen_mode_win32.h over the HWND. On the Qt
+// stack the HWND those sites hold is nullptr, permanently: App::hwnd was assigned only by
+// the retired src/main_d2d.cpp's window creation. So the Qt window registers what to do instead, the
 // same way it registers its repaint.
 //
 // WHY THE SAME SHAPE AS repaint_sink.h, AND WHY A SEPARATE FILE. Same reasons as there: the

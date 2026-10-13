@@ -143,15 +143,15 @@ static_assert(offsetof(RECT, left) == 0 && offsetof(RECT, top) == sizeof(long) &
 // THE `WINDOWPLACEMENT` STAND-IN AND ITS ASSERTION ARE GONE AS OF 2026-09-21, and the reason is
 // worth a sentence because a deleted stand-in looks like a regression in portability. It had ONE
 // off-Windows reader: `App::zenRestorePlacement`, which is now `tinta::ZenRestore` -- two portable
-// fields in include/window_placement.h. The SDK struct still appears in src/main_d2d.cpp, which is
-// Windows-only and gets the real one from <windows.h>, so nothing off Windows names the type at
-// all. A stand-in kept for zero readers is this header's version of an ungated figure: it compiles
+// fields in include/window_placement.h. The SDK struct then appeared only in src/main_d2d.cpp, which
+// was Windows-only and got the real one from <windows.h>; since that file was retired nothing in
+// the tree's code names the type at all. A stand-in kept for zero readers is this header's version of an ungated figure: it compiles
 // forever and asserts nothing about the tree.
 //
 // Its comment is also why it is mentioned rather than silently dropped. It read "because App stores
 // one by value and zen mode round-trips it through settings.ini" -- and the second clause was
-// FALSE. Nothing ever put that member in settings.ini; what round-trips is a separate local
-// `WINDOWPLACEMENT` in main_d2d.cpp, decomposed into `windowMaximized` plus a position. Read as
+// FALSE. Nothing ever put that member in settings.ini; what round-tripped was a separate local
+// `WINDOWPLACEMENT` in the retired main_d2d.cpp, decomposed into `windowMaximized` plus a position. Read as
 // true, it priced the port as a settings FILE-FORMAT change and made this slice look expensive.
 static_assert(WM_APP == 0x8000, "off-Windows WM_APP stands in as 0x8000");
 static_assert(WM_CLOSE == 0x0010, "off-Windows WM_CLOSE stands in as 0x0010");

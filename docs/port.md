@@ -378,7 +378,7 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 54,503 / 66,918 | **81.4%** |
+| A. Source lines free of the Windows stack | 54,504 / 66,917 | **81.5%** |
 | B. `src/*.cpp` files compiling without Windows headers | 79 / 81 | 97.5% |
 | C. Files a running test links **off Windows** | 78 / 81 | 96.3% |
 | D. Test targets that *could* move, and do | 55 / 56 | 98.2% |
@@ -394,7 +394,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 54,806 lines of the 66,918,
+numerator. With `src/*.cpp` totalling 54,807 lines of the 66,917,
 **basis A's ceiling is 81.9%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 

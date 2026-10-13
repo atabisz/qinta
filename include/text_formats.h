@@ -11,8 +11,8 @@
 // textFactory->CreateTextFormat with the same families, sizes and weights and installed
 // the result. That file's own comment already said what the duplication cost -- "a number
 // that disagrees with d2d_init is a divergence, not a Qt decision" -- which is a warning
-// about a shape, not a fix for it. There is now one copy of the numbers and both
-// initialisers call it.
+// about a shape, not a fix for it. There is now one copy of the numbers, and since the
+// retired d2d_init.cpp went in 0b39ae6 one initialiser calls it.
 //
 // THE TWELVE, WHICH IS TWENTY-TWO OBJECTS: textFormat, headingFormat, codeFormat,
 // boldFormat, italicFormat, boldItalicFormat, codeBoldFormat, codeItalicFormat,
@@ -90,9 +90,9 @@ inline Typography codeTypographySet() {
 
 }  // namespace tinta
 
-// Assigns both sets into App. One call, at startup, on BOTH stacks -- and the second of
-// those is new: createTypography, which this replaces, had exactly one caller in the tree
-// (src/main_d2d.cpp), so the Qt path ran with two default-constructed sets and applied no
+// Assigns both sets into App. One call, at startup, from src/qt_init.cpp -- and on the Qt
+// stack that was new: createTypography, which this replaced, had exactly one caller in the
+// tree (the retired src/main_d2d.cpp), so the Qt path ran with two default-constructed sets and applied no
 // OpenType feature list to any of render.cpp's 13 createLayout sites. Held by
 // tests/qt_entry_tests.cpp, whose two assertions read count 0 before this function existed.
 //

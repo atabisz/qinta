@@ -1,11 +1,11 @@
-// tinta's Qt entry point: the file that replaces WinMain when the port is done.
+// tinta's Qt entry point: the file that replaced WinMain when the port was done.
 //
 // It holds main() and nothing else. Everything it does is one call into
 // src/qt_init.cpp or one construction of the window in src/qt_window.cpp, which is
-// deliberate and is the opposite of how the Direct2D side grew: src/main_d2d.cpp is
-// nearly 2,000 lines because WinMain, the window procedure, the paint path and the command
+// deliberate and is the opposite of how the Direct2D side grew: the retired src/main_d2d.cpp
+// was nearly 2,000 lines because WinMain, the window procedure, the paint path and the command
 // line all ended up in one file, and that is a large part of why nothing in the tree
-// can test a tinta window. A main() with no logic in it has nothing to test, which is
+// could test a tinta window. A main() with no logic in it has nothing to test, which is
 // the point -- the logic is next door where a test can reach it.
 //
 // WHAT IT DOES NOT DO YET, and why each one is absent rather than forgotten:
@@ -49,8 +49,8 @@
 //     when tests/qt_entry_tests.cpp began laying out and painting a parsed document on
 //     both platforms. What replaced it -- "what is missing is four lines here that read
 //     argv[1] and put the parse result in app.root" -- was an estimate I never checked,
-//     and checking it is what killed it: the load logic on the Windows side is two
-//     lambdas INSIDE WinMain (src/main_d2d.cpp's `loadDocumentContent` and
+//     and checking it is what killed it: the load logic on the Windows side was two
+//     lambdas INSIDE WinMain (the retired src/main_d2d.cpp's `loadDocumentContent` and
 //     `loadFile`), so there was no
 //     function to call, and the second of them opens its stream with the MSVC wide-path
 //     ifstream extension that does not compile off Windows at all. The real cost was a

@@ -82,9 +82,9 @@ struct MonitorArea {
 // has not moved the coupling; it has hidden it behind a file boundary.
 //
 // TWO FIELDS, AND THE TREE ALREADY AGREED THIS IS THE RIGHT PAIR BEFORE THIS STRUCT EXISTED.
-// src/main_d2d.cpp's save path takes a real `WINDOWPLACEMENT` off the window and immediately
-// decomposes it into `settings.windowMaximized = (wp.showCmd == SW_SHOWMAXIMIZED)` plus a
-// position -- a rectangle and a flag. That is this struct, hand-written at one call site.
+// The retired src/main_d2d.cpp's save path took a real `WINDOWPLACEMENT` off the window and
+// immediately decomposed it into `settings.windowMaximized = (wp.showCmd == SW_SHOWMAXIMIZED)`
+// plus a position -- a rectangle and a flag. That was this struct, hand-written at one call site.
 //
 // WHAT IS LOST RELATIVE TO SetWindowPlacement, STATED RATHER THAN DISCOVERED. The SDK struct
 // also carries `ptMinPosition` and `ptMaxPosition`. The first is IGNORED by SetWindowPlacement

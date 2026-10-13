@@ -160,10 +160,10 @@ void installQtBackends(App& app) {
     // nothing else is seated: installing during a paint must not replace the paint target.
     if (!app.renderTarget) app.renderTarget = qtFactoryTarget();
 
-    // THE BRUSH IS PROCESS-LIFETIME HERE AND DEVICE-LIFETIME ON WINDOWS, and the
-    // asymmetry is real rather than an oversight. Direct2D's brush is created by the
-    // render target (src/d2d_init.cpp calls CreateSolidColorBrush on it) and dies with
-    // it, so d2d_init reseats one per device. QtBrush holds a tinta::Color and nothing
+    // THE BRUSH IS PROCESS-LIFETIME HERE, AND WAS DEVICE-LIFETIME ON DIRECT2D, and the
+    // asymmetry was real rather than an oversight. Direct2D's brush was created by the
+    // render target (the retired src/d2d_init.cpp called CreateSolidColorBrush on it) and
+    // died with it, so d2d_init reseated one per device. QtBrush holds a tinta::Color and nothing
     // else -- see include/render_qt.h:203 -- so it depends on no device and one
     // instance serves every paint.
     //

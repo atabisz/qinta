@@ -448,12 +448,12 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         // had succeeded, and fell through to a no-option seam call when it had not. The
         // option is now unconditional. Where the QI succeeds -- which is the case on every
         // host this has been run on, and the case the pixel figures above were taken under --
-        // the two are identical. Where it FAILS, the old code was monochrome by construction
-        // and the new code hands bit 4 to a target that D2DRenderTarget declares as
-        // ID2D1RenderTarget*, not as a device context. What Direct2D does with the colour
-        // bit on a plain render target is NOT measured here and cannot be settled from this
-        // tree; the QI's own HRESULT is discarded in src/d2d_init.cpp, so nothing downstream
-        // can even observe which case it is in.
+        // the two are identical. Where it FAILED, the old code was monochrome by construction
+        // and the new code handed bit 4 to a target that D2DRenderTarget declared as
+        // ID2D1RenderTarget*, not as a device context. What Direct2D did with the colour
+        // bit on a plain render target was never measured; the QI's own HRESULT was discarded
+        // in the retired src/d2d_init.cpp, so nothing downstream could observe which case it
+        // was in. The tail closed with the Direct2D stack in 0b39ae6.
         //
         // WHAT KEEPS THIS FROM BEING A NEW RISK: src/math_render.cpp has passed the same bit
         // through the same seam method to the same target unconditionally since a7bdb91, with

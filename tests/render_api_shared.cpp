@@ -2321,15 +2321,16 @@ int runRenderApiAssertions(RenderHarness& h) {
         // target, and a transform reaching one does not prove it reaches the other. The
         // composition is what the port rests on, so the composition is what is asserted.
         //
-        // And `renderPeekBitmap` itself is not reached from any test. THE REASON GIVEN HERE
+        // And `renderPeekBitmap` itself was not reached from any test when this was written
+        // (tests/qt_entry_tests.cpp calls it now; this file still does not). THE REASON GIVEN HERE
         // WAS WRONG UNTIL 2026-09-20: it read "`src/print.cpp` cannot be reached from any
         // test: it appears exactly once in CMakeLists.txt, in the application target, so no
-        // test binary compiles `renderPeekBitmap` itself." SIX targets compile that file --
-        // it is in `set(SOURCES)`, re-used as `INPUT_TEST_SOURCES` minus `src/main_d2d.cpp`
-        // alone, so `input_tests`, `file_path_tests`, `code_block_layout_tests`,
-        // `blockquote_layout_tests` and `theme_tests` all link it alongside the app. What is
-        // true is that none of them CALLS it, and that THIS file's two targets
-        // (`render_api_tests`, `render_d2d_tests`) are not among the six, so the assertion
+        // test binary compiles `renderPeekBitmap` itself." SIX targets compiled that file then --
+        // it was in `set(SOURCES)`, re-used as `INPUT_TEST_SOURCES` minus the retired
+        // `src/main_d2d.cpp` alone, so `input_tests`, `file_path_tests`, `code_block_layout_tests`,
+        // `blockquote_layout_tests` and `theme_tests` all linked it alongside the app. What was
+        // true is that none of them CALLED it, and that THIS file's two targets
+        // (`render_api_tests`, `render_d2d_tests`) were not among the six, so the assertion
         // below genuinely cannot reach the real body. Compiled is not covered. This is still
         // the closest arm that exists -- the same two seam calls in the same order with the
         // same arguments -- and the gap is stated rather than implied.

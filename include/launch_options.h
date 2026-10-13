@@ -127,9 +127,9 @@ bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs);
 
 // THE THREE SELF-RELAUNCHES, as argument lists, so the window that starts a second window and
 // the parse that reads its command line can be tested against each other.
-// src/quicknote_win32.cpp passes these exact flags through ShellExecuteW as one quoted string;
-// src/window_launch_qt.cpp passes them to QProcess::startDetached as a list. All three carry
-// --cascade, which is what makes WinMain skip the single-instance hand-off -- the reason a Qt
+// src/window_launch_qt.cpp passes them to QProcess::startDetached as a list, on every platform
+// (the retired src/quicknote_win32.cpp passed them through ShellExecuteW). All three carry
+// --cascade, which is what makes src/main_qt.cpp skip the single-instance hand-off -- the reason a Qt
 // relaunch needs no IPC. The torn-off tab's builder arrived one slice after the other two, when
 // the Qt tab drag started detaching and became its caller.
 std::vector<std::string> quickNoteRelaunchArgs();                            // Ctrl+Shift+N
@@ -180,8 +180,8 @@ enum class OutputRefusal {
 };
 
 // The destructive action this command line will perform, if any. Empty `flag` means the launch
-// writes nothing and no guard applies. When several are given the FIRST one src/main_d2d.cpp
-// would reach is reported, and the order here mirrors that dispatch chain rather than the parse
+// writes nothing and no guard applies. When several are given the FIRST one main() in
+// src/main_qt.cpp would reach is reported, and the order here mirrors that dispatch chain rather than the parse
 // chain, because the dispatch order is what decides which write actually happens.
 struct PlannedOutput {
     std::string flag;

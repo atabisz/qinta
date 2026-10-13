@@ -334,19 +334,19 @@ bool openDocumentInViewer(App& app, const std::wstring& fullPath) {
     return true;
 }
 
-// launchDocumentWindow HAS LEFT THIS FILE. It is src/quicknote_win32.cpp now,
-// declared under _WIN32 in include/utils.h, because it is a THIRD instance of
-// the deferral that file argues at length -- a self-relaunch passing flags only
-// WinMain parses. It is not here because of ShellExecuteW; the other four
-// ShellExecuteW calls in this file DID become seam calls in the same slice.
-// The difference is that those four have working Qt halves and this one's would
-// start a process that opens a cascaded window and then refuses --edit by name.
+// launchDocumentWindow HAS LEFT THIS FILE. It is in src/window_launch_qt.cpp now,
+// declared unconditionally in include/utils.h. It first went to the retired
+// src/quicknote_win32.cpp, declared under _WIN32, as a THIRD instance of the deferral
+// that file argued -- a self-relaunch passing flags only WinMain parsed. It did not
+// leave because of ShellExecuteW; the other four ShellExecuteW calls in this file DID
+// become seam calls in the same slice. The difference was that those four had working
+// Qt halves and this one's would have opened a cascaded window that refused --edit.
 //
 // THAT SENTENCE READ "ignores --cascade and --edit" until 2026-09-21 and both halves
-// were wrong by then. `--cascade` is honoured on the Qt arm against a real window, and
-// `--edit` is not ignored -- it is refused out loud, "the editor needs input
-// (src/input.cpp)", which points back at this file. The deferral stands and its reason
-// is now one flag instead of two; src/quicknote_win32.cpp argues it at length.
+// were wrong by then. `--cascade` was honoured on the Qt arm against a real window, and
+// `--edit` was not ignored -- it was refused out loud, "the editor needs input
+// (src/input.cpp)", which pointed back at this file. The deferral was discharged on
+// 2026-10-06, when src/window_launch_qt.cpp became the relaunch on every platform.
 
 // The folder browser's fallback starting point when no document is open.
 //

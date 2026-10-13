@@ -538,18 +538,18 @@ struct App {
     // ELLIPSIS TRIMMING SIGNS, OWNED HERE BECAUSE THE SEAM DOES NOT SAY WHO OWNS THEM.
     //
     // TextFormat::SetTrimming takes an InlineObject* and text_api.h is silent on
-    // lifetime -- and the two backends genuinely differ. DirectWrite AddRefs the sign
-    // (which is why src/d2d_init.cpp:397 Releases its local reference immediately
-    // afterwards and the object survives inside the format), while QtTextFormat records
+    // lifetime -- and the two backends genuinely differed. DirectWrite AddRefed the sign
+    // (which is why the retired src/d2d_init.cpp Released its local reference immediately
+    // afterwards and the object survived inside the format), while QtTextFormat records
     // `hasTrimmingSign = trimmingSign != nullptr` and keeps no pointer at all
     // (src/text_qt.cpp). So a caller that let its unique_ptr die after SetTrimming
-    // would be correct on Qt and dangling on Windows, and the version that "works"
-    // is the one that would never crash in testing.
+    // was correct on Qt and dangling on Direct2D, and the version that "worked"
+    // was the one that would never crash in testing.
     //
     // A vector on App rather than a fix to the seam: making ownership explicit in
     // text_api.h means changing the signature and all seven SetTrimming sites, which
     // is a separate change with its own reason to exist. This makes the CALLER
-    // correct for either backend today, at the cost of one member, and it is the
+    // correct whatever the backend does, at the cost of one member, and it is the
     // container the Qt chrome installer fills. Three entries, one per trimmed row
     // format (folder browser, TOC, TOC bold).
     std::vector<std::unique_ptr<tinta::InlineObject>> trimmingSigns;

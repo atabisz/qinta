@@ -295,33 +295,33 @@ int main() {
 
     // --- THE WRITE SIDE: every flag this tree spawns ITSELF with ------------
     //
-    // The census above walks the options the Win32 arm READS. This block walks the ones it
-    // WRITES. Three sites build a command line for a freshly spawned tinta, and each spelling
+    // The census above walks the options the parser READS. This block walks the ones the tree
+    // WRITES for a freshly spawned tinta. Three relaunches build those lines, and each spelling
     // in them is hand-typed text with nothing the compiler can check it against:
     //
-    //   src/quicknote_win32.cpp:109   --cascade --new
-    //   src/quicknote_win32.cpp:121   --cascade --edit "<path>"
-    //   src/tabs.cpp:1636             --cascade --tabbed --pos <x> <y> "<path>"
+    //   quickNoteRelaunchArgs     --cascade --new
+    //   documentRelaunchArgs      --cascade --edit "<path>"
+    //   tornOffRelaunchArgs       --cascade --tabbed --pos <x> <y> "<path>"
     //
-    // Rename --tabbed and the parse moves while tabs.cpp's string does not. A dragged-out tab
-    // then opens with no tab strip, the old spelling lands in `unknown`, and the Win32 arm is
-    // built WIN32 so it has no stderr to say so on. These assertions are what turns that from
-    // silent into red.
+    // all three in src/launch_options.cpp. They were strings in the retired
+    // src/quicknote_win32.cpp (the first two) and in tabs.cpp (the third) when this was written.
+    //
+    // Rename --tabbed and the parse moves while the builder's string does not. A dragged-out tab
+    // then opens with no tab strip and the old spelling lands in `unknown`. These assertions
+    // are what turns that from silent into red.
     //
     // WHAT THIS DOES NOT PROVE, said plainly: it checks the parser against what those sites
-    // MEAN, not against what they SAY. Closing that needs a string-to-argv split, and
-    // include/win32_command_line.h only builds command lines. The fix is for those sites to
-    // hand over a vector and quote it through that convention; until then this block and the
-    // line numbers above are the tie, and they are a comment, not a compile error.
+    // MEAN, not against what they SAY. THE RELAUNCHES block below is the tie to what they say:
+    // it parses each builder's own output.
     {
-        // quicknote_win32.cpp:109 -- the new-quick-note window.
+        // quickNoteRelaunchArgs -- the new-quick-note window.
         const tinta::LaunchOptions note = parse({"--cascade", "--new"});
         check(note.cascade && note.quickNote,
               "SELF-SPAWN 1/3: `--cascade --new` parses to cascade + quick note");
         check(note.unknown.empty() && note.missingValues.empty() && note.inputFile.empty(),
               "and produces no complaint and no phantom document path");
 
-        // quicknote_win32.cpp:121 -- reopening an existing note straight into the editor.
+        // documentRelaunchArgs -- reopening an existing note straight into the editor.
         const tinta::LaunchOptions edit =
             parse({"--cascade", "--edit", "C:\\notes\\a note.md"});
         check(edit.cascade && edit.startInEditMode,
@@ -330,7 +330,7 @@ int main() {
               "and the path survives intact -- a space in it is the normal case for a note "
               "title, and --edit takes no value so the path must stay positional");
 
-        // tabs.cpp:1636 -- a tab dragged out of the strip into its own window. This one is the
+        // tornOffRelaunchArgs -- a tab dragged out of the strip into its own window. This one is the
         // reason the placement seam exists: the x/y it emits are what --pos feeds into
         // choosePlacement, so this is the round trip for this whole slice.
         const tinta::LaunchOptions drag =
@@ -474,7 +474,7 @@ int main() {
               "OUTPUT GUARD: an ordinary launch plans no write, so the guard cannot fire on it");
 
         // A value-taking flag with NO value writes nothing, so there is nothing to guard -- the
-        // path is empty and src/main_d2d.cpp's branch never opens. It is still an unusable
+        // path is empty and the branch in src/main_qt.cpp's main() never opens. It is still an unusable
         // command line, and the missingValues report is what says so. Asserted so the None here
         // reads as "nothing to refuse" rather than as a hole in the guard.
         check(tinta::plannedOutput(parse({"--exportpdf"})).flag.empty() &&

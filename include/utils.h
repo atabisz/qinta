@@ -28,12 +28,12 @@ const App::TextRect* findTextRectAt(const App& app, int x, int y);
 void updateWindowTitle(App& app);
 // Ctrl+N: spawns a second Tinta window on an untitled quick note.
 //
-// GUARDED, AND THE GUARD IS THE POINT. Defined in src/quicknote_win32.cpp, which
-// explains at length why there is no off-Windows half yet -- one of the two flags it
-// passes cannot be honoured there. Declaring it unconditionally would let a portable
-// caller compile and then fail at link time, or worse, tempt a no-op half. Off
-// Windows the name does not exist, so a new caller there is a compile error at the
-// site that wants it, which is where the question actually needs answering.
+// Defined in src/window_launch_qt.cpp, on every platform. It WAS GUARDED, AND THE GUARD
+// WAS THE POINT, while its only definition was the retired src/quicknote_win32.cpp, which
+// had no off-Windows half -- one of the two flags it passed could not be honoured there.
+// Declaring it unconditionally would have let a portable caller compile and then fail at
+// link time, or worse, tempted a no-op half; off Windows the name did not exist, so a new
+// caller there was a compile error at the site that wanted it.
 //
 // "the flags it passes have no parser in main_qt.cpp" stood here until 2026-09-21 and
 // is now false: src/launch_options.cpp is one parse called by both entry points, and
@@ -51,8 +51,8 @@ void updateWindowTitle(App& app);
 //
 // THE FIRST TWO ARE UNGUARDED SINCE 2026-10-06: src/window_launch_qt.cpp is their Qt arm, and
 // src/qt_launch.cpp honours --new and --edit, so the deferral above is discharged for them. The
-// tear-off stays guarded -- its only caller is the Windows tab drag, which is also the only
-// drag that detaches.
+// tear-off stayed guarded until slice 24 -- its only caller was the Windows tab drag, then the
+// only drag that detached.
 void launchQuickNoteWindow();
 void launchDocumentWindow(const std::wstring& fullPath);
 // Unguarded too since slice 24: the Qt tab drag detaches and drops now, so it is a caller.

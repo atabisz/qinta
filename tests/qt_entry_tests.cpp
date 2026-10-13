@@ -735,10 +735,13 @@ int main(int argc, char** argv) {
     check(doc.root != nullptr, "the parse produced a root element");
     seatDocument(app, doc.root, "qinta_entry_inline.md");
 
-    // A DELTA, not an absolute. App::drawCalls is zeroed once per frame by
-    // src/main_d2d.cpp:102, which is Windows-only chrome this stack does not run, so the
-    // counter accumulates across grabs here. Reading it as a total would have passed for
-    // the wrong reason after run 1.
+    // A COMPARISON, not an absolute. This was written as a delta because App::drawCalls
+    // was zeroed only by the retired src/main_d2d.cpp, which this stack did not run, so the
+    // counter accumulated across grabs. It is zeroed at the top of every frame now, by
+    // src/render_frame.cpp's renderFrame, which this window runs -- so drawCallsBefore is the
+    // previous grab's frame (run 3's, with no document), the check below reads that the
+    // document frame drew more than that one, and draw_calls_delta is the difference between
+    // the two frames rather than this grab's own total.
     const size_t drawCallsBefore = app.drawCalls;
     const QImage documentImage = grabWindow(window);
     std::printf("layout_text_runs=%zu layout_rects=%zu draw_calls_delta=%zu\n",
@@ -1257,10 +1260,11 @@ int main(int argc, char** argv) {
     // CORRECTED 2026-09-29, TWICE OVER. Those three files compile AND link off Windows now:
     // all three have been in QINTA_APP_SOURCES since the 2026-09-25 key router. And "only
     // callers" was never the whole list: src/signals.cpp, src/annotations.cpp and
-    // src/editrail.cpp read these formats too, and they link as well. What survives is the
+    // src/editrail.cpp read these formats too, and they link as well. What survived was the
     // pixel half, read for two of the drawers only: renderEditor's one caller and fifteen of
-    // overlays.cpp's sixteen render* functions' callers are src/main_d2d.cpp. The other
-    // readers were not traced, so "the whole guard" is not re-claimed here.
+    // overlays.cpp's sixteen render* functions' callers were src/main_d2d.cpp. Since
+    // 2026-10-06 that caller is src/render_frame.cpp's renderFrame, which this window runs,
+    // so the pixel half has gone too and "the whole guard" is not re-claimed here.
     const bool chromeAllPresent =
         app.searchTextFormat != nullptr && app.signalSmallFormat != nullptr &&
         app.themeTitleFormat != nullptr && app.themeHeaderFormat != nullptr &&
@@ -1419,10 +1423,10 @@ int main(int argc, char** argv) {
     //
     // The single subtlest line in installQtChromeFormats. Chrome uses app.contentScale
     // ALONE; the two editor formats use contentScale * zoomFactor, because editor text IS
-    // document text. src/d2d_init.cpp:378 gives the reason -- "fixed UI size so zooming the
-    // document cannot overflow the fixed stats box" -- and getting it backwards makes the
-    // search box and the stats readout grow with Ctrl+= and look like a feature rather
-    // than a defect.
+    // document text. installChromeFormats quotes the retired src/d2d_init.cpp's reason --
+    // "fixed UI size so zooming the document cannot overflow the fixed stats box" -- and
+    // getting it backwards makes the search box and the stats readout grow with Ctrl+= and
+    // look like a feature rather than a defect.
     //
     // NO PIXEL IN THIS FILE CAN SEE THIS EITHER, and no null check can: both arrangements
     // produce ten non-null formats. Only the sizes tell them apart.
@@ -1625,8 +1629,8 @@ int main(int argc, char** argv) {
             check(sameSize(uniformLine.height, uniformHeight) &&
                       sameSize(uniformLine.baseline, uniformBaseline),
                   "GetLineMetrics reports THE CELL and not the glyph box: 40 tall with the "
-                  "baseline at 30, which is what src/d2d_init.cpp's editor row arithmetic reads "
-                  "back and would otherwise compute a row pitch from the font instead");
+                  "baseline at 30, which is what the Direct2D stack's editor row arithmetic read "
+                  "back and would otherwise have computed a row pitch from the font instead");
             check(!sameSize(naturalLine.height, uniformHeight),
                   "CONTROL: the naturally-spaced layout reports a DIFFERENT line height, so the "
                   "40 above was read from the format rather than being a constant this test "
@@ -2189,8 +2193,8 @@ int main(int argc, char** argv) {
         // Everything the placement suite proves, it proves about a monitor list handed to it as
         // DATA. That is the right design and it is also a blind spot the size of the whole
         // feature: swap the list for a different description of the same desktop and every
-        // assertion stays green while every window lands somewhere else. src/main_d2d.cpp places
-        // windows over EnumDisplayMonitors/GetMonitorInfoW; the Qt arm places them over
+        // assertion stays green while every window lands somewhere else. The retired
+        // src/main_d2d.cpp placed windows over EnumDisplayMonitors/GetMonitorInfoW; the Qt arm places them over
         // QScreen::geometry()/availableGeometry(); nothing in the tree had ever compared the two.
         //
         // THE ANSWER IS CONDITIONAL AND THE CONDITION IS PRINTED. Win32 reports PHYSICAL pixels
@@ -4708,7 +4712,7 @@ int main(int argc, char** argv) {
 
     // ---- TINTA'S FRAME ON THE QT WINDOW (slice 18) -----------------------------------------
     //
-    // The window draws src/render_frame.cpp, the body of main_d2d.cpp's render(). Two claims.
+    // The window draws src/render_frame.cpp, the retired main_d2d.cpp's render() body. Two claims.
     // The LAYOUT CHUNKS: the frame lays a long document out viewport-first and continues in
     // WM_APP_LAYOUT_CHUNK messages, which the Qt post sink refused until this slice -- so a raw
     // grab must show an INCOMPLETE layout, and pumping the event loop must complete it. And the

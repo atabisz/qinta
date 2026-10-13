@@ -49,11 +49,11 @@
 // --- Printing (#74) ---
 //
 // No PDF library: the document is re-laid-out at page width in a light
-// print palette and each page is painted through the render seam. On Windows the
-// painter reaches ID2D1PrintControl (src/print_win32.cpp), and the print pipeline does the
-// rest — pick "Microsoft Print to PDF" and the OS produces the PDF, with font
-// embedding (including CJK) handled by the driver. On Qt, PDF export goes through
-// QPdfWriter (src/pdf_export_qt.cpp) and printing goes through QPrinter (src/print_qt.cpp).
+// print palette and each page is painted through the render seam. On every platform PDF
+// export goes through QPdfWriter (src/pdf_export_qt.cpp) and printing goes through QPrinter
+// (src/print_qt.cpp). The Windows painter used to reach ID2D1PrintControl in the retired
+// src/print_win32.cpp, and the OS print pipeline did the rest, with font embedding
+// (including CJK) handled by the driver.
 
 namespace {
 
@@ -663,10 +663,10 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
     return ok ? pages : -1;
 }
 
-// XpsPageEmitter WAS DEFINED HERE, and it is now src/xps_page_emitter.h. Its only consumer
-// in the print code is printDocument, which moved to src/print_win32.cpp on 2026-10-06,
-// so this file no longer includes it. The other consumer is src/pdf_export_win32.cpp.
-// "One definition, two consumers" is still why it is a header rather than a copy.
+// XpsPageEmitter WAS DEFINED HERE, and then in src/xps_page_emitter.h, a header rather than
+// a copy because it had two consumers: printDocument, which moved to src/print_win32.cpp on
+// 2026-10-06, and src/pdf_export_win32.cpp. The header and both consumers were deleted with
+// the Direct2D stack in 0b39ae6.
 //
 // ALL OF THIS FILE'S DIRECT2D CODE IS GONE NOW. The renderPages inversion moved the command
 // list into the emitters, the PDF seam moved one emitter out, and the 2026-10-06 split
@@ -674,7 +674,7 @@ int renderPages(App& app, const PageGeometry& geo, EmitFn emitPage) {
 
 } // namespace
 
-// The page loop, for src/print_win32.cpp's printDocument. A non-template entry point,
+// The page loop, for src/print_qt.cpp's printDocumentTo. A non-template entry point,
 // because the template above cannot be called from another translation unit. The
 // std::function costs one indirect call per PAGE, not per draw.
 int renderPrintPages(App& app, const PrintPageGeometry& geo,
@@ -682,9 +682,9 @@ int renderPrintPages(App& app, const PrintPageGeometry& geo,
     return renderPages(app, geo, emitPage);
 }
 
-// printDocument IS A BACKEND HOOK NOW, declared in include/print.h as it always was. The
-// Windows arm (printer dialog, XPS print job) is src/print_win32.cpp. The Qt arm refuses
-// (src/print_qt.cpp).
+// printDocument IS A BACKEND HOOK NOW, declared in include/print.h as it always was. Its one
+// arm is src/print_qt.cpp, which prints on every platform; the Windows arm (printer dialog,
+// XPS print job) was the retired src/print_win32.cpp.
 
 // Lays out, paginates, fits and rasterizes for the currently selected
 // paper format. Assumes enterPrintLayout has already run.
@@ -840,8 +840,8 @@ void printPreviewConfirm(App& app, HWND hwnd) {
 // wrong, and the hashes are what caught it. It said "the old body rasterised on the
 // GPU, which makes this harness's output a function of the machine's driver." The
 // old body rasterised wherever app.useHardwareRT pointed, that member starts FALSE
-// (include/app.h), and src/main_d2d.cpp returns from the --printpages branch about
-// forty lines before it calls startGpuWarmup -- so this harness was ALREADY software
+// (include/app.h), and the retired src/main_d2d.cpp returned from the --printpages branch
+// about forty lines before it called startGpuWarmup -- so this harness was ALREADY software
 // and 140 README pages plus a 3-page fixture came back byte-identical across the
 // port. Holding an ID2D1DeviceContext is not evidence of hardware rasterisation.
 //
@@ -973,14 +973,13 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // there is no arm that fails if this guard is deleted. THE REASON GIVEN HERE WAS WRONG
     // UNTIL 2026-09-20 and it was wrong about the build, not about the coverage. It read:
     // "src/print.cpp appears once in CMakeLists.txt, in the application target, so no test
-    // binary compiles this function". SIX targets compile this file. It sits in
-    // set(SOURCES), which CMakeLists.txt re-uses as INPUT_TEST_SOURCES minus src/main_d2d.cpp
-    // alone -- so the tinta app plus input_tests, file_path_tests, code_block_layout_tests,
-    // blockquote_layout_tests and theme_tests all compile and LINK it, and a compile error in
-    // here reds five test binaries as well as the app. What survives is the narrower claim,
-    // which is the one the paragraph below actually needs: none of those six CALLS this
-    // function, and the two targets that do hold the seam's assertions
-    // (render_api_tests, render_d2d_tests) do not compile this file at all. Compiled is not
+    // binary compiles this function". SIX targets compiled this file then. It sat in
+    // set(SOURCES), which CMakeLists.txt re-used as INPUT_TEST_SOURCES minus the retired
+    // src/main_d2d.cpp alone -- so the tinta app plus input_tests, file_path_tests,
+    // code_block_layout_tests, blockquote_layout_tests and theme_tests all compiled and LINKED
+    // it. What survived was the narrower claim, which is the one the paragraph below actually
+    // needs: none of those six CALLED this function, and the two targets that held the seam's
+    // assertions (render_api_tests, render_d2d_tests) did not compile this file at all. Compiled is not
     // covered, and "appears once in CMakeLists" was a claim about the TEXT read as a claim
     // about the TARGETS. What replaces the test is a shape a reader can check, and the check has to
     // be stated precisely because the body below DOES write all four -- borrowing them is

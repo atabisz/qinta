@@ -271,8 +271,8 @@ void installChromeFormats(App& app) {
     releaseChromeFormats(app);
     if (!app.textFactory) return;
 
-    // contentScale ALONE, no zoomFactor, for the eight overlay formats. The reason is in
-    // d2d_init.cpp's own words at the site this body replaces: "fixed UI size so zooming the
+    // contentScale ALONE, no zoomFactor, for the eight overlay formats. The reason is in the
+    // retired d2d_init.cpp's own words at the site this body replaced: "fixed UI size so zooming the
     // document cannot overflow the fixed stats box". The two editor formats are on the other
     // scale further down, because editor text IS document text. Getting the two the wrong way
     // round would make chrome grow with Ctrl+= and look like a feature.

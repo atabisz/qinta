@@ -22,22 +22,22 @@
 #include <cwchar>
 #include <iterator>
 
-// ONE FRAME, BOTH WINDOWS. This is the body of src/main_d2d.cpp's render(), moved here on
-// 2026-10-06 so the Qt window could draw it too. Until then qinta's paintEvent drew the document
+// ONE FRAME, BOTH WINDOWS until 0b39ae6 retired the Direct2D one. This is the body of the
+// retired src/main_d2d.cpp's render(), moved here on 2026-10-06 so the Qt window could draw it too. Until then qinta's paintEvent drew the document
 // and its scrollbars and nothing else, so the editor, the start page, the tab strip, search,
 // the panels, every overlay and both dialogs existed only on the Direct2D stack -- while the key
 // and mouse routers were already driving all of them on Qt, invisibly.
 //
 // THE MOVE WAS VERBATIM apart from two things, and both are stated so a reader can check them.
-// The frame bracket stayed behind: tinta's render() still calls BeginDraw, this, and EndDraw,
-// and QtAppWindow::paintEvent supplies the QPainter through QtScopedRenderTarget. And the stats
+// The frame bracket stayed behind: tinta's render() called BeginDraw, this, and EndDraw until
+// it was retired, and QtAppWindow::paintEvent supplies the QPainter through QtScopedRenderTarget. And the stats
 // block's three swprintf_s(buf, _countof(buf), ...) became tinta::swprintf(buf, std::size(buf),
 // ...), the portable spelling the rest of the tree already uses. tinta's window was captured
 // before and after the move and hashed below its title bar, and the hashes are equal.
 //
 // It asks app.renderTarget to be the target being drawn: the caller begins the frame and ends
 // it. Layout that does not finish inside the frame continues in WM_APP_LAYOUT_CHUNK messages,
-// which both windows now route to src/input.cpp's handlePostedMessage.
+// which the Qt window routes to src/input.cpp's handlePostedMessage.
 
 void renderFrame(App& app) {
     if (!app.renderTarget) return;

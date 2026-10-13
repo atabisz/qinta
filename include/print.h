@@ -3,14 +3,13 @@
 
 #include "app.h"
 
-// Prints the current document through the Windows print pipeline
-// (ID2D1PrintControl). The user picks any installed printer — including
-// "Microsoft Print to PDF" — from the standard dialog. Rendering uses a
-// dedicated light print palette regardless of the active theme.
+// Prints the current document. The user picks any installed printer from the
+// standard dialog. Rendering uses a dedicated light print palette regardless of
+// the active theme.
 //
-// A BACKEND HOOK since 2026-10-06: src/print_win32.cpp is the paragraph above, and
-// src/print_qt.cpp prints through QPrinter and QPrintDialog (it refused with a chip until the
-// QPrinter slice, 2026-10-06). Everything
+// A BACKEND HOOK since 2026-10-06, with one arm now: src/print_qt.cpp prints through
+// QPrinter and QPrintDialog on every platform (it refused with a chip until the QPrinter
+// slice, 2026-10-06; the retired src/print_win32.cpp was the ID2D1PrintControl arm). Everything
 // else in this header is defined once, in the portable src/print.cpp.
 bool printDocument(App& app);
 
@@ -58,8 +57,8 @@ void printPreviewSetFormat(App& app, int paper, bool landscape);
 // break, on the reasoning that the old body rasterised on the GPU and
 // tinta::rasterizeToImage is always software. The first half was wrong.
 // app.useHardwareRT (include/app.h) starts FALSE and only flips on
-// WM_APP_GPU_READY, and src/main_d2d.cpp runs this function and returns ~40 lines
-// before it even starts the GPU warm-up -- so on the harness path the old body's
+// WM_APP_GPU_READY, and the retired src/main_d2d.cpp ran this function and returned ~40 lines
+// before it even started the GPU warm-up -- so on the harness path the old body's
 // ID2D1Device sat behind a SOFTWARE hwnd target as well. Having a device context
 // in hand says nothing about which rasteriser is under it.
 //

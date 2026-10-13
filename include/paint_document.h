@@ -69,17 +69,17 @@ struct App;
 //
 // WHY A STRUCT AND NOT A HANDFUL OF LOCALS. The extracted code computed these at the
 // top and then USED them further down -- four of the names leaked past the end of the
-// drawn range into the chrome that main_d2d.cpp draws itself (hover buttons, the table
-// edit rail): documentWidth at 7 later sites, cullMargin at 4, and viewportTop and
-// viewportBottom at 2 each. Fifteen references, and a straight cut would have broken all
-// of them. So the producer moved here and the values come back as one object;
-// main_d2d.cpp re-declares them under their old names from the struct's fields, which is
-// why the sites below the cut read unchanged.
+// drawn range into the chrome the frame draws itself (hover buttons, the table edit
+// rail), then in the retired main_d2d.cpp: documentWidth at 7 later sites, cullMargin at
+// 4, and viewportTop and viewportBottom at 2 each. Fifteen references, and a straight cut
+// would have broken all of them. So the producer moved here and the values come back as
+// one object; renderFrame (src/render_frame.cpp) re-declares them under their old names
+// from the struct's fields, which is why the sites below the cut read unchanged.
 //
 // THREE NAMES AND EIGHT REFERENCES NOW, and "scrollbars" is struck from that list of
 // chrome. All seven documentWidth sites were the scrollbar block, which moved to
 // src/scrollbar.cpp so the Qt window could draw the same thumb; it takes a
-// DocumentViewport and reads the field directly, so the alias in main_d2d.cpp is gone.
+// DocumentViewport and reads the field directly, so the alias in renderFrame is gone.
 // Corrected in place because both halves of the sentence -- the count and the list of
 // what is still inline -- are claims a reader can check, and each was true when written.
 //

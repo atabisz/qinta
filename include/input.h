@@ -11,10 +11,10 @@
 #include "win32_types.h"
 
 // These nine took WPARAM/LPARAM until 2026-09-20 and now take the data they
-// actually use. The decoding did not disappear; it moved UP, into
-// src/main_d2d.cpp's window procedure, which is the only thing here that has
-// a message to decode and is the file the Qt cutover deletes. A Qt event
-// handler can therefore call all nine with no Win32 anywhere in the path.
+// actually use. The decoding did not disappear; it moved UP, into the window
+// procedure of the retired src/main_d2d.cpp (deleted in 0b39ae6), and the
+// callers now are the Qt event handlers in src/qt_window.cpp, which call all
+// nine with no Win32 anywhere in the path.
 //
 // Why it was worth doing: the re-extraction was 59 GET_*_LPARAM uses across
 // four of these handlers -- 27 GET_X_LPARAM, 27 GET_Y_LPARAM, 5

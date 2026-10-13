@@ -19,8 +19,8 @@
 // WHY THE SINK TAKES NO HWND -- MEASURED, NOT ASSUMED. The obvious signature is
 // void(HWND), forwarding the token the caller already holds so a future sink can
 // dispatch to one of several windows. That capability cannot exist: App::hwnd is
-// assigned at EXACTLY ONE site in the tree, src/main_d2d.cpp:1778, inside the
-// Windows-only D2D window creation. The Qt build never assigns it, so off Windows
+// assigned nowhere in the tree -- its one assignment, in the Windows-only D2D window
+// creation, went with the retired src/main_d2d.cpp. The Qt build never assigns it, so
 // the token is nullptr at every one of the 277 call sites, permanently. A void(HWND)
 // sink would therefore receive nullptr every time -- a dispatch parameter that
 // cannot dispatch, which is the same class of pretence as the no-op it replaces.

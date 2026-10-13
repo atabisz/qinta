@@ -46,8 +46,8 @@ struct DocumentViewport;
 // keeping: layoutDocumentViewportFirst grows App::contentHeight in chunks, so a
 // visibility test taken per frame would make the right edge BLINK as chunks arrive.
 // While the layout is incomplete this only ever lets the extent grow and never retracts
-// the bar; when it completes, both take the true value. That is src/main_d2d.cpp:146-156
-// verbatim, comment included, and it is 8 lines that no reader would reinvent correctly.
+// the bar; when it completes, both take the true value. That was moved verbatim, comment
+// included, from the retired src/main_d2d.cpp, and it is 8 lines that no reader would reinvent correctly.
 //
 // Call once per frame, after layout and before painting.
 void updateScrollbarExtent(App& app);

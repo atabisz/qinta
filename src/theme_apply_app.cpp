@@ -105,7 +105,8 @@ void updateTextFormats(App& app) {
     installFontFallback(app);
 
     // The chrome formats, through the shared portable function. No seating call follows:
-    // src/d2d_init.cpp keeps the tombstone for why that pairing had to break.
+    // the retired src/d2d_init.cpp kept the tombstone for why that pairing had to break
+    // (`git show 0b39ae6^:src/d2d_init.cpp`).
     installChromeFormats(app);
     app.appliedZoomFactor = app.zoomFactor;
     app.layoutDirty = true;

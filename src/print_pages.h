@@ -1,14 +1,13 @@
 #ifndef TINTA_PRINT_PAGES_H
 #define TINTA_PRINT_PAGES_H
 
-// What src/print.cpp shares with its two backend files, and nothing else. Internal, in src/
-// beside xps_page_emitter.h for the same reason: no caller outside the print code should see
-// a page loop.
+// What src/print.cpp shares with its backend file, and nothing else. Internal, in src/
+// because no caller outside the print code should see a page loop.
 //
 // print.cpp is portable, and the hook below plus printDocument (include/print.h) are
-// where it reaches a backend. The Windows half
-// (src/print_win32.cpp) is the printer dialog and the XPS print job. The Qt half
-// (src/print_qt.cpp) prints through QPrinter; tests/fixtures/print-cjk.md is the CJK fixture
+// where it reaches a backend. That backend is src/print_qt.cpp, which prints through
+// QPrinter on every platform (the retired src/print_win32.cpp was the Windows printer
+// dialog and XPS print job); tests/fixtures/print-cjk.md is the CJK fixture
 // that was the stated gate on that arm.
 
 #include "print.h"

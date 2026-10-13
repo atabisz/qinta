@@ -70,9 +70,9 @@
 // the design. Tense corrected 2026-09-21, when the arm landed.
 //
 // The parameter is [[maybe_unused]] rather than `(void)hwnd`-suppressed, and that is
-// the honest spelling: off Windows App::hwnd is nullptr at every call site (assigned
-// at exactly one site in the tree, src/main_d2d.cpp:1778, in the Windows-only D2D
-// window creation), so the token carries no information the sink could act on.
+// the honest spelling: App::hwnd is nullptr at every call site (its one assignment,
+// in the Windows-only D2D window creation, went with the retired src/main_d2d.cpp),
+// so the token carries no information the sink could act on.
 // repaint_sink.h's header comment holds that measurement and why the sink therefore
 // takes no argument.
 inline void requestRepaint([[maybe_unused]] HWND hwnd) {
@@ -245,14 +245,13 @@ inline bool canPostWindowMessage([[maybe_unused]] HWND hwnd) {
 //
 // Ask the application to exit its event loop.
 //
-// THREE SITES, SO IT CLEARS THE FIRST ARM OF THE ADMISSION RULE ABOVE: src/input.cpp twice (Escape
-// with nothing open, and the Q shortcut) and src/main_d2d.cpp once, in WM_DESTROY. All three route
-// through here -- including the Windows-only one, which needed no porting. Leaving that site spelled
-// `PostQuitMessage` would make this paragraph's "three" a claim about the tree that the tree
-// contradicts, which is the drift this header keeps correcting in its own comments.
+// THREE SITES WHEN ADMITTED, CLEARING THE FIRST ARM OF THE ADMISSION RULE ABOVE: src/input.cpp
+// twice (Escape with nothing open, and the Q shortcut) and the retired src/main_d2d.cpp once, in
+// WM_DESTROY, which went with the Direct2D stack. The two src/input.cpp sites are what remain, and
+// both route through here.
 //
 // NO PARAMETERS, WHICH IS A DEPARTURE FROM EVERY OTHER ENTRY HERE. `PostQuitMessage` takes an exit
-// code and no window; the seam drops the code because all three sites pass 0, and takes no `HWND`
+// code and no window; the seam drops the code because every site passes 0, and takes no `HWND`
 // because there is nothing for one to do -- Qt's eventual arm reaches the application through
 // `QCoreApplication::instance()`, a global, not through a widget. An `HWND` parameter accepted and
 // ignored would be a lie about what the call depends on.
@@ -291,9 +290,9 @@ inline bool requestQuit() {
 // with comments stripped, after input.cpp was routed through here: 4 SetCursor, 5
 // LoadCursor, 4 HCURSOR and 5 IDC_* remain tree-wide. Four of each are the four
 // lines of this seam's own implementation below, and every single one under src/ is
-// gone; the two ODD ENTRIES are main_d2d.cpp's LoadCursor/IDC_ARROW pair, which
-// registers a window class rather than setting a hover shape and is therefore out
-// of this seam's scope rather than missed by it.
+// gone; the two ODD ENTRIES were main_d2d.cpp's LoadCursor/IDC_ARROW pair, which
+// registered a window class rather than setting a hover shape and was therefore out
+// of this seam's scope rather than missed by it (the pair went with the retired file).
 //
 // THE 5s ARE A CORRECTION TO THIS PARAGRAPH'S FIRST DRAFT, which read "4 LoadCursor
 // ... 4 IDC_* ... zero of any of them anywhere under src/" and then named the
@@ -384,12 +383,12 @@ inline void setCursorShape(CursorShape shape) {
 // claim is actually about, they are greppable, and they do not drift. tabs.cpp
 // does NOT. Its capture is in tabStripMouseDown and its two releases are in
 // tabDragEnd and tabDragCancel; tabDragEnd is reached from handleMouseUp and is
-// bracketed, but tabDragCancel is reached from handleKeyDown on VK_ESCAPE and from
-// main_d2d.cpp's WM_CAPTURECHANGED. A KEYSTROKE DOES NOT END QT'S IMPLICIT GRAB, so
-// on Qt an Esc there would abort the drag's state while the widget kept grabbing
-// the mouse. That site needs an explicit QWidget::releaseMouse and the full
-// argument is written at the site rather than here, because the two callers need
-// two different Qt shapes and only one of them is a call.
+// bracketed, but tabDragCancel is reached from handleKeyDown on VK_ESCAPE -- its one
+// caller since the retired main_d2d.cpp's WM_CAPTURECHANGED went. A KEYSTROKE DOES
+// NOT END QT'S IMPLICIT GRAB, so on Qt an Esc there would abort the drag's state
+// while the widget kept grabbing the mouse. That site needs an explicit
+// QWidget::releaseMouse, and the full argument is written at the site rather than
+// here.
 //
 // So the score is 8 of 9 settled and 1 owed, which is a better answer than the
 // paragraph's own prediction of covered-or-bug: the exception is neither, it is a

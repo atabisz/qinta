@@ -5,9 +5,10 @@
 // holding the Direct2D wrappers BY VALUE to owning a pointer to the abstract
 // seam type, which is what lets a non-Windows build link a target that
 // instantiates an App at all. The Windows build proves it compiles and the app
-// still runs; nothing proved the SEATING LOGIC, because the only callers are the
-// seat* functions in app.h and their only caller is src/d2d_init.cpp, which is
-// Windows-only. So the mechanism the whole slice rests on had no assertion.
+// still runs; nothing proved the SEATING LOGIC, because the only callers were the
+// seat* functions in app.h and their only caller was src/d2d_init.cpp, which was
+// Windows-only (both retired in 0b39ae6). So the mechanism the whole slice rested on had
+// no assertion.
 //
 // THE PROPERTY THAT MATTERS is that seating is idempotent: reseating an
 // UNCHANGED native must not rebuild the wrapper. That is not a performance

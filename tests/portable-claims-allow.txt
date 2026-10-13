@@ -34,7 +34,7 @@ correction	theme helpers, several of which still live in windows.h-fatal files".
 correction	corrected 2026-09-22: this said editor.cpp "is windows.h/imm.h-fatal". false --	correction record: editor.cpp was called windows.h/imm.h-fatal
 history	no non-windows compiler had ever seen, because utils.cpp includes	past perfect about symbols no compiler had seen before the port; utils.cpp including windows.h is true and is not a claim that it fails to compile
 quotation	does not draw a document, and it cannot yet -- src/render.cpp does not compile off	a closed quotation of the old qt_window claim, ending was true when written and is now false in both halves
-co-occurrence	image_qt.cpp through cmake's platform_image_source so it is never compiled off	the subject of never compiled off Windows is image_win32.cpp, a non-entry; image_qt.cpp only appears as its pair
+co-occurrence	loadfile above; image_win32.cpp's, paired with image_qt.cpp through cmake's	the subject of never compiled off Windows is image_win32.cpp, a non-entry; image_qt.cpp only appears as its pair
 quotation	"src/annotations.cpp is not in tests/portable-sources.txt -- 33 native mentions	a bracketed quotation of the old annotations.cpp claim, refuted in the paragraph below
 quotation	at the last census -- and calling it would make this file unportable and take	the second line of the same bracketed quotation
 co-occurrence	ifstream extension that does not compile off windows at all. the real cost was a	the subject of does not compile off Windows is the MSVC wide-path ifstream extension, not a file; file_utils.cpp appears as the fix

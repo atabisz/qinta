@@ -153,7 +153,7 @@ const Entry kEntries[] = {
                                L"\u8D77\u52D5: %.1fms (\u30A6\u30A3\u30F3\u30C9\u30A6: %.1f | D2D: %.1f | DWrite: %.1f | \u30D5\u30A1\u30A4\u30EB: %.1f)",
                                L"\uC2DC\uC791: %.1fms (\uCC3D: %.1f | D2D: %.1f | DWrite: %.1f | \uD30C\uC77C: %.1f)" },
 
-    // ----- File-association dialogs (shared by settings.cpp and main_d2d.cpp /register) -----
+    // ----- File-association dialogs (settings_win32.cpp: askAndRegisterFileAssociation and /register's registerFileAssociationAndReport) -----
     { "fileassoc.title",                L"Qinta - File Association",                 L"Qinta - \u6587\u4EF6\u5173\u8054",                              L"Qinta - \u30D5\u30A1\u30A4\u30EB\u95A2\u9023\u4ED8\u3051", L"Qinta - \uD30C\uC77C \uC5F0\uACB0" },
     { "fileassoc.packaged.title",       L"Qinta - Default apps",                     L"Qinta - \u9ED8\u8BA4\u5E94\u7528",                              L"Qinta - \u65E2\u5B9A\u306E\u30A2\u30D7\u30EA", L"Qinta - \uAE30\uBCF8 \uC571" },
     { "fileassoc.packaged.ask_body",

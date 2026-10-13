@@ -1,15 +1,15 @@
 #ifndef TINTA_QT_WINDOW_H
 #define TINTA_QT_WINDOW_H
 
-// The Qt window that hosts an App: the counterpart to the WndProc and the
-// ID2D1HwndRenderTarget in src/main_d2d.cpp.
+// The Qt window that hosts an App: the successor to the WndProc and the
+// ID2D1HwndRenderTarget of the retired src/main_d2d.cpp.
 //
 // WHY THE WINDOW IS A CLASS IN A HEADER rather than a lambda inside main(). A test
-// has to be able to exercise the SAME class the application runs. tinta already has
-// the other shape and knows what it costs: the Direct2D paint path lives inside
+// has to be able to exercise the SAME class the application runs. tinta had
+// the other shape and showed what it costs: the Direct2D paint path lived inside
 // main_d2d.cpp's WinMain and its window procedure, which is why no test on either
-// platform has ever painted a tinta window and why every render assertion in the
-// tree paints into a bitmap instead. tests/qt_entry_tests.cpp constructs this class,
+// platform ever painted a tinta window and why every render assertion in the
+// tree painted into a bitmap instead. tests/qt_entry_tests.cpp constructs this class,
 // grabs it, and reads the pixels back.
 //
 // WHAT IT DRAWS TODAY: a DOCUMENT, when App has one, and the placeholder line when it
@@ -214,8 +214,8 @@ public:
     // that happens AFTER the dialog returns is in here, where a test drives it with a
     // path it wrote itself. main() loads the command-line document through the same
     // loadDocumentFromPath, so the argument and the menu cannot drift apart -- which is
-    // the defect main_d2d.cpp had, where
-    // the load logic is two lambdas inside WinMain and the Qt side had to write its own.
+    // the defect the retired main_d2d.cpp had, where
+    // the load logic was two lambdas inside WinMain and the Qt side had to write its own.
     bool openDocument(const std::string& path);
 
     // Ctrl+O. Shows platform::requestOpenPath's dialog and hands the result to

@@ -24,8 +24,8 @@
 // WHY THE ARMS ARE NOT DECLARED HERE. Neither `HWND` nor `QWidget` may appear in this file, and
 // laundering them through `void*` to satisfy that rule would buy a clean grep at the cost of the
 // type safety that makes the rule worth having. So each arm declares itself in its own header --
-// include/tab_ghost_win32.h, include/tab_ghost_qt.h -- each honestly named for the platform it
-// needs, and this file holds only what both of them compute the same way.
+// include/tab_ghost_qt.h, and include/tab_ghost_win32.h until it was deleted in 0b39ae6 -- each
+// honestly named for the platform it needs, and this file holds only what they compute the same way.
 namespace tinta {
 
 // The card's size and shape in DEVICE PIXELS at a given scale. `scale` is App::contentScale, which

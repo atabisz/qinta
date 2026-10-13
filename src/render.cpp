@@ -62,8 +62,8 @@ struct LayoutInfo {
 // exact about, because "it moved into the backend" is precisely what that refusal said
 // not to do. What it said not to do was fold the chain into
 // D2DTextFactory::CreateTextLayout, so that every layout the factory makes gets one:
-// 15 sites already create through app.textFactory -- utils.cpp's measureText, tabs.cpp,
-// overlays.cpp, main_d2d.cpp, export_html.cpp, editrail.cpp -- and NOT ONE has ever had
+// 15 sites then created through app.textFactory -- utils.cpp's measureText, tabs.cpp,
+// overlays.cpp, the retired main_d2d.cpp, export_html.cpp, editrail.cpp -- and NOT ONE had ever had
 // a fallback (`git log -S SetFontFallback -- src/utils.cpp` returns nothing). Several of
 // them measure text, so handing them a chain silently moves measured widths and
 // therefore layout.

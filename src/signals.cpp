@@ -324,10 +324,10 @@ void signalTuckPassive(App& app) {
 }
 
 void renderSignalChips(App& app) {
-    // Guards on the SEAM handle, not the native one. Safe rather than cosmetic:
-    // d2d_init.cpp:64-75 seats the text factory only when dwriteFactory is
-    // non-null, so the two are null together -- and this file no longer uses the
-    // native field, so testing it would be testing something unrelated.
+    // Guards on the SEAM handle, not a native one. The retired d2d_init.cpp seated
+    // the text factory only when dwriteFactory was non-null, so the two were null
+    // together; the native field went with the Direct2D stack, and the seam handle
+    // is the only one left to test.
     if (!app.textFactory || !app.folderBrowserFormat) return;
     if (app.showPrintPreview || app.showLightbox) return;
 

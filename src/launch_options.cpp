@@ -5,9 +5,9 @@
 namespace tinta {
 namespace {
 
-// The option order below mirrors src/main_d2d.cpp's chain deliberately, so the two can be read
-// side by side while both exist. The chain there is the authority for what tinta accepts; this
-// is that chain with three changes, each of them recorded in the header: missing values become
+// The option order below mirrors the retired src/main_d2d.cpp's chain deliberately, so the two
+// could be read side by side while both existed, and that chain was then the authority for what
+// tinta accepted. This parse is the authority now, and it is that chain with three changes, each of them recorded in the header: missing values become
 // errors, unknown flags become errors, and the positional test no longer swallows the gap.
 // A leading '-' is a flag everywhere. A leading '/' depends on the platform's convention, and
 // the caller supplies it -- see SlashPolicy in the header for the defect that made this a

@@ -288,13 +288,12 @@ bool rasterDimensions(float w, float h, unsigned& outW, unsigned& outH) {
 // size. The clipboard image path lives in src/clipboard_qt.cpp behind include/clipboard.h
 // (src/clipboard_win32.cpp held the Windows half until it was deleted on 2026-10-07).
 //
-// WHAT THIS FILE KEEPS OF WIC IS NOTHING, and what the TREE keeps of it is most of it --
-// stating the second half matters more than the first, because "WIC is gone" is the kind
-// of sentence that gets believed. Measured at this commit: src/print.cpp names the
-// factory at five places -- four real calls (two CreatePrintControl, CreateStream,
-// CreateEncoder) plus a null check -- src/render.cpp:2460 holds one null check,
-// src/d2d_init.cpp:83 is what creates it, and src/image_win32.cpp is built on WIC
-// throughout. The factory is as alive as it was; two of its callers moved.
+// WHAT THIS FILE KEEPS OF WIC IS NOTHING, and since 0b39ae6 neither does the TREE. When
+// this was written the tree still kept most of it, which is why "WIC is gone" was not said
+// then: src/print.cpp named the factory at five places -- four real calls (two
+// CreatePrintControl, CreateStream, CreateEncoder) plus a null check -- src/render.cpp held
+// one null check, the retired src/d2d_init.cpp created it, and src/image_win32.cpp was
+// built on WIC throughout. All of it went with the Direct2D stack.
 
 // Draws a prim list built at `scale` the way layoutMermaidExtDiagram
 // translates it for the viewer.

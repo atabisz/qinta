@@ -13,7 +13,7 @@
 // used to live in src/d2d_init.cpp, and what kept them Windows-only was that home rather than
 // their bodies: applyTheme named no Windows type at all, and updateTextFormats was a portable
 // skeleton wrapped round one DirectWrite block, the font fallback chain. That is the
-// createTypography shape again, which include/d2d_init.h already records once.
+// createTypography shape again, which the retired include/d2d_init.h recorded once.
 //
 // The price of leaving them there was measured on 2026-09-24 with a link fixpoint over the
 // manifest: input.cpp needs all three of this header's backend hooks plus the two portable
@@ -37,9 +37,9 @@ bool followSystemAppearance(App& app, bool systemPrefersLight);
 // body for both stacks' applyWindowChrome arms.
 tinta::WindowChrome windowChromeFor(const App& app);
 
-// THE THREE BACKEND HOOKS. One definition per stack: the Windows arms are in src/d2d_init.cpp,
-// beside the DirectWrite factory and the HWND they need, and the Qt arms are in
-// src/theme_qt.cpp. The two files are never linked into the same binary.
+// THE THREE BACKEND HOOKS. One definition each, in src/theme_qt.cpp: applyWindowChrome,
+// installFontFallback and enumerateSystemFontFamilies. The Windows arms were in the retired
+// src/d2d_init.cpp, beside the DirectWrite factory and the HWND they needed.
 
 // Tints the native title bar/border to windowChromeFor(app) (Windows 11; Windows 10 falls back
 // to the stock dark/light caption). Qt: delivered through the window sink, and the window

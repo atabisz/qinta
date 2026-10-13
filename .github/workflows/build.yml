@@ -104,12 +104,29 @@ jobs:
 
       # The shipped folder, copied so the settings.ini that puts qinta in portable mode never
       # lands in the artifact above. print-pages-agree compares these pages with MinGW's.
+      # The Qt install is moved aside for this step, so the copy can load only what windeployqt
+      # put in it: install-qt-action puts Qt's bin directory on PATH, and the deployed
+      # Qt6Core.dll's built-in plugin path points into the same tree, so either would hide a
+      # missing DLL or plugin. The scan before the move is the control: it must find the Qt it
+      # is about to hide, or its clean reading after the move would mean nothing.
       - name: Print pages
         shell: bash
         run: |
           mkdir harness-bin
           cp -r dist/* harness-bin/
           echo '; print-pages harness' > harness-bin/settings.ini
+          qt_on_path() {
+            local IFS=: dir found=0
+            for dir in $PATH; do
+              if [ -e "$dir/Qt6Core.dll" ]; then echo "Qt6Core.dll on PATH: $dir"; found=1; fi
+            done
+            return $((1 - found))
+          }
+          qt_on_path || { echo "control: no Qt6Core.dll on PATH before hiding Qt"; exit 1; }
+          qt_root=$(cygpath -u "$QT_ROOT_DIR")
+          mv "$qt_root" "$qt_root.hidden"
+          trap 'mv "$qt_root.hidden" "$qt_root"' EXIT
+          if qt_on_path; then echo "Qt is still reachable from PATH"; exit 1; fi
           bash scripts/print-pages-manifest.sh harness-bin/qinta.exe print-pages
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

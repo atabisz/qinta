@@ -90,7 +90,7 @@ artifact needs a GitHub login), each named by the commit it was built from:
 
 | Artifact | What it is | Checked in CI |
 |---|---|---|
-| `qinta-windows-x64` | A folder: `qinta.exe`, the Qt DLLs and the VC++ runtime DLLs | the five VC++ runtime DLLs are present, and a copy of the folder prints the fixture pages that are compared against MinGW's |
+| `qinta-windows-x64` | A folder: `qinta.exe`, the Qt DLLs and the VC++ runtime DLLs | the five VC++ runtime DLLs are present, and a copy of the folder prints the fixture pages that are compared against MinGW's, with the Qt install moved aside so only the folder's own DLLs can load |
 | `qinta-macos-app` | `Qinta.app`, Apple silicon, zipped | no library loads from Homebrew; unzipped, its signature verifies and it prints pages |
 | `qinta-linux-appimage` | An x86_64 AppImage | every Qt library it loads is inside it; it prints pages in an Ubuntu 24.04 container with no Qt installed |
 

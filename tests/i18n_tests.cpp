@@ -54,6 +54,15 @@ int main() {
     check(languageHasTranslations(ja), "ja ships built-in translations");
     check(languageHasTranslations(ko), "ko ships built-in translations");
 
+    // formatArg: the %1$s substitution title.plain and title.dirty use
+    check(formatArg(L"Qinta - %1$s", L"a.md") == L"Qinta - a.md", "formatArg fills %1$s");
+    check(formatArg(L"%1$s and %1$s", L"x") == L"x and x", "formatArg fills every %1$s");
+    check(formatArg(L"Qinta", L"a.md") == L"Qinta", "a pattern without %1$s is unchanged");
+    check(formatArg(L"%1$s", L"%1$s") == L"%1$s", "a value holding %1$s is not re-substituted");
+    check(formatArg(nullptr, L"a").empty(), "a null pattern formats to empty");
+    check(formatArg(tr(en, "title.dirty"), L"a.md") == L"Qinta - * a.md",
+          "title.dirty formats to the caption updateWindowTitle used to spell");
+
     // Alias normalization onto compiled languages
     check(languageIndexById("zh-CN") == zh, "zh-CN aliases to zh");
     check(languageIndexById("EN-us") == en, "en-US aliases to en");

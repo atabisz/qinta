@@ -465,6 +465,16 @@ struct RuntimeLanguage;
 const wchar_t* overrideFor(const std::string& id, const char* key);
 }
 
+std::wstring formatArg(const wchar_t* pattern, const std::wstring& value) {
+    static const std::wstring kArg = L"%1$s";
+    std::wstring out = pattern ? pattern : L"";
+    for (size_t at = out.find(kArg); at != std::wstring::npos;
+         at = out.find(kArg, at + value.size())) {
+        out.replace(at, kArg.size(), value);
+    }
+    return out;
+}
+
 const wchar_t* alertLabel(int langIndex, int kind) {
     static const char* const kKeys[] = {"alert.note", "alert.tip", "alert.important",
                                         "alert.warning", "alert.caution"};

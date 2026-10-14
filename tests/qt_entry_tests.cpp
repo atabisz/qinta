@@ -3679,6 +3679,39 @@ int main(int argc, char** argv) {
         check(captionNote == untitledExpected,
               "a quick note titles from the i18n table's title.untitled, with no backing file");
 
+        // The caption's words come from title.plain / title.dirty, so an override reaches it.
+        // They were literals beside two keys nothing read; English output is unchanged above,
+        // and only an override can tell a caption built from the keys from one that matches
+        // them. languages.ini in the pinned config home, then reloaded away again.
+        {
+            const std::wstring iniPath =
+                tintaConfigDir() + platform::pathSeparator() + L"languages.ini";
+            {
+                std::ofstream ini{std::filesystem::path(iniPath)};
+                ini << "[en]\ntitle.plain=Probe :: %1$s\ntitle.dirty=Probe :: * %1$s\n";
+            }
+            const int languageBefore = app.currentLanguageIndex;
+            app.currentLanguageIndex = LANG_INDEX_EN;
+            loadLanguageOverrides();
+            app.editMode = false;
+            app.currentFile = (titleDir / "caption-one.md").string();
+            updateWindowTitle(app);
+            const QString overridden = titleWindow.windowTitle();
+            app.editMode = true;
+            app.editorDirty = true;
+            updateWindowTitle(app);
+            const QString overriddenDirty = titleWindow.windowTitle();
+            app.editorDirty = false;
+            std::filesystem::remove(std::filesystem::path(iniPath));
+            loadLanguageOverrides();
+            app.currentLanguageIndex = languageBefore;
+            std::printf("caption override=[%s] dirty=[%s]\n", overridden.toUtf8().constData(),
+                        overriddenDirty.toUtf8().constData());
+            check(overridden == QStringLiteral("Probe :: caption-one.md") &&
+                      overriddenDirty == QStringLiteral("Probe :: * caption-one.md"),
+                  "a languages.ini override of title.plain and title.dirty reaches the caption");
+        }
+
         // Restore. The quick note cleared currentFile and entered edit mode.
         app.editMode = editBefore;
         app.editorDirty = dirtyBefore;

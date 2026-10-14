@@ -63,6 +63,10 @@ const wchar_t* tr(const App& app, const char* key);
 // label comes from, so the three cannot drift into English again.
 const wchar_t* alertLabel(int langIndex, int kind);
 
+// `pattern` with every %1$s replaced by `value`: the one positional argument the translation
+// table uses (title.plain, title.dirty). A pattern without it comes back unchanged.
+std::wstring formatArg(const wchar_t* pattern, const std::wstring& value);
+
 // Detect the user's preferred UI language via GetUserPreferredUILanguages.
 // Returns one of the LANG_INDEX_* values (always English as the last resort).
 int detectSystemLanguage();

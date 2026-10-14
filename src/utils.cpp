@@ -97,14 +97,12 @@ const App::TextRect* findTextRectAt(const App& app, int x, int y) {
 // still unsaved. Deriving it here from the state instead means the marker is a function of
 // `editorDirty` rather than of which event fired last.
 //
-// NOT ROUTED THROUGH i18n's title.plain / title.dirty, which exist (src/i18n.cpp:186-187)
-// and say exactly `Qinta - %1$s` and `Qinta - * %1$s` -- with zero callers. Measured rather
-// than assumed: nothing in src/ consumes a `%1$s` key and the tree has no
-// format-substitution helper, so adopting them means writing that machinery for a change the
-// translation table shows to be identical in all four languages. Recorded as a finding for a
-// localisation slice; this comment is the pointer that keeps the keys from reading as live.
+// THROUGH i18n's title.plain / title.dirty / title.no_file since 2026-10-14, with formatArg
+// for their %1$s. They had sat in the table with no caller while this function spelled the
+// same strings in English, so a translation or a languages.ini override could not reach the
+// caption. In every built-in language the result is unchanged: `Qinta - name.md`.
 void updateWindowTitle(App& app) {
-    std::wstring title = L"Qinta";
+    std::wstring title = tr(app, "title.no_file");
     std::wstring name;
     if (!app.currentFile.empty()) {
         std::wstring wpath = toWide(app.currentFile);
@@ -120,7 +118,7 @@ void updateWindowTitle(App& app) {
         // inside the editor, and neither can this one, because an empty name means no file
         // and no edit buffer.
         const bool dirty = app.editMode && app.editorDirty;
-        title = dirty ? L"Qinta - * " + name : L"Qinta - " + name;
+        title = formatArg(tr(app, dirty ? "title.dirty" : "title.plain"), name);
     }
     // win32_api.h's seam. It reaches include/window_sink.h on every platform -- there is one
     // window stack now -- and that header carries the argument for why a one-off call is

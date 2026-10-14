@@ -2641,7 +2641,7 @@ int main(int argc, char** argv) {
 
         // SUBJECT FIRST, then the control -- a control read against a red subject is not
         // a reading, which this tree has paid for once.
-        requestRepaint(nullptr);
+        requestRepaint();
         QApplication::processEvents();
         const int paintsAfterRequest = repaintProbe.paintCount();
         std::printf("repaint_probe paints_after_request=%d\n", paintsAfterRequest);
@@ -3340,7 +3340,7 @@ int main(int argc, char** argv) {
         // disarmed first so the arm read below belongs to the hover and not to the push.
         App::SignalChip& chip = app.signalChips.back();
         chip.rect = tinta::RectF{10.0f, 10.0f, 210.0f, 50.0f};
-        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        disarmTimer(TIMER_NOTIFICATION);
         const int beforeHover = repaints;
         signalMouseMove(app, 50.0f, 20.0f);
         const int hoverRepaints = repaints - beforeHover;
@@ -3564,7 +3564,7 @@ int main(int argc, char** argv) {
               "apart from the drop being ignored");
 
         while (app.tabs.size() > tabsBefore) {
-            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+            tabCloseIndex(app, (int)app.tabs.size() - 1);
         }
         std::filesystem::remove_all(dropDir, dropEc);
     }
@@ -3618,7 +3618,7 @@ int main(int argc, char** argv) {
 
         // ISC-3: a tab switch retitles, and BOTH directions are read -- a caption set once and
         // never again passes a single-direction check.
-        tabOpenPath(app, nullptr, (titleDir / "caption-two.md").u8string(), true);
+        tabOpenPath(app, (titleDir / "caption-two.md").u8string(), true);
         const QString captionTwo = titleWindow.windowTitle();
         int backTo = -1;
         for (size_t i = 0; i < app.tabs.size(); i++) {
@@ -3628,7 +3628,7 @@ int main(int argc, char** argv) {
                 backTo = (int)i;
             }
         }
-        if (backTo >= 0) tabActivate(app, nullptr, backTo);
+        if (backTo >= 0) tabActivate(app, backTo);
         const QString captionBack = titleWindow.windowTitle();
 
         // ISC-13: the dirty marker, which used to be written once by editor.cpp at the
@@ -3684,7 +3684,7 @@ int main(int argc, char** argv) {
         app.editorDirty = dirtyBefore;
         app.currentFile = fileBefore ? currentBefore : std::string();
         while (app.tabs.size() > tabsAtStart) {
-            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+            tabCloseIndex(app, (int)app.tabs.size() - 1);
         }
         std::filesystem::remove_all(titleDir, titleEc);
     }
@@ -3716,7 +3716,7 @@ int main(int argc, char** argv) {
         }
         const size_t tabsAtStart = app.tabs.size();
         for (const char* n : {"mid-one.md", "mid-two.md", "mid-three.md"}) {
-            tabOpenPath(app, nullptr, (mdir / n).u8string(), true);
+            tabOpenPath(app, (mdir / n).u8string(), true);
         }
         // The strip's hit rects come from renderTabStrip, so a paint has to happen before a
         // press can be aimed at a tab. Aiming by arithmetic instead would assert this test's
@@ -3897,7 +3897,7 @@ int main(int argc, char** argv) {
         }
 
         while (app.tabs.size() > tabsAtStart) {
-            tabCloseIndex(app, nullptr, (int)app.tabs.size() - 1);
+            tabCloseIndex(app, (int)app.tabs.size() - 1);
         }
         std::filesystem::remove_all(mdir, mec);
         // THE RESIDUE READING, AND WHY IT IS ASSERTED RATHER THAN JUST PRINTED. This block
@@ -3927,7 +3927,7 @@ int main(int argc, char** argv) {
         // block's own Esc keystroke -- the one testing the grab release.
         app.signalChips.clear();
         app.signalHoverChip = 0;
-        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        disarmTimer(TIMER_NOTIFICATION);
         check(app.signalChips.empty() && !signalsNeedTicks(app),
               "this block leaves no draining signal chip -- one did, and it turned the overlay "
               "frame run red on Linux by animating between two grabs of an unchanged window");
@@ -3973,7 +3973,7 @@ int main(int argc, char** argv) {
         QApplication::processEvents();
         const bool behindDialog = closeWindow.isVisible() && app.pendingWindowClose;
         // Keep editing cancels the whole close.
-        confirmExitAction(app, nullptr, 3);
+        confirmExitAction(app, 3);
         const bool cancelled = !app.confirmExitPending && !app.pendingWindowClose &&
                                closeWindow.isVisible();
         // Resolved, the next close goes through.
@@ -4096,7 +4096,7 @@ int main(int argc, char** argv) {
         const bool dirtyClose = saveWindow.close();
         const bool dirtyUnwritten = !dirtyClose && !bytesBefore.empty() &&
                                     readSettingsFile() == bytesBefore;
-        confirmExitAction(app, nullptr, 3);
+        confirmExitAction(app, 3);
         app.editMode = false;
         app.editorDirty = false;
 
@@ -4453,7 +4453,7 @@ int main(int argc, char** argv) {
         };
 
         const auto t0 = std::chrono::steady_clock::now();
-        openPrintPreview(app, nullptr);
+        openPrintPreview(app);
         const auto t1 = std::chrono::steady_clock::now();
         const int pagesA4 = static_cast<int>(app.printPreviewBounds.size()) - 1;
         const unsigned pxW = app.printPreviewPxW;
@@ -4485,7 +4485,7 @@ int main(int argc, char** argv) {
         printPreviewSetFormat(app, 0, false);  // back to A4 portrait for the PDF below
         const bool backToA4 = static_cast<int>(app.printPreviewBounds.size()) - 1 == pagesA4;
 
-        closePrintPreview(app, nullptr);
+        closePrintPreview(app);
         const bool closed = !app.showPrintPreview && app.printPreviewPixels.empty();
         const bool restored = app.width == screenWidth && app.contentHeight == screenContentH;
         const bool targetReturned = app.renderTarget == qtFactoryTarget();
@@ -4903,9 +4903,9 @@ int main(int argc, char** argv) {
         const bool tallOk = printToPdf(tallUtf8, tallOut, tallPdf);
         app.printPreviewPaper = 0;
         app.printPreviewLandscape = false;
-        openPrintPreview(app, nullptr);
+        openPrintPreview(app);
         const int previewPages = static_cast<int>(app.printPreviewBounds.size()) - 1;
-        closePrintPreview(app, nullptr);
+        closePrintPreview(app);
         const int printedPages = pdfPages(tallPdf);
         // The printed page is the paper: a full-page QPrinter reports the A4 sheet, 595 x 842 pt.
         const bool a4Box = tallPdf.find("/MediaBox [0 0 595") != std::string::npos;
@@ -5167,7 +5167,7 @@ int main(int argc, char** argv) {
 
         // Arm 2: the start page is showing (Ctrl+T's empty tab), as on a cold Finder launch. The
         // document replaces it: one tab in, one tab out, and no pathless tab left behind.
-        tabOpenStartPage(app, nullptr);
+        tabOpenStartPage(app);
         const bool onStartPage = startPageActive(app);
         const size_t tabsBeforeShell = app.tabs.size();
         const int pathlessBeforeShell = pathlessTabs();
@@ -5204,7 +5204,7 @@ int main(int argc, char** argv) {
             secondLaunches.push_back(args);
         });
         secondLaunches.clear();
-        tabOpenStartPage(app, nullptr);
+        tabOpenStartPage(app);
         const bool offOnStartPage = startPageActive(app);
         app.openInTabs = false;
         sendFileOpen(tabsOffPath);
@@ -5301,7 +5301,7 @@ int main(int argc, char** argv) {
         app.editMode = true;
         app.editorText = L"menu bar select all";
         app.editorHasSelection = false;
-        invokeMenuCommand(app, nullptr, CTX_SELECT_ALL);
+        invokeMenuCommand(app, CTX_SELECT_ALL);
         const bool commandMissedEditor = !app.editorHasSelection;
         app.hasSelection = false;
         if (selectAll) selectAll->trigger();
@@ -5384,7 +5384,7 @@ int main(int argc, char** argv) {
         app.editMode = replaceEditBefore;
         app.signalChips.clear();
         app.signalHoverChip = 0;
-        disarmTimer(app.hwnd, TIMER_NOTIFICATION);
+        disarmTimer(TIMER_NOTIFICATION);
         std::printf("menubar replace_item=%d replace_key_to_menu=%d replace_opened=%d\n",
                     replaceItem ? 1 : 0, replaceKeyToMenu, replaceOpened);
         check(replaceItem && replaceItem->text() == QString::fromWCharArray(tr(app, "menu.find_replace")),
@@ -5468,7 +5468,7 @@ int main(int argc, char** argv) {
         dragWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
         dragWindow.resize(800, 500);
         check(dragWindow.openDocument(tmpUtf8), "tearoff: the first tab's document opens");
-        tabOpenPath(app, nullptr, tallUtf8, true);
+        tabOpenPath(app, tallUtf8, true);
         grabWindow(dragWindow);
         const size_t tabsAtStart = app.tabs.size();
         const float stripMid = chromeTopHeight(app) * 0.5f;

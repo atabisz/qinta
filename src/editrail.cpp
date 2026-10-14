@@ -169,7 +169,7 @@ void renderEditRail(App& app) {
     // Slide-in: advance toward 1 and keep painting until it lands
     if (app.editRailAnim < 1.0f) {
         app.editRailAnim = std::min(1.0f, app.editRailAnim + 0.25f);
-        requestRepaint(app.hwnd);
+        requestRepaint();
     }
 
     const D2DTheme& th = app.theme;
@@ -355,23 +355,23 @@ int editRailHitAt(const App& app, float x, float y) {
     return 0;
 }
 
-bool editRailMouseDown(App& app, HWND hwnd, int x, int y) {
+bool editRailMouseDown(App& app, int x, int y) {
     if (!app.editMode || (float)x >= editRailWidth(app)) return false;
     int hit = editRailHitAt(app, (float)x, (float)y);
     if (hit != 0) {
-        editRailInvoke(app, hwnd, hit);
+        editRailInvoke(app, hit);
     }
     return true;  // the rail swallows its column's clicks either way
 }
 
-bool editRailMouseMove(App& app, HWND hwnd, int x, int y) {
+bool editRailMouseMove(App& app, int x, int y) {
     if (!app.editMode) return false;
     int hit = (float)x < editRailWidth(app)
                   ? editRailHitAt(app, (float)x, (float)y)
                   : 0;
     if (hit != app.editRailHover) {
         app.editRailHover = hit;
-        requestRepaint(hwnd);
+        requestRepaint();
     }
     return (float)x < editRailWidth(app);
 }
@@ -420,7 +420,7 @@ static const EDiagItem kEDiag[] = {
     {L"\u270E", "ectx.d.empty", L"```mermaid"},
 };
 
-void openEditCtxMenu(App& app, HWND hwnd, float x, float y) {
+void openEditCtxMenu(App& app, float x, float y) {
     editorMoveCaretToPoint(app, (int)x, (int)y);
     app.editCtxOpen = true;
     app.editCtxRailOnly = false;
@@ -431,12 +431,12 @@ void openEditCtxMenu(App& app, HWND hwnd, float x, float y) {
     app.editCtxSubHover = 0;
     app.editCtxGridC = 3;
     app.editCtxGridR = 4;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // The rail's table / diagram buttons open the insert menu's submenu
 // standalone, anchored beside the button; the insert lands at the caret
-void openEditRailFlyout(App& app, HWND hwnd, int sub) {
+void openEditRailFlyout(App& app, int sub) {
     if (app.editCtxOpen && app.editCtxRailOnly && app.editCtxSub == sub) {
         closeEditCtxMenu(app);  // same button again toggles it away
         return;
@@ -458,7 +458,7 @@ void openEditRailFlyout(App& app, HWND hwnd, int sub) {
     app.editCtxSubHover = 0;
     app.editCtxGridC = 3;
     app.editCtxGridR = 4;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void closeEditCtxMenu(App& app) {
@@ -466,7 +466,7 @@ void closeEditCtxMenu(App& app) {
     app.editCtxOpen = false;
     app.editCtxRailOnly = false;
     app.editCtxSub = 0;
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 void renderEditCtxMenu(App& app) {
@@ -790,7 +790,7 @@ void renderEditCtxMenu(App& app) {
     }
 }
 
-bool editCtxMouseDown(App& app, HWND hwnd, int x, int y) {
+bool editCtxMouseDown(App& app, int x, int y) {
     if (!app.editCtxOpen) return false;
     float fx = (float)x, fy = (float)y;
     for (const auto& hit : app.editCtxSubHits) {
@@ -799,16 +799,16 @@ bool editCtxMouseDown(App& app, HWND hwnd, int x, int y) {
             continue;
         }
         if (hit.second == 140) {
-            editorInsertTableGrid(app, hwnd, app.editCtxGridC,
+            editorInsertTableGrid(app, app.editCtxGridC,
                                   app.editCtxGridR);
         } else if (hit.second >= 150) {
             // Close first: the export flow opens a modal save dialog
             int fmt = hit.second - 150;
             closeEditCtxMenu(app);
-            pandocExportFlow(app, hwnd, fmt);
+            pandocExportFlow(app, fmt);
             return true;
         } else if (hit.second >= 130) {
-            editorInsertDiagramTemplate(app, hwnd, hit.second - 130);
+            editorInsertDiagramTemplate(app, hit.second - 130);
         }
         closeEditCtxMenu(app);
         return true;
@@ -819,18 +819,18 @@ bool editCtxMouseDown(App& app, HWND hwnd, int x, int y) {
             continue;
         }
         switch (hit.second) {
-            case 100: editorClipboardCut(app, hwnd); break;
-            case 101: editorClipboardCopy(app, hwnd); break;
-            case 102: editorClipboardPaste(app, hwnd); break;
-            case 110: app.editCtxSub = 1; requestRepaint(hwnd); return true;
-            case 111: app.editCtxSub = 2; requestRepaint(hwnd); return true;
-            case 112: editRailInvoke(app, hwnd, 22); break;
+            case 100: editorClipboardCut(app); break;
+            case 101: editorClipboardCopy(app); break;
+            case 102: editorClipboardPaste(app); break;
+            case 110: app.editCtxSub = 1; requestRepaint(); return true;
+            case 111: app.editCtxSub = 2; requestRepaint(); return true;
+            case 112: editRailInvoke(app, 22); break;
             case 113:
-                editorInsertSnippetPublic(app, hwnd, L"```\n\n```\n", 4);
+                editorInsertSnippetPublic(app, L"```\n\n```\n", 4);
                 break;
-            case 114: editRailInvoke(app, hwnd, 5); break;
+            case 114: editRailInvoke(app, 5); break;
             case 115:
-                editorInsertSnippetPublic(app, hwnd, L"---\n", 4);
+                editorInsertSnippetPublic(app, L"---\n", 4);
                 break;
         }
         closeEditCtxMenu(app);
@@ -876,9 +876,9 @@ bool editCtxMouseMove(App& app, int x, int y) {
     if (hover != app.editCtxHover || subHover != app.editCtxSubHover) {
         app.editCtxHover = hover;
         app.editCtxSubHover = subHover;
-        requestRepaint(app.hwnd);
+        requestRepaint();
     } else if (subHover == 140) {
-        requestRepaint(app.hwnd);  // live grid highlight
+        requestRepaint();  // live grid highlight
     }
     return true;
 }

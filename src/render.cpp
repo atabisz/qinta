@@ -3502,7 +3502,7 @@ void completeAsyncImage(App& app, void* asyncResult) {
     //
     // canArmTimer, not app.hwnd, which is null for the whole of a qinta run: this function
     // runs there too now, from the Qt window's post sink.
-    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_IMAGE_REFLOW, 60);
+    if (canArmTimer()) armTimer(TIMER_IMAGE_REFLOW, 60);
 }
 
 void ensureLayoutComplete(App& app) {

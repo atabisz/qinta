@@ -15,17 +15,17 @@
 void tabsInit(App& app);                       // adopt the startup document
 // Rebuild the row from last session's paths (startup doc becomes active)
 void tabsSeedSession(App& app, const std::vector<std::string>& paths);
-void tabActivate(App& app, HWND hwnd, int index);
-void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
+void tabActivate(App& app, int index);
+void tabOpenPath(App& app, const std::string& utf8Path,
                  bool activate = true);
 // The start page giving way to a document: the document opens as a tab and
 // the start page's own tab closes, so a launcher holding nothing becomes a
 // window holding that one document. The start page's recent-file click, and
 // a macOS Finder open that arrives while the start page is showing.
-void tabOpenPathReplacingStartPage(App& app, HWND hwnd,
+void tabOpenPathReplacingStartPage(App& app,
                                    const std::string& utf8Path);
-void tabCloseIndex(App& app, HWND hwnd, int index);
-void tabCycle(App& app, HWND hwnd, int direction);
+void tabCloseIndex(App& app, int index);
+void tabCycle(App& app, int direction);
 
 // Title-bar geometry shared by rendering and non-client hit testing
 tinta::RectF captionButtonRect(const App& app, int button);  // 0 min 1 max 2 close
@@ -35,9 +35,9 @@ int captionHitTest(const App& app, float x, float y);       // 0 none, 1..3
 // tint so border and transition flashes match the drawn caption)
 tinta::Color tabStripBackground(const App& app);
 // + button: a new untitled quick-note tab, straight into the editor
-void tabOpenQuickNote(App& app, HWND hwnd);
-void tabOpenStartPage(App& app, HWND hwnd);
-void tabBecomeStartPage(App& app, HWND hwnd);
+void tabOpenQuickNote(App& app);
+void tabOpenStartPage(App& app);
+void tabBecomeStartPage(App& app);
 
 // Rendering (main_d2d render loop)
 void renderTabStrip(App& app);
@@ -52,26 +52,26 @@ void openTabMenu(App& app, int tabIndex, float x, float y);
 void closeTabMenu(App& app);
 int tabMenuItemAt(const App& app, float x, float y);
 void renderTabMenu(App& app);
-bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y);
+bool tabMenuMouseDown(App& app, int x, int y);
 // Continue a Close-others/left/right sweep after a dirty tab's dialog
-void tabBulkCloseStep(App& app, HWND hwnd);
+void tabBulkCloseStep(App& app);
 
 // Mouse handling for the strip area; return true when consumed
-bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle);
-bool tabSwitcherMouseDown(App& app, HWND hwnd, int x, int y);
+bool tabStripMouseDown(App& app, int x, int y, bool middle);
+bool tabSwitcherMouseDown(App& app, int x, int y);
 // Drag lifecycle: move reorders inside the strip or floats the tab as a
 // ghost card once clear of it; release decides (spawn a new window or snap
 // back -- NOT a drop into another running window, which this stack cannot
 // ask for; see docs/roadmap.md); Esc/capture loss cancels
-void tabDragMove(App& app, HWND hwnd, int x, int y);
-void tabDragEnd(App& app, HWND hwnd, int x, int y);
-void tabDragCancel(App& app, HWND hwnd);
+void tabDragMove(App& app, int x, int y);
+void tabDragEnd(App& app, int x, int y);
+void tabDragCancel(App& app);
 // DEFERRED, AND UNCALLED ON THIS STACK. On Win32 this ran after a native
 // window move: a tabless window dropped onto another Tinta window's strip
 // donated its document there. Its one caller died with the Direct2D window
 // procedure, and the search it ran was an HWND walk, so nothing calls it
 // here and the behaviour does not happen. docs/roadmap.md groups it with
 // the other direction of the same missing question.
-void tabWindowDropMerge(App& app, HWND hwnd);
+void tabWindowDropMerge(App& app);
 
 #endif  // TINTA_TABS_H

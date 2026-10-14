@@ -51,7 +51,7 @@ tinta::Color signalSeverityHue(const App& app, int severity);
 void renderSignalChips(App& app);
 // Mouse press over a chip, the bell, or the open tray. Returns true when
 // consumed (the caller swallows the matching release).
-bool signalMouseDown(App& app, HWND hwnd, float mx, float my);
+bool signalMouseDown(App& app, float mx, float my);
 // Hover tracking (drain hold + hand cursor). True = pointer is over an
 // interactive signal element.
 bool signalMouseMove(App& app, float mx, float my);

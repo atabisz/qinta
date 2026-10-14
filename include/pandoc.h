@@ -25,4 +25,4 @@ void pandocSetUserPath(App& app, const std::wstring& path);
 
 // Save dialog for the chosen format, then convert on a worker thread;
 // completion arrives as WM_APP_PANDOC_DONE (wParam = success)
-void pandocExportFlow(App& app, HWND hwnd, int fmt);
+void pandocExportFlow(App& app, int fmt);

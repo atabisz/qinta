@@ -260,7 +260,7 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
                 // Same argument as the input handlers: the drag auto-scroll tick clamps
                 // against app_.height.
                 syncViewport();
-                handleTimer(app_, nullptr, id);
+                handleTimer(app_, id);
             });
         }
         timer->start(static_cast<int>(intervalMs));
@@ -394,9 +394,7 @@ bool QtAppWindow::openDocument(const std::string& path) {
 
 void QtAppWindow::promptOpenDocument() {
     platform::FileDialogRequest request;
-    // No owner. HWND is a Windows type and the Qt backend ignores it, which makes the
-    // dialog application-modal -- see src/file_dialog_qt.cpp.
-    request.owner = nullptr;
+    // No owner, so the dialog is application-modal -- see include/file_dialog.h.
     // Copied verbatim from editor.cpp:1064's openFileDialog, so Ctrl+O offers the same
     // three filters in the same order on both stacks. A shorter list here would be a
     // divergence in the part of the product a user sees first.
@@ -435,12 +433,12 @@ void QtAppWindow::wheelEvent(QWheelEvent* event) {
     const float vertical = static_cast<float>(event->angleDelta().y()) / kAngleDeltaPerNotch;
     const float horizontal = static_cast<float>(event->angleDelta().x()) / kAngleDeltaPerNotch;
 
-    if (vertical != 0.0f) handleMouseWheel(app_, nullptr, vertical);
+    if (vertical != 0.0f) handleMouseWheel(app_, vertical);
     // NEGATED, and the sign is still unverified on this host -- there is no tilt wheel to test
     // with. Qt's documented convention is that a positive x delta is a rotation to the LEFT;
     // WM_MOUSEHWHEEL's positive delta is a tilt to the RIGHT, and handleMouseHWheel ADDS it to
     // targetScrollX. So Qt's number is the opposite of the one Windows hands that function.
-    if (horizontal != 0.0f) handleMouseHWheel(app_, nullptr, -horizontal);
+    if (horizontal != 0.0f) handleMouseHWheel(app_, -horizontal);
 
     event->accept();
     update();
@@ -495,13 +493,13 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
 
     const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     bool consumed = false;
-    if (vk != 0) consumed = handleKeyDown(app_, nullptr, vk);
+    if (vk != 0) consumed = handleKeyDown(app_, vk);
     if (!consumed) {
         // One call per UTF-16 unit, which is what WM_CHAR delivers: a character outside
         // the BMP arrives as two messages. So handleCharInput sees here exactly the units
         // it sees on Windows -- whatever it does with a surrogate, it does on both stacks.
         for (const QChar unit : text) {
-            handleCharInput(app_, nullptr, static_cast<wchar_t>(unit.unicode()));
+            handleCharInput(app_, static_cast<wchar_t>(unit.unicode()));
         }
     }
 
@@ -532,7 +530,7 @@ void QtAppWindow::mousePressEvent(QMouseEvent* event) {
         syncViewport();
         const platform::EventModifierScope modifiers = modifierScopeFor(*event);
         const QPoint p = event->position().toPoint();
-        if (handleMiddleMouseDown(app_, nullptr, p.x(), p.y())) {
+        if (handleMiddleMouseDown(app_, p.x(), p.y())) {
             event->accept();
         } else {
             QWidget::mousePressEvent(event);
@@ -546,7 +544,7 @@ void QtAppWindow::mousePressEvent(QMouseEvent* event) {
     syncViewport();
     const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     const QPoint p = event->position().toPoint();
-    handleMouseDown(app_, nullptr, p.x(), p.y());
+    handleMouseDown(app_, p.x(), p.y());
     event->accept();
 }
 
@@ -563,7 +561,7 @@ void QtAppWindow::mouseMoveEvent(QMouseEvent* event) {
     syncViewport();
     const platform::EventModifierScope modifiers = modifierScopeFor(*event);
     const QPoint p = event->position().toPoint();
-    handleMouseMove(app_, nullptr, p.x(), p.y());
+    handleMouseMove(app_, p.x(), p.y());
     event->accept();
 }
 
@@ -573,15 +571,15 @@ void QtAppWindow::mouseReleaseEvent(QMouseEvent* event) {
     const QPoint p = event->position().toPoint();
     switch (event->button()) {
         case Qt::LeftButton:
-            handleMouseUp(app_, nullptr, p.x(), p.y());
+            handleMouseUp(app_, p.x(), p.y());
             break;
         // WM_XBUTTONUP's two arms: on RELEASE, as Windows does it, so a press that is
         // dragged off the window and released elsewhere navigates nowhere.
         case Qt::BackButton:
-            navigateBack(app_, nullptr);
+            navigateBack(app_);
             break;
         case Qt::ForwardButton:
-            navigateForward(app_, nullptr);
+            navigateForward(app_);
             break;
         default:
             QWidget::mouseReleaseEvent(event);
@@ -596,7 +594,7 @@ void QtAppWindow::contextMenuEvent(QContextMenuEvent* event) {
     // then ignores the position and centres the menu, so pos() is passed either way.
     const bool fromKeyboard = event->reason() == QContextMenuEvent::Keyboard;
     const platform::EventModifierScope modifiers = modifierScopeFor(*event);
-    handleContextMenu(app_, nullptr, event->pos().x(), event->pos().y(), fromKeyboard);
+    handleContextMenu(app_, event->pos().x(), event->pos().y(), fromKeyboard);
     event->accept();
 }
 
@@ -647,7 +645,7 @@ void QtAppWindow::dropEvent(QDropEvent* event) {
     // Unfiltered, as include/input.h:57 asks: handleDropFiles decides which ones it supports,
     // opens each into a tab with the first activating, and repaints only if something opened.
     // Skipping every path is therefore the same no-op a drop of nothing is.
-    handleDropFiles(app_, nullptr, paths);
+    handleDropFiles(app_, paths);
     event->acceptProposedAction();
 }
 
@@ -663,7 +661,7 @@ tinta::RectF QtAppWindow::placeholderRect() const {
 void QtAppWindow::closeEvent(QCloseEvent* event) {
     // The dialog windowCloseMayProceed opens is App state drawn by the paint, so a refusal
     // repaints through the repaint sink it already called; nothing else to do here.
-    if (windowCloseMayProceed(app_, nullptr)) {
+    if (windowCloseMayProceed(app_)) {
         // WinMain's WM_DESTROY, in its order: every dirty buffer was just resolved, so a
         // leftover draft would resurrect content the user already decided about -- then the
         // save: the preferences, the reading position, the session and the geometry (qt_launch.h).
@@ -779,7 +777,7 @@ void QtAppWindow::inputMethodEvent(QInputMethodEvent* event) {
     // The commit first: an input method replacing its composition with the chosen text sends
     // the commit and an empty preedit in one event.
     for (const QChar unit : event->commitString()) {
-        handleCharInput(app_, nullptr, static_cast<wchar_t>(unit.unicode()));
+        handleCharInput(app_, static_cast<wchar_t>(unit.unicode()));
     }
     app_.imePreedit = event->preeditString().toStdWString();
     event->accept();

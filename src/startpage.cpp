@@ -444,7 +444,7 @@ int startPageHitAt(const App& app, float x, float y) {
     return 0;
 }
 
-void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
+void startPageOpenEmbedded(App& app, int card) {
     const char* content = card == 1   ? kMermaidTour
                           : card == 2 ? kMarkdownBasics
                                       : kSampleDocument;
@@ -474,7 +474,7 @@ void startPageOpenEmbedded(App& app, HWND hwnd, int card) {
     tabsInit(app);
     app.tabs[app.activeTab].title = tr(app, titleKey);
     updateWindowTitle(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Rendering -----------------------------------------------------------

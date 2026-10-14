@@ -35,18 +35,18 @@ void annotationScrollTo(App& app, int index);
 // From the current selection; false when the selection can't be located
 // in the source (nothing opens in that case)
 bool annotationBeginCreate(App& app);
-void annotationEditorConfirm(App& app, HWND hwnd);
+void annotationEditorConfirm(App& app);
 void annotationEditorCancel(App& app);
-void annotationEditorDelete(App& app, HWND hwnd);
+void annotationEditorDelete(App& app);
 
 // True when the key/char was consumed by the open editor
-bool annotationEditorKeyDown(App& app, HWND hwnd, WPARAM key, bool ctrl);
+bool annotationEditorKeyDown(App& app, WPARAM key, bool ctrl);
 bool annotationEditorChar(App& app, WPARAM ch);
 // 0 = none, 1 = confirm, 2 = cancel, 3 = delete
 int annotationEditorButtonAt(const App& app, float x, float y);
 bool annotationEditorContains(const App& app, float x, float y);
 
 // Clipboard: full path on the first line, then one remark per annotation
-void annotationsCopyForAgent(App& app, HWND hwnd);
+void annotationsCopyForAgent(App& app);
 
 #endif // TINTA_ANNOTATIONS_H

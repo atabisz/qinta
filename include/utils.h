@@ -71,7 +71,7 @@ void refuseWindowFeature(App& app, const char* what, const wchar_t* chip);
 // is the only thing that ever called it.
 // Resolve UTF-8 document paths without a MAX_PATH-sized buffer (#203).
 std::wstring absoluteFilePath(const std::string& path);
-void copyFilePath(App& app, HWND hwnd, const std::string& path);
+void copyFilePath(App& app, const std::string& path);
 
 void scrollToHeadingY(App& app, float headingY);
 bool scrollToHeadingId(App& app, const std::string& id);

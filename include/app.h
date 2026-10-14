@@ -159,8 +159,6 @@ static_assert(kWindowPositionUseDefault == CW_USEDEFAULT,
 
 // Application state
 struct App {
-    // Win32
-    HWND hwnd = nullptr;
     int width = 1024;
     int height = 768;
     bool running = true;
@@ -649,7 +647,6 @@ struct App {
     // release decides (a new window, or snap back -- a drop into another
     // running window is deferred, see docs/roadmap.md)
     bool tabDragDetached = false;
-    HWND tabGhostWnd = nullptr;
     // A native move/size loop is in progress; the starting rect tells a
     // pure move (a possible strip drop) apart from a resize on exit
     bool windowMoveTracking = false;
@@ -1762,14 +1759,14 @@ inline float documentViewportWidth(const App& app) {
 // Guarded on canArmTimer rather than app.hwnd, which is null for the whole of a qinta run
 // (include/win32_api.h has why the Win32 arm still needs the handle).
 inline void updateBlinkTimer(App& app) {
-    if (!canArmTimer(app.hwnd)) return;
+    if (!canArmTimer()) return;
     if (app.editMode || (app.showSearch && app.searchActive) ||
         (app.showFolderBrowser &&
          (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
         app.cursorBlinkOn = true;
-        armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
+        armTimer(TIMER_CURSOR_BLINK, 500);
     } else {
-        disarmTimer(app.hwnd, TIMER_CURSOR_BLINK);
+        disarmTimer(TIMER_CURSOR_BLINK);
         app.cursorBlinkOn = true;
     }
 }
@@ -1777,13 +1774,13 @@ inline void updateBlinkTimer(App& app) {
 // Restart the blink phase so the cursor stays visible while typing
 inline void resetCursorBlink(App& app) {
     app.cursorBlinkOn = true;
-    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_CURSOR_BLINK, 500);
+    if (canArmTimer()) armTimer(TIMER_CURSOR_BLINK, 500);
 }
 
 // Notification fades repaint on this timer; the WM_TIMER handler kills it
 // once no notification is active.
-inline void startNotificationTimer(App& app) {
-    if (canArmTimer(app.hwnd)) armTimer(app.hwnd, TIMER_NOTIFICATION, 33);
+inline void startNotificationTimer() {
+    if (canArmTimer()) armTimer(TIMER_NOTIFICATION, 33);
 }
 
 #endif // TINTA_APP_H

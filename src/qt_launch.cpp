@@ -195,7 +195,7 @@ void bringForward(QWidget& window) {
 
 void openArrivedDocument(App& app, QWidget& window, const std::string& utf8Path) {
     bringForward(window);
-    tabOpenPath(app, nullptr, utf8Path, true);
+    tabOpenPath(app, utf8Path, true);
 }
 
 void openFileOpenEventDocument(App& app, QWidget& window, const std::string& utf8Path) {
@@ -209,7 +209,7 @@ void openFileOpenEventDocument(App& app, QWidget& window, const std::string& utf
         // not a second document in it -- and asking the tabs setting first left a cold launch
         // with an empty start-page window and the document in a second one (measured 2026-10-13).
         bringForward(window);
-        tabOpenPathReplacingStartPage(app, nullptr, utf8Path);
+        tabOpenPathReplacingStartPage(app, utf8Path);
     } else if (!shouldJoinExistingWindow(asLaunch, app.openInTabs)) {
         launchSecondInstance(utf8Path);
     } else {

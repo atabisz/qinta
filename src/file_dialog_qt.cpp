@@ -19,11 +19,10 @@
 // THAT LAST SENTENCE PREDICTED ONE CUTOVER AND THERE WERE TWO. The first half arrived:
 // qinta has a QApplication and QtAppWindow is a QWidget, and Ctrl+O in it reaches
 // requestOpenPath below -- so this file is now REACHED BY THE RUNNING APPLICATION and
-// not only compiled. The second half did not: `owner` is still an HWND at the seam and
-// still nullptr here, so the dialog remains application-modal. Having a QWidget to pass
-// is necessary for honouring `owner` and is not sufficient, because the seam's type is
-// the obstacle. Corrected in place rather than deleted, because the prediction being
-// half right is the useful part.
+// not only compiled. The second half did not: the request's HWND `owner` was always null,
+// so the dialog remained application-modal, and on 2026-10-14 the field went with the HWND
+// type. Corrected in place rather than deleted, because the prediction being half right is
+// the useful part.
 //
 // This file is also the first place qinta takes the Qt backend of a seam ON WINDOWS
 // TOO -- CMakeLists.txt lists it in QINTA_APP_SOURCES directly instead of through
@@ -51,8 +50,7 @@ QString toQt(const std::wstring& text) { return QString::fromStdWString(text); }
 // (the format's own extension) -- so a name typed without an extension would land
 // on disk without one.
 std::optional<FileDialogResult> show(const FileDialogRequest& request, bool save) {
-    // nullptr parent: `request.owner` is an HWND and cannot be converted. See the
-    // header for why the parameter is kept anyway.
+    // nullptr parent, so application-modal: see the header.
     QFileDialog dialog(nullptr);
     dialog.setAcceptMode(save ? QFileDialog::AcceptSave : QFileDialog::AcceptOpen);
     dialog.setFileMode(save ? QFileDialog::AnyFile : QFileDialog::ExistingFile);

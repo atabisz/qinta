@@ -79,12 +79,12 @@
 // handle is what made it impossible to write twice.
 
 static const App::TaskRect* taskRectAt(const App& app);
-static void startPageInvoke(App& app, HWND hwnd, int id);
+static void startPageInvoke(App& app, int id);
 static bool tableCopyButtonAt(const App& app, int mouseX, int mouseY);
 static bool diagramPngButtonAt(const App& app, int mouseX, int mouseY);
 static bool tableFitButtonAt(const App& app, int mouseX, int mouseY);
 static bool diagramFitButtonAt(const App& app, int mouseX, int mouseY);
-static void toggleFitBlock(App& app, HWND hwnd, unsigned key);
+static void toggleFitBlock(App& app, unsigned key);
 
 // Drops the link-peek popup and its rendered bitmap
 static void clearLinkPeek(App& app) {
@@ -232,9 +232,9 @@ static void setSearchCursor(const App& app, float x, float y) {
 
 // Drag auto-scroll (#83): while a selection drag sits in the edge band,
 // TIMER_SELECT_SCROLL scrolls the document and drags the focus offset along
-void handleSelectScrollTimer(App& app, HWND hwnd) {
+void handleSelectScrollTimer(App& app) {
     if (!app.selecting || app.selAutoScrollVel == 0.0f || app.editMode) {
-        disarmTimer(hwnd, TIMER_SELECT_SCROLL);
+        disarmTimer(TIMER_SELECT_SCROLL);
         app.selAutoScrollVel = 0.0f;
         return;
     }
@@ -263,7 +263,7 @@ void handleSelectScrollTimer(App& app, HWND hwnd) {
     } else {
         app.selFocus = off;
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Loads a document into the viewer and resets per-document state.
@@ -393,7 +393,7 @@ static bool pathExists(const std::wstring& path) {
 
 // N key / context menu: open the folder browser with the new-file naming
 // row already active
-static void startNewFileFlow(App& app, HWND hwnd) {
+static void startNewFileFlow(App& app) {
     if (!app.showFolderBrowser) {
         app.showFolderBrowser = true;
         app.folderBrowserAnimation = 0;
@@ -412,7 +412,7 @@ static void startNewFileFlow(App& app, HWND hwnd) {
     app.folderBrowserScroll = 0.0f;
     updateBlinkTimer(app);
     resetCursorBlink(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Folder browser path/name input (#52) ---
@@ -496,7 +496,7 @@ static void commitFolderBrowserPath(App& app) {
     if (isSupportedDropPath(path)) {
         if (app.tabNewTabIntent) {
             app.tabNewTabIntent = false;
-            tabOpenPath(app, app.hwnd, toUtf8(path), true);
+            tabOpenPath(app, toUtf8(path), true);
             closeFolderBrowserInput(app);
         } else if (openDocumentInViewer(app, path)) {
             // Preview mode: the browser stays open beside the document —
@@ -580,7 +580,7 @@ static void commitFolderBrowserNaming(App& app) {
     // NOT GUARDED SINCE 2026-10-06: the relaunch has a Qt half (src/window_launch_qt.cpp), so
     // the note's own window opens on both stacks and the refusal that stood here is gone.
     launchDocumentWindow(fullPath);
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
 }
 
 // Ctrl+wheel zoom. The scroll anchor scales immediately, but text format
@@ -595,7 +595,7 @@ static void applyZoomDelta(App& app, float delta) {
     if (!app.zoomApplyPending) {
         updateTextFormats(app);
         app.zoomApplyPending = true;
-        armTimer(app.hwnd, TIMER_ZOOM_APPLY, 80);
+        armTimer(TIMER_ZOOM_APPLY, 80);
     }
 }
 
@@ -724,7 +724,7 @@ static void openThemeEditor(App& app, bool editCurrent) {
     app.themeEditorFontScroll = 0.0f;
     app.showSettings = false;
     app.showThemeEditor = true;
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 static void closeThemeEditor(App& app, bool backToSettings) {
@@ -733,7 +733,7 @@ static void closeThemeEditor(App& app, bool backToSettings) {
         app.showSettings = true;
         app.settingsAnimation = 1.0f;  // no re-animation on return
     }
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 // Reading-width sliders: map a mouse X onto the stored track rect (#82)
@@ -746,7 +746,7 @@ static void settingsSliderApply(App& app, int which, float mx) {
     if (which == SET_SLIDER_ZEN) app.zenWidthPct = pct;
     else app.readingWidthPct = pct;
     app.layoutDirty = true;
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 // Applies one settings-overlay action (id from app.settingsHits)
@@ -772,7 +772,7 @@ static void shortcutAssign(App& app, KeyBinding key) {
     app.shortcutEditorRow = -1;
 }
 
-static void settingsAction(App& app, HWND hwnd, int action) {
+static void settingsAction(App& app, int action) {
     // Shortcut profile picks (checked first: their base is above the
     // language pick base)
     if (action >= SET_KEYS_PICK_BASE) {
@@ -785,7 +785,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             applyKeymap(app, s);  // also mirrors into app.keyProfile
         }
         app.settingsKeysOpen = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
     // Language dropdown picks: 0 = Auto, then the registry languages
@@ -799,7 +799,7 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             app.currentLanguageIndex = pick - 1;
         }
         app.settingsLangOpen = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
     if (action != SET_LANG_DROPDOWN) app.settingsLangOpen = false;
@@ -838,7 +838,6 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             // rather than corrected -- see file_dialog.h on why the seam preserves
             // the divergence instead of unifying it.
             platform::FileDialogRequest request;
-            request.owner = hwnd;
             request.filters = {{L"pandoc.exe", L"pandoc.exe"},
                                {L"Programs (*.exe)", L"*.exe"}};
             std::optional<platform::FileDialogResult> picked =
@@ -900,17 +899,17 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             openLanguagesIniFile();
             break;
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
+void handleMouseWheel(App& app, float wheelDelta) {
     // Lightbox: the wheel zooms the image
     if (app.showLightbox) {
         float delta = wheelDelta;
         float factor = delta > 0 ? 1.15f : 1.0f / 1.15f;
         app.lightboxZoom =
             std::max(0.2f, std::min(app.lightboxZoom * factor, 10.0f));
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -918,7 +917,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
     // link peek so it cannot go stale
     if (app.linkPeekActive || !app.linkPeekUrl.empty()) {
         clearLinkPeek(app);
-        disarmTimer(hwnd, TIMER_LINK_PEEK);
+        disarmTimer(TIMER_LINK_PEEK);
     }
 
     // Theme editor: wheel scrolls the font list
@@ -929,7 +928,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
             app.mouseY >= list.top && app.mouseY <= list.bottom) {
             app.themeEditorFontScroll -= delta * dpi(app, 78.0f);
             if (app.themeEditorFontScroll < 0) app.themeEditorFontScroll = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -960,7 +959,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
     if (app.showHelp) {
         app.helpScroll -= delta * dpi(app, 60.0f);
         if (app.helpScroll < 0) app.helpScroll = 0;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -973,7 +972,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
             : static_cast<float>(app.width);
         if (ctrl && app.mouseX < sepX) {
             applyZoomDelta(app, delta);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         if (!ctrl) {
@@ -988,10 +987,10 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
                                        editSheetRect(app).bottom);
                 app.scrollY = std::min(app.scrollY - delta * dpi(app, 60.0f), maxScroll);
                 app.targetScrollY = app.scrollY;
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
-            handleEditorMouseWheel(app, hwnd, delta);
+            handleEditorMouseWheel(app, delta);
             return;
         }
         // Ctrl over the preview pane: fall through to document zoom
@@ -1011,7 +1010,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
                 (app.folderBrowserNaming != 0 ? itemHeight : 0.0f);
             float maxScroll = std::max(0.0f, totalItemsHeight - listHeight);
             app.folderBrowserScroll = std::max(0.0f, std::min(app.folderBrowserScroll, maxScroll));
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
     }
@@ -1028,7 +1027,7 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
             float totalItemsHeight = app.headings.size() * itemHeight;
             float maxScroll = std::max(0.0f, totalItemsHeight - listHeight);
             app.tocScroll = std::max(0.0f, std::min(app.tocScroll, maxScroll));
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
     }
@@ -1051,10 +1050,10 @@ void handleMouseWheel(App& app, HWND hwnd, float wheelDelta) {
         app.scrollY = app.targetScrollY;
     }
 
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleMouseHWheel(App& app, HWND hwnd, float wheelDelta) {
+void handleMouseHWheel(App& app, float wheelDelta) {
     // Horizontal scroll
     float delta = wheelDelta * dpi(app, 60.0f);
     app.targetScrollX += delta;
@@ -1064,10 +1063,10 @@ void handleMouseHWheel(App& app, HWND hwnd, float wheelDelta) {
     app.targetScrollX = std::max(0.0f, std::min(app.targetScrollX, maxScrollX));
     app.scrollX = app.targetScrollX;
 
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
+void handleMouseMove(App& app, int mouseX, int mouseY) {
     bool mouseMoved = app.mouseX != mouseX || app.mouseY != mouseY;
     app.mouseX = mouseX;
     app.mouseY = mouseY;
@@ -1075,7 +1074,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
     bool iconHover = appMenuButtonAt(app, (float)app.mouseX, (float)app.mouseY);
     if (iconHover != app.appMenuHover) {
         app.appMenuHover = iconHover;
-        requestRepaint(hwnd);
+        requestRepaint();
     }
     if (iconHover && appMenuAvailable(app) && app.tabDragIndex < 0 &&
         !app.editorSelecting && !app.draggingSeparator && !app.selecting) {
@@ -1084,7 +1083,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
     }
     // An armed tab drag owns the mouse until release (capture held)
     if (app.tabDragIndex >= 0) {
-        tabDragMove(app, hwnd, app.mouseX, app.mouseY);
+        tabDragMove(app, app.mouseX, app.mouseY);
         return;
     }
 
@@ -1096,7 +1095,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             if (abs(dx) > 3 || abs(dy) > 3) app.lightboxDragMoved = true;
             app.lightboxPanX = app.lightboxDragPanX + (float)dx;
             app.lightboxPanY = app.lightboxDragPanY + (float)dy;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         tinta::RectF img = lightboxImageRect(app);
         bool over = (float)app.mouseX >= img.left &&
@@ -1128,12 +1127,12 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         if (newHover != app.hoveredTab) {
             app.hoveredTab = newHover;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         if (app.captionButtonHover) {
             // The pointer is back in the client area
             app.captionButtonHover = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         if (app.showTabSwitcher) {
             int rowHover = -1;
@@ -1146,7 +1145,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             }
             if (rowHover != app.tabSwitcherHover) {
                 app.tabSwitcherHover = rowHover;
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             setCursorShape(rowHover >= 0 ? CursorShape::Hand : CursorShape::Arrow);
             return;
@@ -1177,7 +1176,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         int item = tabMenuItemAt(app, (float)app.mouseX, (float)app.mouseY);
         if (item != app.tabMenuHover) {
             app.tabMenuHover = item;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         setCursorShape(item >= 0 ? CursorShape::Hand : CursorShape::Arrow);
         return;
@@ -1221,7 +1220,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             repaint = true;
         }
         setCursorShape(contextMenuItemEnabled(app, item) ? CursorShape::Hand : CursorShape::Arrow);
-        if (repaint) requestRepaint(hwnd);
+        if (repaint) requestRepaint();
         return;
     }
 
@@ -1238,7 +1237,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             float scrollDelta = (trackHeight > 0) ? (deltaY / trackHeight) * maxScroll : 0;
             app.helpScroll = app.helpScrollbarDragStartScroll + scrollDelta;
             app.helpScroll = std::max(0.0f, std::min(app.helpScroll, maxScroll));
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -1269,7 +1268,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
                       app.mouseX <= fbm.panelX + fbm.panelWidth;
         if (inside || !app.browserPinned) {
             setFolderBrowserCursor(app, (float)app.mouseX, (float)app.mouseY);
-            if (inside) requestRepaint(hwnd);  // row hover
+            if (inside) requestRepaint();  // row hover
             return;
         }
         // Pinned (#156): the document beside the panel keeps its hover
@@ -1280,7 +1279,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         bool inside = app.mouseX >= tocX && app.mouseX <= tocX + tocW;
         if (inside || !app.tocPinned) {
             setTocCursor(app, (float)app.mouseX, (float)app.mouseY);
-            if (inside) requestRepaint(hwnd);  // row hover
+            if (inside) requestRepaint();  // row hover
             return;
         }
     }
@@ -1298,11 +1297,11 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.themeChooserPreviewBase = app.currentThemeIndex;
             }
             applyTheme(app, hoverTheme);
-            requestRepaint(hwnd);
+            requestRepaint();
         } else if (hoverTheme < 0 && app.themeChooserPreviewBase >= 0) {
             applyTheme(app, app.themeChooserPreviewBase);
             app.themeChooserPreviewBase = -1;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -1323,7 +1322,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
 
     // Edit mode: handle separator drag, editor selection, cursor shape
     if (app.editMode) {
-        handleEditorMouseMove(app, hwnd, app.mouseX, app.mouseY);
+        handleEditorMouseMove(app, app.mouseX, app.mouseY);
         // Replace-bar controls override the pane cursor: hand over the
         // buttons, text beam over the two input fields (#119 feedback)
         if (app.showSearch && app.searchReplaceMode &&
@@ -1350,7 +1349,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
                         (float)app.mouseY <= r.bottom;
             if (over != app.quickNoteButtonHover) {
                 app.quickNoteButtonHover = over;
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             if (over) {
                 setCursorShape(CursorShape::Hand);
@@ -1380,9 +1379,9 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
                 vel = ((float)app.mouseY - (app.height - band)) * 0.35f;
             }
             if (vel != 0.0f && app.selAutoScrollVel == 0.0f) {
-                armTimer(hwnd, TIMER_SELECT_SCROLL, 16);
+                armTimer(TIMER_SELECT_SCROLL, 16);
             } else if (vel == 0.0f && app.selAutoScrollVel != 0.0f) {
-                disarmTimer(hwnd, TIMER_SELECT_SCROLL);
+                disarmTimer(TIMER_SELECT_SCROLL);
             }
             app.selAutoScrollVel = vel;
         }
@@ -1403,7 +1402,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         } else {
             app.selFocus = off;
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1420,7 +1419,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.scrollY = app.scrollbarDragStartScroll + scrollDelta;
             app.scrollY = std::max(0.0f, std::min(app.scrollY, maxScroll));
             app.targetScrollY = app.scrollY;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -1439,7 +1438,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.scrollX = app.hScrollbarDragStartScroll + scrollDelta;
             app.scrollX = std::max(0.0f, std::min(app.scrollX, maxScroll));
             app.targetScrollX = app.scrollX;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -1488,7 +1487,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         int hit = startPageHitAt(app, (float)app.mouseX, (float)app.mouseY);
         if (hit != app.startPageHover) {
             app.startPageHover = hit;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
     } else if (app.startPageHover != 0) {
         app.startPageHover = 0;
@@ -1503,9 +1502,9 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         if (peekable) {
             app.linkPeekUrl = app.hoveredLink;
             app.linkPeekAnchorDoc = hoveredLinkBounds;
-            armTimer(hwnd, TIMER_LINK_PEEK, 450);
+            armTimer(TIMER_LINK_PEEK, 450);
         } else {
-            disarmTimer(hwnd, TIMER_LINK_PEEK);
+            disarmTimer(TIMER_LINK_PEEK);
         }
     }
 
@@ -1559,7 +1558,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
-            requestRepaint(hwnd);
+            requestRepaint();
     } else if (app.showToc) {
         float panelWidth = tocPanelWidth(app);
         float panelX = tocPanelX(app, panelWidth);
@@ -1571,7 +1570,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         // Only invalidate when mouse is over the panel (hover tracking needed)
         if (inPanel)
-            requestRepaint(hwnd);
+            requestRepaint();
     } else if (app.scrollbarHovered || app.scrollbarDragging ||
         app.hScrollbarHovered || app.hScrollbarDragging) {
         setCursorShape(CursorShape::Arrow);
@@ -1627,7 +1626,7 @@ void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY) {
         prevHoveredCodeBlock != app.hoveredCodeBlock ||
         prevHoveredTable != app.hoveredTable ||
         prevHoveredAnnotation != app.hoveredAnnotation) {
-        requestRepaint(hwnd);
+        requestRepaint();
     }
 }
 
@@ -1651,7 +1650,7 @@ static void closeSearchIfOpen(App& app) {
     updateBlinkTimer(app);
 }
 
-static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
+static void invokeContextMenuAction(App& app, int item) {
     switch (item) {
         case CTX_COPY:
             if (app.hasSelection && app.selAnchor != app.selFocus) {
@@ -1678,34 +1677,34 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             break;
         case CTX_QUICK_NOTE:
             closeSearchIfOpen(app);
-            if (startPageActive(app)) startPageInvoke(app, hwnd, 2);
-            else tabOpenQuickNote(app, hwnd);
+            if (startPageActive(app)) startPageInvoke(app, 2);
+            else tabOpenQuickNote(app);
             break;
         case CTX_OPEN:
-            openFileDialog(app, hwnd);
+            openFileDialog(app);
             break;
         case CTX_SAVE:
-            if (app.editMode) saveEditorFile(app, hwnd);
+            if (app.editMode) saveEditorFile(app);
             break;
         case CTX_SAVE_AS:
-            saveFileAs(app, hwnd);
+            saveFileAs(app);
             break;
         case CTX_EXIT:
             postWindowMessage(tinta::PostedMessage::Close);
             break;
         case CTX_NEW:
             closeSearchIfOpen(app);
-            startNewFileFlow(app, hwnd);
+            startNewFileFlow(app);
             break;
         case CTX_PRINT:
             closeSearchIfOpen(app);
             if (app.editMode) editorReparse(app, true);
-            openPrintPreview(app, hwnd);
+            openPrintPreview(app);
             break;
         case CTX_EXPORT:
             closeSearchIfOpen(app);
             if (app.editMode) editorReparse(app, true);
-            exportDocumentAs(app, hwnd);
+            exportDocumentAs(app);
             break;
         case CTX_EDIT:
             closeSearchIfOpen(app);
@@ -1744,7 +1743,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             populateFolderItems(app);
             break;
         case CTX_COPY_PATH:
-            copyFilePath(app, hwnd, app.currentFile);
+            copyFilePath(app, app.currentFile);
             break;
         case CTX_REVEAL: {
             std::wstring fullPath = absoluteFilePath(app.currentFile);
@@ -1769,12 +1768,12 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
     }
 }
 
-void invokeMenuCommand(App& app, HWND hwnd, int command) {
-    invokeContextMenuAction(app, hwnd, command);
-    requestRepaint(hwnd);
+void invokeMenuCommand(App& app, int command) {
+    invokeContextMenuAction(app, command);
+    requestRepaint();
 }
 
-void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
+void handleContextMenu(App& app, int mouseX, int mouseY,
                        bool fromKeyboard) {
     // App panels own both mouse buttons in either reading or editing mode.
     if (app.showSettings || app.showHelp || app.showThemeChooser ||
@@ -1797,7 +1796,7 @@ void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
         int index = tabContextMenuIndexAt(app, (float)mouseX, (float)mouseY);
         if (index >= 0) {
             openTabMenu(app, index, (float)mouseX, (float)mouseY);
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;  // strip right-clicks never reach the document menu
     }
@@ -1807,8 +1806,8 @@ void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
     if (app.editMode && !app.confirmExitPending &&
         !fromKeyboard && (float)mouseX >= editRailWidth(app) &&
         (float)mouseX < editorPaneWidth(app)) {
-        openEditCtxMenu(app, hwnd, (float)mouseX, (float)mouseY);
-        requestRepaint(hwnd);
+        openEditCtxMenu(app, (float)mouseX, (float)mouseY);
+        requestRepaint();
         return;
     }
 
@@ -1840,10 +1839,10 @@ void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
         }
     }
     openContextMenu(app, (float)mouseX, (float)mouseY);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
+static void toggleApplicationMenu(App& app, bool keyboard = false) {
     if (!appMenuAvailable(app)) return;
     if (app.showContextMenu && app.applicationMenu) {
         closeContextMenu(app);
@@ -1866,7 +1865,7 @@ static void toggleApplicationMenu(App& app, HWND hwnd, bool keyboard = false) {
             app.hoveredContextMenuItem = nextContextMenuItem(app, -1, 1);
         }
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Whether a press at (mx, my) belongs to the tab strip.
@@ -1901,15 +1900,15 @@ static bool pressIsOnTabStrip(const App& app, int mx, int my) {
 // tabStripMouseDown's `middle` parameter has existed since the strip was written and its one
 // caller passed a hardcoded false, so on qinta the README's middle-click-to-close worked on
 // no platform.
-bool handleMiddleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
+bool handleMiddleMouseDown(App& app, int mouseX, int mouseY) {
     if (!pressIsOnTabStrip(app, mouseX, mouseY)) return false;
-    tabStripMouseDown(app, hwnd, mouseX, mouseY, true);
+    tabStripMouseDown(app, mouseX, mouseY, true);
     return true;
 }
 
-void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
+void handleMouseDown(App& app, int mouseX, int mouseY) {
     if (appMenuButtonAt(app, (float)mouseX, (float)mouseY)) {
-        toggleApplicationMenu(app, hwnd);
+        toggleApplicationMenu(app);
         app.swallowNextMouseUp = true;
         return;
     }
@@ -1922,9 +1921,9 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         closeContextMenu(app);
         app.swallowNextMouseUp = true;
         if (item >= 0 && contextMenuItemEnabled(app, item)) {
-            invokeContextMenuAction(app, hwnd, item);
+            invokeContextMenuAction(app, item);
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1934,14 +1933,14 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         int mx = mouseX;
         int my = mouseY;
         // Tab context menu: a click lands on an item or dismisses it
-        if (tabMenuMouseDown(app, hwnd, mx, my)) return;
+        if (tabMenuMouseDown(app, mx, my)) return;
         if (app.showTabSwitcher) {
-            tabSwitcherMouseDown(app, hwnd, mx, my);
+            tabSwitcherMouseDown(app, mx, my);
             app.swallowNextMouseUp = true;
             return;
         }
         if (pressIsOnTabStrip(app, mx, my)) {
-            tabStripMouseDown(app, hwnd, mx, my, false);
+            tabStripMouseDown(app, mx, my, false);
             app.swallowNextMouseUp = true;
             return;
         }
@@ -1951,7 +1950,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
     {
         float mx = (float)mouseX;
         float my = (float)mouseY;
-        if (signalMouseDown(app, hwnd, mx, my)) {
+        if (signalMouseDown(app, mx, my)) {
             app.swallowNextMouseUp = true;
             return;
         }
@@ -1971,11 +1970,11 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.lightboxDragStartY = my;
             app.lightboxDragPanX = app.lightboxPanX;
             app.lightboxDragPanY = app.lightboxPanY;
-            captureMouse(hwnd);
+            captureMouse();
         } else {
             closeLightbox(app);
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1996,7 +1995,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                 mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
                 app.settingsDragSlider = hit.second;
-                captureMouse(hwnd);
+                captureMouse();
                 settingsSliderApply(app, hit.second, mx);
                 return;
             }
@@ -2013,15 +2012,15 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         app.swallowNextMouseUp = true;
         int btn = annotationEditorButtonAt(app, mx, my);
         if (btn == 1) {
-            annotationEditorConfirm(app, hwnd);
+            annotationEditorConfirm(app);
         } else if (btn == 2) {
             annotationEditorCancel(app);
         } else if (btn == 3) {
-            annotationEditorDelete(app, hwnd);
+            annotationEditorDelete(app);
         } else if (!annotationEditorContains(app, mx, my)) {
             annotationEditorCancel(app);
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2040,7 +2039,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.helpScrollbarDragging = true;
                 app.helpScrollbarDragStartY = (float)clickY;
                 app.helpScrollbarDragStartScroll = app.helpScroll;
-                captureMouse(hwnd);
+                captureMouse();
 
                 // Jump if clicked outside thumb
                 float sbHeight = app.helpVisibleHeight / app.helpContentHeight * app.helpVisibleHeight;
@@ -2054,7 +2053,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                     app.helpScrollbarDragStartScroll = app.helpScroll;
                     app.helpScrollbarDragStartY = (float)clickY;
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
             }
         }
         return;
@@ -2076,10 +2075,10 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                     switch (hit.second) {
                         case 1: app.replaceFieldActive = false; break;
                         case 2: app.replaceFieldActive = true; break;
-                        case 3: editorReplaceCurrent(app, hwnd); break;
-                        case 4: editorReplaceAll(app, hwnd); break;
+                        case 3: editorReplaceCurrent(app); break;
+                        case 4: editorReplaceAll(app); break;
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                     return;
                 }
             }
@@ -2087,7 +2086,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         // Everything left of the preview edge — pane and seam — belongs
         // to the editor handler (the seam is the split handle)
         if ((float)x < documentViewportX(app)) {
-            handleEditorMouseDown(app, hwnd, x, y);
+            handleEditorMouseDown(app, x, y);
             return;
         }
         // Quick-note empty state: the Open button in the preview pane
@@ -2097,7 +2096,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             (float)y >= app.quickNoteButtonRect.top &&
             (float)y <= app.quickNoteButtonRect.bottom) {
             app.swallowNextMouseUp = true;
-            openFileDialog(app, hwnd);
+            openFileDialog(app);
             return;
         }
         // In-place table editing (#148): cells and the + affordances
@@ -2105,14 +2104,14 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         if (app.editorShowPreview) {
             float docX = (float)x - documentViewportX(app) + app.scrollX;
             float docY = (float)y + app.scrollY;
-            if (tableEditMouseDown(app, hwnd, docX, docY)) {
+            if (tableEditMouseDown(app, docX, docY)) {
                 app.swallowNextMouseUp = true;
                 return;
             }
             if (app.tableEditActive) {
                 // A press anywhere else in the preview commits the cell
                 tableEditCommit(app);
-                requestRepaint(hwnd);
+                requestRepaint();
             }
         }
         // Fall through for preview pane clicks
@@ -2129,8 +2128,8 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
         if (!underSearchBar) {
             if (annotationCopyButtonHit(app, mx, my)) {
                 app.swallowNextMouseUp = true;
-                annotationsCopyForAgent(app, hwnd);
-                requestRepaint(hwnd);
+                annotationsCopyForAgent(app);
+                requestRepaint();
                 return;
             }
             int railIdx = annotationRailHit(app, mx, my);
@@ -2150,7 +2149,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                 } else {
                     annotationScrollTo(app, railIdx);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
         }
@@ -2167,7 +2166,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             } else {
                 performSearch(app);  // re-arms the scan timer
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         for (const auto& hit : app.folderResultHits) {
@@ -2185,7 +2184,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
                         scrollToCurrentMatch(app);
                     }
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
         }
@@ -2250,7 +2249,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
     app.mouseDown = true;
     app.mouseX = mouseX;
     app.mouseY = mouseY;
-    captureMouse(hwnd);
+    captureMouse();
     float previewOffsetX = documentViewportX(app);
     float docX = (app.mouseX - previewOffsetX) + app.scrollX;
     float docY = app.mouseY + app.scrollY;
@@ -2277,7 +2276,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.scrollbarDragStartScroll = app.scrollY;
             app.scrollbarDragStartY = (float)app.mouseY;
         }
-        requestRepaint(hwnd);
+        requestRepaint();
     }
     // Check if clicking horizontal scrollbar
     else if (app.hScrollbarHovered &&
@@ -2307,24 +2306,24 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.hScrollbarDragStartScroll = app.scrollX;
             app.hScrollbarDragStartX = (float)app.mouseX;
         }
-        requestRepaint(hwnd);
+        requestRepaint();
     } else {
         // Start page: clicks act on its controls, there is nothing to
         // select underneath. The capture from this press is let go up
         // front: the Open action runs a modal picker whose release never
         // reaches this window.
         if (startPageActive(app)) {
-            releaseMouseIfCaptured(hwnd);
+            releaseMouseIfCaptured();
             int hit = startPageHitAt(app, (float)mouseX,
                                      (float)mouseY);
             app.swallowNextMouseUp = true;
-            if (hit) startPageInvoke(app, hwnd, hit);
+            if (hit) startPageInvoke(app, hit);
             return;
         }
         // Capture the mouse for the duration of a selection drag: without
         // it, mouse events stop at the window edge and the drag can neither
         // auto-scroll past the viewport nor finalize outside the window
-        captureMouse(hwnd);
+        captureMouse();
         // Detect double/triple clicks
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -2387,7 +2386,7 @@ void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.selAnchor = app.selFocus = selectionOffsetAtPoint(app, docX, docY);
             app.hasSelection = false;
         }
-        requestRepaint(hwnd);
+        requestRepaint();
     }
 }
 
@@ -2440,7 +2439,7 @@ static void navRecordJump(App& app, const std::string& fromPath,
 // A live reference: markdown joins the window as a tab (#127), other
 // text files open with their registered application (#162). Returns
 // true when the target opened inside Tinta.
-static bool openFileRefTarget(App& app, HWND hwnd, const std::string& path) {
+static bool openFileRefTarget(App& app, const std::string& path) {
     if (!qmd::fileRefIsMarkdown(path)) {
         // The hwnd this passed as ShellExecuteW's owner window is dropped: it
         // only parented the error dialog Windows shows when nothing is
@@ -2452,15 +2451,15 @@ static bool openFileRefTarget(App& app, HWND hwnd, const std::string& path) {
     if (!platform::pathsEquivalent(toWide(app.currentFile), toWide(path))) {
         navRecordJump(app, app.currentFile, app.scrollY);
     }
-    tabOpenPath(app, hwnd, path, true);
+    tabOpenPath(app, path, true);
     return true;
 }
 
 // Start page actions (design t7). Ids match startPageHitAt: 1 open,
 // 2 new document, 3 browse, 4 clear, 5 shortcuts, 10+i recent, 20+i learn.
-static void startPageInvoke(App& app, HWND hwnd, int id) {
+static void startPageInvoke(App& app, int id) {
     if (id == 1) {
-        openFileDialog(app, hwnd);
+        openFileDialog(app);
     } else if (id == 2) {
         // New document: the note takes over this window (#121 semantics);
         // the keystroke's WM_CHAR must not type into the fresh editor
@@ -2510,18 +2509,18 @@ static void startPageInvoke(App& app, HWND hwnd, int id) {
                     app.startPageRecents.begin() + index);
                 app.startPageHover = 0;
             } else {
-                tabOpenPathReplacingStartPage(app, hwnd, path);
+                tabOpenPathReplacingStartPage(app, path);
             }
         }
     } else if (id >= 20 && id < 23) {
-        startPageOpenEmbedded(app, hwnd, id - 20);
+        startPageOpenEmbedded(app, id - 20);
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Create-missing-reference dialog outcome: 1 = create the file and start
 // typing in a fresh tab, 2 = cancel
-static void createRefAction(App& app, HWND hwnd, int action) {
+static void createRefAction(App& app, int action) {
     app.createRefPending = false;
     if (action == 1 && !app.createRefPath.empty()) {
         std::filesystem::path target(toWide(app.createRefPath));
@@ -2536,26 +2535,26 @@ static void createRefAction(App& app, HWND hwnd, int action) {
             app.fileRefCache.erase(app.createRefPath);
             // A markdown target opens in a tab ready to type; other text
             // files hand off to their registered application (#162)
-            if (openFileRefTarget(app, hwnd, app.createRefPath)) {
+            if (openFileRefTarget(app, app.createRefPath)) {
                 enterEditMode(app);
             }
         }
     }
     app.createRefPath.clear();
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Lands on entry.path with the least motion: the same document is scroll
 // only, an open tab is activated, anything else replaces the current
 // document; the scroll position rides the #77 deferred restore
-static bool navOpenEntry(App& app, HWND hwnd, const App::NavEntry& entry) {
+static bool navOpenEntry(App& app, const App::NavEntry& entry) {
     if (!platform::pathsEquivalent(toWide(app.currentFile), toWide(entry.path))) {
         bool found = false;
         for (size_t i = 0; i < app.tabs.size(); i++) {
             const std::string& existing =
                 (int)i == app.activeTab ? app.currentFile : app.tabs[i].path;
             if (platform::pathsEquivalent(toWide(existing), toWide(entry.path))) {
-                tabActivate(app, hwnd, (int)i);
+                tabActivate(app, (int)i);
                 found = true;
                 break;
             }
@@ -2565,30 +2564,30 @@ static bool navOpenEntry(App& app, HWND hwnd, const App::NavEntry& entry) {
         }
     }
     app.pendingScrollRestore = entry.scrollY;
-    requestRepaint(hwnd);
+    requestRepaint();
     return true;
 }
 
-void navigateBack(App& app, HWND hwnd) {
+void navigateBack(App& app) {
     if (app.editMode) return;
     while (!app.navBack.empty()) {
         App::NavEntry entry = app.navBack.back();
         app.navBack.pop_back();
         App::NavEntry here{app.currentFile, app.scrollY};
-        if (navOpenEntry(app, hwnd, entry)) {
+        if (navOpenEntry(app, entry)) {
             if (!here.path.empty()) app.navForward.push_back(here);
             return;
         }
     }
 }
 
-void navigateForward(App& app, HWND hwnd) {
+void navigateForward(App& app) {
     if (app.editMode) return;
     while (!app.navForward.empty()) {
         App::NavEntry entry = app.navForward.back();
         app.navForward.pop_back();
         App::NavEntry here{app.currentFile, app.scrollY};
-        if (navOpenEntry(app, hwnd, entry)) {
+        if (navOpenEntry(app, entry)) {
             if (!here.path.empty()) app.navBack.push_back(here);
             return;
         }
@@ -2613,7 +2612,7 @@ static const App::TaskRect* taskRectAt(const App& app) {
 // computed on CR-stripped text, so the position is remapped against the
 // raw bytes; the neighbors are verified so a file that changed since the
 // last layout is left alone. The file watcher then reloads the view.
-static void toggleTaskOnDisk(App& app, HWND hwnd, size_t markOffset, bool wasChecked) {
+static void toggleTaskOnDisk(App& app, size_t markOffset, bool wasChecked) {
     if (app.currentFile.empty()) return;
     std::wstring widePath = toWide(app.currentFile);
     std::ifstream in(std::filesystem::path(widePath), std::ios::binary);
@@ -2640,7 +2639,7 @@ static void toggleTaskOnDisk(App& app, HWND hwnd, size_t markOffset, bool wasChe
     if (!out) return;
     out.write(disk.data(), (std::streamsize)disk.size());
     out.close();
-    handleFileWatchTimer(app, hwnd);  // reload immediately instead of on the timer
+    handleFileWatchTimer(app);  // reload immediately instead of on the timer
 }
 
 // True when (mouseX, mouseY) is on the hovered code block's copy button
@@ -2763,7 +2762,7 @@ static bool tableFitButtonAt(const App& app, int mouseX, int mouseY) {
 }
 
 // Flip a table/diagram between natural size and fit-to-width and relayout
-static void toggleFitBlock(App& app, HWND hwnd, unsigned key) {
+static void toggleFitBlock(App& app, unsigned key) {
     auto it = std::find(app.fitBlocks.begin(), app.fitBlocks.end(), key);
     if (it != app.fitBlocks.end()) {
         app.fitBlocks.erase(it);
@@ -2771,19 +2770,19 @@ static void toggleFitBlock(App& app, HWND hwnd, unsigned key) {
         app.fitBlocks.push_back(key);
     }
     app.layoutDirty = true;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
+void handleMouseUp(App& app, int mouseX, int mouseY) {
     // A tab drag ends on release (its press already consumed the click)
     if (app.tabDragIndex >= 0) {
-        tabDragEnd(app, hwnd, mouseX, mouseY);
+        tabDragEnd(app, mouseX, mouseY);
     }
     // The press captured the mouse (selection drags need it); the release
     // must let go no matter which branch handles it. A branch that
     // returned early used to leak the capture, which silently killed the
     // caption buttons' non-client hit-testing until the next full click.
-    releaseMouseIfCaptured(hwnd);
+    releaseMouseIfCaptured();
     // Release belonging to a context-menu item click: already handled
     if (app.swallowNextMouseUp) {
         app.swallowNextMouseUp = false;
@@ -2794,9 +2793,9 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
     if (app.showLightbox) {
         if (app.lightboxDragging) {
             app.lightboxDragging = false;
-            releaseMouseIfCaptured(hwnd);
+            releaseMouseIfCaptured();
             if (!app.lightboxDragMoved) closeLightbox(app);
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -2809,11 +2808,11 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         for (const auto& hit : app.createRefHits) {
             if (mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
-                createRefAction(app, hwnd, hit.second);
+                createRefAction(app, hit.second);
                 return;
             }
         }
-        createRefAction(app, hwnd, 2);
+        createRefAction(app, 2);
         return;
     }
 
@@ -2825,7 +2824,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         for (const auto& hit : app.confirmExitHits) {
             if (mx >= hit.first.left && mx <= hit.first.right &&
                 my >= hit.first.top && my <= hit.first.bottom) {
-                confirmExitAction(app, hwnd, hit.second);
+                confirmExitAction(app, hit.second);
                 return;
             }
         }
@@ -2849,7 +2848,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             } else {
                 app.shortcutEditorRow = hit.second;
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         // Click outside the rows: close back to settings
@@ -2857,7 +2856,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         app.shortcutEditorRow = -1;
         app.showSettings = true;
         app.settingsAnimation = 0;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2931,7 +2930,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 closeThemeEditor(app, false);
                 return;
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         return;
@@ -2950,14 +2949,14 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         for (auto it = app.settingsHits.rbegin(); it != app.settingsHits.rend(); ++it) {
             if (mx >= it->first.left && mx <= it->first.right &&
                 my >= it->first.top && my <= it->first.bottom) {
-                settingsAction(app, hwnd, it->second);
+                settingsAction(app, it->second);
                 return;
             }
         }
         if (app.settingsLangOpen || app.settingsKeysOpen) {
             app.settingsLangOpen = false;  // click elsewhere collapses them
             app.settingsKeysOpen = false;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -2970,11 +2969,11 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             return mx >= r.left && mx <= r.right && my >= r.top && my <= r.bottom;
         };
         if (hit(app.printPreviewPrintBtn)) {
-            printPreviewConfirm(app, hwnd);
+            printPreviewConfirm(app);
             return;
         }
         if (hit(app.printPreviewCancelBtn)) {
-            closePrintPreview(app, hwnd);
+            closePrintPreview(app);
             return;
         }
         for (int i = 0; i < PRINT_PAPER_COUNT; i++) {
@@ -2994,7 +2993,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
     if (app.helpScrollbarDragging) {
         app.helpScrollbarDragging = false;
         releaseMouse();
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -3025,7 +3024,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 postWindowMessage(tinta::PostedMessage::SettingChange, 0,
                                   reinterpret_cast<std::intptr_t>(L"ImmersiveColorSet"));
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         if (hit == -3) {
@@ -3034,7 +3033,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.showThemeChooser = false;
             app.themeChooserAnimation = 0;
             openThemeEditor(app, true);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         if (hit >= 0) {
@@ -3058,7 +3057,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.showThemeChooser = false;
             app.themeChooserAnimation = 0;
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -3067,7 +3066,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                          app.editorScrollbarDragging)) {
         int x = mouseX;
         int y = mouseY;
-        handleEditorMouseUp(app, hwnd, x, y);
+        handleEditorMouseUp(app, x, y);
         return;
     }
 
@@ -3081,7 +3080,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         app.hScrollbarDragging = false;
         app.mouseDown = false;
         app.selecting = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -3111,7 +3110,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 // Scroll document to heading
                 ensureLayoutComplete(app);
                 if (hit >= (int)app.headings.size()) {
-                    requestRepaint(hwnd);
+                    requestRepaint();
                     return;
                 }
                 scrollToHeadingY(app, app.headings[hit].y);
@@ -3128,7 +3127,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                     app.tocFilter.clear();
                 }
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         if (!app.tocPinned) {
@@ -3136,7 +3135,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             app.showToc = false;
             app.tocAnimation = 0;
             app.tocFilter.clear();
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         // Pinned (#156): the click belongs to the document - fall through
@@ -3168,7 +3167,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 } else {
                     closeFolderBrowserInput(app);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
 
@@ -3176,7 +3175,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                                   app.folderPinRect)) {
                 // Pin toggle (#156)
                 app.browserPinned = !app.browserPinned;
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             if (inHeader && clickY >= g.btnY && clickY <= g.btnY + g.btnSize &&
@@ -3190,7 +3189,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.folderBrowserScroll = 0.0f;
                 updateBlinkTimer(app);
                 resetCursorBlink(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             if (inHeader) {
@@ -3223,7 +3222,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                         populateFolderItems(app);
                         app.folderBrowserScroll = 0.0f;
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                     return;
                 }
                 // Anywhere else on the row (the pencil included) becomes an
@@ -3235,7 +3234,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.folderBrowserInputError = false;
                 updateBlinkTimer(app);
                 resetCursorBlink(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
 
@@ -3275,13 +3274,13 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                     bool ctrlHeld = platform::isCtrlDown();
                     if (app.tabNewTabIntent || ctrlHeld) {
                         app.tabNewTabIntent = false;
-                        tabOpenPath(app, hwnd, toUtf8(fullPath), true);
+                        tabOpenPath(app, toUtf8(fullPath), true);
                     } else {
                         openDocumentInViewer(app, fullPath);
                     }
                 }
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         if (!app.browserPinned) {
@@ -3289,7 +3288,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
             closeFolderBrowserInput(app);
             app.showFolderBrowser = false;
             app.folderBrowserAnimation = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         // Pinned (#156): the click belongs to the document - fall through
@@ -3298,10 +3297,10 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 
     if (app.scrollbarDragging) {
         app.scrollbarDragging = false;
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (app.hScrollbarDragging) {
         app.hScrollbarDragging = false;
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (codeCopyButtonAt(app, app.mouseX, app.mouseY)) {
         // Releasing anywhere else on a code block must NOT consume the
         // mouse-up: a drag selection ending on the block would never
@@ -3316,9 +3315,9 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         app.hoveredCodeBlock = -1;
         app.selecting = false;
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (diagramFitButtonAt(app, app.mouseX, app.mouseY)) {
-        toggleFitBlock(app, hwnd,
+        toggleFitBlock(app,
                        app.codeBlocks[app.hoveredCodeBlock].fitKey);
         app.selecting = false;
     } else if (diagramPngButtonAt(app, app.mouseX, app.mouseY)) {
@@ -3332,9 +3331,9 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         app.hoveredCodeBlock = -1;
         app.selecting = false;
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (tableFitButtonAt(app, app.mouseX, app.mouseY)) {
-        toggleFitBlock(app, hwnd,
+        toggleFitBlock(app,
                        app.tableRects[app.hoveredTable].fitKey);
         app.selecting = false;
     } else if (tableCopyButtonAt(app, app.mouseX, app.mouseY)) {
@@ -3349,11 +3348,11 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
         }
         app.hoveredTable = -1;
         app.selecting = false;
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (app.selecting) {
         // Edge auto-scroll ends with the drag
         if (app.selAutoScrollVel != 0.0f) {
-            disarmTimer(hwnd, TIMER_SELECT_SCROLL);
+            disarmTimer(TIMER_SELECT_SCROLL);
             app.selAutoScrollVel = 0.0f;
         }
         // Finalize selection based on mode
@@ -3376,7 +3375,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.hasSelection = true;
             } else if (const App::TaskRect* task = taskRectAt(app)) {
                 // Click on a task checkbox: flip the mark in the file
-                toggleTaskOnDisk(app, hwnd, task->markOffset, task->checked);
+                toggleTaskOnDisk(app, task->markOffset, task->checked);
                 app.hasSelection = false;
             } else if (!app.hoveredLink.empty()) {
                 // It was just a click on a link
@@ -3388,7 +3387,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                     }
                 } else if (app.hoveredLink.rfind("fileref-ok:", 0) == 0) {
                     // Live .md reference (#127): join as a tab
-                    openFileRefTarget(app, hwnd, app.hoveredLink.substr(11));
+                    openFileRefTarget(app, app.hoveredLink.substr(11));
                 } else if (app.hoveredLink.rfind("fileref-missing:", 0) ==
                            0) {
                     // Ghost reference: offer to create the target
@@ -3411,11 +3410,11 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 app.hasSelection = false;
             }
         }
-        requestRepaint(hwnd);
+        requestRepaint();
     } else if (!app.hoveredLink.empty()) {
         // Click on link
         if (app.hoveredLink.rfind("fileref-ok:", 0) == 0) {
-            openFileRefTarget(app, hwnd, app.hoveredLink.substr(11));
+            openFileRefTarget(app, app.hoveredLink.substr(11));
         } else if (app.hoveredLink.rfind("fileref-missing:", 0) == 0) {
             app.createRefPath = app.hoveredLink.substr(16);
             app.createRefPending = true;
@@ -3441,7 +3440,7 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
     app.selShiftExtend = false;
     // Selection drags capture the mouse; the settings slider releases its
     // own capture earlier, so this is a no-op for everything else
-    releaseMouseIfCaptured(hwnd);
+    releaseMouseIfCaptured();
 }
 
 // Zen mode: borderless fullscreen + centered reading column (F11)
@@ -3463,9 +3462,8 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
 // takes. Entering through a sink that is not installed returns an invalid restore, which the
 // check below already reads as "entering failed", so a Qt build with no window stays out of zen mode
 // rather than drawing a reading column for a window that never went fullscreen.
-void toggleZenMode(App& app, HWND hwnd) {
+void toggleZenMode(App& app) {
     app.zenMode = !app.zenMode;
-    (void)hwnd;
     if (app.zenMode) {
         app.zenRestore = tinta::deliverZenEnter();
         if (!app.zenRestore.valid) app.zenMode = false;
@@ -3473,10 +3471,10 @@ void toggleZenMode(App& app, HWND hwnd) {
         tinta::deliverZenLeave(app.zenRestore);
     }
     app.layoutDirty = true;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
+bool handleKeyDown(App& app, unsigned vk) {
     float pageSize = app.height * 0.8f;
     float maxScroll = std::max(0.0f, app.contentHeight - app.height);
     bool ctrl = platform::isCtrlDown();
@@ -3486,15 +3484,15 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         if (vk == VK_ESCAPE || vk == VK_RETURN ||
             vk == VK_SPACE) {
             closeLightbox(app);
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return false;
     }
 
     // Annotation note editor owns the keyboard while open (#126)
     if (app.annotEditorOpen && !app.editMode) {
-        annotationEditorKeyDown(app, hwnd, vk, ctrl);
-        requestRepaint(hwnd);
+        annotationEditorKeyDown(app, vk, ctrl);
+        requestRepaint();
         return false;
     }
 
@@ -3503,11 +3501,11 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         if (vk == 'Y' || vk == VK_RETURN) {
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
                                     std::chrono::milliseconds(150);
-            createRefAction(app, hwnd, 1);
+            createRefAction(app, 1);
         } else if (vk == 'N' || vk == VK_ESCAPE) {
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
                                     std::chrono::milliseconds(150);
-            createRefAction(app, hwnd, 2);
+            createRefAction(app, 2);
         }
         return false;
     }
@@ -3516,13 +3514,13 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
     if (app.showPrintPreview) {
         switch (vk) {
             case VK_ESCAPE:
-                closePrintPreview(app, hwnd);
+                closePrintPreview(app);
                 break;
             case VK_RETURN:
-                printPreviewConfirm(app, hwnd);
+                printPreviewConfirm(app);
                 break;
             case 'P':  // a second Ctrl+P also proceeds to the dialog
-                if (ctrl) printPreviewConfirm(app, hwnd);
+                if (ctrl) printPreviewConfirm(app);
                 break;
             case VK_NEXT: case VK_DOWN: case VK_RIGHT: case VK_SPACE: case 'J':
                 printPreviewSetPage(app, app.printPreviewPage + 1);
@@ -3555,9 +3553,9 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             closeContextMenu(app);
             app.swallowCharsUntil = std::chrono::steady_clock::now() +
                                     std::chrono::milliseconds(150);
-            if (contextMenuItemEnabled(app, item)) invokeContextMenuAction(app, hwnd, item);
+            if (contextMenuItemEnabled(app, item)) invokeContextMenuAction(app, item);
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
     // Shortcut editor: an armed row captures the next key; Esc cancels
@@ -3581,7 +3579,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             }
             if (key) shortcutAssign(app, {(unsigned)key, false});
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
     // Theme editor: Esc returns to settings; text arrives via WM_CHAR
@@ -3594,7 +3592,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         if (vk == VK_ESCAPE || (ctrl && vk == VK_OEM_COMMA)) {
             app.showSettings = false;
             app.settingsAnimation = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return false;
     }
@@ -3609,7 +3607,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             }
             app.showThemeChooser = false;
             app.showHelp = false;
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         } else if (app.showHelp) {
             float step = dpi(app, 60.0f);
@@ -3619,23 +3617,23 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             app.helpScroll = std::max(0.0f, std::min(app.helpScroll,
                 app.helpContentHeight - app.helpVisibleHeight));
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;  // punctuation Help bindings still need WM_CHAR
     }
     if (appMenuAvailable(app)) {
         if (vk == VK_F10) {
-            toggleApplicationMenu(app, hwnd, true);
+            toggleApplicationMenu(app, true);
             return false;
         }
         if (ctrl && vk == 'O') {
-            openFileDialog(app, hwnd);
+            openFileDialog(app);
             return false;
         }
         if (ctrl && vk == VK_OEM_COMMA) {
             closeSearchIfOpen(app);
             app.showSettings = true;
             app.settingsAnimation = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
             return false;
         }
     }
@@ -3648,48 +3646,48 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
           (app.folderBrowserEditingPath || app.folderBrowserNaming != 0))) {
         bool shift = platform::isShiftDown();
         if (vk == VK_TAB) {
-            tabCycle(app, hwnd, shift ? -1 : 1);
+            tabCycle(app, shift ? -1 : 1);
             return false;
         }
         if (vk == 'W' && !app.editMode) {
             // In edit mode Ctrl+W keeps its documented word-wrap toggle
-            tabCloseIndex(app, hwnd, app.activeTab);
+            tabCloseIndex(app, app.activeTab);
             return false;
         }
         if (vk == VK_F4) {
             // Ctrl+F4 closes the tab in BOTH modes - the reachable close
             // while editing, where Ctrl+W means word wrap (#181)
-            tabCloseIndex(app, hwnd, app.activeTab);
+            tabCloseIndex(app, app.activeTab);
             return false;
         }
         if (vk == 'T') {
             // New tab = the start page (browser-style new-tab page); its
             // Open/Browse/recents land in this tab. The old open-into-a-
             // new-tab browser flow lives on as Ctrl+click in the browser.
-            tabOpenStartPage(app, hwnd);
+            tabOpenStartPage(app);
             return false;
         }
         if (vk >= '1' && vk <= '9' && app.tabs.size() > 1) {
             int index = (int)(vk - '1');
-            if (index < (int)app.tabs.size()) tabActivate(app, hwnd, index);
+            if (index < (int)app.tabs.size()) tabActivate(app, index);
             return false;
         }
     }
     if (app.showTabSwitcher && vk == VK_ESCAPE) {
         app.showTabSwitcher = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
     // Esc aborts a tab drag in flight (ghost vanishes, tab snaps home)
     if (app.tabDragIndex >= 0 && vk == VK_ESCAPE) {
-        tabDragCancel(app, hwnd);
+        tabDragCancel(app);
         return false;
     }
     // An open tab menu takes Esc before anything else (edit mode too —
     // the strip stays interactive while editing)
     if (app.showTabMenu && vk == VK_ESCAPE) {
         closeTabMenu(app);
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
 
@@ -3700,14 +3698,14 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         keyBindingMatches(app.keymap[KA_HELP], (unsigned)vk, false)) {
         app.showHelp = true;
         app.helpAnimation = 0;
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
 
     // Edit mode: Ctrl+C with preview pane selection should copy from preview
     if (app.editMode) {
         // An open table cell editor owns the keyboard (#148)
-        if (tableEditKeyDown(app, hwnd, vk)) return false;
+        if (tableEditKeyDown(app, vk)) return false;
         if (ctrl && vk == 'C' && app.hasSelection &&
             app.selAnchor != app.selFocus) {
             std::wstring selected = selectionTextForRange(
@@ -3717,10 +3715,10 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             platform::setClipboardText(selected);
             signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
             app.hasSelection = false;
-            requestRepaint(hwnd);
+            requestRepaint();
             return false;
         }
-        handleEditorKeyDown(app, hwnd, vk);
+        handleEditorKeyDown(app, vk);
         return false;
     }
 
@@ -3762,7 +3760,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     break;
             }
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
 
@@ -3779,14 +3777,14 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 app.searchAnimation = 0;
                 clearFolderSearch(app);
                 updateBlinkTimer(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return false;
             case VK_RETURN:
                 // Cycle to next match
                 if (!app.searchMatches.empty()) {
                     app.searchCurrentIndex = (app.searchCurrentIndex + 1) % (int)app.searchMatches.size();
                     scrollToCurrentMatch(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 return false;
             case VK_BACK:
@@ -3798,7 +3796,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     if (!app.searchMatches.empty()) {
                         scrollToCurrentMatch(app);
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 return false;
         }
@@ -3809,14 +3807,14 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             case 'P':
                 // Print preview (edit mode handles its own Ctrl+P in the
                 // editor path)
-                openPrintPreview(app, hwnd);
+                openPrintPreview(app);
                 break;
             case 'S':
                 // Ctrl+Shift+S: save the viewed file under a new name and
                 // continue there (#121); plain Ctrl+S stays a no-op in the
                 // viewer — there is nothing edited to save
                 if (platform::isShiftDown()) {
-                    saveFileAs(app, hwnd);
+                    saveFileAs(app);
                 }
                 break;
             case 'H':
@@ -3835,7 +3833,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     app.searchReplaceMode = true;
                     app.replaceFieldActive = false;
                     updateBlinkTimer(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case 'N':
@@ -3865,12 +3863,12 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     enterQuickNoteMode(app);
                     app.tabs[app.activeTab].title = tr(app, "title.untitled");
                     updateWindowTitle(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 } else {
                     app.swallowCharsUntil =
                         std::chrono::steady_clock::now() +
                         std::chrono::milliseconds(150);
-                    tabOpenQuickNote(app, hwnd);
+                    tabOpenQuickNote(app);
                 }
                 break;
             case 'A': {
@@ -3906,7 +3904,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 // Show "Copied!" notification
                 if (copied) {
                     signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             }
@@ -3916,7 +3914,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     closeSearchIfOpen(app);
                     app.showSettings = !app.showSettings;
                     app.settingsAnimation = 0;
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case 'F':
@@ -3932,7 +3930,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     app.searchJustOpened = true;
                     updateBlinkTimer(app);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 break;
         }
     } else {
@@ -3942,7 +3940,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         if (app.showToc && !app.editMode && !app.tocPinned) {
             if (vk == VK_BACK) {
                 if (!app.tocFilter.empty()) app.tocFilter.pop_back();
-                requestRepaint(hwnd);
+                requestRepaint();
                 return false;
             }
             if (vk == VK_RETURN) {
@@ -3962,7 +3960,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                         break;
                     }
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return false;
             }
             if ((vk >= 'A' && vk <= 'Z') ||
@@ -3977,16 +3975,16 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
         // B and ? keep their keymapped meanings, which the page reuses.
         if (startPageActive(app)) {
             if (ctrl && vk == 'O') {
-                startPageInvoke(app, hwnd, 1);
+                startPageInvoke(app, 1);
                 return false;
             }
             if (!ctrl && keyBindingMatches(app.keymap[KA_NEWFILE], (unsigned)vk, false)) {
-                startPageInvoke(app, hwnd, 2);
+                startPageInvoke(app, 2);
                 return false;
             }
             if (!ctrl && vk >= '1' && vk <= '5' &&
                 (int)(vk - '1') < (int)app.startPageRecents.size()) {
-                startPageInvoke(app, hwnd, 10 + (int)(vk - '1'));
+                startPageInvoke(app, 10 + (int)(vk - '1'));
                 return false;
             }
         }
@@ -4002,7 +4000,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     else {
                         app.showHelp = true;
                         app.helpAnimation = 0;
-                        requestRepaint(hwnd);
+                        requestRepaint();
                     }
                     // The message loop skips TranslateMessage for this
                     // keystroke, so E cannot become the first edit (#195).
@@ -4043,7 +4041,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     app.showThemeChooser = false;
                     app.themeChooserAnimation = 0;
                 } else if (app.zenMode) {
-                    toggleZenMode(app, hwnd);
+                    toggleZenMode(app);
                 } else {
                     // Return ignored: there is no second way to quit. win32_api.h says why it
                     // returns a value at all, and that this arm is the one placeholder in it.
@@ -4051,7 +4049,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                 }
                 break;
             case VK_F11:
-                toggleZenMode(app, hwnd);
+                toggleZenMode(app);
                 break;
             case 'Q':
                 // Pinned panels are part of the layout: Q still quits
@@ -4066,7 +4064,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
             case 'N':
                 // New file: folder browser with the naming row active (#74)
                 if (!app.showSearch && !app.showThemeChooser) {
-                    startNewFileFlow(app, hwnd);
+                    startNewFileFlow(app);
                 }
                 break;
             case 'B':
@@ -4097,7 +4095,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                             resetCursorBlink(app);
                         }
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case VK_TAB:
@@ -4112,7 +4110,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                         app.tocScroll = 0;
                         app.hoveredTocIndex = -1;
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case 'T':
@@ -4128,7 +4126,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                         app.themeChooserAnimation = 0;
                     }
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 break;
             case 'A':
                 // Annotate the current selection (#126); pinned panels
@@ -4144,7 +4142,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                             std::chrono::steady_clock::now() +
                             std::chrono::milliseconds(150);
                     }
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case 'F':
@@ -4158,7 +4156,7 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
                     app.searchCurrentIndex = 0;
                     app.searchJustOpened = true;
                     updateBlinkTimer(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 break;
             case VK_UP:
@@ -4216,11 +4214,11 @@ bool handleKeyDown(App& app, HWND hwnd, unsigned vk) {
 
     app.targetScrollY = std::max(0.0f, std::min(app.targetScrollY, maxScroll));
     app.scrollY = app.targetScrollY;
-    requestRepaint(hwnd);
+    requestRepaint();
     return false;
 }
 
-void handleCharInput(App& app, HWND hwnd, wchar_t character) {
+void handleCharInput(App& app, wchar_t character) {
     // The Enter that confirmed the create-reference dialog must not leak
     // a newline into the editor it just opened
     if (std::chrono::steady_clock::now() < app.swallowCharsUntil) return;
@@ -4228,7 +4226,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
     // Annotation note editor takes all typing (#126)
     if (app.annotEditorOpen && !app.editMode) {
         annotationEditorChar(app, character);
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -4242,7 +4240,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
         if (app.shortcutEditorRow >= 0 && ch > 32 && ch < 127 &&
             !iswalnum(ch)) {
             shortcutAssign(app, {(unsigned)ch, true});
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;  // the editor swallows all other typing
     }
@@ -4269,7 +4267,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
                 *themeEditorSlot(app, f) = parsed;
             }
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -4278,7 +4276,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
         if (translateActionKey(app.keymap, (unsigned)character, true) == '?') {
             app.showHelp = false;
             app.helpAnimation = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -4287,7 +4285,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
     if (app.editMode) {
         // An open table cell editor takes the typing (#148)
         if (tableEditChar(app, (wchar_t)character)) return;
-        handleEditorCharInput(app, hwnd, character);
+        handleEditorCharInput(app, character);
         return;
     }
 
@@ -4298,7 +4296,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
         if (ch >= 0x20 && ch != 127) {
             app.tocFilter += ch;
             app.tocScroll = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -4324,7 +4322,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
             if (app.showHelp) {
                 app.helpAnimation = 0;
             }
-            requestRepaint(app.hwnd);
+            requestRepaint();
             return;
         }
         if (ch == L'F' && !app.showHelp && !app.editMode) {
@@ -4337,7 +4335,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
             app.searchCurrentIndex = 0;
             app.searchJustOpened = false;
             updateBlinkTimer(app);
-            requestRepaint(app.hwnd);
+            requestRepaint();
             return;
         }
     }
@@ -4358,7 +4356,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
             app.folderBrowserInput += ch;
             app.folderBrowserInputError = false;
             resetCursorBlink(app);
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -4381,7 +4379,7 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
                     app.searchCurrentIndex = 0;
                     scrollToCurrentMatch(app);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return;
         }
@@ -4394,12 +4392,12 @@ void handleCharInput(App& app, HWND hwnd, wchar_t character) {
                 app.searchCurrentIndex = 0;
                 scrollToCurrentMatch(app);
             }
-            requestRepaint(hwnd);
+            requestRepaint();
         }
     }
 }
 
-void handleDropFiles(App& app, HWND hwnd,
+void handleDropFiles(App& app,
                      const std::vector<std::wstring>& paths) {
     // Dropped files open into tabs (the first one activates); a single
     // drop on a single-document window is where the tab strip first appears.
@@ -4412,14 +4410,14 @@ void handleDropFiles(App& app, HWND hwnd,
     for (const std::wstring& path : paths) {
         if (!isSupportedDropPath(path)) continue;
         std::string filepath = platform::toUtf8(path);
-        tabOpenPath(app, hwnd, filepath, !activated);
+        tabOpenPath(app, filepath, !activated);
         activated = true;
     }
-    if (activated) requestRepaint(hwnd);
+    if (activated) requestRepaint();
 }
 
-void handleLinkPeekTimer(App& app, HWND hwnd) {
-    disarmTimer(hwnd, TIMER_LINK_PEEK);
+void handleLinkPeekTimer(App& app) {
+    disarmTimer(TIMER_LINK_PEEK);
     if (app.linkPeekUrl.empty() || app.hoveredLink != app.linkPeekUrl) return;
     namespace fs = std::filesystem;
     std::error_code ec;
@@ -4477,14 +4475,14 @@ void handleLinkPeekTimer(App& app, HWND hwnd) {
     app.linkPeekBitmap = std::move(bitmap);
     app.linkPeekTitle = target.filename().wstring();
     app.linkPeekActive = true;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // WM_CLOSE's body, moved out of main_d2d.cpp's window procedure verbatim so the Qt window's
 // closeEvent asks the same question. Unsaved buffers (active or parked in tabs) get the
 // dialog before the window may close; tabs stay open so the session save still remembers
 // them.
-bool windowCloseMayProceed(App& app, HWND hwnd) {
+bool windowCloseMayProceed(App& app) {
     if (app.confirmExitPending) {
         app.pendingWindowClose = true;  // dialog is already asking
         return false;
@@ -4495,12 +4493,12 @@ bool windowCloseMayProceed(App& app, HWND hwnd) {
                          : (app.tabs[i].editMode && app.tabs[i].editorDirty);
         if (!dirty) continue;
         if ((int)i != app.activeTab) {
-            tabActivate(app, hwnd, (int)i);
+            tabActivate(app, (int)i);
         }
         app.pendingWindowClose = true;
         app.confirmExitPending = true;
         app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-        requestRepaint(hwnd);
+        requestRepaint();
         return false;
     }
     return true;
@@ -4528,7 +4526,7 @@ void handlePostedMessage(App& app, tinta::PostedMessage message, std::uintptr_t 
         // input between slices.
         if (!app.layoutDirty && !app.layoutComplete) {
             bool done = layoutDocumentContinue(app, 10000);
-            requestRepaint(app.hwnd);  // scrollbar grows as layout fills in
+            requestRepaint();  // scrollbar grows as layout fills in
             if (!done) postWindowMessage(tinta::PostedMessage::LayoutChunk);
         }
         break;
@@ -4548,7 +4546,7 @@ void handlePostedMessage(App& app, tinta::PostedMessage message, std::uintptr_t 
         }
         // signalPush repaints through canRepaint already; this is the procedure's own
         // requestRepaint, kept so the behaviour matches 0b39ae6's case exactly.
-        requestRepaint(app.hwnd);
+        requestRepaint();
         break;
     case PostedMessage::Close:
     case PostedMessage::SettingChange:
@@ -4556,47 +4554,47 @@ void handlePostedMessage(App& app, tinta::PostedMessage message, std::uintptr_t 
     }
 }
 
-void handleTimer(App& app, HWND hwnd, unsigned id) {
-    if (id == TIMER_LINK_PEEK) handleLinkPeekTimer(app, hwnd);
-    if (id == TIMER_FILE_WATCH) handleFileWatchTimer(app, hwnd);
+void handleTimer(App& app, unsigned id) {
+    if (id == TIMER_LINK_PEEK) handleLinkPeekTimer(app);
+    if (id == TIMER_FILE_WATCH) handleFileWatchTimer(app);
     if (id == 2) editorReparse(app); // TIMER_EDITOR_REPARSE
     if (id == TIMER_CURSOR_BLINK) {
         app.cursorBlinkOn = !app.cursorBlinkOn;
-        requestRepaint(hwnd);
+        requestRepaint();
     }
     if (id == TIMER_NOTIFICATION) {
         // Only draining chips need repaints; prompts are static
         // until answered
         bool fading = signalsNeedTicks(app);
         if (fading) {
-            requestRepaint(hwnd);
+            requestRepaint();
         } else {
-            disarmTimer(hwnd, TIMER_NOTIFICATION);
+            disarmTimer(TIMER_NOTIFICATION);
         }
     }
     if (id == TIMER_FOLDER_SEARCH) {
-        disarmTimer(hwnd, TIMER_FOLDER_SEARCH);
+        disarmTimer(TIMER_FOLDER_SEARCH);
         startFolderSearchScan(app);
     }
     if (id == TIMER_DRAFT_SAVE) {
         draftsSweep(app);
     }
     if (id == TIMER_SELECT_SCROLL) {
-        handleSelectScrollTimer(app, hwnd);
+        handleSelectScrollTimer(app);
     }
     if (id == TIMER_IMAGE_REFLOW) {
         // One relayout for however many images arrived since armed
-        disarmTimer(hwnd, TIMER_IMAGE_REFLOW);
+        disarmTimer(TIMER_IMAGE_REFLOW);
         app.layoutDirty = true;
-        requestRepaint(hwnd);
+        requestRepaint();
     }
     if (id == TIMER_ZOOM_APPLY) {
         if (app.zoomFactor != app.appliedZoomFactor) {
             // More zoom ticks arrived since the last apply
             updateTextFormats(app);
-            requestRepaint(hwnd);
+            requestRepaint();
         } else {
-            disarmTimer(hwnd, TIMER_ZOOM_APPLY);
+            disarmTimer(TIMER_ZOOM_APPLY);
             app.zoomApplyPending = false;
         }
     }
@@ -4625,7 +4623,7 @@ static void setFileWriteTicks(FILETIME& ft, unsigned long long ticks) {
     ft.dwHighDateTime = (unsigned long)(ticks >> 32);
 }
 
-void handleFileWatchTimer(App& app, HWND hwnd) {
+void handleFileWatchTimer(App& app) {
     // Refresh the deleted-on-disk flags driving the red-grey tab dots
     // (runs even when the active document is untitled or being edited)
     bool missingChanged = false;
@@ -4638,7 +4636,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
             missingChanged = true;
         }
     }
-    if (missingChanged) requestRepaint(hwnd);
+    if (missingChanged) requestRepaint();
 
     // External edits to a file that has unsaved changes in some tab surface
     // immediately: jump to that tab and raise the unsaved-changes dialog
@@ -4674,12 +4672,12 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
                 // one prompt per external change
                 setFileWriteTicks(stored, currentTicks);
                 if (!isActive) {
-                    tabActivate(app, hwnd, (int)i);
+                    tabActivate(app, (int)i);
                     setFileWriteTicks(app.lastFileWriteTime, currentTicks);
                 }
                 app.confirmExitPending = true;
                 app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-                requestRepaint(hwnd);
+                requestRepaint();
                 break;
             }
         }
@@ -4714,7 +4712,7 @@ void handleFileWatchTimer(App& app, HWND hwnd) {
                     // Annotations re-derive from the fresh source (#126)
                     app.sourceText = buffer.str();
                     annotationsParseSource(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
             }
         }

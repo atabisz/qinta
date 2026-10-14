@@ -31,11 +31,11 @@ void check(bool value, const char* message) {
 }
 
 #ifdef _WIN32
-std::wstring clipboardText(HWND window) {
+std::wstring clipboardText() {
     std::wstring result;
     // Clipboard-history tools may briefly read a newly copied value.
     bool opened = false;
-    for (int i = 0; i < 100 && !(opened = OpenClipboard(window)); ++i) Sleep(5);
+    for (int i = 0; i < 100 && !(opened = OpenClipboard(nullptr)); ++i) Sleep(5);
     if (!opened) { check(false, "test clipboard opens for inspection"); return {}; }
     if (HANDLE data = GetClipboardData(CF_UNICODETEXT)) {
         if (auto text = static_cast<const wchar_t*>(GlobalLock(data))) {
@@ -51,7 +51,7 @@ std::wstring clipboardText(HWND window) {
 void documentCopy(App& app) {
     openContextMenu(app, 20, 80);
     app.hoveredContextMenuItem = CTX_COPY_PATH;
-    handleKeyDown(app, app.hwnd, VK_RETURN);
+    handleKeyDown(app, VK_RETURN);
     check(!app.showContextMenu, "document Copy file path closes the menu");
 }
 void clickTabCopy(App& app) {
@@ -59,7 +59,7 @@ void clickTabCopy(App& app) {
     int x = static_cast<int>(app.tabMenuX + 20);
     int y = static_cast<int>(app.tabMenuY + dpi(app, 6+4*30+9+15));
     check(tabMenuItemAt(app, x, y) == 4, "tab Copy file path remains next to Reveal");
-    check(tabMenuMouseDown(app, app.hwnd, x, y), "tab path action consumes its click");
+    check(tabMenuMouseDown(app, x, y), "tab path action consumes its click");
     check(!app.showTabMenu, "tab Copy file path closes the menu");
 }
 void tabCopy(App& app, int index) {
@@ -79,7 +79,7 @@ void rightClick(App& app, int x, int y) {
     // This used to convert to screen space purely so the handler could convert
     // it straight back; the handler takes client coordinates now, so the round
     // trip is gone and the test says what it means.
-    handleContextMenu(app, app.hwnd, x, y, false);
+    handleContextMenu(app, x, y, false);
 }
 void titleMenuCases(bool testClipboard) {
     // Render the actual caption into a hidden test window so these checks
@@ -133,7 +133,7 @@ void titleMenuCases(bool testClipboard) {
 #ifdef _WIN32
                         if (testClipboard && app.showTabMenu) {
                             clickTabCopy(app);
-                            check(clipboardText(app.hwnd) == toWide(path),
+                            check(clipboardText() == toWide(path),
                                   "single-title menu copies the full path");
                         }
 #else
@@ -234,9 +234,9 @@ int main(int argc, char** argv) {
         if (!testClipboard) continue;
 #ifdef _WIN32
         documentCopy(app);
-        check(clipboardText(app.hwnd) == item.second, "document action copies the full Unicode path");
+        check(clipboardText() == item.second, "document action copies the full Unicode path");
         tabCopy(app, 0);
-        check(clipboardText(app.hwnd) == item.second, "active-tab action uses the live path, not its saved snapshot");
+        check(clipboardText() == item.second, "active-tab action uses the live path, not its saved snapshot");
 #endif
     }
     if (!testClipboard) {
@@ -248,7 +248,7 @@ int main(int argc, char** argv) {
     app.editorText = L"# Unsaved edits\n\n$x^2$\n";
     app.editorDirty = true;
     tabCopy(app, 1);
-    check(clipboardText(app.hwnd) == L"C:\\Tinta tests\\inactive document.md", "inactive-tab action copies the clicked tab");
+    check(clipboardText() == L"C:\\Tinta tests\\inactive document.md", "inactive-tab action copies the clicked tab");
     check(app.activeTab == 0 && app.editorDirty && app.editorText == L"# Unsaved edits\n\n$x^2$\n",
           "copying an inactive path preserves the active editor and unsaved changes");
 
@@ -258,15 +258,15 @@ int main(int argc, char** argv) {
     app.signalChips.clear();
     documentCopy(app);
     tabCopy(app, 0);
-    check(clipboardText(app.hwnd) == L"sentinel" && app.signalChips.empty(),
+    check(clipboardText() == L"sentinel" && app.signalChips.empty(),
           "untitled documents keep the clipboard and show no copy confirmation");
     app.tabs[1].path.clear();
     tabCopy(app, 1);
-    check(clipboardText(app.hwnd) == L"sentinel", "untitled inactive tab cannot copy another document's path");
+    check(clipboardText() == L"sentinel", "untitled inactive tab cannot copy another document's path");
     app.editMode = false;
     app.startPageEmbeddedOpen = true;
     documentCopy(app);
-    check(clipboardText(app.hwnd) == L"sentinel", "embedded help/start page has no file path");
+    check(clipboardText() == L"sentinel", "embedded help/start page has no file path");
 
     std::promise<bool> opened;
     std::promise<void> release;
@@ -281,12 +281,12 @@ int main(int argc, char** argv) {
     check(locked, "another thread can hold the test clipboard");
     if (locked) {
         app.signalChips.clear();
-        copyFilePath(app, app.hwnd, "C:\\document.md");
+        copyFilePath(app, "C:\\document.md");
         check(app.signalChips.empty(), "a busy clipboard does not produce a false Copied confirmation");
     }
     release.set_value();
     locker.join();
-    check(clipboardText(app.hwnd) == L"sentinel", "clipboard contention preserves its previous content");
+    check(clipboardText() == L"sentinel", "clipboard contention preserves its previous content");
 #endif
     std::cout << "Copy file path: " << failures << " failures\n";
     return failures ? 1 : 0;

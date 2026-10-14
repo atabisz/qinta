@@ -75,7 +75,7 @@
 // so the token carries no information the sink could act on.
 // repaint_sink.h's header comment holds that measurement and why the sink therefore
 // takes no argument.
-inline void requestRepaint([[maybe_unused]] HWND hwnd) {
+inline void requestRepaint() {
     tinta::deliverRepaintRequest();
 }
 
@@ -87,7 +87,7 @@ inline void requestRepaint([[maybe_unused]] HWND hwnd) {
 // canArmTimer below: InvalidateRect(NULL, ...) does not fail, it invalidates EVERY window
 // on the desktop. Off that stack the question is whether the Qt window installed its
 // repaint sink.
-inline bool canRepaint([[maybe_unused]] HWND hwnd) {
+inline bool canRepaint() {
     return tinta::repaintSinkInstalled();
 }
 
@@ -139,7 +139,7 @@ inline bool canRepaint([[maybe_unused]] HWND hwnd) {
 // takes a wstring, because its closure outlives the call, so the conversion happens here --
 // the one place that knows both shapes. window_sink.h, included at the top of this file,
 // brings <string>.
-inline void setWindowTitle([[maybe_unused]] HWND hwnd, const wchar_t* title) {
+inline void setWindowTitle(const wchar_t* title) {
     tinta::deliverWindowTitle(title ? std::wstring(title) : std::wstring());
 }
 
@@ -164,11 +164,11 @@ inline void setWindowTitle([[maybe_unused]] HWND hwnd, const wchar_t* title) {
 // QTimer per id" over `(void)` bodies, so on qinta every armed timer was dropped and
 // Ctrl+wheel zoom could not be routed. Tense corrected 2026-09-25, when the arm landed.
 // With no sink installed (a test binary, a console run) the request is still nothing.
-inline void armTimer([[maybe_unused]] HWND hwnd, unsigned id, unsigned intervalMs) {
+inline void armTimer(unsigned id, unsigned intervalMs) {
     tinta::deliverTimerArm(id, intervalMs);
 }
 
-inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
+inline void disarmTimer(unsigned id) {
     tinta::deliverTimerDisarm(id);
 }
 
@@ -181,7 +181,7 @@ inline void disarmTimer([[maybe_unused]] HWND hwnd, unsigned id) {
 // so arming before WinMain has a window would leak a timer WM_TIMER never sees under the
 // id it was armed with. Off that stack the question is whether a sink is installed,
 // which the Qt window's constructor does.
-inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
+inline bool canArmTimer() {
     return tinta::timerSinkInstalled();
 }
 
@@ -422,8 +422,7 @@ inline void setCursorShape(CursorShape shape) {
 // a behaviour change in the direction that bites: an explicit grab OUTLIVES the button
 // release, so every press would have to be paired with a release that the implicit
 // grab does not need.
-inline void captureMouse(HWND hwnd) {
-    (void)hwnd;
+inline void captureMouse() {
 }
 
 // Unguarded, and it has NO call sites in the tree -- the 6 real release sites all
@@ -461,7 +460,7 @@ inline void releaseMouse() {
 // grab is ending anyway, this cannot end a sibling's. An UNguarded release routed
 // through here could have cut a selection drag short, which is why the guard lives in
 // the closure and not at the call sites.
-inline void releaseMouseIfCaptured([[maybe_unused]] HWND hwnd) {
+inline void releaseMouseIfCaptured() {
     tinta::deliverReleaseMouse();
 }
 

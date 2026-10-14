@@ -1468,7 +1468,7 @@ bool exportHtmlFile(App& app, const std::wstring& path) {
     return out.good();
 }
 
-void exportDocumentAs(App& app, HWND hwnd) {
+void exportDocumentAs(App& app) {
     if (!app.root) return;
 
     // Default name: the document's stem.
@@ -1490,7 +1490,6 @@ void exportDocumentAs(App& app, HWND hwnd) {
     }
 
     platform::FileDialogRequest request;
-    request.owner = hwnd;
     request.filters = {{L"Web page (*.html)", L"*.html"},
                        {L"Word document (*.docx)", L"*.docx"},
                        {L"PDF document (*.pdf)", L"*.pdf"}};
@@ -1531,5 +1530,5 @@ void exportDocumentAs(App& app, HWND hwnd) {
     } else {
         signalPushKey(app, SIG_ERROR, SIGI_WARNING, "toast.save_failed");
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }

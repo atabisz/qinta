@@ -175,11 +175,9 @@ static_assert(TRUE == 1 && FALSE == 0,
 
 #include <cstdint>
 
-// An opaque handle. Deliberately a pointer to an incomplete struct, exactly as the
-// SDK declares it under STRICT, so that a `HWND` cannot be silently confused with
-// an int and cannot be dereferenced.
-struct HWND__;
-typedef struct HWND__* HWND;
+// No HWND: portable code names no window handle since 2026-10-14, so a use of one off
+// Windows is a compile error rather than a stand-in. The Windows-only DWM chrome takes the
+// real one from windows.h above.
 
 // The message parameters. UINT_PTR and LONG_PTR in the SDK, which are pointer-sized
 // by definition, so the stdint spellings are exact rather than approximate.

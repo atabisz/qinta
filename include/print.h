@@ -17,10 +17,10 @@ bool printDocument(App& app);
 // paginated pages, then confirms into the printer dialog or cancels.
 // Pages are previewed at the default printer's paper size (A4 fallback);
 // printDocument re-paginates for whatever printer is finally chosen.
-void openPrintPreview(App& app, HWND hwnd);
-void closePrintPreview(App& app, HWND hwnd);
+void openPrintPreview(App& app);
+void closePrintPreview(App& app);
 void printPreviewSetPage(App& app, int page);   // clamps and re-rasterizes
-void printPreviewConfirm(App& app, HWND hwnd);  // close overlay, run the dialog
+void printPreviewConfirm(App& app);  // close overlay, run the dialog
 
 // Paper formats offered by the preview. The choice is preset into the
 // printer dialog's DEVMODE, and the dialog's final answer still wins.

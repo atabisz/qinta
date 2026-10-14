@@ -27,7 +27,7 @@ void clearFolderSearch(App& app) {
     app.folderSearchGeneration++;   // orphan any scan in flight
     app.folderResults.clear();
     app.folderResultHits.clear();
-    if (canArmTimer(app.hwnd)) disarmTimer(app.hwnd, TIMER_FOLDER_SEARCH);
+    if (canArmTimer()) disarmTimer(TIMER_FOLDER_SEARCH);
 }
 
 void startFolderSearchScan(App& app) {
@@ -135,7 +135,7 @@ void completeFolderSearch(App& app, void* results) {
     delete msg;
     // canRepaint, not app.hwnd -- see win32_api.h. On qinta this runs inside the Qt window's
     // post sink, which repaints after it anyway, so here the guard changes nothing visible.
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
 }
 
 void performSearch(App& app) {
@@ -151,12 +151,12 @@ void performSearch(App& app) {
     // back? The scan returns them as a posted WM_APP_FOLDER_SEARCH, so a timer without a
     // queue would start a thread whose results are deleted unread. On Windows both answers
     // are the window handle, so this is the old guard there.
-    if (!app.editMode && app.folderSearchEnabled && canArmTimer(app.hwnd) &&
+    if (!app.editMode && app.folderSearchEnabled && canArmTimer() &&
         canPostWindowMessage()) {
         if (app.searchQuery.empty()) {
             clearFolderSearch(app);
         } else if (!app.currentFile.empty()) {
-            armTimer(app.hwnd, TIMER_FOLDER_SEARCH, 250);
+            armTimer(TIMER_FOLDER_SEARCH, 250);
         }
     }
 

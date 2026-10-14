@@ -39,7 +39,7 @@
 #define TIMER_EDITOR_REPARSE 2
 
 // Markdown assists (defined near the char handler)
-static void editorToggleInlineMark(App& app, HWND hwnd,
+static void editorToggleInlineMark(App& app,
                                    const std::wstring& mark);
 static size_t editorPosFromClick(App& app, int x, int y);
 
@@ -676,7 +676,7 @@ void performEditorSearch(App& app) {
 
 static void scheduleReparse(App& app);  // defined below with the debounce
 
-void editorReplaceCurrent(App& app, HWND hwnd) {
+void editorReplaceCurrent(App& app) {
     if (!app.editMode || app.searchQuery.empty()) return;
     if (app.editorSearchMatches.empty()) return;
     int idx = app.editorSearchCurrentIndex;
@@ -710,10 +710,10 @@ void editorReplaceCurrent(App& app, HWND hwnd) {
         scrollEditorToMatch(app);
     }
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void editorReplaceAll(App& app, HWND hwnd) {
+void editorReplaceAll(App& app) {
     if (!app.editMode || app.searchQuery.empty()) return;
     performEditorSearch(app);
     if (app.editorSearchMatches.empty()) return;
@@ -738,7 +738,7 @@ void editorReplaceAll(App& app, HWND hwnd) {
     scheduleReparse(app);
     performEditorSearch(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void scrollEditorToMatch(App& app) {
@@ -785,7 +785,7 @@ static void scheduleReparse(App& app) {
     // calls editorReparse, which kills the timer. 300ms so brief pauses
     // mid-typing (common with IME input) don't trigger a full preview
     // relayout on every committed character.
-    armTimer(app.hwnd, TIMER_EDITOR_REPARSE, 300);
+    armTimer(TIMER_EDITOR_REPARSE, 300);
 }
 
 // External edits (table cell editor #148) want the dirty bookkeeping AND
@@ -796,7 +796,7 @@ void editorMarkDirtyAndReparse(App& app) {
 }
 
 void editorReparse(App& app, bool force) {
-    disarmTimer(app.hwnd, TIMER_EDITOR_REPARSE);
+    disarmTimer(TIMER_EDITOR_REPARSE);
     if (!app.editMode || (!app.editorShowPreview && !force)) return;
     std::string utf8 = toUtf8(app.editorText);
 
@@ -814,7 +814,7 @@ void editorReparse(App& app, bool force) {
         app.root = result.root;
         app.parseTimeUs = result.parseTimeUs;
         app.layoutDirty = true;
-        requestRepaint(app.hwnd);
+        requestRepaint();
     }
 }
 
@@ -918,7 +918,7 @@ static void enterEditModeWithContent(App& app, const std::string& content) {
     // Force layout at new width
     app.focusMermaidOnNextLayout = isMermaidDocumentPath(app.currentFile);
     app.layoutDirty = true;
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 void restoreEditBuffer(App& app, const std::wstring& text, bool dirty,
@@ -937,7 +937,7 @@ void enterEditMode(App& app) {
     if (app.currentFile.empty()) {
         // Show brief "No file loaded" notification
         signalPushKey(app, SIG_WARN, SIGI_WARNING, "toast.no_file");
-        requestRepaint(app.hwnd);
+        requestRepaint();
         return;
     }
 
@@ -960,9 +960,9 @@ void enterQuickNoteMode(App& app) {
 
 // Draft recovery: a crash leftover reopens as a dirty edit tab, pointed
 // back at its original file when it had one
-void enterRecoveredDraft(App& app, HWND hwnd, const std::string& content,
+void enterRecoveredDraft(App& app, const std::string& content,
                          const std::string& origPath) {
-    tabOpenQuickNote(app, hwnd);
+    tabOpenQuickNote(app);
     app.currentFile = origPath;
     enterEditModeWithContent(app, content);
     app.editorDirty = true;
@@ -986,7 +986,7 @@ void exitEditMode(App& app) {
         // stable dialog instead of instantly cancelling it.
         app.confirmExitPending = true;
         app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-        requestRepaint(app.hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1005,12 +1005,12 @@ void exitEditMode(App& app) {
         app.searchQuery.clear();
         app.searchAnimation = 0;
     }
-    disarmTimer(app.hwnd, TIMER_EDITOR_REPARSE);
+    disarmTimer(TIMER_EDITOR_REPARSE);
     updateBlinkTimer(app);
 
     // Re-enable file watch
     updateFileWriteTime(app);
-    armTimer(app.hwnd, 1, 500); // TIMER_FILE_WATCH = 1
+    armTimer(1, 500); // TIMER_FILE_WATCH = 1
 
     // Reload file to pick up saved changes. A discarded untitled quick
     // note has no file — reset the viewer to an empty document instead of
@@ -1051,7 +1051,7 @@ void exitEditMode(App& app) {
 
     app.focusMermaidOnNextLayout = isMermaidDocumentPath(app.currentFile);
     app.layoutDirty = true;
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 // --- File save ---
@@ -1059,9 +1059,8 @@ void exitEditMode(App& app) {
 // Classic Save As dialog for untitled quick notes (Ctrl+N). Returns false
 // when the user cancels; on success app.currentFile carries the new path
 // and the note becomes a normal file-backed session.
-static bool promptSaveAsPath(App& app, HWND hwnd) {
+static bool promptSaveAsPath(App& app) {
     platform::FileDialogRequest request;
-    request.owner = hwnd;
     request.filters = {{L"Markdown (*.md)", L"*.md;*.markdown"},
                        {L"Mermaid (*.mmd)", L"*.mmd"},
                        {L"All files (*.*)", L"*.*"}};
@@ -1085,9 +1084,8 @@ bool quickNoteEmptyStateActive(const App& app) {
     return app.editMode && app.currentFile.empty() && app.editorText.empty();
 }
 
-void openFileDialog(App& app, HWND hwnd) {
+void openFileDialog(App& app) {
     platform::FileDialogRequest request;
-    request.owner = hwnd;
     request.filters = {
         {L"Documents (*.md;*.mmd;*.txt;*.json;*.yaml;...)",
          L"*.md;*.markdown;*.mmd;*.txt;*.json;*.yaml;*.yml;*.toml;"
@@ -1106,14 +1104,14 @@ void openFileDialog(App& app, HWND hwnd) {
                         (!app.editMode || (app.editorText.empty() && !app.editorDirty));
     tabsInit(app);
     int untitledId = replaceEmpty ? app.tabs[app.activeTab].id : -1;
-    tabOpenPath(app, hwnd, toUtf8(picked->path));
+    tabOpenPath(app, toUtf8(picked->path));
     for (int i = 0; i < (int)app.tabs.size(); i++) {
         if (app.tabs[i].id == untitledId) {
-            tabCloseIndex(app, hwnd, i);
+            tabCloseIndex(app, i);
             break;
         }
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void renderQuickNoteEmptyState(App& app) {
@@ -1227,12 +1225,12 @@ void renderQuickNoteEmptyState(App& app) {
     }
 }
 
-void saveEditorFile(App& app, HWND hwnd) {
+void saveEditorFile(App& app) {
     // The open table cell belongs in the save (#148)
     tableEditCommit(app);
     if (app.currentFile.empty()) {
         // Untitled quick note: name it now; cancel keeps editing untitled
-        if (!promptSaveAsPath(app, hwnd)) return;
+        if (!promptSaveAsPath(app)) return;
     }
 
     std::string utf8 = toUtf8(app.editorText);
@@ -1276,7 +1274,7 @@ void saveEditorFile(App& app, HWND hwnd) {
 
         // The saved buffer no longer needs its crash-recovery draft
         tabsInit(app);
-        draftsDeleteForTab(app, app.tabs[app.activeTab].id);
+        draftsDeleteForTab(app.tabs[app.activeTab].id);
 
         // Reparse and update preview immediately
         editorReparse(app);
@@ -1290,7 +1288,7 @@ void saveEditorFile(App& app, HWND hwnd) {
         // Update window title
         updateWindowTitle(app);
 
-        requestRepaint(hwnd);
+        requestRepaint();
     } else {
         // Surface the failure — a silent no-op here leaves the document
         // permanently dirty and traps the user in the exit-confirm prompt.
@@ -1300,15 +1298,15 @@ void saveEditorFile(App& app, HWND hwnd) {
                    app.tabs[app.activeTab].title,
                    app.tabs[app.activeTab].title, SIGA_RETRY_SAVE,
                    SIGC_NONE, false);
-        requestRepaint(hwnd);
+        requestRepaint();
     }
 }
 
 // Save As (#121): pick a new path, write there, and the tab follows
-void saveEditorFileAs(App& app, HWND hwnd) {
-    if (!promptSaveAsPath(app, hwnd)) return;  // cancel keeps the old path
+void saveEditorFileAs(App& app) {
+    if (!promptSaveAsPath(app)) return;  // cancel keeps the old path
     app.editorDirty = true;  // force the write even for a clean buffer
-    saveEditorFile(app, hwnd);
+    saveEditorFile(app);
     if (app.editorDirty) return;  // write failed (toast already shown)
 
     // The active tab takes on the new identity
@@ -1319,21 +1317,21 @@ void saveEditorFileAs(App& app, HWND hwnd) {
     tab.title = toWide(slash == std::string::npos
                            ? app.currentFile
                            : app.currentFile.substr(slash + 1));
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Save As from anywhere: the editor variant writes the buffer, the viewer
 // variant copies the viewed file — either way the document continues
 // under the chosen name
-void saveFileAs(App& app, HWND hwnd) {
+void saveFileAs(App& app) {
     if (app.editMode) {
-        saveEditorFileAs(app, hwnd);
+        saveEditorFileAs(app);
         return;
     }
     if (app.currentFile.empty()) return;  // welcome doc: nothing to save
 
     std::string previous = app.currentFile;
-    if (!promptSaveAsPath(app, hwnd)) return;  // sets currentFile on OK
+    if (!promptSaveAsPath(app)) return;  // sets currentFile on OK
     std::wstring src = toWide(previous);
     std::wstring dst = toWide(app.currentFile);
     std::error_code copyEc;
@@ -1356,17 +1354,17 @@ void saveFileAs(App& app, HWND hwnd) {
                    std::wstring(tr(app, "toast.saved")) + L" \u2014 ",
                    tab.title, tab.title);
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Input handlers ---
 
 // Unsaved-changes dialog outcomes (shared by keyboard and mouse):
 // 1 = save and exit, 2 = discard changes, 3 = keep editing
-void confirmExitAction(App& app, HWND hwnd, int action) {
+void confirmExitAction(App& app, int action) {
     if (action == 1) {
         app.confirmExitPending = false;
-        saveEditorFile(app, hwnd);
+        saveEditorFile(app);
         if (!app.editorDirty) {
             exitEditMode(app);
         }
@@ -1390,9 +1388,9 @@ void confirmExitAction(App& app, HWND hwnd, int action) {
         app.pendingTabClose = -1;
         if (action != 3 && !app.editMode) {
             if ((int)app.tabs.size() <= 1) {
-                tabBecomeStartPage(app, hwnd);
+                tabBecomeStartPage(app);
             } else {
-                tabCloseIndex(app, hwnd, tab);
+                tabCloseIndex(app, tab);
             }
         }
     }
@@ -1402,7 +1400,7 @@ void confirmExitAction(App& app, HWND hwnd, int action) {
         if (action == 3 || app.editMode) {
             app.tabBulkCloseMode = 0;
         } else {
-            tabBulkCloseStep(app, hwnd);
+            tabBulkCloseStep(app);
         }
     }
     // A window close paused on this dialog resumes once the buffer is
@@ -1414,10 +1412,10 @@ void confirmExitAction(App& app, HWND hwnd, int action) {
             postWindowMessage(tinta::PostedMessage::Close);
         }
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
+void handleEditorKeyDown(App& app, WPARAM wParam) {
     bool ctrl = platform::isCtrlDown();
     bool shift = platform::isShiftDown();
 
@@ -1443,7 +1441,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         }
         app.searchReplaceMode = false;
         app.replaceFieldActive = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1462,14 +1460,14 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         }
         app.searchReplaceMode = true;
         app.replaceFieldActive = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
     // Ctrl+O on an untitled, still-empty note opens the file picker
     // (the empty state's keycap hint; works with the preview hidden too)
     if (ctrl && wParam == 'O' && quickNoteEmptyStateActive(app)) {
-        openFileDialog(app, hwnd);
+        openFileDialog(app);
         return;
     }
 
@@ -1477,19 +1475,19 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
     if (app.showSearch && app.searchActive) {
         // Ctrl+S still saves while the search bar is open
         if (ctrl && wParam == 'S') {
-            saveEditorFile(app, hwnd);
+            saveEditorFile(app);
             return;
         }
         // Ctrl+H from an open search reveals the replace row (#121)
         if (ctrl && wParam == 'H') {
             app.searchReplaceMode = true;
             app.replaceFieldActive = true;
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
         // Ctrl+Enter replaces every match at once
         if (ctrl && wParam == VK_RETURN && app.searchReplaceMode) {
-            editorReplaceAll(app, hwnd);
+            editorReplaceAll(app);
             return;
         }
         switch (wParam) {
@@ -1503,19 +1501,19 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 app.editorSearchCurrentIndex = 0;
                 app.searchAnimation = 0;
                 updateBlinkTimer(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case VK_TAB:
                 // Replace mode: Tab hops between the two fields
                 if (app.searchReplaceMode) {
                     app.replaceFieldActive = !app.replaceFieldActive;
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 return;
             case VK_RETURN: {
                 if (app.searchReplaceMode && app.replaceFieldActive) {
                     // Enter in the replace row: replace current, move on
-                    editorReplaceCurrent(app, hwnd);
+                    editorReplaceCurrent(app);
                     return;
                 }
                 if (!app.editorSearchMatches.empty()) {
@@ -1523,13 +1521,13 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchCurrentIndex = app.editorSearchCurrentIndex;
                     scrollEditorToMatch(app);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             case VK_BACK: {
                 if (app.searchReplaceMode && app.replaceFieldActive) {
                     if (!app.replaceText.empty()) app.replaceText.pop_back();
-                    requestRepaint(hwnd);
+                    requestRepaint();
                     return;
                 }
                 if (!app.searchQuery.empty()) {
@@ -1538,7 +1536,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.searchCurrentIndex = app.editorSearchCurrentIndex;
                     if (!app.editorSearchMatches.empty()) scrollEditorToMatch(app);
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
         }
@@ -1555,13 +1553,13 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             std::chrono::steady_clock::now() - app.confirmExitOpenedAt).count();
         bool inGrace = sinceOpen < 600;
         if (wParam == 'Y' || wParam == VK_RETURN || (ctrl && wParam == 'S')) {
-            confirmExitAction(app, hwnd, 1);
+            confirmExitAction(app, 1);
         } else if (wParam == 'N' && !inGrace) {
-            confirmExitAction(app, hwnd, 2);
+            confirmExitAction(app, 2);
         } else if (wParam == VK_ESCAPE && !inGrace) {
-            confirmExitAction(app, hwnd, 3);
+            confirmExitAction(app, 3);
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -1589,7 +1587,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
 
         // Show brief hint
         signalPushKey(app, SIG_INFO, SIGI_INFO, "toast.exit_confirm");
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
     app.escPressedOnce = false;
@@ -1598,10 +1596,10 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
         switch (wParam) {
             case 'S':
                 if (shift) {
-                    saveEditorFileAs(app, hwnd);
+                    saveEditorFileAs(app);
                     return;
                 }
-                saveEditorFile(app, hwnd);
+                saveEditorFile(app);
                 return;
             case 'N':
                 // Notepad model: Ctrl+N opens a fresh note tab (this
@@ -1643,27 +1641,27 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     app.swallowCharsUntil =
                         std::chrono::steady_clock::now() +
                         std::chrono::milliseconds(150);
-                    tabOpenQuickNote(app, hwnd);
+                    tabOpenQuickNote(app);
                 }
                 return;
             case 'Z':
                 editorUndo(app);
                 scheduleReparse(app);
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case 'Y':
                 editorRedo(app);
                 scheduleReparse(app);
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case 'A':
                 app.editorSelStart = 0;
                 app.editorSelEnd = app.editorText.size();
                 app.editorCursorPos = app.editorText.size();
                 app.editorHasSelection = true;
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case 'C':
                 if (app.editorHasSelection) {
@@ -1676,7 +1674,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     editorDeleteSelection(app);
                     scheduleReparse(app);
                     editorEnsureCursorVisible(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 return;
             case 'V': {
@@ -1733,14 +1731,14 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                     rebuildLineStarts(app);
                     scheduleReparse(app);
                     editorEnsureCursorVisible(app);
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 }
                 return;
             }
             case 'P':
                 // Print preview of the document as currently edited, saved
                 // or not (openPrintPreview re-parses; Ctrl+E is the pane)
-                openPrintPreview(app, hwnd);
+                openPrintPreview(app);
                 return;
             case 'E': {
                 // Ctrl+E shows / hides the live render beside the source
@@ -1757,17 +1755,17 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                               app.editorShowPreview ? "toast.preview_shown"
                                                     : "toast.preview_hidden");
                 app.layoutDirty = app.editorShowPreview;
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             case 'B':
                 if (app.editorAssists) {
-                    editorToggleInlineMark(app, hwnd, L"**");
+                    editorToggleInlineMark(app, L"**");
                 }
                 return;
             case 'I':
                 if (app.editorAssists) {
-                    editorToggleInlineMark(app, hwnd, L"*");
+                    editorToggleInlineMark(app, L"*");
                 }
                 return;
             case 'W': {
@@ -1780,7 +1778,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 signalPushKey(app, SIG_INFO, SIGI_INFO,
                               editorWrapOn(app) ? "toast.wrap_on"
                                                 : "toast.wrap_off");
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             case VK_HOME:
@@ -1790,7 +1788,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 if (shift) editorUpdateSelEnd(app);
                 else app.editorHasSelection = false;
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case VK_END:
                 editorStartOrExtendSelection(app, shift);
@@ -1799,7 +1797,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 if (shift) editorUpdateSelEnd(app);
                 else app.editorHasSelection = false;
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case VK_LEFT:
                 editorStartOrExtendSelection(app, shift);
@@ -1808,7 +1806,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 if (shift) editorUpdateSelEnd(app);
                 else app.editorHasSelection = false;
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             case VK_RIGHT:
                 editorStartOrExtendSelection(app, shift);
@@ -1817,7 +1815,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
                 if (shift) editorUpdateSelEnd(app);
                 else app.editorHasSelection = false;
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
         }
         return; // Don't process other ctrl+key combos as text
@@ -1836,7 +1834,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             app.editorDesiredCol = -1;
             if (shift) editorUpdateSelEnd(app);
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
 
         case VK_RIGHT:
@@ -1850,7 +1848,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             app.editorDesiredCol = -1;
             if (shift) editorUpdateSelEnd(app);
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
 
         case VK_UP:
@@ -1874,7 +1872,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             if (shift) editorUpdateSelEnd(app);
             else app.editorHasSelection = false;
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
 
@@ -1886,7 +1884,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             if (shift) editorUpdateSelEnd(app);
             else app.editorHasSelection = false;
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
 
@@ -1898,7 +1896,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             if (shift) editorUpdateSelEnd(app);
             else app.editorHasSelection = false;
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
 
@@ -1915,7 +1913,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             if (shift) editorUpdateSelEnd(app);
             else app.editorHasSelection = false;
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
 
@@ -1932,7 +1930,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             if (shift) editorUpdateSelEnd(app);
             else app.editorHasSelection = false;
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
 
@@ -1950,7 +1948,7 @@ void handleEditorKeyDown(App& app, HWND hwnd, WPARAM wParam) {
             app.editorDesiredCol = -1;
             scheduleReparse(app);
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
     }
 }
@@ -2020,7 +2018,7 @@ static ListMarkerInfo parseListMarker(const std::wstring& text,
 // Ctrl+B / Ctrl+I: wrap the selection in mark..mark, unwrap when it (or
 // its immediate surroundings) already carry the mark, or drop an empty
 // pair at the caret
-static void editorToggleInlineMark(App& app, HWND hwnd,
+static void editorToggleInlineMark(App& app,
                                    const std::wstring& mark) {
     size_t ml = mark.size();
     if (app.editorHasSelection) {
@@ -2071,13 +2069,13 @@ static void editorToggleInlineMark(App& app, HWND hwnd,
     app.editorDesiredCol = -1;
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Edit rail actions (design t8) --------------------------------------
 
 // Toggle a prefix ("- ", "> ", "- [ ] ") at the caret line's start
-static void editorToggleLinePrefix(App& app, HWND hwnd,
+static void editorToggleLinePrefix(App& app,
                                    const std::wstring& prefix) {
     size_t line = getLineFromPos(app, app.editorCursorPos);
     size_t ls = app.editorLineStarts[line];
@@ -2101,12 +2099,12 @@ static void editorToggleLinePrefix(App& app, HWND hwnd,
     app.editorDesiredCol = -1;
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Insert a block snippet at the caret (own line), placing the caret
 // caretOffset characters into the snippet
-static void editorInsertSnippet(App& app, HWND hwnd,
+static void editorInsertSnippet(App& app,
                                 const std::wstring& snippet,
                                 size_t caretOffset) {
     if (app.editorHasSelection) editorDeleteSelection(app);
@@ -2125,12 +2123,12 @@ static void editorInsertSnippet(App& app, HWND hwnd,
     app.editorDesiredCol = -1;
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Wrap the selection as a link ([sel](url) with "url" selected), or drop
 // a [text](url) template with "text" selected
-static void editorInsertLink(App& app, HWND hwnd) {
+static void editorInsertLink(App& app) {
     if (app.editorHasSelection) {
         size_t s = editorSelMin(app);
         size_t e = editorSelMax(app);
@@ -2160,7 +2158,7 @@ static void editorInsertLink(App& app, HWND hwnd) {
     app.editorDesiredCol = -1;
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Insert-menu helpers (design t9) ------------------------------------
@@ -2171,7 +2169,7 @@ void editorMoveCaretToPoint(App& app, int x, int y) {
     app.editorDesiredCol = -1;
 }
 
-void editorInsertTableGrid(App& app, HWND hwnd, int cols, int rows) {
+void editorInsertTableGrid(App& app, int cols, int rows) {
     cols = std::max(1, std::min(cols, 8));
     rows = std::max(1, std::min(rows, 6));
     std::wstring snippet;
@@ -2183,10 +2181,10 @@ void editorInsertTableGrid(App& app, HWND hwnd, int cols, int rows) {
         for (int c = 0; c < cols; c++) snippet += L"|  ";
         snippet += L"|\n";
     }
-    editorInsertSnippet(app, hwnd, snippet, 2);
+    editorInsertSnippet(app, snippet, 2);
 }
 
-void editorInsertDiagramTemplate(App& app, HWND hwnd, int kind) {
+void editorInsertDiagramTemplate(App& app, int kind) {
     static const wchar_t* kTemplates[] = {
         // 0 flowchart
         L"```mermaid\nflowchart TD\n    A[Start] --> B{Decide}\n"
@@ -2210,33 +2208,32 @@ void editorInsertDiagramTemplate(App& app, HWND hwnd, int kind) {
         L"```mermaid\n\n```\n",
     };
     if (kind < 0 || kind > 6) return;
-    editorInsertSnippet(app, hwnd, kTemplates[kind], 11);
+    editorInsertSnippet(app, kTemplates[kind], 11);
 }
 
-void editorInsertSnippetPublic(App& app, HWND hwnd,
+void editorInsertSnippetPublic(App& app,
                                const std::wstring& snippet,
                                size_t caretOffset) {
-    editorInsertSnippet(app, hwnd, snippet, caretOffset);
+    editorInsertSnippet(app, snippet, caretOffset);
 }
 
-void editorClipboardCut(App& app, HWND hwnd) {
+void editorClipboardCut(App& app) {
     if (!app.editorHasSelection) return;
     editorCopyToClipboard(editorGetSelectedText(app));
     editorDeleteSelection(app);
     rebuildLineStarts(app);
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void editorClipboardCopy(App& app, HWND hwnd) {
-    (void)hwnd;
+void editorClipboardCopy(App& app) {
     if (app.editorHasSelection) {
         editorCopyToClipboard(editorGetSelectedText(app));
     }
 }
 
-void editorClipboardPaste(App& app, HWND hwnd) {
+void editorClipboardPaste(App& app) {
     std::wstring paste = editorGetClipboard();
     if (paste.empty()) return;
     if (app.editorHasSelection) editorDeleteSelection(app);
@@ -2255,29 +2252,29 @@ void editorClipboardPaste(App& app, HWND hwnd) {
     rebuildLineStarts(app);
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void editRailInvoke(App& app, HWND hwnd, int id) {
+void editRailInvoke(App& app, int id) {
     switch (id) {
-        case 1: editorToggleInlineMark(app, hwnd, L"**"); break;
-        case 2: editorToggleInlineMark(app, hwnd, L"*"); break;
-        case 3: editorToggleInlineMark(app, hwnd, L"~~"); break;
-        case 4: editorToggleInlineMark(app, hwnd, L"`"); break;
-        case 5: editorInsertLink(app, hwnd); break;
-        case 10: editorToggleLinePrefix(app, hwnd, L"- "); break;
-        case 11: editorToggleLinePrefix(app, hwnd, L"- [ ] "); break;
-        case 12: editorToggleLinePrefix(app, hwnd, L"> "); break;
-        case 20: openEditRailFlyout(app, hwnd, 1); break;  // size grid
-        case 21: openEditRailFlyout(app, hwnd, 2); break;  // templates
-        case 23: openEditRailFlyout(app, hwnd, 3); break;  // pandoc
+        case 1: editorToggleInlineMark(app, L"**"); break;
+        case 2: editorToggleInlineMark(app, L"*"); break;
+        case 3: editorToggleInlineMark(app, L"~~"); break;
+        case 4: editorToggleInlineMark(app, L"`"); break;
+        case 5: editorInsertLink(app); break;
+        case 10: editorToggleLinePrefix(app, L"- "); break;
+        case 11: editorToggleLinePrefix(app, L"- [ ] "); break;
+        case 12: editorToggleLinePrefix(app, L"> "); break;
+        case 20: openEditRailFlyout(app, 1); break;  // size grid
+        case 21: openEditRailFlyout(app, 2); break;  // templates
+        case 23: openEditRailFlyout(app, 3); break;  // pandoc
         case 22:
-            editorInsertSnippet(app, hwnd, L"![](image.png)\n", 4);
+            editorInsertSnippet(app, L"![](image.png)\n", 4);
             break;
     }
 }
 
-void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
+void handleEditorCharInput(App& app, WPARAM wParam) {
     // Swallow characters while confirm-exit prompt is active
     if (app.confirmExitPending) return;
 
@@ -2306,14 +2303,14 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
                         scrollEditorToMatch(app);
                     }
                 }
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return;
         }
         if (ch >= 32 && ch != 127) {
             if (toReplace) {
                 app.replaceText += ch;
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
             app.searchQuery += ch;
@@ -2323,7 +2320,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
                 app.searchCurrentIndex = 0;
                 scrollEditorToMatch(app);
             }
-            requestRepaint(hwnd);
+            requestRepaint();
         }
         return;
     }
@@ -2345,7 +2342,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
         app.editorDesiredCol = -1;
         scheduleReparse(app);
         editorEnsureCursorVisible(app);
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2389,7 +2386,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
             app.editorDesiredCol = -1;
             scheduleReparse(app);
             editorEnsureCursorVisible(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return;
         }
     }
@@ -2424,7 +2421,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
                 app.editorDesiredCol = -1;
                 scheduleReparse(app);
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return;
         }
@@ -2443,7 +2440,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
                 app.editorDesiredCol = -1;
                 scheduleReparse(app);
                 editorEnsureCursorVisible(app);
-                requestRepaint(hwnd);
+                requestRepaint();
                 return;
             }
         }
@@ -2457,7 +2454,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
         app.editorDesiredCol = -1;
         scheduleReparse(app);
         editorEnsureCursorVisible(app);
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2475,7 +2472,7 @@ void handleEditorCharInput(App& app, HWND hwnd, WPARAM wParam) {
     app.editorDesiredCol = -1;
     scheduleReparse(app);
     editorEnsureCursorVisible(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- IME support ---
@@ -2558,14 +2555,14 @@ static size_t editorPosFromClick(App& app, int x, int y) {
     return lineStart + col;
 }
 
-void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
+void handleEditorMouseDown(App& app, int x, int y) {
     float editorWidth = editorPaneWidth(app);
 
     // The insert menu resolves its rows first (design t9)
-    if (editCtxMouseDown(app, hwnd, x, y)) return;
+    if (editCtxMouseDown(app, x, y)) return;
 
     // The tool rail owns its column (design t8)
-    if (editRailMouseDown(app, hwnd, x, y)) return;
+    if (editRailMouseDown(app, x, y)) return;
 
     // Editor scrollbar: a track click jumps, and the drag follows (#121).
     // Checked before the separator, whose grab zone overlaps the thumb —
@@ -2587,8 +2584,8 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
         app.editorScrollbarDragging = true;
         app.editorScrollbarDragStartY = (float)y;
         app.editorScrollbarDragStartScroll = app.editorScrollY;
-        captureMouse(hwnd);
-        requestRepaint(hwnd);
+        captureMouse();
+        requestRepaint();
         return;
     }
 
@@ -2599,7 +2596,7 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
             app.draggingSeparator = true;
             app.separatorDragStartX = (float)x;
             app.separatorDragStartRatio = app.editorSplitRatio;
-            captureMouse(hwnd);
+            captureMouse();
             return;
         }
     }
@@ -2671,15 +2668,14 @@ void handleEditorMouseDown(App& app, HWND hwnd, int x, int y) {
             app.editorHasSelection = false;
         }
         app.editorSelecting = true;
-        captureMouse(hwnd);
+        captureMouse();
     }
 
     app.editorDesiredCol = -1;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void handleEditorMouseUp(App& app, HWND hwnd, int x, int y) {
-    (void)hwnd;
+void handleEditorMouseUp(App& app, int x, int y) {
     (void)x;
     (void)y;
     if (app.editorScrollbarDragging) {
@@ -2701,7 +2697,7 @@ void handleEditorMouseUp(App& app, HWND hwnd, int x, int y) {
     }
 }
 
-void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
+void handleEditorMouseMove(App& app, int x, int y) {
     float editorWidth = editorPaneWidth(app);
 
     // Insert-menu hover: rows highlight, parents open their submenu
@@ -2711,7 +2707,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
     }
 
     // Rail hover (design t8/t11)
-    if (editRailMouseMove(app, hwnd, x, y)) {
+    if (editRailMouseMove(app, x, y)) {
         setCursorShape(app.editRailHover ? CursorShape::Hand
                                          : CursorShape::Arrow);
         return;
@@ -2728,7 +2724,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
         app.editorScrollY = std::max(
             0.0f,
             std::min(maxScroll, app.editorScrollbarDragStartScroll + delta));
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2739,7 +2735,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
         app.editorSplitRatio = std::max(0.2f, std::min(0.8f, newRatio));
         app.clearEditorLineLayoutCache();
         app.layoutDirty = true;
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2749,7 +2745,7 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
         app.editorSelEnd = pos;
         app.editorCursorPos = pos;
         app.editorHasSelection = (app.editorSelStart != app.editorSelEnd);
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
@@ -2772,18 +2768,18 @@ void handleEditorMouseMove(App& app, HWND hwnd, int x, int y) {
     // Preview pane cursor is handled by the normal handleMouseMove.
 }
 
-void handleEditorMouseWheel(App& app, HWND hwnd, float delta) {
+void handleEditorMouseWheel(App& app, float delta) {
     // Shift+wheel pans long unwrapped lines horizontally (#77)
     if (!editorWrapOn(app) && platform::isShiftDown()) {
         app.editorScrollX = std::max(0.0f, app.editorScrollX - delta * dpi(app, 60.0f));
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
     app.editorScrollY -= delta * dpi(app, 60.0f);
     app.editorScrollY = std::max(0.0f, app.editorScrollY);
     float maxScroll = std::max(0.0f, app.editorContentHeight - app.height);
     app.editorScrollY = std::min(app.editorScrollY, maxScroll);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- Rendering ---

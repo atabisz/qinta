@@ -83,18 +83,18 @@ int main() {
     real.arm = [&log](unsigned id, unsigned ms) { log.push_back({'a', id, ms}); };
     real.disarm = [&log](unsigned id) { log.push_back({'d', id, 0}); };
     tinta::setTimerSink(std::move(real));
-    armTimer(nullptr, 8, 16);
-    disarmTimer(nullptr, 8);
+    armTimer(8, 16);
+    disarmTimer(8);
     check(log.size() == 2 && log[0].op == 'a' && log[0].id == 8 && log[0].intervalMs == 16 &&
               log[1].op == 'd' && log[1].id == 8,
-          "armTimer(nullptr, 8, 16) and disarmTimer(nullptr, 8) reach the sink off Win32");
+          "armTimer(8, 16) and disarmTimer(8) reach the sink off Win32");
 
     // canArmTimer, the guard app.h's blink and notification helpers ask. Off Win32 it
     // follows the SINK, never the handle: a null HWND is the only one qinta has, so a
     // guard on the handle is the `if (app.hwnd)` that kept both timers dead.
-    check(canArmTimer(nullptr), "canArmTimer(nullptr) is true while a sink is installed");
+    check(canArmTimer(), "canArmTimer() is true while a sink is installed");
     tinta::clearTimerSink();
-    check(!canArmTimer(nullptr), "and false once the sink is cleared");
+    check(!canArmTimer(), "and false once the sink is cleared");
     tinta::TimerSink again;
     again.arm = [&log](unsigned id, unsigned ms) { log.push_back({'a', id, ms}); };
     again.disarm = [&log](unsigned id) { log.push_back({'d', id, 0}); };
@@ -158,11 +158,11 @@ int main() {
 
     // canRepaint, the guard nine repaint callers ask. Off Win32 it follows the REPAINT sink,
     // for canArmTimer's reason above.
-    check(!canRepaint(nullptr), "canRepaint(nullptr) is false with no repaint sink");
+    check(!canRepaint(), "canRepaint() is false with no repaint sink");
     tinta::setRepaintSink([]() {});
-    check(canRepaint(nullptr), "and true once a repaint sink is installed");
+    check(canRepaint(), "and true once a repaint sink is installed");
     tinta::clearRepaintSink();
-    check(!canRepaint(nullptr), "and false again once it is cleared");
+    check(!canRepaint(), "and false again once it is cleared");
 #endif
 
     std::printf("timer_sink checks=%d failures=%d\n", checks, failures);

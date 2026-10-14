@@ -97,9 +97,9 @@ void parkActiveEditBuffer(App& app) {
         app.searchQuery.clear();
         app.searchAnimation = 0;
     }
-    disarmTimer(app.hwnd, TIMER_EDITOR_REPARSE_ID);
+    disarmTimer(TIMER_EDITOR_REPARSE_ID);
     updateBlinkTimer(app);
-    armTimer(app.hwnd, TIMER_FILE_WATCH_ID, 500);
+    armTimer(TIMER_FILE_WATCH_ID, 500);
 }
 
 }  // namespace
@@ -143,7 +143,7 @@ void tabsSeedSession(App& app, const std::vector<std::string>& paths) {
     }
 }
 
-void tabActivate(App& app, HWND hwnd, int index) {
+void tabActivate(App& app, int index) {
     tabsInit(app);
     if (index < 0 || index >= (int)app.tabs.size()) return;
     if (index == app.activeTab) return;
@@ -187,10 +187,10 @@ void tabActivate(App& app, HWND hwnd, int index) {
     }
     app.showTabSwitcher = false;
     updateWindowTitle(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
+void tabOpenPath(App& app, const std::string& utf8Path,
                  bool activate) {
     tabsInit(app);
     // A path that is already open switches to its tab instead of duplicating
@@ -199,7 +199,7 @@ void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
             (int)i == app.activeTab ? app.currentFile : app.tabs[i].path;
         if (!utf8Path.empty() &&
             platform::documentPathsEqual(existing, utf8Path)) {
-            if (activate) tabActivate(app, hwnd, (int)i);
+            if (activate) tabActivate(app, (int)i);
             return;
         }
     }
@@ -209,26 +209,26 @@ void tabOpenPath(App& app, HWND hwnd, const std::string& utf8Path,
     tab.title = titleForPath(app, utf8Path);
     app.tabs.push_back(std::move(tab));
     if (activate) {
-        tabActivate(app, hwnd, (int)app.tabs.size() - 1);
+        tabActivate(app, (int)app.tabs.size() - 1);
     } else {
-        requestRepaint(hwnd);
+        requestRepaint();
     }
 }
 
-void tabOpenPathReplacingStartPage(App& app, HWND hwnd,
+void tabOpenPathReplacingStartPage(App& app,
                                    const std::string& utf8Path) {
     tabsInit(app);
     int shellId = app.tabs[app.activeTab].id;
-    tabOpenPath(app, hwnd, utf8Path);
+    tabOpenPath(app, utf8Path);
     for (int i = 0; i < (int)app.tabs.size(); i++) {
         if (app.tabs[i].id == shellId) {
-            tabCloseIndex(app, hwnd, i);
+            tabCloseIndex(app, i);
             break;
         }
     }
 }
 
-void tabCloseIndex(App& app, HWND hwnd, int index) {
+void tabCloseIndex(App& app, int index) {
     tabsInit(app);
     if (index < 0 || index >= (int)app.tabs.size()) return;
 
@@ -239,16 +239,16 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
                      ? (app.editMode && app.editorDirty)
                      : (app.tabs[index].editMode && app.tabs[index].editorDirty);
     if (dirty) {
-        if (index != app.activeTab) tabActivate(app, hwnd, index);
+        if (index != app.activeTab) tabActivate(app, index);
         app.pendingTabClose = app.activeTab;
         app.confirmExitPending = true;
         app.confirmExitOpenedAt = std::chrono::steady_clock::now();
-        requestRepaint(hwnd);
+        requestRepaint();
         return;
     }
 
     // The closed tab's crash-recovery draft goes with it
-    draftsDeleteForTab(app, app.tabs[index].id);
+    draftsDeleteForTab(app.tabs[index].id);
 
     if ((int)app.tabs.size() <= 1) {
         // The last tab closes into the start page instead of taking the
@@ -256,7 +256,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         if (startPageActive(app)) {
             postWindowMessage(tinta::PostedMessage::Close);
         } else {
-            tabBecomeStartPage(app, hwnd);
+            tabBecomeStartPage(app);
         }
         return;
     }
@@ -270,7 +270,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         }
         int next = index + 1 < (int)app.tabs.size() ? index + 1 : index - 1;
         // Activate first (so state lands in the surviving tab), then drop
-        tabActivate(app, hwnd, next);
+        tabActivate(app, next);
         int erase = index;
         app.tabs.erase(app.tabs.begin() + erase);
         if (app.activeTab > erase) app.activeTab--;
@@ -279,25 +279,25 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         if (app.activeTab > index) app.activeTab--;
     }
     app.hoveredTab = -1;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void tabCycle(App& app, HWND hwnd, int direction) {
+void tabCycle(App& app, int direction) {
     tabsInit(app);
     if (app.tabs.size() < 2) return;
     int count = (int)app.tabs.size();
     int next = (app.activeTab + direction + count) % count;
-    tabActivate(app, hwnd, next);
+    tabActivate(app, next);
 }
 
 // The lone surviving tab turns into the start page in place: closing
 // the last document lands on the launcher instead of the window
 // vanishing. Idempotent — a tab that is already the launcher stays one.
-void tabBecomeStartPage(App& app, HWND hwnd) {
+void tabBecomeStartPage(App& app) {
     tabsInit(app);
     parkActiveEditBuffer(app);  // clean editor teardown if one was open
     App::DocTab& tab = app.tabs[app.activeTab];
-    draftsDeleteForTab(app, tab.id);
+    draftsDeleteForTab(tab.id);
     tab.path.clear();
     tab.title = L"Qinta";
     tab.editMode = false;
@@ -315,12 +315,12 @@ void tabBecomeStartPage(App& app, HWND hwnd) {
     app.startPageEmbeddedOpen = false;
     app.hoveredTab = -1;
     updateWindowTitle(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // Ctrl+T: a fresh empty viewer tab, which is the start page (the
 // browser-style new-tab page with recents and open actions)
-void tabOpenStartPage(App& app, HWND hwnd) {
+void tabOpenStartPage(App& app) {
     tabsInit(app);
     syncActiveTab(app);
     parkActiveEditBuffer(app);
@@ -341,10 +341,10 @@ void tabOpenStartPage(App& app, HWND hwnd) {
     app.startPageEmbeddedOpen = false;
     app.showTabSwitcher = false;
     updateWindowTitle(app);
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void tabOpenQuickNote(App& app, HWND hwnd) {
+void tabOpenQuickNote(App& app) {
     // The + button behaves like Ctrl+N, in-window: a fresh untitled
     // quick-note tab straight into the editor; the first Ctrl+S runs the
     // classic Save As flow and the tab picks up the chosen name
@@ -366,7 +366,7 @@ void tabOpenQuickNote(App& app, HWND hwnd) {
     }
     enterQuickNoteMode(app);
     app.showTabSwitcher = false;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // --- geometry ---
@@ -1077,7 +1077,7 @@ void renderTabSwitcher(App& app) {
 
 // --- input ---
 
-bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
+bool tabStripMouseDown(App& app, int x, int y, bool middle) {
     if ((float)y >= chromeTopHeight(app)) return false;
     for (const App::TabHit& hit : app.tabHits) {
         if (x < hit.rect.left || x > hit.rect.right || y < hit.rect.top ||
@@ -1087,14 +1087,14 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
         if (hit.index == -2) {
             // + = new untitled quick-note tab (Ctrl+T still opens the
             // browser into a new tab for picking an existing file)
-            if (!middle) tabOpenQuickNote(app, hwnd);
+            if (!middle) tabOpenQuickNote(app);
             return true;
         }
         if (hit.index == -3) {
             if (!middle) {
                 app.showTabSwitcher = !app.showTabSwitcher;
                 app.tabSwitcherHover = -1;
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return true;
         }
@@ -1106,7 +1106,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             if (!middle) {
                 if (tinta::deliverStayOnTop(!app.alwaysOnTop)) {
                     app.alwaysOnTop = !app.alwaysOnTop;
-                    requestRepaint(hwnd);
+                    requestRepaint();
                 } else {
                     refuseWindowFeature(app, "always on top",
                                         L"Always on top isn't available in this window");
@@ -1115,16 +1115,16 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
             return true;
         }
         if (middle) {
-            tabCloseIndex(app, hwnd, hit.index);
+            tabCloseIndex(app, hit.index);
             return true;
         }
         if (hit.hasClose && x >= hit.closeRect.left &&
             x <= hit.closeRect.right && y >= hit.closeRect.top &&
             y <= hit.closeRect.bottom) {
-            tabCloseIndex(app, hwnd, hit.index);
+            tabCloseIndex(app, hit.index);
             return true;
         }
-        tabActivate(app, hwnd, hit.index);
+        tabActivate(app, hit.index);
         // Arm a potential drag: moving past the threshold starts
         // reordering, pulling away from the strip detaches the tab
         app.tabDragIndex = hit.index;
@@ -1132,7 +1132,7 @@ bool tabStripMouseDown(App& app, HWND hwnd, int x, int y, bool middle) {
         app.tabDragOffsetX = (float)x - hit.rect.left;
         app.tabDragStartX = x;
         app.tabDragStartY = y;
-        captureMouse(hwnd);
+        captureMouse();
         return true;
     }
     return true;  // strip clicks never fall through to the document
@@ -1224,16 +1224,16 @@ int tabIndexById(const App& app, int id) {
     return -1;
 }
 
-void tabBulkCloseBegin(App& app, HWND hwnd, int mode, int keepIndex) {
+void tabBulkCloseBegin(App& app, int mode, int keepIndex) {
     if (keepIndex < 0 || keepIndex >= (int)app.tabs.size()) return;
     app.tabBulkCloseMode = mode;
     app.tabBulkKeepId = app.tabs[keepIndex].id;
-    tabBulkCloseStep(app, hwnd);
+    tabBulkCloseStep(app);
 }
 
 }  // namespace
 
-void tabBulkCloseStep(App& app, HWND hwnd) {
+void tabBulkCloseStep(App& app) {
     // Sweeps clean victims immediately; a dirty one opens the #106 dialog
     // and the sweep resumes from confirmExitAction (Keep editing aborts)
     while (app.tabBulkCloseMode) {
@@ -1251,11 +1251,11 @@ void tabBulkCloseStep(App& app, HWND hwnd) {
         }
         if (victim < 0) {
             app.tabBulkCloseMode = 0;
-            if (keep != app.activeTab) tabActivate(app, hwnd, keep);
-            requestRepaint(hwnd);
+            if (keep != app.activeTab) tabActivate(app, keep);
+            requestRepaint();
             return;
         }
-        tabCloseIndex(app, hwnd, victim);
+        tabCloseIndex(app, victim);
         if (app.confirmExitPending) return;  // waiting on the dialog
     }
 }
@@ -1299,7 +1299,7 @@ void renderTabMenu(App& app) {
         float prev = app.tabMenuAnimation;
         app.tabMenuAnimation = std::min(1.0f, app.tabMenuAnimation + 0.25f);
         if (app.tabMenuAnimation != prev)
-            requestRepaint(app.hwnd);
+            requestRepaint();
     }
     float anim = app.tabMenuAnimation;
 
@@ -1378,13 +1378,13 @@ void renderTabMenu(App& app) {
     }
 }
 
-bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y) {
+bool tabMenuMouseDown(App& app, int x, int y) {
     if (!app.showTabMenu) return false;
     int item = tabMenuItemAt(app, (float)x, (float)y);
     int index = app.tabMenuIndex;
     closeTabMenu(app);
     app.swallowNextMouseUp = true;
-    requestRepaint(hwnd);
+    requestRepaint();
     if (item < 0 || index < 0 || index >= (int)app.tabs.size()) return true;
     // Re-validate against the surviving tab row (indices can shift while
     // the menu is up only via external means; the guard is cheap)
@@ -1392,20 +1392,20 @@ bool tabMenuMouseDown(App& app, HWND hwnd, int x, int y) {
     const std::string& path = index == a.activeTab ? a.currentFile : a.tabs[index].path;
     switch (item) {
         case TM_CLOSE:
-            if (tabMenuItemEnabled(a, TM_CLOSE)) tabCloseIndex(a, hwnd, index);
+            if (tabMenuItemEnabled(a, TM_CLOSE)) tabCloseIndex(a, index);
             break;
         case TM_CLOSE_OTHERS:
-            if (a.tabs.size() > 1) tabBulkCloseBegin(a, hwnd, 1, index);
+            if (a.tabs.size() > 1) tabBulkCloseBegin(a, 1, index);
             break;
         case TM_CLOSE_LEFT:
-            if (index > 0) tabBulkCloseBegin(a, hwnd, 2, index);
+            if (index > 0) tabBulkCloseBegin(a, 2, index);
             break;
         case TM_CLOSE_RIGHT:
             if (index + 1 < (int)a.tabs.size())
-                tabBulkCloseBegin(a, hwnd, 3, index);
+                tabBulkCloseBegin(a, 3, index);
             break;
         case TM_COPY_PATH:
-            copyFilePath(a, hwnd, path);
+            copyFilePath(a, path);
             break;
         case TM_REVEAL: {
             std::wstring fullPath = absoluteFilePath(path);
@@ -1434,7 +1434,7 @@ tinta::TabGhostCard ghostCardFor(App& app) {
 }
 
 // Close the dragged tab locally after it moved elsewhere
-void dragCloseLocal(App& app, HWND hwnd, int index) {
+void dragCloseLocal(App& app, int index) {
     if (index < 0 || index >= (int)app.tabs.size()) return;
     if ((int)app.tabs.size() <= 1) {
         postWindowMessage(tinta::PostedMessage::Close);
@@ -1442,7 +1442,7 @@ void dragCloseLocal(App& app, HWND hwnd, int index) {
     }
     if (index == app.activeTab) {
         int next = index + 1 < (int)app.tabs.size() ? index + 1 : index - 1;
-        tabActivate(app, hwnd, next);
+        tabActivate(app, next);
     }
     app.tabs.erase(app.tabs.begin() + index);
     if (app.activeTab > index) app.activeTab--;
@@ -1451,10 +1451,10 @@ void dragCloseLocal(App& app, HWND hwnd, int index) {
 
 }  // namespace
 
-void tabDragMove(App& app, HWND hwnd, int x, int y) {
+void tabDragMove(App& app, int x, int y) {
     if (app.tabDragIndex < 0) return;
     if (app.tabDragIndex >= (int)app.tabs.size()) {
-        tabDragEnd(app, hwnd, x, y);
+        tabDragEnd(app, x, y);
         return;
     }
 
@@ -1491,7 +1491,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
             if (!app.tabDragDetached) {
                 app.tabDragDetached = true;
                 sink.ghostShow(ghostCardFor(app), app.tabs[index].title, at.x, at.y);
-                requestRepaint(hwnd);
+                requestRepaint();
             } else if (sink.ghostMove) {
                 sink.ghostMove(at.x, at.y);
             }
@@ -1501,7 +1501,7 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
             // Back over the strip: the tab snaps home and reordering resumes
             app.tabDragDetached = false;
             if (sink.ghostHide) sink.ghostHide();
-            requestRepaint(hwnd);
+            requestRepaint();
         }
     }
 
@@ -1518,17 +1518,17 @@ void tabDragMove(App& app, HWND hwnd, int x, int y) {
         app.activeTab = slot;
         app.tabDragIndex = slot;
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
-void tabDragEnd(App& app, HWND hwnd, int x, int y) {
+void tabDragEnd(App& app, int x, int y) {
     if (app.tabDragIndex < 0) return;
     int index = app.tabDragIndex;
     bool detached = app.tabDragDetached;
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    releaseMouseIfCaptured(hwnd);
+    releaseMouseIfCaptured();
 
     // THE DROP, ON ONE STACK SINCE 2026-10-06, and this runs on every platform: tabDragMove
     // detaches through the window sink, so `detached` is live off Windows too. (The paragraph
@@ -1555,11 +1555,11 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
             if (!overThisWindow && app.tabs.size() > 1) {
                 launchTornOffTabWindow(sx - (int)dpi(app, 120.0f), sy - (int)dpi(app, 20.0f),
                                        path);
-                dragCloseLocal(app, hwnd, index);
+                dragCloseLocal(app, index);
             }
         }
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 // DEFERRED AND UNCALLED -- `rg tabWindowDropMerge` finds this definition and its
@@ -1575,12 +1575,11 @@ void tabDragEnd(App& app, HWND hwnd, int x, int y) {
 //
 // The guards below are kept because they are the design, not the port: only a
 // one-tab window donates, and never while an unsaved edit is open.
-void tabWindowDropMerge(App& app, HWND hwnd) {
+void tabWindowDropMerge(App& app) {
     if (app.tabs.size() != 1) return;
     if (app.editMode && app.editorDirty) return;
     const std::string& path = app.currentFile;
     if (path.empty()) return;
-    (void)hwnd;
 }
 
 // THE ONE RELEASE SITE IN THE TREE THAT SITS OUTSIDE THE PRESS-TO-RELEASE BRACKET,
@@ -1602,26 +1601,26 @@ void tabWindowDropMerge(App& app, HWND hwnd) {
 // by the time it ran, so the guard made the call a no-op on Windows too and the
 // Qt equivalent is not a release at all but QEvent::UngrabMouse arriving on the
 // widget. Two callers, two different Qt shapes, one of them not a call.
-void tabDragCancel(App& app, HWND hwnd) {
+void tabDragCancel(App& app) {
     if (app.tabDragIndex < 0) return;
     app.tabDragIndex = -1;
     app.tabDragging = false;
     app.tabDragDetached = false;
-    releaseMouseIfCaptured(hwnd);
-    requestRepaint(hwnd);
+    releaseMouseIfCaptured();
+    requestRepaint();
 }
 
-bool tabSwitcherMouseDown(App& app, HWND hwnd, int x, int y) {
+bool tabSwitcherMouseDown(App& app, int x, int y) {
     if (!app.showTabSwitcher) return false;
     for (const auto& [rect, index] : app.tabSwitcherHits) {
         if (x >= rect.left && x <= rect.right && y >= rect.top &&
             y <= rect.bottom) {
             app.showTabSwitcher = false;
-            tabActivate(app, hwnd, index);
+            tabActivate(app, index);
             return true;
         }
     }
     app.showTabSwitcher = false;
-    requestRepaint(hwnd);
+    requestRepaint();
     return true;
 }

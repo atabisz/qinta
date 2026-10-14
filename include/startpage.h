@@ -27,7 +27,7 @@ int startPageHitAt(const App& app, float x, float y);
 
 // Opens one of the embedded Learn documents (0 sample, 1 mermaid,
 // 2 markdown basics) into this window
-void startPageOpenEmbedded(App& app, HWND hwnd, int card);
+void startPageOpenEmbedded(App& app, int card);
 
 // The embedded sample document (the old bare-launch tutorial), still
 // used as the fallback when a requested file cannot be loaded

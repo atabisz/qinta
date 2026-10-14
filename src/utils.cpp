@@ -125,7 +125,7 @@ void updateWindowTitle(App& app) {
     // win32_api.h's seam. It reaches include/window_sink.h on every platform -- there is one
     // window stack now -- and that header carries the argument for why a one-off call is
     // routed at all.
-    setWindowTitle(app.hwnd, title.c_str());
+    setWindowTitle(title.c_str());
 }
 
 void scrollToHeadingY(App& app, float headingY) {
@@ -137,7 +137,7 @@ void scrollToHeadingY(App& app, float headingY) {
     app.targetScrollY = app.scrollY;
     // Not every click path repaints afterwards (a bare link click outside a
     // selection doesn't) — internal jumps must show immediately
-    requestRepaint(app.hwnd);
+    requestRepaint();
 }
 
 bool scrollToHeadingId(App& app, const std::string& id) {
@@ -212,8 +212,7 @@ std::wstring absoluteFilePath(const std::string& path) {
     return platform::absolutePath(toWide(path));
 }
 
-void copyFilePath(App& app, HWND hwnd, const std::string& path) {
-    (void)hwnd;
+void copyFilePath(App& app, const std::string& path) {
     if (platform::setClipboardText(absoluteFilePath(path)))
         signalPushKey(app, SIG_INFO, SIGI_COPY, "toast.copied");
 }

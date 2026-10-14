@@ -184,13 +184,13 @@ void parkChip(App& app, App::SignalChip&& chip) {
 }
 
 // Run a chip's click action; returns true when the chip is resolved
-bool runSignalAction(App& app, HWND hwnd, int action) {
+bool runSignalAction(App& app, int action) {
     switch (action) {
         case SIGA_RESTORE_DRAFTS:
-            draftsRecoverAll(app, hwnd);
+            draftsRecoverAll(app);
             return true;
         case SIGA_RETRY_SAVE:
-            if (app.editMode) saveEditorFile(app, hwnd);
+            if (app.editMode) saveEditorFile(app);
             return true;
         default:
             return false;
@@ -294,8 +294,8 @@ void signalPush(App& app, int severity, int icon, std::wstring text,
     }
     app.signalChips.push_back(std::move(chip));
     app.signalLastTick = nowSeconds();
-    startNotificationTimer(app);
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    startNotificationTimer();
+    if (canRepaint()) requestRepaint();
 }
 
 void signalPushKey(App& app, int severity, int icon, const char* trKey,
@@ -320,7 +320,7 @@ void signalTuckPassive(App& app) {
     for (auto& c : app.signalChips) {
         if (c.drains && !c.pinned && c.tuckT < 0.0f) c.tuckT = 0.0f;
     }
-    if (!app.signalChips.empty()) startNotificationTimer(app);
+    if (!app.signalChips.empty()) startNotificationTimer();
 }
 
 void renderSignalChips(App& app) {
@@ -780,14 +780,14 @@ bool signalMouseMove(App& app, float mx, float my) {
         pointIn(mx, my, app.signalTrayRect)) {
         interactive = true;
     }
-    if (prev != app.signalHoverChip && canRepaint(app.hwnd)) {
-        startNotificationTimer(app);
-        requestRepaint(app.hwnd);
+    if (prev != app.signalHoverChip && canRepaint()) {
+        startNotificationTimer();
+        requestRepaint();
     }
     return interactive;
 }
 
-bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
+bool signalMouseDown(App& app, float mx, float my) {
     // Open tray first: rows act, anywhere else inside holds, outside closes
     if (app.signalTrayOpen) {
         if (pointIn(mx, my, app.signalTrayRect)) {
@@ -802,7 +802,7 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
                             if (app.signalTray[i].id == hit.second) {
                                 int action = app.signalTray[i].action;
                                 app.signalTray.erase(app.signalTray.begin() + i);
-                                runSignalAction(app, hwnd, action);
+                                runSignalAction(app, action);
                                 break;
                             }
                         }
@@ -810,18 +810,18 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
                     }
                 }
             }
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         }
         app.signalTrayOpen = false;
-        requestRepaint(hwnd);
+        requestRepaint();
         // fall through: the closing click may also hit a chip or the bell
     }
 
     if (app.signalBellRect.right > 0.0f && pointIn(mx, my, app.signalBellRect)) {
         app.signalTrayOpen = !app.signalTrayOpen;
         if (app.signalTrayOpen) app.signalUnseen = 0;
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
 
@@ -835,7 +835,7 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
                 app.signalChips.erase(app.signalChips.begin() + i);
             } else {
                 c.tuckT = 0.0f;  // park with its action still live
-                startNotificationTimer(app);
+                startNotificationTimer();
             }
         } else if (c.pinRect.right > c.pinRect.left &&
                    pointIn(mx, my, c.pinRect)) {
@@ -844,11 +844,11 @@ bool signalMouseDown(App& app, HWND hwnd, float mx, float my) {
         } else if (c.action != SIGA_NONE) {
             int action = c.action;
             app.signalChips.erase(app.signalChips.begin() + i);
-            runSignalAction(app, hwnd, action);
+            runSignalAction(app, action);
         } else {
             c.pinned = true;  // a body click on a passive chip keeps it
         }
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
     return false;

@@ -32,8 +32,8 @@ void check(bool value, const char* message) {
 // Same contract as the main message loop: a consumed key must not have
 // its layout-dependent WM_CHAR translated into the new editor/overlay.
 void stroke(App& app, unsigned vk, unsigned character = 0) {
-    bool consumed = handleKeyDown(app, app.hwnd, vk);
-    if (!consumed && character) handleCharInput(app, app.hwnd, (wchar_t)character);
+    bool consumed = handleKeyDown(app, vk);
+    if (!consumed && character) handleCharInput(app, (wchar_t)character);
 }
 }
 
@@ -166,7 +166,7 @@ int main(int argc, char** argv) {
         app.currentFile = probe.string();
         app.lastFileWriteTime = sentinel;
 
-        handleFileWatchTimer(app, app.hwnd);
+        handleFileWatchTimer(app);
         check(app.lastFileWriteTime.dwLowDateTime == sentinel.dwLowDateTime &&
                   app.lastFileWriteTime.dwHighDateTime == sentinel.dwHighDateTime,
               "an unreadable file leaves the stored write time ALONE, not zeroed");
@@ -181,7 +181,7 @@ int main(int argc, char** argv) {
         check(std::filesystem::exists(probe),
               "CONTROL: the watch probe file was created");
         app.lastFileWriteTime = FILETIME{0, 0};
-        handleFileWatchTimer(app, app.hwnd);
+        handleFileWatchTimer(app);
         check(app.confirmExitPending,
               "CONTROL: a real external change does raise the prompt");
         check(app.lastFileWriteTime.dwLowDateTime != 0 ||

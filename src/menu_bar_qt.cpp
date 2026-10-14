@@ -98,7 +98,7 @@ void addCommandItem(QMenu& menu, App& app, const char* labelKey, int command) {
     QAction* action = labelled(menu.addAction(label(app, labelKey)), labelKey);
     action->setMenuRole(QAction::NoRole);
     QObject::connect(action, &QAction::triggered, action,
-                     [&app, command]() { invokeMenuCommand(app, nullptr, command); });
+                     [&app, command]() { invokeMenuCommand(app, command); });
 }
 
 }  // namespace
@@ -137,7 +137,7 @@ void populateMenuBar(QMenuBar& bar, App& app, QWidget& window) {
     QAction* zen = labelled(view->addAction(label(app, "shortcuts.zen")), "shortcuts.zen");
     zen->setShortcut(QKeySequence(zenMenuKey()));
     zen->setMenuRole(QAction::NoRole);
-    QObject::connect(zen, &QAction::triggered, zen, [&app]() { toggleZenMode(app, nullptr); });
+    QObject::connect(zen, &QAction::triggered, zen, [&app]() { toggleZenMode(app); });
 
     QMenu* help = addMenu(bar, app, "menu.help");
     addCommandItem(*help, app, "ctx.help", CTX_HELP);

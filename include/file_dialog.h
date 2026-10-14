@@ -70,12 +70,11 @@
 //
 // WHAT THE QT HALF CANNOT DO, SAID HERE RATHER THAN DISCOVERED AT THE CUTOVER
 //
-//   * `owner` cannot be honoured. It is an HWND, and Qt wants a QWidget*; there is
-//     no conversion, because tinta's window is not a QWidget yet. The Qt backend
-//     passes nullptr, which makes the dialog application-modal instead of
-//     window-modal. The parameter is kept rather than dropped because dropping it
-//     would mean reintroducing it at the cutover across all five sites, and because
-//     GetActiveWindow() is NOT the same window every site passes today.
+//   * There is no owner, so the dialog is application-modal, not window-modal. The
+//     request carried an HWND `owner` until 2026-10-14, and every site filled it with
+//     App::hwnd, which nothing assigns, so it never named a window. It went with the
+//     HWND type. A window-modal dialog would take its parent from the window sink,
+//     where the QWidget is, rather than from each caller.
 //   * `restoreDirectory` and `hideReadOnly` are both no-ops in Qt: QFileDialog does
 //     not change the process directory at all, and it has no read-only checkbox.
 //     Ignoring a flag whose effect does not exist is honest; the fields stay because
@@ -98,9 +97,6 @@ struct FileFilter {
 };
 
 struct FileDialogRequest {
-    // Modal parent. See the note above on what the Qt half does with it.
-    HWND owner = nullptr;
-
     // At least one row. An empty list would ask the platform for a dialog that
     // matches nothing, which no site does and neither backend defines.
     std::vector<FileFilter> filters;

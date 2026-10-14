@@ -110,7 +110,6 @@ std::wstring docStem(const App& app) {
 }
 
 struct PandocJob {
-    HWND hwnd = nullptr;
     std::wstring exe;
     // AN ARGUMENT LIST, NOT A COMMAND LINE. The quoting is the Windows arm's business
     // (platform_process.h:55-70 says why, win32_command_line.h implements it), so what
@@ -217,7 +216,7 @@ void pandocSetUserPath(App& app, const std::wstring& path) {
     saveSettings(settings);
 }
 
-void pandocExportFlow(App& app, HWND hwnd, int fmt) {
+void pandocExportFlow(App& app, int fmt) {
     if (fmt < 0 || fmt >= PANDOC_FORMAT_COUNT) return;
     if (!pandocAvailable(app) || app.pandocRunning) return;
     const PandocFormat& f = kFormats[fmt];
@@ -230,7 +229,6 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
     // No restoreDirectory here, matching the OFN_NOCHANGEDIR this site never set.
     std::wstring stem = docStem(app);
     platform::FileDialogRequest request;
-    request.owner = hwnd;
     request.filters = {{f.filter, std::wstring(L"*") + f.ext}};
     request.initialName = stem + f.ext;
     request.defaultExtension = f.ext + 1;  // skip the leading '.'
@@ -306,7 +304,7 @@ void pandocExportFlow(App& app, HWND hwnd, int fmt) {
     args.push_back(out);
     args.push_back(tempFile.wstring());
 
-    PandocJob* job = new PandocJob{hwnd, app.pandocExe, args, tempFile};
+    PandocJob* job = new PandocJob{app.pandocExe, args, tempFile};
     app.pandocRunning = true;
     // std::thread rather than CreateThread: threading is standard C++ and needs no
     // platform arm, so it does not go behind the seam. The catch reproduces the old

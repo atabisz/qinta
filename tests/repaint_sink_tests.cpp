@@ -86,9 +86,9 @@ int main() {
     // one of those sites passes, because App::hwnd is assigned at exactly one site
     // in the tree and that site is in the Windows-only D2D window creation.
     const int callsBeforeSeam = secondCalls;
-    requestRepaint(nullptr);
+    requestRepaint();
     check(secondCalls == callsBeforeSeam + 1,
-          "requestRepaint(nullptr) off Windows reaches the registered sink exactly once");
+          "requestRepaint() off Windows reaches the registered sink exactly once");
 
     // And it must stop reaching it once the window is gone, because the sink
     // captures that window. A request after clearRepaintSink() that still fired
@@ -96,7 +96,7 @@ int main() {
     tinta::clearRepaintSink();
     check(!tinta::repaintSinkInstalled(), "clearRepaintSink empties the slot");
     const int callsAfterClear = secondCalls;
-    requestRepaint(nullptr);
+    requestRepaint();
     check(secondCalls == callsAfterClear,
           "requestRepaint after clearRepaintSink reaches nothing");
 #else

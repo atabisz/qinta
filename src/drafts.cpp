@@ -71,9 +71,10 @@ static std::wstring draftsDirPath() {
     return path;
 }
 
-// Draft identity: process + window + tab, so several windows (and several
-// Tinta processes) never overwrite each other's autosaves
-static std::wstring draftFileFor(const App& app, int tabId) {
+// Draft identity: process + tab, so several windows (each its own process) never
+// overwrite each other's autosaves. The middle field was the window handle, which
+// was always null on qinta; it stays a literal 0 so the names are what they were.
+static std::wstring draftFileFor(int tabId) {
     std::wstring dir = draftsDirPath();
     if (dir.empty()) return L"";
     wchar_t name[96];
@@ -81,8 +82,7 @@ static std::wstring draftFileFor(const App& app, int tabId) {
     // pattern this file scans for later ("draft-") is now the whole prefix rather
     // than a prefix with a backslash in front of it. draftsScanForRecovery reads
     // the same 6 characters either way.
-    tinta::swprintf(name, L"draft-%lu-%llu-%d.md", currentProcessId(),
-                    (unsigned long long)(uintptr_t)app.hwnd, tabId);
+    tinta::swprintf(name, L"draft-%lu-0-%d.md", currentProcessId(), tabId);
     return dir + platform::pathSeparator() + name;
 }
 
@@ -111,7 +111,7 @@ void draftsSweep(App& app) {
         bool active = (i == app.activeTab);
         bool dirty = active ? (app.editMode && app.editorDirty)
                             : (tab.editMode && tab.editorDirty);
-        std::wstring draftPath = draftFileFor(app, tab.id);
+        std::wstring draftPath = draftFileFor(tab.id);
         if (draftPath.empty()) continue;
         if (dirty) {
             writeDraft(draftPath, active ? app.currentFile : tab.path,
@@ -122,14 +122,14 @@ void draftsSweep(App& app) {
     }
 }
 
-void draftsDeleteForTab(const App& app, int tabId) {
-    std::wstring draftPath = draftFileFor(app, tabId);
+void draftsDeleteForTab(int tabId) {
+    std::wstring draftPath = draftFileFor(tabId);
     if (!draftPath.empty()) removeDraftFile(draftPath);
 }
 
 void draftsDeleteAll(const App& app) {
     for (const App::DocTab& tab : app.tabs) {
-        draftsDeleteForTab(app, tab.id);
+        draftsDeleteForTab(tab.id);
     }
 }
 
@@ -267,7 +267,7 @@ void draftsScanForRecovery(App& app) {
     }
 }
 
-void draftsRecoverAll(App& app, HWND hwnd) {
+void draftsRecoverAll(App& app) {
     for (const std::wstring& path : app.recoveredDrafts) {
         std::ifstream file(std::filesystem::path(path), std::ios::binary);
         if (!file) continue;
@@ -286,11 +286,11 @@ void draftsRecoverAll(App& app, HWND hwnd) {
                 content = content.substr(end + 5);
             }
         }
-        enterRecoveredDraft(app, hwnd, content, origPath);
+        enterRecoveredDraft(app, content, origPath);
         removeDraftFile(path);
     }
     app.recoveredDrafts.clear();
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void draftsDiscardAll(App& app) {

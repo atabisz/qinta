@@ -195,7 +195,7 @@ void leavePrintLayout(App& app, const SavedView& saved) {
     app.scrollY = saved.scrollY;
     app.targetScrollX = saved.targetScrollX;
     app.targetScrollY = saved.targetScrollY;
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
 }
 
 // Page break positions in document Y. Breaks avoid slicing text lines,
@@ -736,7 +736,7 @@ static void detectDefaultFormat(App& app) {
     app.printPreviewLandscape = landscape;
 }
 
-void openPrintPreview(App& app, HWND hwnd) {
+void openPrintPreview(App& app) {
     // app.renderTarget, not app.deviceContext: the raster goes through the image seam,
     // which needs a live tinta::RenderTarget and nothing native. The Qt stack has no
     // device context at all, so the old guard was what kept its preview shut.
@@ -750,7 +750,7 @@ void openPrintPreview(App& app, HWND hwnd) {
     app.printPreviewPage = 0;
     refreshPreviewLayout(app);
     app.showPrintPreview = true;
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void printPreviewSetFormat(App& app, int paper, bool landscape) {
@@ -764,10 +764,10 @@ void printPreviewSetFormat(App& app, int paper, bool landscape) {
     app.printPreviewPaper = paper;
     app.printPreviewLandscape = landscape;
     refreshPreviewLayout(app);
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
 }
 
-void closePrintPreview(App& app, HWND hwnd) {
+void closePrintPreview(App& app) {
     if (!app.showPrintPreview) return;
     app.showPrintPreview = false;
     leavePrintLayout(app, app.printSaved);
@@ -779,7 +779,7 @@ void closePrintPreview(App& app, HWND hwnd) {
         app.clearEditorLineLayoutCache();
         app.editorRowMetricsWidth = -1.0f;
     }
-    requestRepaint(hwnd);
+    requestRepaint();
 }
 
 void printPreviewSetPage(App& app, int page) {
@@ -789,12 +789,12 @@ void printPreviewSetPage(App& app, int page) {
     if (page == app.printPreviewPage) return;
     app.printPreviewPage = page;
     rasterizePreviewPage(app, page);
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
 }
 
-void printPreviewConfirm(App& app, HWND hwnd) {
+void printPreviewConfirm(App& app) {
     if (!app.showPrintPreview) return;
-    closePrintPreview(app, hwnd);
+    closePrintPreview(app);
     printDocument(app);
 }
 

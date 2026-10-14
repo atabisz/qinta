@@ -15,11 +15,11 @@ int editRailHitAt(const App& app, float x, float y);
 
 // Mouse glue for the editor handlers; down/move return true when the
 // event belonged to the rail
-bool editRailMouseDown(App& app, HWND hwnd, int x, int y);
-bool editRailMouseMove(App& app, HWND hwnd, int x, int y);
+bool editRailMouseDown(App& app, int x, int y);
+bool editRailMouseMove(App& app, int x, int y);
 
 // Rail button actions (defined in editor.cpp beside the edit helpers)
-void editRailInvoke(App& app, HWND hwnd, int id);
+void editRailInvoke(App& app, int id);
 
 // Floating render sheet (design 10a): desk + shadow + sheet surface,
 // drawn before the document clips into the sheet; the caret block wash
@@ -28,22 +28,22 @@ void renderEditSheetChrome(App& app);
 void renderPreviewCaretBlock(App& app, float previewWidth);
 
 // Raw editor insert menu (design t9)
-void openEditCtxMenu(App& app, HWND hwnd, float x, float y);
+void openEditCtxMenu(App& app, float x, float y);
 // The rail's table / diagram buttons open the same submenu standalone:
 // sub 1 = table size grid, 2 = diagram templates
-void openEditRailFlyout(App& app, HWND hwnd, int sub);
+void openEditRailFlyout(App& app, int sub);
 void closeEditCtxMenu(App& app);
 void renderEditCtxMenu(App& app);
-bool editCtxMouseDown(App& app, HWND hwnd, int x, int y);
+bool editCtxMouseDown(App& app, int x, int y);
 bool editCtxMouseMove(App& app, int x, int y);
 
 // Editor helpers the menu leans on (defined in editor.cpp)
 void editorMoveCaretToPoint(App& app, int x, int y);
-void editorInsertTableGrid(App& app, HWND hwnd, int cols, int rows);
-void editorInsertDiagramTemplate(App& app, HWND hwnd, int kind);
-void editorClipboardCut(App& app, HWND hwnd);
-void editorClipboardCopy(App& app, HWND hwnd);
-void editorClipboardPaste(App& app, HWND hwnd);
-void editorInsertSnippetPublic(App& app, HWND hwnd,
+void editorInsertTableGrid(App& app, int cols, int rows);
+void editorInsertDiagramTemplate(App& app, int kind);
+void editorClipboardCut(App& app);
+void editorClipboardCopy(App& app);
+void editorClipboardPaste(App& app);
+void editorInsertSnippetPublic(App& app,
                                const std::wstring& snippet,
                                size_t caretOffset);

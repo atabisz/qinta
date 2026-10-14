@@ -177,7 +177,7 @@ void sanitizeForComment(std::string& text) {
     }
 }
 
-void writeSourceAndReload(App& app, HWND hwnd, const std::string& src) {
+void writeSourceAndReload(App& app, const std::string& src) {
     if (app.currentFile.empty()) return;
     // std::filesystem::path, not the bare std::wstring toWide returns. The wide-path
     // stream constructor is an MSVC extension and libstdc++ rejects it; fs::path is the
@@ -189,7 +189,7 @@ void writeSourceAndReload(App& app, HWND hwnd, const std::string& src) {
     if (!out) return;
     out.write(src.data(), (std::streamsize)src.size());
     out.close();
-    handleFileWatchTimer(app, hwnd);  // reload now instead of on the timer
+    handleFileWatchTimer(app);  // reload now instead of on the timer
 }
 
 // Markdown source line reduced to roughly its rendered text, so a viewer
@@ -867,7 +867,7 @@ bool annotationBeginCreate(App& app) {
     return true;
 }
 
-void annotationEditorConfirm(App& app, HWND hwnd) {
+void annotationEditorConfirm(App& app) {
     if (!app.annotEditorOpen) return;
     std::string note = toUtf8(app.annotEditorText);
     sanitizeForComment(note);
@@ -900,14 +900,14 @@ void annotationEditorConfirm(App& app, HWND hwnd) {
         return;
     }
     closeEditor(app);
-    writeSourceAndReload(app, hwnd, src);
+    writeSourceAndReload(app, src);
 }
 
 void annotationEditorCancel(App& app) {
     closeEditor(app);
 }
 
-void annotationEditorDelete(App& app, HWND hwnd) {
+void annotationEditorDelete(App& app) {
     if (!app.annotEditorOpen || app.annotEditorIndex < 0 ||
         app.annotEditorIndex >= (int)app.annotations.size()) {
         closeEditor(app);
@@ -925,10 +925,10 @@ void annotationEditorDelete(App& app, HWND hwnd) {
     if (end < src.size() && src[end] == '\n') end++;
     if (start < end && end <= src.size()) src.erase(start, end - start);
     closeEditor(app);
-    writeSourceAndReload(app, hwnd, src);
+    writeSourceAndReload(app, src);
 }
 
-bool annotationEditorKeyDown(App& app, HWND hwnd, WPARAM key, bool ctrl) {
+bool annotationEditorKeyDown(App& app, WPARAM key, bool ctrl) {
     if (!app.annotEditorOpen) return false;
     std::wstring& text = app.annotEditorText;
     size_t& caret = app.annotEditorCaret;
@@ -939,7 +939,7 @@ bool annotationEditorKeyDown(App& app, HWND hwnd, WPARAM key, bool ctrl) {
             break;
         case VK_RETURN:
             if (ctrl) {
-                annotationEditorConfirm(app, hwnd);
+                annotationEditorConfirm(app);
             } else {
                 text.insert(caret, 1, L'\n');
                 caret++;
@@ -1166,8 +1166,7 @@ void renderAnnotationEditor(App& app) {
     }
 }
 
-void annotationsCopyForAgent(App& app, HWND hwnd) {
-    (void)hwnd;
+void annotationsCopyForAgent(App& app) {
     if (app.annotations.empty() || app.currentFile.empty()) return;
     // A short task preamble so any agent knows what to do with the list
     std::wstring out = toWide(app.currentFile);

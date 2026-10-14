@@ -16,7 +16,7 @@
 // the same primitives.
 
 // Opens the dialog and dispatches on the chosen filter/extension
-void exportDocumentAs(App& app, HWND hwnd);
+void exportDocumentAs(App& app);
 
 // Direct writers (also callable from tests/tools)
 bool exportHtmlFile(App& app, const std::wstring& path);

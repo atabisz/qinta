@@ -14,7 +14,7 @@
 void draftsSweep(App& app);
 
 // Remove one tab's draft immediately (successful save, tab close)
-void draftsDeleteForTab(const App& app, int tabId);
+void draftsDeleteForTab(int tabId);
 
 // Remove every draft belonging to this window (graceful close)
 void draftsDeleteAll(const App& app);
@@ -30,7 +30,7 @@ bool draftOwnerIsLiveSibling(unsigned long pid);
 
 // Chip click: reopen each recovered draft as a dirty edit tab, then
 // delete the files
-void draftsRecoverAll(App& app, HWND hwnd);
+void draftsRecoverAll(App& app);
 
 // Chip cross: delete the files without opening them
 void draftsDiscardAll(App& app);

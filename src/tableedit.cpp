@@ -366,14 +366,14 @@ std::wstring tsvToMarkdownTable(const std::wstring& text) {
     return out;
 }
 
-bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
+bool tableEditMouseDown(App& app, float docX, float docY) {
     // + row / + column affordances first: they sit outside cell rects
     if (app.tableAddRowRect.right > app.tableAddRowRect.left &&
         docX >= app.tableAddRowRect.left && docX <= app.tableAddRowRect.right &&
         docY >= app.tableAddRowRect.top && docY <= app.tableAddRowRect.bottom) {
         tableEditCommit(app);
         insertTableRow(app, app.tableAddSrc);
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
     if (app.tableAddColRect.right > app.tableAddColRect.left &&
@@ -381,7 +381,7 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
         docY >= app.tableAddColRect.top && docY <= app.tableAddColRect.bottom) {
         tableEditCommit(app);
         insertTableColumn(app, app.tableAddSrc);
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
 
@@ -396,24 +396,24 @@ bool tableEditMouseDown(App& app, HWND hwnd, float docX, float docY) {
     }
     if (cell) {
         openCellEditor(app, cell->tableSrc, cell->row, cell->col);
-        requestRepaint(hwnd);
+        requestRepaint();
         return true;
     }
     return false;
 }
 
-bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
+bool tableEditKeyDown(App& app, WPARAM key) {
     if (!app.tableEditActive) return false;
     // Ctrl chords pass through (save commits the open cell first)
     if (platform::isCtrlDown()) return false;
     switch (key) {
         case VK_ESCAPE:
             tableEditCancel(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         case VK_RETURN:
             tableEditCommit(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         case VK_TAB: {
             bool back = platform::isShiftDown();
@@ -441,40 +441,40 @@ bool tableEditKeyDown(App& app, HWND hwnd, WPARAM key) {
                 }
             }
             openCellEditor(app, tableSrc, row, col);
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         }
         case VK_BACK:
             if (app.tableEditCaret > 0) {
                 app.tableEditText.erase(--app.tableEditCaret, 1);
                 resetCursorBlink(app);
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return true;
         case VK_DELETE:
             if (app.tableEditCaret < app.tableEditText.size()) {
                 app.tableEditText.erase(app.tableEditCaret, 1);
-                requestRepaint(hwnd);
+                requestRepaint();
             }
             return true;
         case VK_LEFT:
             if (app.tableEditCaret > 0) app.tableEditCaret--;
             resetCursorBlink(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         case VK_RIGHT:
             if (app.tableEditCaret < app.tableEditText.size())
                 app.tableEditCaret++;
             resetCursorBlink(app);
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         case VK_HOME:
             app.tableEditCaret = 0;
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         case VK_END:
             app.tableEditCaret = app.tableEditText.size();
-            requestRepaint(hwnd);
+            requestRepaint();
             return true;
         default:
             return true;  // the open cell owns the keyboard
@@ -486,7 +486,7 @@ bool tableEditChar(App& app, wchar_t ch) {
     if (ch < 0x20 || ch == 127) return true;  // controls handled as keys
     app.tableEditText.insert(app.tableEditCaret++, 1, ch);
     resetCursorBlink(app);
-    if (canRepaint(app.hwnd)) requestRepaint(app.hwnd);
+    if (canRepaint()) requestRepaint();
     return true;
 }
 

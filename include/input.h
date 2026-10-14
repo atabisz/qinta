@@ -31,35 +31,35 @@
 
 // wheelDelta is in notches, already divided by WHEEL_DELTA: +1.0 is one click
 // away from the user. Fractional values are what high-resolution wheels send.
-void handleMouseWheel(App& app, HWND hwnd, float wheelDelta);
-void handleMouseHWheel(App& app, HWND hwnd, float wheelDelta);
-void handleMouseMove(App& app, HWND hwnd, int mouseX, int mouseY);
+void handleMouseWheel(App& app, float wheelDelta);
+void handleMouseHWheel(App& app, float wheelDelta);
+void handleMouseMove(App& app, int mouseX, int mouseY);
 // Neither of these two reads a button or modifier state off the message: they
 // ask GetKeyState and app state directly, so the WPARAM they used to take was
 // already unused before it was removed.
-void handleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY);
+void handleMouseDown(App& app, int mouseX, int mouseY);
 // WM_MBUTTONDOWN's case: closes the tab under the press, and ONLY inside the tab strip.
 // Returns whether it consumed the press, which is that case's `return 0` against its
 // `break` -- a middle press anywhere else is the widget's to ignore. Separate from
 // handleMouseDown because it was a separate case: that function takes no button, and the
 // middle button acts at exactly one place.
-bool handleMiddleMouseDown(App& app, HWND hwnd, int mouseX, int mouseY);
-void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY);
+bool handleMiddleMouseDown(App& app, int mouseX, int mouseY);
+void handleMouseUp(App& app, int mouseX, int mouseY);
 // True consumes this keystroke's character translation as well (#195).
-bool handleKeyDown(App& app, HWND hwnd, unsigned key);
+bool handleKeyDown(App& app, unsigned key);
 // fromKeyboard is the menu key rather than a right-click, which Win32 signals
 // as a (-1, -1) position; the caller tests for that and does the screen-to-
 // client conversion, so mouseX/mouseY here are ALWAYS client-space and are
 // ignored entirely when fromKeyboard is true (the menu opens centred).
-void handleContextMenu(App& app, HWND hwnd, int mouseX, int mouseY,
+void handleContextMenu(App& app, int mouseX, int mouseY,
                        bool fromKeyboard);
 // One of the drawn menus' CTX_* commands, run as a click on its item runs it,
 // then a repaint. For a caller outside those menus: the macOS menu bar's items
 // that have no key to replay (include/menu_bar_qt.h).
-void invokeMenuCommand(App& app, HWND hwnd, int command);
+void invokeMenuCommand(App& app, int command);
 // Zen mode on or off, as the zen key does. For the macOS menu bar's View item, whose
 // ⌃⌘F is not a key the router knows (include/menu_bar_qt.h).
-void toggleZenMode(App& app, HWND hwnd);
+void toggleZenMode(App& app);
 // NOT ONLY TYPED TEXT. `character` also carries SHORTCUT ROUTING: under the vim
 // key profile the punctuation bindings are matched on the character rather than
 // the virtual key, so '?' reaching here is what opens Help, and a full-width
@@ -68,29 +68,29 @@ void toggleZenMode(App& app, HWND hwnd);
 // is the difference between "this argument is the text" and "this argument is the
 // keystroke's layout-resolved meaning". A caller that filters it to printables
 // would silently disable those bindings.
-void handleCharInput(App& app, HWND hwnd, wchar_t character);
+void handleCharInput(App& app, wchar_t character);
 // Unfiltered: every dropped path arrives and this decides which ones it
 // supports. The caller owns the HDROP and its DragFinish.
-void handleDropFiles(App& app, HWND hwnd,
+void handleDropFiles(App& app,
                      const std::vector<std::wstring>& paths);
 // Load a document into the viewer, saving the outgoing reading position
 // and restoring the incoming one (shared with tabs.cpp)
 bool openDocumentInViewer(App& app, const std::wstring& fullPath);
 // Mouse XBUTTON / Alt+arrow navigation across link jumps (viewer)
-void navigateBack(App& app, HWND hwnd);
-void navigateForward(App& app, HWND hwnd);
-void handleFileWatchTimer(App& app, HWND hwnd);
-void handleSelectScrollTimer(App& app, HWND hwnd);
+void navigateBack(App& app);
+void navigateForward(App& app);
+void handleFileWatchTimer(App& app);
+void handleSelectScrollTimer(App& app);
 // Dwell timer fired over a local .md link: load the peek preview
-void handleLinkPeekTimer(App& app, HWND hwnd);
+void handleLinkPeekTimer(App& app);
 // One tick of timer `id`: WM_TIMER's dispatch, shared by WinMain and the Qt window's
 // timer sink.
-void handleTimer(App& app, HWND hwnd, unsigned id);
+void handleTimer(App& app, unsigned id);
 // WM_CLOSE's question, shared by WinMain's case and the Qt window's closeEvent: true when
 // the window may close now. False when an unsaved buffer has to be resolved first, in
 // which case it has already activated that tab and opened the unsaved-changes dialog
 // (or, with the dialog open, marked the close as pending behind it).
-bool windowCloseMayProceed(App& app, HWND hwnd);
+bool windowCloseMayProceed(App& app);
 // A posted message (tinta::PostedMessage, include/post_sink.h), on the window's thread, taking
 // ownership of what `pointer` points at. The enum is the list of messages: this switches over
 // every one with no default, as the Qt window's post sink does, so a message added without a

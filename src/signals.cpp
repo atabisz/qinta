@@ -493,7 +493,7 @@ void renderSignalChips(App& app) {
             if (app.signalSmallFormat) {
                 app.brush->SetColor(inkAt(app, 0.9f * alpha));
                 app.renderTarget->DrawText(
-                    label, (UINT32)c.text.size(), app.signalSmallFormat,
+                    label, (std::uint32_t)c.text.size(), app.signalSmallFormat,
                     tinta::rectF(pill.left + dpi(app, 21.0f),
                                 py + dpi(app, 4.0f), pill.right, pill.bottom),
                     app.brush);
@@ -612,7 +612,7 @@ void renderSignalChips(App& app) {
                 lc.a *= alpha * (c.pinned ? 0.85f : 0.9f);
                 app.brush->SetColor(lc);
                 app.renderTarget->DrawText(
-                    lbl, (UINT32)wcslen(lbl), app.signalSmallFormat,
+                    lbl, (std::uint32_t)wcslen(lbl), app.signalSmallFormat,
                     tinta::rectF(r.left + dpi(app, 10.0f), r.bottom - dpi(app, 13.0f),
                                 r.right, r.bottom),
                     app.brush);
@@ -650,7 +650,7 @@ void renderSignalChips(App& app) {
             app.brush->SetColor(inkAt(app, 0.95f));
             const wchar_t* title = tr(app, "signal.notifications");
             app.renderTarget->DrawText(
-                title, (UINT32)wcslen(title), app.tocFormatBold,
+                title, (std::uint32_t)wcslen(title), app.tocFormatBold,
                 tinta::rectF(t.left + dpi(app, 12.0f), t.top + dpi(app, 8.0f),
                             t.right, t.top + headH),
                 app.brush);
@@ -661,7 +661,7 @@ void renderSignalChips(App& app) {
             tinta::Color ac = app.theme.accent;
             app.brush->SetColor(ac);
             app.renderTarget->DrawText(
-                clear, (UINT32)wcslen(clear), app.signalSmallFormat,
+                clear, (std::uint32_t)wcslen(clear), app.signalSmallFormat,
                 tinta::rectF(t.right - dpi(app, 12.0f) - cw,
                             t.top + dpi(app, 10.0f), t.right, t.top + headH),
                 app.brush);
@@ -712,7 +712,7 @@ void renderSignalChips(App& app) {
                     app.brush, 1.0f);
                 app.brush->SetColor(app.theme.accent);
                 app.renderTarget->DrawText(
-                    actLbl, (UINT32)wcslen(actLbl), app.signalSmallFormat,
+                    actLbl, (std::uint32_t)wcslen(actLbl), app.signalSmallFormat,
                     tinta::rectF(ab.left + dpi(app, 9.0f), ab.top + dpi(app, 4.0f),
                                 ab.right, ab.bottom),
                     app.brush);
@@ -734,7 +734,7 @@ void renderSignalChips(App& app) {
             if (!c.traySub.empty() && app.signalSmallFormat) {
                 app.brush->SetColor(inkAt(app, 0.45f));
                 app.renderTarget->DrawText(
-                    c.traySub.c_str(), (UINT32)c.traySub.size(),
+                    c.traySub.c_str(), (std::uint32_t)c.traySub.size(),
                     app.signalSmallFormat,
                     tinta::rectF(ib.right + dpi(app, 9.0f), ry + dpi(app, 21.0f),
                                 textRight, ry + rowH),
@@ -752,7 +752,7 @@ void renderSignalChips(App& app) {
             const wchar_t* hint = tr(app, "signal.parked");
             app.brush->SetColor(inkAt(app, 0.48f));
             app.renderTarget->DrawText(
-                hint, (UINT32)wcslen(hint), app.signalSmallFormat,
+                hint, (std::uint32_t)wcslen(hint), app.signalSmallFormat,
                 tinta::rectF(t.left + dpi(app, 12.0f), ry + dpi(app, 6.0f),
                             t.right - dpi(app, 12.0f), t.bottom),
                 app.brush);

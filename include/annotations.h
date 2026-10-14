@@ -40,8 +40,8 @@ void annotationEditorCancel(App& app);
 void annotationEditorDelete(App& app);
 
 // True when the key/char was consumed by the open editor
-bool annotationEditorKeyDown(App& app, WPARAM key, bool ctrl);
-bool annotationEditorChar(App& app, WPARAM ch);
+bool annotationEditorKeyDown(App& app, unsigned key, bool ctrl);
+bool annotationEditorChar(App& app, wchar_t ch);
 // 0 = none, 1 = confirm, 2 = cancel, 3 = delete
 int annotationEditorButtonAt(const App& app, float x, float y);
 bool annotationEditorContains(const App& app, float x, float y);

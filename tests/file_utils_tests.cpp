@@ -37,14 +37,6 @@ void check(bool condition, const char* message) {
     failures++;
 }
 
-// FILETIME halves rejoined, the way input.cpp's CompareFileTime effectively reads
-// them. Local to the test on purpose: if file_utils.cpp's split were ever changed to
-// share a helper with this, the two would agree by construction and prove nothing.
-unsigned long long joined(const FILETIME& ft) {
-    return (static_cast<unsigned long long>(ft.dwHighDateTime) << 32) |
-           static_cast<unsigned long long>(ft.dwLowDateTime);
-}
-
 void writeFile(const std::filesystem::path& p, const char* body) {
     std::ofstream out(p, std::ios::binary);
     out << body;
@@ -120,30 +112,28 @@ int main() {
         // POISONED, not zeroed. Zero is this member's initial value AND the seam's
         // "cannot be read" answer, so a poisoned pattern is the only way to tell
         // "was written" apart from "was left alone" in the two assertions below.
-        app.lastFileWriteTime.dwLowDateTime = 0xDEADBEEFul;
-        app.lastFileWriteTime.dwHighDateTime = 0x0BADF00Dul;
-        const unsigned long long poison = joined(app.lastFileWriteTime);
+        const unsigned long long poison = 0x0BADF00DDEADBEEFull;
+        app.lastFileWriteTime = poison;
 
         app.currentFile.clear();
         updateFileWriteTime(app);
-        check(joined(app.lastFileWriteTime) == poison,
+        check(app.lastFileWriteTime == poison,
               "an empty currentFile leaves the member untouched");
 
         app.currentFile = (probeDir / L"no-such-document.md").string();
         updateFileWriteTime(app);
-        check(joined(app.lastFileWriteTime) == poison,
+        check(app.lastFileWriteTime == poison,
               "A MISSING FILE LEAVES THE MEMBER UNTOUCHED and does not zero it -- "
               "input.cpp compares this value for inequality, so zeroing it on a "
               "failed open would report an external edit that never happened");
 
         app.currentFile = doc.string();
         updateFileWriteTime(app);
-        const unsigned long long written = joined(app.lastFileWriteTime);
+        const unsigned long long written = app.lastFileWriteTime;
         check(written != poison, "a readable file overwrites the poison");
         check(written == platform::fileWriteTicks(doc.wstring()),
-              "and what it writes is exactly the seam's value, reassembled from the "
-              "two halves -- the shift and mask in file_utils.cpp are correct");
-        check(app.lastFileWriteTime.dwHighDateTime != 0,
+              "and what it writes is exactly the seam's value");
+        check((app.lastFileWriteTime >> 32) != 0,
               "CONTROL: the high half is populated, so the equality above is not "
               "passing on a value that fits in 32 bits either way");
     }

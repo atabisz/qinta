@@ -44,13 +44,7 @@ void updateFileWriteTime(App& app) {
     // transient open failure would report an external edit that never happened.
     if (ticks == 0) return;
 
-    // Split by shifting rather than through a ULARGE_INTEGER, which win32_types.h
-    // does not stand in off Windows. dwLowDateTime/dwHighDateTime are unsigned long
-    // in both the real header and the stand-in, so the casts are exact.
-    app.lastFileWriteTime.dwLowDateTime =
-        static_cast<unsigned long>(ticks & 0xFFFFFFFFULL);
-    app.lastFileWriteTime.dwHighDateTime =
-        static_cast<unsigned long>(ticks >> 32);
+    app.lastFileWriteTime = ticks;
 }
 
 bool isRootPath(const std::wstring& path) {

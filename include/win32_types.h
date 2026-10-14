@@ -114,130 +114,17 @@
 #endif
 #include <windows.h>
 
-#include <cstddef>
-#include <cstdint>
-#include <type_traits>
-
-// The stand-ins below are pinned to the real SDK types rather than trusted to
-// match them, in the same spirit as keymap.h's VK_ assertions: the definitions
-// off Windows are guesses about this SDK's layout, and a guess that is never
-// compared is not a fact. These comparisons can only run where the real headers
-// are present, so this is the only place they can live.
-//
-// They matter because the two definitions can meet. A portable-built object file
-// and a Windows-built one linked together would disagree about the size of a RECT
-// with no diagnostic anywhere -- the same class of silent mismatch render_api.h
-// documents at length for the DrawText macro.
-static_assert(sizeof(WPARAM) == sizeof(std::uintptr_t),
-              "off-Windows WPARAM stands in as uintptr_t; this SDK disagrees");
-static_assert(sizeof(LPARAM) == sizeof(std::intptr_t),
-              "off-Windows LPARAM stands in as intptr_t; this SDK disagrees");
-static_assert(sizeof(RECT) == 4 * sizeof(long),
-              "off-Windows RECT stands in as four longs; this SDK disagrees");
-static_assert(sizeof(POINT) == 2 * sizeof(long),
-              "off-Windows POINT stands in as two longs; this SDK disagrees");
-static_assert(offsetof(RECT, left) == 0 && offsetof(RECT, top) == sizeof(long) &&
-                  offsetof(RECT, right) == 2 * sizeof(long) &&
-                  offsetof(RECT, bottom) == 3 * sizeof(long),
-              "off-Windows RECT stands in with left/top/right/bottom in that order");
-// THE `WINDOWPLACEMENT` STAND-IN AND ITS ASSERTION ARE GONE AS OF 2026-09-21, and the reason is
-// worth a sentence because a deleted stand-in looks like a regression in portability. It had ONE
-// off-Windows reader: `App::zenRestorePlacement`, which is now `tinta::ZenRestore` -- two portable
-// fields in include/window_placement.h. The SDK struct then appeared only in src/main_d2d.cpp, which
-// was Windows-only and got the real one from <windows.h>; since that file was retired nothing in
-// the tree's code names the type at all. A stand-in kept for zero readers is this header's version of an ungated figure: it compiles
-// forever and asserts nothing about the tree.
-//
-// Its comment is also why it is mentioned rather than silently dropped. It read "because App stores
-// one by value and zen mode round-trips it through settings.ini" -- and the second clause was
-// FALSE. Nothing ever put that member in settings.ini; what round-tripped was a separate local
-// `WINDOWPLACEMENT` in the retired main_d2d.cpp, decomposed into `windowMaximized` plus a position. Read as
-// true, it priced the port as a settings FILE-FORMAT change and made this slice look expensive.
-static_assert(WM_APP == 0x8000, "off-Windows WM_APP stands in as 0x8000");
-static_assert(WM_CLOSE == 0x0010, "off-Windows WM_CLOSE stands in as 0x0010");
-static_assert(WM_SETTINGCHANGE == 0x001A,
-              "off-Windows WM_SETTINGCHANGE stands in as 0x001A; this SDK disagrees");
-
-// The scalar spellings, pinned the same way. is_same rather than sizeof, because
-// these are the cases where the exact type is checkable and a matching size is not
-// the same fact: `long` and `int` are both 4 bytes here, so a sizeof-only assertion
-// would pass on a stand-in that changed overload resolution and printf conversions.
-static_assert(std::is_same<UINT32, std::uint32_t>::value,
-              "off-Windows UINT32 stands in as std::uint32_t; this SDK disagrees");
-static_assert(std::is_same<FLOAT, float>::value,
-              "off-Windows FLOAT stands in as float; this SDK disagrees");
-static_assert(std::is_same<BOOL, int>::value,
-              "off-Windows BOOL stands in as int; this SDK disagrees");
-static_assert(TRUE == 1 && FALSE == 0,
-              "off-Windows TRUE and FALSE stand in as 1 and 0; this SDK disagrees");
+// The static_asserts that pinned each off-Windows stand-in to the real SDK type stood here.
+// With no stand-ins left (see the other branch) there is nothing to pin, so they went with
+// them on 2026-10-14.
 
 #else  // !_WIN32
 
-#include <cstdint>
-
-// No HWND: portable code names no window handle since 2026-10-14, so a use of one off
-// Windows is a compile error rather than a stand-in. The Windows-only DWM chrome takes the
-// real one from windows.h above.
-
-// The message parameters. UINT_PTR and LONG_PTR in the SDK, which are pointer-sized
-// by definition, so the stdint spellings are exact rather than approximate.
-typedef std::uintptr_t WPARAM;
-typedef std::intptr_t LPARAM;
-
-struct FILETIME {
-    unsigned long dwLowDateTime;
-    unsigned long dwHighDateTime;
-};
-
-struct RECT {
-    long left, top, right, bottom;
-};
-
-struct POINT {
-    long x, y;
-};
-
-// The real value, so the WM_APP_* ids app.h derives from it keep the numbers they
-// have on Windows. They are only ever compared against each other, but matching
-// the SDK keeps a debugger session on either platform reading the same.
-#define WM_APP 0x8000
-
-// WM_CLOSE is the one SDK message id the tree names as a LITERAL rather than
-// deriving, and it arrives here for the same reason WM_APP did: four sites post it
-// -- editor.cpp, input.cpp and tabs.cpp x2 -- all four through
-// win32_api.h::postWindowMessage, which off Windows hands it to the Qt window's post
-// sink; that sink answers it with close() (slice 10), and with no window it returns
-// false. So the constant has to COMPILE off Windows, and it is only ever compared.
-//
-// The value only has to be the SDK's for a debugger and a log line to read the same
-// on both platforms -- which is exactly the WM_APP argument above, and why the
-// Windows branch static_asserts it against the real SDK rather than trusting this line.
-#define WM_CLOSE 0x0010
-
-// WM_SETTINGCHANGE arrives for the third time on the same argument, and the two sites are the same
-// shape as WM_CLOSE's four: src/input.cpp posts it to itself after changing which theme index the
-// system-theme follower should snap to, both times through win32_api.h::postWindowMessage. The Qt
-// window's post sink answers it (slice 12); it does not come from the system here, which reaches
-// the Qt window as QStyleHints::colorSchemeChanged instead.
-//
-// The value is 0x001A and the Windows branch above static_asserts it against the real SDK rather
-// than trusting this line -- which is the only reason a literal message id is allowed in this file.
-#define WM_SETTINGCHANGE 0x001A
-
-// The SDK's names for plain scalars. Nothing Win32 about any of them except the
-// spelling, which is why they can stand in exactly rather than approximately --
-// and why the Windows branch above compares each one against the real SDK type
-// instead of trusting these lines.
-typedef std::uint32_t UINT32;
-typedef float FLOAT;
-
-// BOOL is `int`, not `bool`, and the width is the point: it is 4 bytes, it is what
-// DirectWrite's out-parameters are declared as, and text_api.h's isText/isTrimmed
-// fields are int32_t for precisely this reason -- a 1-byte `bool` there breaks the
-// sizeof/offsetof guard meant to catch a widened field.
-typedef int BOOL;
-#define TRUE 1
-#define FALSE 0
+// NO STAND-INS LEFT. Portable code names no Win32 type since 2026-10-14: the window handle
+// went first, the posted messages became tinta::PostedMessage, and key and character
+// parameters take the types their callers pass. A Win32 type in portable code is now a
+// compile error off Windows rather than a stand-in, and the Windows arms take the real ones
+// from windows.h above.
 
 #endif  // _WIN32
 

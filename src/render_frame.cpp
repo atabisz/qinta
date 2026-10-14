@@ -582,7 +582,7 @@ render_document:
             app.brush);
 
         app.brush->SetColor(tinta::colorF(0.7f, 0.9f, 0.7f));
-        app.renderTarget->DrawText(stats, (UINT32)wcslen(stats),
+        app.renderTarget->DrawText(stats, (std::uint32_t)wcslen(stats),
             app.statsFormat ? app.statsFormat : app.codeFormat,
             tinta::rectF(app.width - statsWidth - dpi(app, 5.0f), app.height - statsHeight - dpi(app, 5.0f),
                        app.width - dpi(app, 15.0f), app.height - dpi(app, 15.0f)),

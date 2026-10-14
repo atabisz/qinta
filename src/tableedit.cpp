@@ -402,7 +402,7 @@ bool tableEditMouseDown(App& app, float docX, float docY) {
     return false;
 }
 
-bool tableEditKeyDown(App& app, WPARAM key) {
+bool tableEditKeyDown(App& app, unsigned key) {
     if (!app.tableEditActive) return false;
     // Ctrl chords pass through (save commits the open cell first)
     if (platform::isCtrlDown()) return false;
@@ -586,7 +586,7 @@ void renderTableEditOverlay(App& app) {
     tinta::Color ink = app.theme.text;
     app.brush->SetColor(ink);
     app.renderTarget->DrawText(
-        app.tableEditText.c_str(), (UINT32)app.tableEditText.size(),
+        app.tableEditText.c_str(), (std::uint32_t)app.tableEditText.size(),
         app.textFormat,
         tinta::rectF(r.left + pad, r.top + pad, r.right - pad, r.bottom),
         app.brush);

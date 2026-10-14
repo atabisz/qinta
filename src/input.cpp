@@ -4600,29 +4600,6 @@ void handleTimer(App& app, unsigned id) {
     }
 }
 
-// A FILETIME as the single 64-bit tick count it has always been. This is what
-// CompareFileTime compared -- it is documented as comparing the two members as one
-// unsigned 64-bit quantity -- and it is what platform::fileWriteTicks hands back, so
-// joining here is not a conversion between representations but a spelling of the one
-// the tree already has. tests/file_utils_tests.cpp:43 holds the same helper for the
-// same reason; this one is not shared with it because a test helper and a production
-// helper crossing a header is a worse coupling than eight duplicated characters.
-//
-// The mask is not defensive. dwLowDateTime is `unsigned long`, which is 4 bytes on
-// Windows and 8 off it, so the OR is only exact because every writer of these members
-// masks to 32 bits -- file_utils.cpp:50-53 does, and setFileWriteTicks below does.
-static unsigned long long fileTimeTicks(const FILETIME& ft) {
-    return ((unsigned long long)ft.dwHighDateTime << 32) |
-           (ft.dwLowDateTime & 0xFFFFFFFFULL);
-}
-
-// The inverse, splitting by shift exactly as file_utils.cpp does. Deliberately NOT
-// through a ULARGE_INTEGER, which win32_types.h does not stand in off Windows.
-static void setFileWriteTicks(FILETIME& ft, unsigned long long ticks) {
-    ft.dwLowDateTime = (unsigned long)(ticks & 0xFFFFFFFFULL);
-    ft.dwHighDateTime = (unsigned long)(ticks >> 32);
-}
-
 void handleFileWatchTimer(App& app) {
     // Refresh the deleted-on-disk flags driving the red-grey tab dots
     // (runs even when the active document is untitled or being edited)
@@ -4666,14 +4643,14 @@ void handleFileWatchTimer(App& app) {
             const unsigned long long currentTicks =
                 platform::fileWriteTicks(toWide(path));
             if (currentTicks == 0) continue;
-            FILETIME& stored =
+            unsigned long long& stored =
                 isActive ? app.lastFileWriteTime : app.tabs[i].lastWrite;
-            if (currentTicks != fileTimeTicks(stored)) {
+            if (currentTicks != stored) {
                 // one prompt per external change
-                setFileWriteTicks(stored, currentTicks);
+                stored = currentTicks;
                 if (!isActive) {
                     tabActivate(app, (int)i);
-                    setFileWriteTicks(app.lastFileWriteTime, currentTicks);
+                    app.lastFileWriteTime = currentTicks;
                 }
                 app.confirmExitPending = true;
                 app.confirmExitOpenedAt = std::chrono::steady_clock::now();
@@ -4692,8 +4669,8 @@ void handleFileWatchTimer(App& app) {
     // everything including the reload, where the guard now exits early.
     const unsigned long long ticks = platform::fileWriteTicks(widePath);
     if (ticks != 0) {
-        if (ticks != fileTimeTicks(app.lastFileWriteTime)) {
-            setFileWriteTicks(app.lastFileWriteTime, ticks);
+        if (ticks != app.lastFileWriteTime) {
+            app.lastFileWriteTime = ticks;
             // Reload file. Named path, not inline -- most vexing parse, as above.
             const std::filesystem::path reloadPath(widePath);
             std::ifstream file(reloadPath);

@@ -599,7 +599,7 @@ void renderTabStrip(App& app) {
         if (app.folderBrowserFormat) {
             app.brush->SetColor(muted);
             app.renderTarget->DrawText(
-                title.c_str(), (UINT32)title.size(), app.folderBrowserFormat,
+                title.c_str(), (std::uint32_t)title.size(), app.folderBrowserFormat,
                 tinta::rectF(textLeft, (stripH - dpi(app, 17.0f)) * 0.5f,
                             maxRight, stripH),
                 app.brush);
@@ -711,7 +711,7 @@ void renderTabStrip(App& app) {
             if (app.folderBrowserFormat) {
                 app.brush->SetColor(active ? text : muted);
                 app.renderTarget->DrawText(
-                    app.tabs[i].title.c_str(), (UINT32)app.tabs[i].title.size(),
+                    app.tabs[i].title.c_str(), (std::uint32_t)app.tabs[i].title.size(),
                     app.folderBrowserFormat,
                     tinta::rectF(r.left + dpi(app, 12.0f),
                                 top + (stripH - top - dpi(app, 17.0f)) * 0.5f,
@@ -987,7 +987,7 @@ void renderTabSwitcher(App& app) {
         headColor.a = 0.5f;
         app.brush->SetColor(headColor);
         app.renderTarget->DrawText(
-            header, (UINT32)wcslen(header), app.themeHeaderFormat,
+            header, (std::uint32_t)wcslen(header), app.themeHeaderFormat,
             tinta::rectF(x + dpi(app, 14.0f), y + dpi(app, 9.0f), x + width,
                         y + headH),
             app.brush);
@@ -1040,7 +1040,7 @@ void renderTabSwitcher(App& app) {
             if (!active) nameColor.a = 0.8f;
             app.brush->SetColor(nameColor);
             app.renderTarget->DrawText(
-                app.tabs[i].title.c_str(), (UINT32)app.tabs[i].title.size(),
+                app.tabs[i].title.c_str(), (std::uint32_t)app.tabs[i].title.size(),
                 app.folderBrowserFormat,
                 tinta::rectF(gx + dpi(app, 19.0f),
                             rowY + (rowH - dpi(app, 17.0f)) * 0.5f - 1.0f,
@@ -1065,7 +1065,7 @@ void renderTabSwitcher(App& app) {
             hintColor.a = 0.4f;
             app.brush->SetColor(hintColor);
             app.renderTarget->DrawText(
-                hint, (UINT32)wcslen(hint), app.folderBrowserFormat,
+                hint, (std::uint32_t)wcslen(hint), app.folderBrowserFormat,
                 tinta::rectF(row.right - dpi(app, 54.0f),
                             rowY + (rowH - dpi(app, 17.0f)) * 0.5f - 1.0f,
                             row.right - dpi(app, 4.0f), rowY + rowH),
@@ -1348,7 +1348,7 @@ void renderTabMenu(App& app) {
         float textY = top + (itemH - dpi(app, 18.0f)) / 2;
         const wchar_t* label = tr(app, TAB_MENU[i].key);
         app.renderTarget->DrawText(
-            label, (UINT32)wcslen(label), format,
+            label, (std::uint32_t)wcslen(label), format,
             tinta::rectF(x + inset, textY, x + w - inset, top + itemH),
             app.brush);
 

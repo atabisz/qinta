@@ -13,7 +13,7 @@
 // the caller). Returns true when the press was consumed.
 bool tableEditMouseDown(App& app, float docX, float docY);
 // Keyboard while a cell editor is open; true = consumed
-bool tableEditKeyDown(App& app, WPARAM key);
+bool tableEditKeyDown(App& app, unsigned key);
 // Printable character while a cell editor is open; true = consumed
 bool tableEditChar(App& app, wchar_t ch);
 // Commit any open cell editor (mode exits, saves, clicks elsewhere)

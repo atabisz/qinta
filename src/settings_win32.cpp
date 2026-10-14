@@ -56,7 +56,7 @@ static int settingsLanguageIndex(const Settings& settings) {
 // Packaged (MSIX/Store) installs declare file associations in AppxManifest.xml;
 // runtime registry writes would only land in the package's virtual registry.
 static bool isRunningPackaged() {
-    UINT32 length = 0;
+    std::uint32_t length = 0;
     return GetCurrentPackageFullName(&length, nullptr) != APPMODEL_ERROR_NO_PACKAGE;
 }
 

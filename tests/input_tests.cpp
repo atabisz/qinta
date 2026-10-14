@@ -162,13 +162,12 @@ int main(int argc, char** argv) {
 
         // A recognisable stored time. Nothing may overwrite it while the file
         // cannot be read -- not even with a plausible-looking value.
-        const FILETIME sentinel{0x11223344u, 0x55667788u};
+        const unsigned long long sentinel = 0x5566778811223344ull;
         app.currentFile = probe.string();
         app.lastFileWriteTime = sentinel;
 
         handleFileWatchTimer(app);
-        check(app.lastFileWriteTime.dwLowDateTime == sentinel.dwLowDateTime &&
-                  app.lastFileWriteTime.dwHighDateTime == sentinel.dwHighDateTime,
+        check(app.lastFileWriteTime == sentinel,
               "an unreadable file leaves the stored write time ALONE, not zeroed");
         check(!app.confirmExitPending,
               "an unreadable file raises no external-edit prompt");
@@ -180,12 +179,11 @@ int main(int argc, char** argv) {
         { std::ofstream out(probe, std::ios::binary); out << "# watched\n"; }
         check(std::filesystem::exists(probe),
               "CONTROL: the watch probe file was created");
-        app.lastFileWriteTime = FILETIME{0, 0};
+        app.lastFileWriteTime = 0;
         handleFileWatchTimer(app);
         check(app.confirmExitPending,
               "CONTROL: a real external change does raise the prompt");
-        check(app.lastFileWriteTime.dwLowDateTime != 0 ||
-                  app.lastFileWriteTime.dwHighDateTime != 0,
+        check(app.lastFileWriteTime != 0,
               "CONTROL: a readable file's time IS stored");
 
         app.confirmExitPending = false;

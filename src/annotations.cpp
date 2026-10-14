@@ -740,7 +740,7 @@ void renderAnnotations(App& app) {
         quoteColor.a = 0.55f;
         app.brush->SetColor(quoteColor);
         app.renderTarget->DrawText(
-            quote.c_str(), (UINT32)quote.size(), app.folderBrowserFormat,
+            quote.c_str(), (std::uint32_t)quote.size(), app.folderBrowserFormat,
             tinta::rectF(px + pad + dpi(app, 4.0f), py + pad,
                         px + w - pad, py + pad + quoteH),
             app.brush);
@@ -928,7 +928,7 @@ void annotationEditorDelete(App& app) {
     writeSourceAndReload(app, src);
 }
 
-bool annotationEditorKeyDown(App& app, WPARAM key, bool ctrl) {
+bool annotationEditorKeyDown(App& app, unsigned key, bool ctrl) {
     if (!app.annotEditorOpen) return false;
     std::wstring& text = app.annotEditorText;
     size_t& caret = app.annotEditorCaret;
@@ -984,11 +984,11 @@ bool annotationEditorKeyDown(App& app, WPARAM key, bool ctrl) {
     return true;
 }
 
-bool annotationEditorChar(App& app, WPARAM ch) {
+bool annotationEditorChar(App& app, wchar_t ch) {
     if (!app.annotEditorOpen) return false;
     if (ch == L'\r' || ch == L'\n' || (ch < 0x20 && ch != L'\t')) return true;
     app.annotEditorCaret = std::min(app.annotEditorCaret, app.annotEditorText.size());
-    app.annotEditorText.insert(app.annotEditorCaret, 1, (wchar_t)ch);
+    app.annotEditorText.insert(app.annotEditorCaret, 1, ch);
     app.annotEditorCaret++;
     resetCursorBlink(app);
     return true;
@@ -1045,7 +1045,7 @@ void renderAnnotationEditor(App& app) {
     app.brush->SetColor(quoteColor);
     float pad = dpi(app, 14.0f);
     app.renderTarget->DrawText(
-        quote.c_str(), (UINT32)quote.size(), app.folderBrowserFormat,
+        quote.c_str(), (std::uint32_t)quote.size(), app.folderBrowserFormat,
         tinta::rectF(g.panel.left + pad, g.panel.top + pad * 0.7f,
                     g.panel.right - pad, g.textArea.top),
         app.brush);
@@ -1076,7 +1076,7 @@ void renderAnnotationEditor(App& app) {
         hintColor.a = 0.35f;
         app.brush->SetColor(hintColor);
         app.renderTarget->DrawText(
-            hint, (UINT32)wcslen(hint), app.folderBrowserFormat,
+            hint, (std::uint32_t)wcslen(hint), app.folderBrowserFormat,
             tinta::rectF(tx, ty, g.textArea.right - dpi(app, 6.0f),
                         g.textArea.bottom),
             app.brush);

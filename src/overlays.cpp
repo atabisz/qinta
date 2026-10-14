@@ -117,14 +117,14 @@ void renderSearchOverlay(App& app) {
             placeholderColor.a = 0.4f * anim;
             app.brush->SetColor(placeholderColor);
             const wchar_t* ph = tr(app, "search.placeholder");
-            app.renderTarget->DrawText(ph, (UINT32)wcslen(ph), searchTextFormat,
+            app.renderTarget->DrawText(ph, (std::uint32_t)wcslen(ph), searchTextFormat,
                 tinta::rectF(textX, barY + dpi(app, 12.0f), textX + textWidth, barY + barHeight), app.brush);
         } else {
             // Actual search query
             tinta::Color textColor = app.theme.text;
             textColor.a = anim;
             app.brush->SetColor(textColor);
-            app.renderTarget->DrawText(app.searchQuery.c_str(), (UINT32)app.searchQuery.length(),
+            app.renderTarget->DrawText(app.searchQuery.c_str(), (std::uint32_t)app.searchQuery.length(),
                 searchTextFormat,
                 tinta::rectF(textX, barY + dpi(app, 12.0f), textX + textWidth, barY + barHeight), app.brush);
 
@@ -180,7 +180,7 @@ void renderSearchOverlay(App& app) {
             }
             float countTextWidth = measureText(app, countText, searchTextFormat);
             float countX = barX + barWidth - countTextWidth - dpi(app, 14.0f);
-            app.renderTarget->DrawText(countText, (UINT32)wcslen(countText), searchTextFormat,
+            app.renderTarget->DrawText(countText, (std::uint32_t)wcslen(countText), searchTextFormat,
                 tinta::rectF(countX, barY + dpi(app, 12.0f), barX + barWidth - dpi(app, 10.0f), barY + barHeight), app.brush);
         }
 
@@ -234,7 +234,7 @@ void renderSearchOverlay(App& app) {
                 c.a = 0.85f * anim;
                 app.brush->SetColor(c);
             }
-            app.renderTarget->DrawText(label, (UINT32)wcslen(label),
+            app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label),
                 searchTextFormat,
                 tinta::rectF(cx + dpi(app, 12.0f), chipY + dpi(app, 5.0f),
                             cx + cw, chipY + chipH), app.brush);
@@ -266,7 +266,7 @@ void renderSearchOverlay(App& app) {
             ph.a = 0.4f * anim;
             app.brush->SetColor(ph);
             const wchar_t* p = tr(app, "search.replace_placeholder");
-            app.renderTarget->DrawText(p, (UINT32)wcslen(p), searchTextFormat,
+            app.renderTarget->DrawText(p, (std::uint32_t)wcslen(p), searchTextFormat,
                 tinta::rectF(textX, rowY + dpi(app, 12.0f), textRight,
                             rowY + rowH), app.brush);
         } else {
@@ -274,7 +274,7 @@ void renderSearchOverlay(App& app) {
             tc.a = anim;
             app.brush->SetColor(tc);
             app.renderTarget->DrawText(app.replaceText.c_str(),
-                (UINT32)app.replaceText.size(), searchTextFormat,
+                (std::uint32_t)app.replaceText.size(), searchTextFormat,
                 tinta::rectF(textX, rowY + dpi(app, 12.0f), textRight,
                             rowY + rowH), app.brush);
         }
@@ -543,7 +543,7 @@ void renderFolderBrowser(App& app) {
             tinta::Color inputTextColor = app.theme.text;
             inputTextColor.a = anim;
             app.brush->SetColor(inputTextColor);
-            app.renderTarget->DrawText(display.c_str(), (UINT32)display.length(), browserFormat,
+            app.renderTarget->DrawText(display.c_str(), (std::uint32_t)display.length(), browserFormat,
                 tinta::rectF(boxX + inputPad, textY, boxRight - inputPad, boxY + boxHeight),
                 app.brush);
 
@@ -642,7 +642,7 @@ void renderFolderBrowser(App& app) {
                 tinta::Color segColor = leaf ? app.theme.heading : app.theme.text;
                 segColor.a = (leaf ? 1.0f : 0.6f) * anim;
                 app.brush->SetColor(segColor);
-                app.renderTarget->DrawText(seg.c_str(), (UINT32)seg.size(),
+                app.renderTarget->DrawText(seg.c_str(), (std::uint32_t)seg.size(),
                     leaf && app.tocFormatBold ? app.tocFormatBold : browserFormat,
                     tinta::rectF(cx, headerCenterY - dpi(app, 9.0f),
                                 cx + segW + dpi(app, 4.0f), headerY + g.headerH),
@@ -791,7 +791,7 @@ void renderFolderBrowser(App& app) {
             tinta::Color lc = app.theme.text; lc.a = 0.45f * anim;
             app.brush->SetColor(lc);
             const wchar_t* text = tr(app, key);
-            app.renderTarget->DrawText(text, (UINT32)wcslen(text),
+            app.renderTarget->DrawText(text, (std::uint32_t)wcslen(text),
                 app.signalSmallFormat,
                 tinta::rectF(rowLeft + dpi(app, 8.0f), y + dpi(app, 4.0f),
                             rowRight, y + g.labelH),
@@ -883,7 +883,7 @@ void renderFolderBrowser(App& app) {
                 textColor.a = 0.85f * anim;
             }
             app.brush->SetColor(textColor);
-            app.renderTarget->DrawText(item.name.c_str(), (UINT32)item.name.length(),
+            app.renderTarget->DrawText(item.name.c_str(), (std::uint32_t)item.name.length(),
                 isCurrent && app.tocFormatBold ? app.tocFormatBold : browserFormat,
                 tinta::rectF(textX, itemY + dpi(app, 4.0f), rowRight - dpi(app, 6.0f),
                             itemY + itemHeight),
@@ -955,7 +955,7 @@ void renderFolderBrowser(App& app) {
                 tinta::swprintf(counts, tr(app, "browser.counts"), dirs,
                            (int)app.folderItems.size() - g.dirCount);
             }
-            app.renderTarget->DrawText(counts, (UINT32)wcslen(counts),
+            app.renderTarget->DrawText(counts, (std::uint32_t)wcslen(counts),
                 app.signalSmallFormat,
                 tinta::rectF(g.cardLeft + padding, footTop + dpi(app, 7.0f),
                             g.cardRight - padding, g.cardBottom),
@@ -964,7 +964,7 @@ void renderFolderBrowser(App& app) {
                                               ? "browser.naming_hint"
                                               : "browser.hint");
             float hw = measureText(app, hint, app.signalSmallFormat);
-            app.renderTarget->DrawText(hint, (UINT32)wcslen(hint),
+            app.renderTarget->DrawText(hint, (std::uint32_t)wcslen(hint),
                 app.signalSmallFormat,
                 tinta::rectF(g.cardRight - padding - hw, footTop + dpi(app, 7.0f),
                             g.cardRight - padding + dpi(app, 2.0f), g.cardBottom),
@@ -1063,7 +1063,7 @@ void renderToc(App& app) {
         headerColor.a = anim;
         app.brush->SetColor(headerColor);
         const wchar_t* tocTitle = tr(app, "toc.title");
-        app.renderTarget->DrawText(tocTitle, (UINT32)wcslen(tocTitle), tocBold,
+        app.renderTarget->DrawText(tocTitle, (std::uint32_t)wcslen(tocTitle), tocBold,
             tinta::rectF(cardLeft + padding, headerY, cardRight - padding,
                         headerY + headerHeight),
             app.brush);
@@ -1085,7 +1085,7 @@ void renderToc(App& app) {
                 app.brush);
             tinta::Color bi = app.theme.text; bi.a = 0.6f * anim;
             app.brush->SetColor(bi);
-            app.renderTarget->DrawText(count, (UINT32)wcslen(count),
+            app.renderTarget->DrawText(count, (std::uint32_t)wcslen(count),
                 app.signalSmallFormat,
                 tinta::rectF(badge.left + dpi(app, 5.5f), badge.top + dpi(app, 1.5f),
                             badge.right, badge.bottom),
@@ -1181,7 +1181,7 @@ void renderToc(App& app) {
             dimColor.a = 0.5f * anim;
             app.brush->SetColor(dimColor);
             const wchar_t* tocEmpty = tr(app, "toc.empty");
-            app.renderTarget->DrawText(tocEmpty, (UINT32)wcslen(tocEmpty), tocNormal,
+            app.renderTarget->DrawText(tocEmpty, (std::uint32_t)wcslen(tocEmpty), tocNormal,
                 tinta::rectF(cardLeft + padding + dpi(app, 6.0f),
                             listStartY + dpi(app, 8.0f), cardRight - padding,
                             listStartY + dpi(app, 40.0f)),
@@ -1244,7 +1244,7 @@ void renderToc(App& app) {
                 dimColor.a = 0.5f * anim;
                 app.brush->SetColor(dimColor);
                 const wchar_t* tocEmpty = tr(app, "toc.empty");
-                app.renderTarget->DrawText(tocEmpty, (UINT32)wcslen(tocEmpty),
+                app.renderTarget->DrawText(tocEmpty, (std::uint32_t)wcslen(tocEmpty),
                     tocNormal,
                     tinta::rectF(cardLeft + padding + dpi(app, 6.0f),
                                 listStartY + dpi(app, 8.0f),
@@ -1323,7 +1323,7 @@ void renderToc(App& app) {
                 }
                 app.brush->SetColor(textColor);
                 app.renderTarget->DrawText(heading.text.c_str(),
-                    (UINT32)heading.text.length(), fmt,
+                    (std::uint32_t)heading.text.length(), fmt,
                     tinta::rectF(itemX, itemY + dpi(app, 4.0f),
                                 rowRight - dpi(app, 16.0f), itemY + itemHeight),
                     app.brush);
@@ -1367,7 +1367,7 @@ void renderToc(App& app) {
             const wchar_t* hint = tr(app, "toc.hint");
             tinta::Color hc = app.theme.text; hc.a = 0.48f * anim;
             app.brush->SetColor(hc);
-            app.renderTarget->DrawText(hint, (UINT32)wcslen(hint),
+            app.renderTarget->DrawText(hint, (std::uint32_t)wcslen(hint),
                 app.signalSmallFormat,
                 tinta::rectF(cardLeft + padding, footTop + dpi(app, 7.0f),
                             cardRight - padding - dpi(app, 26.0f), cardBottom),
@@ -1406,7 +1406,7 @@ void renderLinkPeek(App& app) {
     tinta::Color titleColor = app.theme.accent;
     app.brush->SetColor(titleColor);
     app.renderTarget->DrawText(
-        app.linkPeekTitle.c_str(), (UINT32)app.linkPeekTitle.size(),
+        app.linkPeekTitle.c_str(), (std::uint32_t)app.linkPeekTitle.size(),
         app.folderBrowserFormat,
         tinta::rectF(p.left + dpi(app, 10.0f), p.top + dpi(app, 3.0f),
                     p.right - dpi(app, 10.0f), p.top + titleH),
@@ -1596,7 +1596,7 @@ void renderThemeChooser(App& app) {
         app.brush->SetColor(titleColor);
         const wchar_t* chooseTheme = tr(app, "theme.chooser.title");
         app.renderTarget->DrawText(
-            chooseTheme, (UINT32)wcslen(chooseTheme), app.themeTitleFormat,
+            chooseTheme, (std::uint32_t)wcslen(chooseTheme), app.themeTitleFormat,
             tinta::rectF(panelX + pad, hy - dpi(app, 4.0f),
                         panelX + panelWidth * 0.5f, hy + dpi(app, 26.0f)),
             app.brush);
@@ -1613,7 +1613,7 @@ void renderThemeChooser(App& app) {
                                          app.themeTitleFormat)
                            : dpi(app, 60.0f);
         app.renderTarget->DrawText(
-            hint.c_str(), (UINT32)hint.size(), app.tocFormat,
+            hint.c_str(), (std::uint32_t)hint.size(), app.tocFormat,
             tinta::rectF(panelX + pad + titleW + dpi(app, 14.0f),
                         hy + dpi(app, 3.0f), panelX + panelWidth * 0.6f,
                         hy + dpi(app, 22.0f)),
@@ -1658,7 +1658,7 @@ void renderThemeChooser(App& app) {
             tinta::TextAlignment::Leading);
         app.brush->SetColor(toggleText);
         app.renderTarget->DrawText(
-            followWindows, (UINT32)wcslen(followWindows),
+            followWindows, (std::uint32_t)wcslen(followWindows),
             app.folderBrowserFormat,
             tinta::rectF(togX - followWidth - dpi(app, 10.0f),
                         togY + dpi(app, 1.0f), togX - dpi(app, 6.0f),
@@ -1719,13 +1719,13 @@ void renderThemeChooser(App& app) {
         app.brush->SetColor(headerColor);
         const wchar_t* lightHdr = tr(app, "theme.chooser.light");
         app.renderTarget->DrawText(
-            lightHdr, (UINT32)wcslen(lightHdr), app.themeHeaderFormat,
+            lightHdr, (std::uint32_t)wcslen(lightHdr), app.themeHeaderFormat,
             tinta::rectF(colX[0] + dpi(app, 2.0f), gridY,
                         colX[0] + cardW, gridY + labelH),
             app.brush);
         const wchar_t* darkHdr = tr(app, "theme.chooser.dark");
         app.renderTarget->DrawText(
-            darkHdr, (UINT32)wcslen(darkHdr), app.themeHeaderFormat,
+            darkHdr, (std::uint32_t)wcslen(darkHdr), app.themeHeaderFormat,
             tinta::rectF(colX[1] + dpi(app, 2.0f), gridY,
                         colX[1] + cardW, gridY + labelH),
             app.brush);
@@ -1807,7 +1807,7 @@ void renderThemeChooser(App& app) {
             nameColor.a = anim;
             app.brush->SetColor(nameColor);
             app.renderTarget->DrawText(
-                t.name, (UINT32)wcslen(t.name), nameFormat,
+                t.name, (std::uint32_t)wcslen(t.name), nameFormat,
                 tinta::rectF(cx, rowY, x + cardW - dpi(app, 30.0f),
                             rowY + dpi(app, 20.0f)),
                 app.brush);
@@ -1972,7 +1972,7 @@ void renderThemeChooser(App& app) {
         ec.a = 0.55f * anim;
         app.brush->SetColor(ec);
         app.renderTarget->DrawText(
-            edit.c_str(), (UINT32)edit.size(), app.tocFormat,
+            edit.c_str(), (std::uint32_t)edit.size(), app.tocFormat,
             tinta::rectF(panelX + pad, fy, panelX + panelWidth * 0.6f,
                         fy + dpi(app, 18.0f)),
             app.brush);
@@ -2032,7 +2032,7 @@ void renderHelpOverlay(App& app) {
         titleColor.a = anim;
         app.brush->SetColor(titleColor);
         const wchar_t* helpTitle = tr(app, "help.title");
-        app.renderTarget->DrawText(helpTitle, (UINT32)wcslen(helpTitle), titleFormat,
+        app.renderTarget->DrawText(helpTitle, (std::uint32_t)wcslen(helpTitle), titleFormat,
             tinta::rectF(panelX, panelY + dpi(app, 15.0f), panelX + panelWidth, titleBottomY), app.brush);
     }
 
@@ -2168,7 +2168,7 @@ void renderHelpOverlay(App& app) {
         tinta::Color headerColor = app.theme.accent;
         headerColor.a = anim;
         app.brush->SetColor(headerColor);
-        app.renderTarget->DrawText(title, (UINT32)wcslen(title), boldFmt,
+        app.renderTarget->DrawText(title, (std::uint32_t)wcslen(title), boldFmt,
             tinta::rectF(leftX, y, rightEdge, y + lineH), app.brush);
         y += lineH + sectionHeaderExtra;
 
@@ -2178,7 +2178,7 @@ void renderHelpOverlay(App& app) {
             tinta::Color keyColor = app.theme.text;
             keyColor.a = 0.9f * anim;
             app.brush->SetColor(keyColor);
-            app.renderTarget->DrawText(entries[i].key, (UINT32)wcslen(entries[i].key), boldFmt,
+            app.renderTarget->DrawText(entries[i].key, (std::uint32_t)wcslen(entries[i].key), boldFmt,
                 tinta::rectF(leftX + dpi(app, 8.0f), y, leftX + keyColWidth, y + lineH), app.brush);
 
             // Description
@@ -2186,7 +2186,7 @@ void renderHelpOverlay(App& app) {
             tinta::Color descriptionColor = app.theme.text;
             descriptionColor.a = 0.7f * anim;
             app.brush->SetColor(descriptionColor);
-            app.renderTarget->DrawText(entries[i].desc, (UINT32)wcslen(entries[i].desc), normalFmt,
+            app.renderTarget->DrawText(entries[i].desc, (std::uint32_t)wcslen(entries[i].desc), normalFmt,
                 tinta::rectF(descX, y, rightEdge, y + lineH), app.brush);
 
             y += lineH;
@@ -2205,7 +2205,7 @@ void renderHelpOverlay(App& app) {
     footerColor.a = 0.55f * anim;
     app.brush->SetColor(footerColor);
     const wchar_t* helpFooter = tr(app, "help.footer");
-    app.renderTarget->DrawText(helpFooter, (UINT32)wcslen(helpFooter), normalFmt,
+    app.renderTarget->DrawText(helpFooter, (std::uint32_t)wcslen(helpFooter), normalFmt,
         tinta::rectF(panelX, y, panelX + panelWidth, y + lineH), app.brush);
 
     app.renderTarget->PopAxisAlignedClip();
@@ -2317,7 +2317,7 @@ void renderContextMenu(App& app) {
         float textY = top + (itemH - dpi(app, 18.0f)) / 2;
         const wchar_t* itemLabel = tr(app, entry.key);
         app.renderTarget->DrawText(
-            itemLabel, (UINT32)wcslen(itemLabel), format,
+            itemLabel, (std::uint32_t)wcslen(itemLabel), format,
             tinta::rectF(x + inset, textY, x + w - inset, top + itemH), app.brush);
 
         std::wstring hintText = shortcutLabel(entry);
@@ -2460,7 +2460,7 @@ void renderFolderSearchResults(App& app) {
         nameColor.a = anim;
         app.brush->SetColor(nameColor);
         app.renderTarget->DrawText(
-            file.fileName.c_str(), (UINT32)file.fileName.length(), fmt,
+            file.fileName.c_str(), (std::uint32_t)file.fileName.length(), fmt,
             tinta::rectF(panelX + pad, rowY, panelX + panelW - pad, rowY + headerH),
             app.brush);
         rowY += headerH;
@@ -2493,7 +2493,7 @@ void renderFolderSearchResults(App& app) {
             snippetColor.a = 0.85f * anim;
             app.brush->SetColor(snippetColor);
             app.renderTarget->DrawText(
-                shown.c_str(), (UINT32)shown.length(), fmt,
+                shown.c_str(), (std::uint32_t)shown.length(), fmt,
                 tinta::rectF(textX, rowY + dpi(app, 1.0f), textX + availW, rowY + lineH),
                 app.brush);
             rowY += lineH;
@@ -2505,7 +2505,7 @@ void renderFolderSearchResults(App& app) {
             tinta::Color moreColor = app.theme.text;
             moreColor.a = 0.45f * anim;
             app.brush->SetColor(moreColor);
-            app.renderTarget->DrawText(more, (UINT32)wcslen(more), fmt,
+            app.renderTarget->DrawText(more, (std::uint32_t)wcslen(more), fmt,
                 tinta::rectF(panelX + pad, rowY, panelX + panelW - pad, rowY + moreH),
                 app.brush);
             rowY += moreH;
@@ -2609,7 +2609,7 @@ void renderPrintPreview(App& app) {
          tinta::swprintf(label, tr(app, "print.title"),
                     app.printPreviewPage + 1, pageCount > 0 ? pageCount : 1);
         app.brush->SetColor(th.text);
-        app.renderTarget->DrawText(label, (UINT32)wcslen(label), uiFmt,
+        app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label), uiFmt,
             tinta::rectF(0, 0, w, topBarH), app.brush);
     }
 
@@ -2631,7 +2631,7 @@ void renderPrintPreview(App& app) {
         if (uiFmt) {
             app.brush->SetColor(active ? tinta::colorF(1.0f, 1.0f, 1.0f) : th.text);
             uiFmt->SetTextAlignment(tinta::TextAlignment::Center);
-            app.renderTarget->DrawText(text, (UINT32)wcslen(text), uiFmt, rect, app.brush);
+            app.renderTarget->DrawText(text, (std::uint32_t)wcslen(text), uiFmt, rect, app.brush);
         }
     };
 
@@ -2680,10 +2680,10 @@ void renderPrintPreview(App& app) {
         btnFmt->SetParagraphAlignment(tinta::ParagraphAlignment::Center);
         app.brush->SetColor(tinta::colorF(1.0f, 1.0f, 1.0f));
         const wchar_t* printLabel = tr(app, "print.print");
-        app.renderTarget->DrawText(printLabel, (UINT32)wcslen(printLabel), btnFmt, printR, app.brush);
+        app.renderTarget->DrawText(printLabel, (std::uint32_t)wcslen(printLabel), btnFmt, printR, app.brush);
         app.brush->SetColor(th.text);
         const wchar_t* cancelLabel = tr(app, "print.cancel");
-        app.renderTarget->DrawText(cancelLabel, (UINT32)wcslen(cancelLabel), btnFmt, cancelR, app.brush);
+        app.renderTarget->DrawText(cancelLabel, (std::uint32_t)wcslen(cancelLabel), btnFmt, cancelR, app.brush);
     }
 
     // Hint, bottom left
@@ -2693,7 +2693,7 @@ void renderPrintPreview(App& app) {
         hintC.a = 0.5f;
         app.brush->SetColor(hintC);
          const wchar_t* hint = tr(app, "print.hint");
-        app.renderTarget->DrawText(hint, (UINT32)wcslen(hint), uiFmt,
+        app.renderTarget->DrawText(hint, (std::uint32_t)wcslen(hint), uiFmt,
             tinta::rectF(margin, h - bottomBarH, cancelR.left - gap, h), app.brush);
     }
 
@@ -2824,7 +2824,7 @@ void renderSettingsOverlay(App& app) {
         tinta::Color tc = app.theme.heading; tc.a = anim;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "settings.title");
-        app.renderTarget->DrawText(title, (UINT32)wcslen(title), app.themeTitleFormat,
+        app.renderTarget->DrawText(title, (std::uint32_t)wcslen(title), app.themeTitleFormat,
             tinta::rectF(px + dpi(app, 24.0f), py + dpi(app, 16.0f),
                         px + panelW, py + dpi(app, 56.0f)), app.brush);
     }
@@ -2858,7 +2858,7 @@ void renderSettingsOverlay(App& app) {
         tinta::Color tc = app.theme.text;
         tc.a = (i == app.settingsSection ? 1.0f : 0.55f) * anim;
         app.brush->SetColor(tc);
-        app.renderTarget->DrawText(sections[i], (UINT32)wcslen(sections[i]), fmt,
+        app.renderTarget->DrawText(sections[i], (std::uint32_t)wcslen(sections[i]), fmt,
             tinta::rectF(r.left + dpi(app, 12.0f), r.top + dpi(app, 6.0f), r.right, r.bottom),
             app.brush);
         app.settingsHits.push_back({r, sectionActions[i]});
@@ -2893,14 +2893,14 @@ void renderSettingsOverlay(App& app) {
                          float reserveRight = 0.0f) {
         tinta::Color tc = app.theme.text; tc.a = 0.95f * anim;
         app.brush->SetColor(tc);
-        app.renderTarget->DrawText(label, (UINT32)wcslen(label), fmt,
+        app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label), fmt,
             tinta::rectF(cx + cardPad, cy + dpi(app, 10.0f),
                         cx + cw - cardPad - reserveRight, cy + dpi(app, 28.0f)),
             app.brush);
         if (hint) {
             tc.a = 0.5f * anim;
             app.brush->SetColor(tc);
-            app.renderTarget->DrawText(hint, (UINT32)wcslen(hint), fmt,
+            app.renderTarget->DrawText(hint, (std::uint32_t)wcslen(hint), fmt,
                 tinta::rectF(cx + cardPad, cy + dpi(app, 28.0f),
                             cx + cw - cardPad - reserveRight, cy + dpi(app, 46.0f)),
                 app.brush);
@@ -2942,7 +2942,7 @@ void renderSettingsOverlay(App& app) {
         else tinta::swprintf(label, L"%d%%", pct);
         c = app.theme.text; c.a = 0.7f * anim;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(label, (UINT32)wcslen(label), fmt,
+        app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label), fmt,
             tinta::rectF(x + trackW + dpi(app, 12.0f), y - dpi(app, 9.0f),
                         x + w, y + dpi(app, 12.0f)), app.brush);
         app.settingsHits.push_back({tinta::rectF(x - knobR, y - dpi(app, 12.0f),
@@ -2972,7 +2972,7 @@ void renderSettingsOverlay(App& app) {
             current += L"  \x25BE";
             c = app.theme.text; c.a = 0.95f * anim;
             app.brush->SetColor(c);
-            app.renderTarget->DrawText(current.c_str(), (UINT32)current.size(), fmt,
+            app.renderTarget->DrawText(current.c_str(), (std::uint32_t)current.size(), fmt,
                 tinta::rectF(box.left + dpi(app, 10.0f), box.top + dpi(app, 4.0f),
                             box.right - dpi(app, 6.0f), box.bottom), app.brush);
             app.settingsHits.push_back({box, SET_LANG_DROPDOWN});
@@ -3012,7 +3012,7 @@ void renderSettingsOverlay(App& app) {
             c = app.theme.text;
             c.a = 0.95f * anim;
             app.brush->SetColor(c);
-            app.renderTarget->DrawText(current.c_str(), (UINT32)current.size(), fmt,
+            app.renderTarget->DrawText(current.c_str(), (std::uint32_t)current.size(), fmt,
                 tinta::rectF(box.left + dpi(app, 10.0f), box.top + dpi(app, 4.0f),
                             box.right - dpi(app, 6.0f), box.bottom), app.brush);
             app.settingsHits.push_back({box, SET_KEYS_DROPDOWN});
@@ -3119,7 +3119,7 @@ void renderSettingsOverlay(App& app) {
                 tc.a = (active ? 0.95f : 0.55f) * anim;
                 app.brush->SetColor(tc);
                 float tw = measureText(app, labels[s], fmt);
-                app.renderTarget->DrawText(labels[s], (UINT32)wcslen(labels[s]), fmt,
+                app.renderTarget->DrawText(labels[s], (std::uint32_t)wcslen(labels[s]), fmt,
                     tinta::rectF(sx + (segW - tw) * 0.5f, segY + dpi(app, 4.0f),
                                 sx + segW, segY + segH), app.brush);
                 app.settingsHits.push_back({sr, s == 0 ? SET_TOC_LEFT : SET_TOC_RIGHT});
@@ -3212,7 +3212,7 @@ void renderSettingsOverlay(App& app) {
             pc = app.theme.text;
             pc.a = 0.95f * anim;
             app.brush->SetColor(pc);
-            app.renderTarget->DrawText(label, (UINT32)wcslen(label), fmt,
+            app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label), fmt,
                 tinta::rectF(row.left + dpi(app, 10.0f), row.top + dpi(app, 4.0f),
                             row.right - dpi(app, 6.0f), row.bottom), app.brush);
             app.settingsHits.push_back({row, SET_KEYS_PICK_BASE + i});
@@ -3288,7 +3288,7 @@ void renderSettingsOverlay(App& app) {
             }
             pc = app.theme.text; pc.a = 0.95f * anim;
             app.brush->SetColor(pc);
-            app.renderTarget->DrawText(labels[r].c_str(), (UINT32)labels[r].size(), fmt,
+            app.renderTarget->DrawText(labels[r].c_str(), (std::uint32_t)labels[r].size(), fmt,
                 tinta::rectF(row.left + dpi(app, 10.0f), row.top + dpi(app, 4.0f),
                             row.right - dpi(app, 30.0f), row.bottom), app.brush);
             if (active) {
@@ -3307,7 +3307,7 @@ void renderSettingsOverlay(App& app) {
     tinta::Color fc = app.theme.text; fc.a = 0.4f * anim;
     app.brush->SetColor(fc);
     const wchar_t* footer = tr(app, "settings.footer");
-    app.renderTarget->DrawText(footer, (UINT32)wcslen(footer), fmt,
+    app.renderTarget->DrawText(footer, (std::uint32_t)wcslen(footer), fmt,
         tinta::rectF(px + dpi(app, 24.0f), py + panelH - dpi(app, 32.0f),
                     px + panelW, py + panelH), app.brush);
 }
@@ -3367,7 +3367,7 @@ static float promptKeycap(App& app, const wchar_t* label, float rightX,
         tinta::roundedRect(r, dpi(app, 3.0f), dpi(app, 3.0f)), app.brush, 1.0f);
     c.a = 0.6f;
     app.brush->SetColor(c);
-    app.renderTarget->DrawText(label, (UINT32)wcslen(label),
+    app.renderTarget->DrawText(label, (std::uint32_t)wcslen(label),
         app.signalSmallFormat,
         tinta::rectF(r.left + dpi(app, 4.5f), r.top + dpi(app, 1.5f),
                     r.right, r.bottom),
@@ -3505,7 +3505,7 @@ void renderConfirmExitDialog(App& app) {
         app.renderTarget->FillRoundedRectangle(
             tinta::roundedRect(br, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush);
         app.brush->SetColor(tinta::colorF(1, 1, 1, 0.97f));
-        app.renderTarget->DrawText(saveLbl.c_str(), (UINT32)saveLbl.size(), fmt,
+        app.renderTarget->DrawText(saveLbl.c_str(), (std::uint32_t)saveLbl.size(), fmt,
             tinta::rectF(br.left + dpi(app, 10.0f), br.top + dpi(app, 3.0f),
                         br.right, br.bottom), app.brush);
         app.confirmExitHits.push_back({br, 1});
@@ -3518,7 +3518,7 @@ void renderConfirmExitDialog(App& app) {
             tinta::roundedRect(br, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush, 1.0f);
         tinta::Color c = base.text; c.a = 0.85f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(discardLbl.c_str(), (UINT32)discardLbl.size(),
+        app.renderTarget->DrawText(discardLbl.c_str(), (std::uint32_t)discardLbl.size(),
             fmt,
             tinta::rectF(br.left + dpi(app, 10.0f), br.top + dpi(app, 3.0f),
                         br.right, br.bottom), app.brush);
@@ -3527,7 +3527,7 @@ void renderConfirmExitDialog(App& app) {
     if (app.signalSmallFormat) {
         tinta::Color c = base.text; c.a = 0.42f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(stays, (UINT32)wcslen(stays),
+        app.renderTarget->DrawText(stays, (std::uint32_t)wcslen(stays),
             app.signalSmallFormat,
             tinta::rectF(r.right - pad - staysW, by + dpi(app, 6.0f),
                         r.right - pad + dpi(app, 2.0f), r.bottom), app.brush);
@@ -3685,7 +3685,7 @@ void renderCreateRefDialog(App& app) {
         app.renderTarget->FillRoundedRectangle(
             tinta::roundedRect(br, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush);
         app.brush->SetColor(tinta::colorF(1, 1, 1, 0.97f));
-        app.renderTarget->DrawText(createLbl.c_str(), (UINT32)createLbl.size(),
+        app.renderTarget->DrawText(createLbl.c_str(), (std::uint32_t)createLbl.size(),
             fmt,
             tinta::rectF(br.left + dpi(app, 10.0f), br.top + dpi(app, 3.0f),
                         br.right, br.bottom), app.brush);
@@ -3700,7 +3700,7 @@ void renderCreateRefDialog(App& app) {
             tinta::roundedRect(br, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush, 1.0f);
         c.a = 0.85f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(cancelLbl.c_str(), (UINT32)cancelLbl.size(),
+        app.renderTarget->DrawText(cancelLbl.c_str(), (std::uint32_t)cancelLbl.size(),
             fmt,
             tinta::rectF(br.left + dpi(app, 10.0f), br.top + dpi(app, 3.0f),
                         br.right, br.bottom), app.brush);
@@ -3763,7 +3763,7 @@ void renderShortcutEditor(App& app) {
         tinta::Color tc = base.heading; tc.a = 1.0f;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "shortcuts.editor.title");
-        app.renderTarget->DrawText(title, (UINT32)wcslen(title), app.themeTitleFormat,
+        app.renderTarget->DrawText(title, (std::uint32_t)wcslen(title), app.themeTitleFormat,
             tinta::rectF(px + dpi(app, 24.0f), py + dpi(app, 16.0f),
                         px + panelW, py + dpi(app, 52.0f)), app.brush);
     }
@@ -3771,7 +3771,7 @@ void renderShortcutEditor(App& app) {
         tinta::Color hc = base.text; hc.a = 0.55f;
         app.brush->SetColor(hc);
         const wchar_t* hint = tr(app, "shortcuts.editor.hint");
-        app.renderTarget->DrawText(hint, (UINT32)wcslen(hint), fmt,
+        app.renderTarget->DrawText(hint, (std::uint32_t)wcslen(hint), fmt,
             tinta::rectF(px + dpi(app, 24.0f), py + dpi(app, 56.0f),
                         px + panelW - dpi(app, 24.0f), py + dpi(app, 80.0f)), app.brush);
     }
@@ -3791,7 +3791,7 @@ void renderShortcutEditor(App& app) {
         const wchar_t* name = tr(app, shortcutActionNameKey(i));
         tinta::Color c = base.text; c.a = 0.9f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(name, (UINT32)wcslen(name), fmt,
+        app.renderTarget->DrawText(name, (std::uint32_t)wcslen(name), fmt,
             tinta::rectF(row.left + dpi(app, 8.0f), row.top + dpi(app, 4.0f),
                         row.right - dpi(app, 96.0f), row.bottom), app.brush);
 
@@ -3810,7 +3810,7 @@ void renderShortcutEditor(App& app) {
             armed ? 1.5f : 1.0f);
         c = base.text; c.a = 0.95f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(key.c_str(), (UINT32)key.size(), fmt,
+        app.renderTarget->DrawText(key.c_str(), (std::uint32_t)key.size(), fmt,
             tinta::rectF(chip.left + dpi(app, 8.0f), chip.top + dpi(app, 2.0f),
                         chip.right - dpi(app, 4.0f), chip.bottom), app.brush);
 
@@ -3830,7 +3830,7 @@ void renderShortcutEditor(App& app) {
             tinta::roundedRect(chip, dpi(app, 4.0f), dpi(app, 4.0f)), app.brush, 1.0f);
         c = base.text; c.a = 0.8f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(reset, (UINT32)wcslen(reset), fmt,
+        app.renderTarget->DrawText(reset, (std::uint32_t)wcslen(reset), fmt,
             tinta::rectF(chip.left + dpi(app, 8.0f), chip.top + dpi(app, 2.0f),
                         chip.right, chip.bottom), app.brush);
         app.shortcutHits.push_back({chip, 100});
@@ -3839,7 +3839,7 @@ void renderShortcutEditor(App& app) {
         tinta::Color c = base.text; c.a = 0.4f;
         app.brush->SetColor(c);
         const wchar_t* esc = tr(app, "shortcuts.editor.footer");
-        app.renderTarget->DrawText(esc, (UINT32)wcslen(esc), fmt,
+        app.renderTarget->DrawText(esc, (std::uint32_t)wcslen(esc), fmt,
             tinta::rectF(px + dpi(app, 140.0f), fy + dpi(app, 2.0f),
                         px + panelW - dpi(app, 24.0f), fy + dpi(app, 26.0f)), app.brush);
     }
@@ -3873,7 +3873,7 @@ void renderThemeEditor(App& app) {
         tinta::Color tc = base.heading; tc.a = 1.0f;
         app.brush->SetColor(tc);
         const wchar_t* title = tr(app, "theme.editor.title");
-        app.renderTarget->DrawText(title, (UINT32)wcslen(title), app.themeTitleFormat,
+        app.renderTarget->DrawText(title, (std::uint32_t)wcslen(title), app.themeTitleFormat,
             tinta::rectF(px + dpi(app, 24.0f), py + dpi(app, 16.0f),
                         px + panelW, py + dpi(app, 52.0f)), app.brush);
     }
@@ -3894,7 +3894,7 @@ void renderThemeEditor(App& app) {
         if (focused) shown += L"_";
         c = base.text; c.a = 0.95f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(shown.c_str(), (UINT32)shown.size(), fmt,
+        app.renderTarget->DrawText(shown.c_str(), (std::uint32_t)shown.size(), fmt,
             tinta::rectF(r.left + dpi(app, 8.0f), r.top + dpi(app, 4.0f),
                         r.right - dpi(app, 4.0f), r.bottom), app.brush);
         app.themeEditorHits.push_back({r, action});
@@ -3902,7 +3902,7 @@ void renderThemeEditor(App& app) {
     auto label = [&](float lx, float ly, const wchar_t* text, float alpha) {
         tinta::Color c = base.text; c.a = alpha;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(text, (UINT32)wcslen(text), fmt,
+        app.renderTarget->DrawText(text, (std::uint32_t)wcslen(text), fmt,
             tinta::rectF(lx, ly, lx + colW, ly + dpi(app, 18.0f)), app.brush);
     };
 
@@ -3930,7 +3930,7 @@ void renderThemeEditor(App& app) {
         const D2DTheme& bt = themeAt(app.themeEditorBase);
         c = base.text; c.a = 0.95f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(bt.name, (UINT32)wcslen(bt.name), fmt,
+        app.renderTarget->DrawText(bt.name, (std::uint32_t)wcslen(bt.name), fmt,
             tinta::rectF(prev.right + dpi(app, 10.0f), by + dpi(app, 4.0f),
                         next.left - dpi(app, 6.0f), by + dpi(app, 24.0f)), app.brush);
         app.themeEditorHits.push_back({prev, TE_BASE_PREV});
@@ -4037,7 +4037,7 @@ void renderThemeEditor(App& app) {
             app.brush->SetColor(work.text);
             const wchar_t* body =
                 L"Body text set in your chosen face, with enough of a line to judge its color and rhythm.";
-            app.renderTarget->DrawText(body, (UINT32)wcslen(body), b,
+            app.renderTarget->DrawText(body, (std::uint32_t)wcslen(body), b,
                 tinta::rectF(sx, spec.top + dpi(app, 50.0f), sx + sw2,
                             spec.top + dpi(app, 92.0f)), app.brush);
             app.brush->SetColor(work.link);
@@ -4104,7 +4104,7 @@ void renderThemeEditor(App& app) {
             tinta::Color tc = base.text; tc.a = selected ? 1.0f : 0.8f;
             app.brush->SetColor(tc);
             if (ff) {
-                app.renderTarget->DrawText(fam.c_str(), (UINT32)fam.size(), ff.get(),
+                app.renderTarget->DrawText(fam.c_str(), (std::uint32_t)fam.size(), ff.get(),
                     tinta::rectF(list.left + dpi(app, 12.0f), ry + dpi(app, 3.0f),
                                 list.right - dpi(app, 8.0f), ry + rowH), app.brush);
             }
@@ -4140,7 +4140,7 @@ void renderThemeEditor(App& app) {
         saveText.a = 1.0f;
         app.brush->SetColor(saveText);
         fmt->SetTextAlignment(tinta::TextAlignment::Center);
-        app.renderTarget->DrawText(saveLabel, (UINT32)wcslen(saveLabel), fmt,
+        app.renderTarget->DrawText(saveLabel, (std::uint32_t)wcslen(saveLabel), fmt,
             tinta::rectF(save.left, save.top + dpi(app, 6.0f), save.right, save.bottom),
             app.brush);
         tinta::Color c = base.text; c.a = 0.4f;
@@ -4149,7 +4149,7 @@ void renderThemeEditor(App& app) {
             tinta::roundedRect(cancel, dpi(app, 6.0f), dpi(app, 6.0f)), app.brush, 1.0f);
         c.a = 0.9f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(cancelLabel, (UINT32)wcslen(cancelLabel), fmt,
+        app.renderTarget->DrawText(cancelLabel, (std::uint32_t)wcslen(cancelLabel), fmt,
             tinta::rectF(cancel.left, cancel.top + dpi(app, 6.0f), cancel.right, cancel.bottom),
             app.brush);
         fmt->SetTextAlignment(tinta::TextAlignment::Leading);
@@ -4163,7 +4163,7 @@ void renderThemeEditor(App& app) {
                                        cancel.left - dpi(app, 18.0f), by + bh);
         c = base.link; c.a = 0.85f;
         app.brush->SetColor(c);
-        app.renderTarget->DrawText(ini, (UINT32)wcslen(ini), fmt, iniR, app.brush);
+        app.renderTarget->DrawText(ini, (std::uint32_t)wcslen(ini), fmt, iniR, app.brush);
         app.themeEditorHits.push_back({iniR, TE_OPEN_INI});
     }
 }

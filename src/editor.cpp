@@ -1415,7 +1415,7 @@ void confirmExitAction(App& app, int action) {
     requestRepaint();
 }
 
-void handleEditorKeyDown(App& app, WPARAM wParam) {
+void handleEditorKeyDown(App& app, unsigned keyCode) {
     bool ctrl = platform::isCtrlDown();
     bool shift = platform::isShiftDown();
 
@@ -1423,11 +1423,11 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
     // editor after dismissing it
     if (app.editCtxOpen) {
         closeEditCtxMenu(app);
-        if (wParam == VK_ESCAPE) return;
+        if (keyCode == VK_ESCAPE) return;
     }
 
     // Search still works in edit mode via Ctrl+F
-    if (ctrl && wParam == 'F') {
+    if (ctrl && keyCode == 'F') {
         if (!app.showSearch) {
             app.showSearch = true;
             app.searchActive = true;
@@ -1446,7 +1446,7 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
     }
 
     // Ctrl+H: search with the replace row (#121)
-    if (ctrl && wParam == 'H') {
+    if (ctrl && keyCode == 'H') {
         if (!app.showSearch) {
             app.showSearch = true;
             app.searchActive = true;
@@ -1466,7 +1466,7 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
 
     // Ctrl+O on an untitled, still-empty note opens the file picker
     // (the empty state's keycap hint; works with the preview hidden too)
-    if (ctrl && wParam == 'O' && quickNoteEmptyStateActive(app)) {
+    if (ctrl && keyCode == 'O' && quickNoteEmptyStateActive(app)) {
         openFileDialog(app);
         return;
     }
@@ -1474,23 +1474,23 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
     // If search is open, route to search handling
     if (app.showSearch && app.searchActive) {
         // Ctrl+S still saves while the search bar is open
-        if (ctrl && wParam == 'S') {
+        if (ctrl && keyCode == 'S') {
             saveEditorFile(app);
             return;
         }
         // Ctrl+H from an open search reveals the replace row (#121)
-        if (ctrl && wParam == 'H') {
+        if (ctrl && keyCode == 'H') {
             app.searchReplaceMode = true;
             app.replaceFieldActive = true;
             requestRepaint();
             return;
         }
         // Ctrl+Enter replaces every match at once
-        if (ctrl && wParam == VK_RETURN && app.searchReplaceMode) {
+        if (ctrl && keyCode == VK_RETURN && app.searchReplaceMode) {
             editorReplaceAll(app);
             return;
         }
-        switch (wParam) {
+        switch (keyCode) {
             case VK_ESCAPE:
                 app.showSearch = false;
                 app.searchActive = false;
@@ -1552,18 +1552,18 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
         auto sinceOpen = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - app.confirmExitOpenedAt).count();
         bool inGrace = sinceOpen < 600;
-        if (wParam == 'Y' || wParam == VK_RETURN || (ctrl && wParam == 'S')) {
+        if (keyCode == 'Y' || keyCode == VK_RETURN || (ctrl && keyCode == 'S')) {
             confirmExitAction(app, 1);
-        } else if (wParam == 'N' && !inGrace) {
+        } else if (keyCode == 'N' && !inGrace) {
             confirmExitAction(app, 2);
-        } else if (wParam == VK_ESCAPE && !inGrace) {
+        } else if (keyCode == VK_ESCAPE && !inGrace) {
             confirmExitAction(app, 3);
         }
         requestRepaint();
         return;
     }
 
-    if (wParam == VK_ESCAPE) {
+    if (keyCode == VK_ESCAPE) {
         // Dirty buffer: straight to the dialog — it is the guard, and a
         // second Esc stage on top of it is what made the old flow a maze.
         // Clean buffer: keep the documented double-Esc exit.
@@ -1593,7 +1593,7 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
     app.escPressedOnce = false;
 
     if (ctrl) {
-        switch (wParam) {
+        switch (keyCode) {
             case 'S':
                 if (shift) {
                     saveEditorFileAs(app);
@@ -1822,7 +1822,7 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
     }
 
     // Non-Ctrl keys
-    switch (wParam) {
+    switch (keyCode) {
         case VK_LEFT:
             editorStartOrExtendSelection(app, shift);
             if (!shift && app.editorHasSelection) {
@@ -1853,7 +1853,7 @@ void handleEditorKeyDown(App& app, WPARAM wParam) {
 
         case VK_UP:
         case VK_DOWN: {
-            bool down = (wParam == VK_DOWN);
+            bool down = (keyCode == VK_DOWN);
             editorStartOrExtendSelection(app, shift);
             size_t line = getLineFromPos(app, app.editorCursorPos);
             if (editorWrapOn(app)) {
@@ -2274,7 +2274,7 @@ void editRailInvoke(App& app, int id) {
     }
 }
 
-void handleEditorCharInput(App& app, WPARAM wParam) {
+void handleEditorCharInput(App& app, wchar_t input) {
     // Swallow characters while confirm-exit prompt is active
     if (app.confirmExitPending) return;
 
@@ -2286,7 +2286,7 @@ void handleEditorCharInput(App& app, WPARAM wParam) {
             app.searchJustOpened = false;
             return;
         }
-        wchar_t ch = (wchar_t)wParam;
+        wchar_t ch = input;
         bool toReplace = app.searchReplaceMode && app.replaceFieldActive;
         // Ctrl+V arrives here as the SYN control character (#121)
         if (ch == 0x16) {
@@ -2325,7 +2325,7 @@ void handleEditorCharInput(App& app, WPARAM wParam) {
         return;
     }
 
-    wchar_t ch = (wchar_t)wParam;
+    wchar_t ch = input;
 
     if (ch == 8) { // Backspace
         if (app.editorHasSelection) {
@@ -2800,7 +2800,7 @@ static void editorDrawLineNumber(App& app, size_t lineIdx, float lineY,
     c.a = isCaretLine ? 0.8f : 0.3f;
     app.brush->SetColor(c);
     app.renderTarget->DrawText(
-        num, (UINT32)len, app.editorGutterFormat,
+        num, (std::uint32_t)len, app.editorGutterFormat,
         tinta::rectF(railW, lineY,
                     railW + editorGutterWidth(app) - dpi(app, 8.0f),
                     lineY + lineHeight),

@@ -21,8 +21,8 @@ void enterRecoveredDraft(App& app, const std::string& content,
 void exitEditMode(App& app);
 
 // Editor input handlers
-void handleEditorKeyDown(App& app, WPARAM wParam);
-void handleEditorCharInput(App& app, WPARAM wParam);
+void handleEditorKeyDown(App& app, unsigned keyCode);
+void handleEditorCharInput(App& app, wchar_t input);
 void handleEditorMouseDown(App& app, int x, int y);
 void handleEditorMouseUp(App& app, int x, int y);
 void handleEditorMouseMove(App& app, int x, int y);

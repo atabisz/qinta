@@ -589,7 +589,7 @@ struct App {
         bool editMode = false;     // switched away while editing
         bool editorDirty = false;
         bool fileMissing = false;  // deleted/renamed on disk (red-grey dot)
-        FILETIME lastWrite{};      // for external-change conflicts (dirty tabs)
+        unsigned long long lastWrite = 0;  // write time in FILETIME ticks (dirty tabs)
         std::wstring editorText;   // parked edit buffer (editMode only)
         float editorScrollY = 0.0f;
         size_t editorCursor = 0;
@@ -650,7 +650,6 @@ struct App {
     // A native move/size loop is in progress; the starting rect tells a
     // pure move (a possible strip drop) apart from a resize on exit
     bool windowMoveTracking = false;
-    RECT windowMoveStartRect = {};
     // Right-click tab context menu (NPP-style close operations)
     bool showTabMenu = false;
     int tabMenuIndex = -1;          // tab the menu targets
@@ -1266,7 +1265,10 @@ struct App {
     bool searchJustOpened = false;  // Skip WM_CHAR after opening with F key
 
     // File watching (auto-reload)
-    FILETIME lastFileWriteTime = {};
+    // The document's last write time in FILETIME ticks (100 ns since 1601), as one number:
+    // platform::fileWriteTicks hands back exactly that, and a FILETIME's two halves were
+    // only ever split from it and joined back. 0 is "not read".
+    unsigned long long lastFileWriteTime = 0;
     bool fileWatchEnabled = true;
 
     // Edit mode

@@ -570,15 +570,9 @@ static void commitFolderBrowserNaming(App& app) {
     closeFolderBrowserInput(app);
     app.showFolderBrowser = false;
     app.folderBrowserAnimation = 0;
-    // GUARDED, AND THE GUARD IS THE ANSWER AT THE SITE, exactly as the
-    // launchQuickNoteWindow guard in editor.cpp answers it for Ctrl+Shift+N (cited by
-    // name, not line: that block moved twice in one day): off Windows, creating a note
-    // from the folder browser makes the FILE and opens no window for it, because
-    // the relaunch has no Qt half. The file exists and is findable; what is
-    // missing is said by the refusal rather than silently substituted with a wrong window.
-    //
-    // NOT GUARDED SINCE 2026-10-06: the relaunch has a Qt half (src/window_launch_qt.cpp), so
-    // the note's own window opens on both stacks and the refusal that stood here is gone.
+    // The note's own window opens on every platform: the relaunch is src/window_launch_qt.cpp
+    // since 2026-10-06. Until then this call was guarded to Windows, and off it the folder
+    // browser made the note's FILE and refused by name to open a window for it.
     launchDocumentWindow(fullPath);
     if (canRepaint()) requestRepaint();
 }
@@ -3842,16 +3836,10 @@ bool handleKeyDown(App& app, unsigned vk) {
                 // document gets a fresh note tab); Ctrl+Shift+N spawns a
                 // separate window
                 if (platform::isShiftDown()) {
-                    // GUARDED AT THE SITE, WHICH IS WHERE utils.h SAYS THE ANSWER BELONGS, and
-                    // src/editor.cpp's Ctrl+Shift+N already answered it the same way. The
-                    // declaration is `#ifdef _WIN32` on purpose so an off-Windows caller is a
-                    // compile error here rather than a link failure or a silent no-op half. This
-                    // is the second such caller, and the answer is unchanged: Ctrl+Shift+N opens
-                    // no window in the Qt build yet, because `--new` has no Qt-side parser, and it
-                    // refuses by name. It deliberately does not fall through to the new-tab
-                    // branch below -- a new tab where the user asked for a new window is a wrong
-                    // picture rather than a gap.
-                    // Both stacks since 2026-10-06 (src/window_launch_qt.cpp).
+                    // A new window on every platform since 2026-10-06 (src/window_launch_qt.cpp,
+                    // and src/qt_launch.cpp honours --new). It deliberately does not fall through
+                    // to the new-tab branch below -- a new tab where the user asked for a new
+                    // window is a wrong picture rather than a gap.
                     launchQuickNoteWindow();
                 } else if (app.currentFile.empty()) {
                     // The keystroke's WM_CHAR must not type into the

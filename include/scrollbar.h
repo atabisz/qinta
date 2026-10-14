@@ -22,9 +22,8 @@
 //
 //   1. THE HORIZONTAL BAR, free, because it was in the same block.
 //   2. THE FIND-MATCH TICKS -- the overview-ruler marks that show a search's match
-//      silhouette along the track. Nothing draws them off Windows today because
-//      src/search.cpp's overlay has not been ported, but they are here waiting rather
-//      than being a second thing to remember.
+//      silhouette along the track. They draw on every platform, now that
+//      src/search.cpp's overlay is ported and src/render_frame.cpp draws it.
 //
 // WHY THIS IS A RELOCATION AND NOT A DESIGN, the same sentence paint_document.h opens
 // with: every line already drew through the tinta::RenderTarget seam and App::brush. If a

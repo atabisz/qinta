@@ -139,8 +139,8 @@ int main() {
     {
         const tinta::LaunchOptions o = parse({"--lite", "a.md"});
         check(contains(o.unknown, "--lite"),
-              "a misspelled flag is recorded by name -- WinMain drops anything starting with "
-              "'-' that it does not know, so '--lite' there behaves exactly like no flag");
+              "a misspelled flag is recorded by name -- the retired WinMain dropped anything "
+              "starting with '-' that it did not know, so '--lite' there behaved like no flag");
         check(!o.lightMode, "and a near-miss does not accidentally match the real flag");
         check(o.inputFile == "a.md", "and the real path is still found past the bad flag");
     }

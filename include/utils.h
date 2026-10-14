@@ -41,13 +41,11 @@ void updateWindowTitle(App& app);
 // `--cascade` is honoured on the Qt arm. `--new` is refused by name, which is the
 // remaining blocker and a better one.
 //
-// launchDocumentWindow is the SAME DEFERRAL and shares the guard: it relaunches
-// with `--cascade --edit "<path>"`, so it is the third of the three sites that
-// Qt-side window and tab state would unblock together -- the parser half of that
-// sentence is delivered.
+// launchDocumentWindow was the SAME DEFERRAL and shared the guard: it relaunches
+// with `--cascade --edit "<path>"`.
 //
 // launchTornOffTabWindow is the FOURTH relaunch, moved out of tabs.cpp's tab drag
-// 2026-09-23, and the same deferral: it passes `--cascade --tabbed --pos X Y "<path>"`.
+// 2026-09-23, and was the same deferral: it passes `--cascade --tabbed --pos X Y "<path>"`.
 // (x, y) is the screen position for the new window; the path is UTF-8.
 //
 // THE FIRST TWO ARE UNGUARDED SINCE 2026-10-06: src/window_launch_qt.cpp is their Qt arm, and

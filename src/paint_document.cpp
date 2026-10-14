@@ -68,18 +68,14 @@ struct MarkerStrokeStyle final : tinta::StrokeStyle {};
 //
 // Create-if-null, returns nothing: every caller reads app.dashedStrokeStyle afterwards,
 // which is what the paint pass already did. It lives in THIS file and not in a header
-// because MarkerStrokeStyle is in the anonymous namespace above, and because the guard
-// has to be TINTA_D2D_BACKEND -- see this file's opening note for what _WIN32 cost.
+// because MarkerStrokeStyle is in the anonymous namespace above. There is no guard: the
+// Direct2D arm went with 0b39ae6 (this file's opening note records what guarding it on
+// _WIN32 once cost), so the marker is the stroke style on every platform.
 void ensureDashedStrokeStyle(App& app) {
     if (app.dashedStrokeStyle) return;
-    // No factory and no native pointer without the Direct2D backend, so the marker
-    // stands in. THIS ARM RUNS ON WINDOWS TOO, under qinta -- it is not the
-    // "non-Windows" arm any more, and reading it as one is how the guard came to be
-    // spelled _WIN32 in the first place.
-    //
-    // THE TWO ARMS NOW END IN THE SAME STATEMENT, which they did not before: this one
-    // called dashedStrokeStyleStorage.install() while the Direct2D arm called
-    // app.seatDashedStrokeStyle(). Both are assignments into one unique_ptr member now,
+    // One arm. When there were two they ended differently: this one called
+    // dashedStrokeStyleStorage.install() while the Direct2D arm called
+    // app.seatDashedStrokeStyle(). Both became assignments into one unique_ptr member,
     // and Seated<> is gone from this member entirely -- install() was the door
     // include/seated.h wrote for the case where "nothing off Windows can produce a native
     // COM pointer, so seat() is unreachable there", and a member that never seats does not

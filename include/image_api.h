@@ -14,18 +14,17 @@
 // windows.h ordering requirement does not spread to every consumer. tinta::Color
 // cannot take that treatment: `rasterizeToImage` takes one BY VALUE, so its size has
 // to be known here. geometry.h is safe to include where render_api.h is not -- it
-// pulls <d2d1.h> only inside `#ifdef _WIN32` (geometry.h:66-68) and imposes no
-// include order, so the cost is the Direct2D closure appearing in a Windows
-// preprocessor trace, not a rule a caller can get wrong.
+// includes no Windows header (its `#ifdef _WIN32` <d2d1.h> went with the Direct2D stack)
+// and imposes no include order.
 #include "geometry.h"
 
 // The image seam: fetch, decode, and SVG rasterization, with no backend in it.
 //
 // WHY THIS SEAM EXISTS AND WHY IT IS SHAPED THIS WAY
 //
-// render.cpp is 3,498 lines and carried three unguarded Windows-only includes --
+// render.cpp was 3,498 lines and carried three unguarded Windows-only includes --
 // <urlmon.h>, <shlwapi.h> and <d2d1_3.h>. Unguarded is the operative word: app.h
-// puts d2d1.h, dwrite.h and wincodec.h behind `#ifdef _WIN32` and forward-declares
+// put d2d1.h, dwrite.h and wincodec.h behind `#ifdef _WIN32` and forward-declares
 // the COM types off Windows, so every other native mention in render.cpp is an
 // ordinary compile ERROR. These three were FATAL, and a fatal header means the file
 // was never measured at all -- render.cpp read `errors=1, fatal=1` at urlmon.h:19
@@ -139,8 +138,8 @@ struct DecodedImage {
 // file can declare enormous dimensions, and the allocation happens before anything
 // has decoded a single pixel: at 4 bytes per pixel a declared 65535x65535 asks for
 // 17 GB. The bound lives in the seam rather than at the call site because it is a
-// property of "decode an untrusted file", and both backends enforce it identically
-// so the two cannot drift.
+// property of "decode an untrusted file". There is one backend since 0b39ae6
+// (src/image_qt.cpp); when there were two, both enforced it, so they could not drift.
 inline constexpr unsigned kMaxImageDimension = 16384;
 
 // Download a remote resource to a local temporary file and return its path, or an
@@ -160,10 +159,9 @@ std::wstring fetchToTempFile(const std::string& url);
 // distinguishable from a successful decode of a zero-area image (which cannot occur,
 // since a zero dimension is itself a failure).
 //
-// The two backends do NOT support identical format sets, and this seam does not
-// pretend otherwise: WIC and Qt's image plugins overlap on the common web formats
-// and diverge at the edges. What is asserted is agreement on PNG, which is the
-// format the test emits and the one the seam is exercised with.
+// The format set is Qt's image plugins'. When the retired WIC backend existed the two
+// overlapped on the common web formats and diverged at the edges, so what is asserted
+// is PNG, which is the format the test emits and the one the seam is exercised with.
 DecodedImage decodeImageFile(const std::wstring& path);
 
 // Rasterize an SVG document at `scale`, reporting the document's intrinsic size in
@@ -178,10 +176,9 @@ DecodedImage decodeImageFile(const std::wstring& path);
 // replaced-element default of 300x150. The result is clamped to 4096 DIPs per axis
 // before scaling.
 //
-// Neither backend supports the full SVG specification. Direct2D's SVG subset omits
-// <text> entirely; Qt's renderer covers SVG 1.2 Tiny. A document that renders
-// differently on the two platforms is expected, and only geometry the test document
-// pins is asserted.
+// The full SVG specification is not supported: Qt's renderer covers SVG 1.2 Tiny (the
+// retired Direct2D subset omitted <text> entirely). Only geometry the test document pins
+// is asserted.
 DecodedImage rasterizeSvg(const void* data, size_t size, float scale,
                           float& intrinsicW, float& intrinsicH);
 
@@ -212,7 +209,7 @@ DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
 // device bitmap was a mutation of the target on the retired Direct2D stack. The rest of this header is pure.
 //
 // kMaxImageDimension is NOT enforced here, and that is the one place this entry point is
-// weaker than decodeImageFile. Neither backend allocates a pixel buffer on this path --
+// weaker than decodeImageFile. The backend allocates no pixel buffer on this path --
 // the decoder writes into a device or platform bitmap and enforces its own limits -- so
 // the 17 GB allocation the bound exists to prevent is not reachable by the same route.
 // What a hostile file can still do is ask a GPU for a very large texture. That is the

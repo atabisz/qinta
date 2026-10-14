@@ -2495,10 +2495,10 @@ if(BUILD_TESTING)
         # appears in no object list, so tests/portable-sources.txt is structurally
         # blind to it and the portable build would read none of it.
         #
-        # tests/render_api_shared.cpp holds the assertions and is compiled into BOTH
-        # this target and render_d2d_tests below, so the two backends are held to the
-        # same assertions in the same order. Editing it changes both readings at once,
-        # which is the intent: a backend cannot be made green on its own.
+        # tests/render_api_shared.cpp holds the assertions. It was compiled into this
+        # target and render_d2d_tests, so the two backends were held to the same
+        # assertions in the same order; render_d2d_tests went with the Direct2D stack in
+        # 0b39ae6, and the file now reads the one backend left.
         add_executable(render_api_tests
             tests/render_api_tests.cpp
             tests/render_api_shared.cpp

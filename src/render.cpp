@@ -2311,6 +2311,7 @@ static void layoutCodeBlock(App& app, const ElementPtr& elem, float& y, float in
     app.docText += L"\n";
 
     float blockHeight = lineCount * lineHeight + padding * 2;
+    app.keepTogetherRects.push_back(tinta::rectF(indent, y, indent + maxWidth, y + blockHeight));
     size_t bgRectIndex = app.layoutRects.size();
     // Peeking a plain-text file: the panel already frames the content,
     // so the whole-file wrapper block skips its own card
@@ -3080,6 +3081,12 @@ static void layoutTable(App& app, const ElementPtr& elem, float& y, float indent
         float cellX = indent;
         bool isHeader = (r == 0);
         const auto& row = rows[r];
+
+        // The header keeps its first row with it, so a page never ends on a lone header
+        const float keepHeight =
+            rowHeights[r] + (isHeader && rows.size() > 1 ? rowHeights[1] : 0.0f);
+        app.keepTogetherRects.push_back(
+            tinta::rectF(indent, y, indent + totalWidth, y + keepHeight));
 
         // Header row background
         if (isHeader) {

@@ -3,6 +3,8 @@
 
 #include "app.h"
 
+#include <vector>
+
 // Prints the current document. The user picks any installed printer from the
 // standard dialog. Rendering uses a dedicated light print palette regardless of
 // the active theme.
@@ -39,6 +41,11 @@ inline constexpr int PRINT_PAPER_COUNT = 4;
 
 // Re-paginates the open preview for a new paper size / orientation
 void printPreviewSetFormat(App& app, int paper, bool landscape);
+
+// Page break positions in document Y for pages `pageContentH` tall, over the current layout.
+// Breaks are pulled above any line, image, shape, code block or table row they would cut,
+// unless that atom is taller than most of a page. Declared for tests/page_break_tests.cpp.
+std::vector<float> computePageBreaks(const App& app, float pageContentH);
 
 // Debug/testing: renders each paginated page to <outDir>/page-N.png using
 // the same layout and pagination as printing. Returns the page count, or -1.

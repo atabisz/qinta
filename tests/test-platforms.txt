@@ -118,6 +118,7 @@ draft_owner                    both
 file_association               windows-only   sources: 1 -- settings_win32.cpp (window_chrome_win32.cpp reaches every app test through qinta_app)
 highlight_layout               both
 strike_layout                  both
+page_breaks                    both
 html_layout                    both
 ime                            both
 inline_code_theme              both

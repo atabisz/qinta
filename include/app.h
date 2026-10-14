@@ -1023,6 +1023,11 @@ struct App {
     };
     std::vector<LineBucket> lineBuckets;
 
+    // Blocks a page break must not cut through, in document coordinates: each code block's
+    // box and each table row. Text lines alone are not enough -- a break pulled above a code
+    // block's first line still cut its box, printing an empty grey sliver at the page foot.
+    std::vector<tinta::RectF> keepTogetherRects;
+
     // Search match info
     struct SearchMatch {
         size_t textRectIndex;       // Index into textRects
@@ -1442,6 +1447,7 @@ struct App {
         tableCellRects.clear();
         textRects.clear();
         lineBuckets.clear();
+        keepTogetherRects.clear();
         docText.clear();
         docTextLower.clear();
         headings.clear();

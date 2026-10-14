@@ -2635,6 +2635,7 @@ if(BUILD_TESTING)
             tinta_qt_app_test(highlight_layout_tests highlight_layout
                 tests/highlight_layout_tests.cpp
                 TINTA_HIGHLIGHT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/highlight-layout.md")
+            tinta_qt_app_test(page_break_tests page_breaks tests/page_break_tests.cpp)
             tinta_qt_app_test(strike_layout_tests strike_layout
                 tests/strike_layout_tests.cpp
                 TINTA_STRIKE_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/strikethrough-spans.md")

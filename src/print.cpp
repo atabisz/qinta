@@ -198,9 +198,12 @@ void leavePrintLayout(App& app, const SavedView& saved) {
     if (canRepaint()) requestRepaint();
 }
 
+} // namespace
+
 // Page break positions in document Y. Breaks avoid slicing text lines,
-// images, and diagram shapes by pulling the cut above any straddling atom;
-// an atom taller than most of a page is sliced rather than looping.
+// images, diagram shapes, code blocks and table rows by pulling the cut above
+// any straddling atom; an atom taller than most of a page is sliced rather
+// than looping.
 std::vector<float> computePageBreaks(const App& app, float pageContentH) {
     std::vector<float> breaks;
     float docEnd = app.contentHeight;
@@ -217,6 +220,7 @@ std::vector<float> computePageBreaks(const App& app, float pageContentH) {
             for (const auto& line : app.lineBuckets) consider(line.top, line.bottom);
             for (const auto& bmp : app.layoutBitmaps) consider(bmp.destRect.top, bmp.destRect.bottom);
             for (const auto& shape : app.layoutShapes) consider(shape.rect.top, shape.rect.bottom);
+            for (const auto& block : app.keepTogetherRects) consider(block.top, block.bottom);
             // Shrink bands page-break as a unit: a scaled diagram split
             // across pages would render discontinuously
             for (const auto& band : app.printShrinkBands) consider(band.top, band.bottom);
@@ -237,6 +241,8 @@ std::vector<float> computePageBreaks(const App& app, float pageContentH) {
     }
     return breaks;  // implicit final page runs to docEnd
 }
+
+namespace {
 
 // Replays the cached layout for the document Y range [yStart, yEnd) into
 // the given render target, translated so yStart lands at offsetY. A
@@ -278,6 +284,16 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
     // preview rasterizer scales the whole page to display resolution)
     tinta::Matrix3x2F baseTransform;
     target.GetTransform(&baseTransform);
+    // Clipped to the range. An item is drawn when it overlaps [yStart, yEnd), and drawn whole,
+    // so a table's full-height grid lines and a row or code box straddling the break used to
+    // paint past the page foot, and the top of a block above the range into the next page's
+    // top margin. The page breaks keep blocks whole where they fit; this keeps a page's ink
+    // inside its own range when one cannot.
+    target.PushAxisAlignedClip(
+        tinta::rectF(-100000.0f, offsetY, 100000.0f, offsetY + (yEnd - yStart)),
+        // Not Aliased: on Qt that mode turns antialiasing off for everything drawn inside
+        // the clip, which re-rendered every printed page without it
+        tinta::AntialiasMode::PerPrimitive);
     auto applyBand = [&](float top, float bottom) {
         for (const auto& band : app.printShrinkBands) {
             if (top >= band.top - 0.5f && bottom <= band.bottom + 0.5f) {
@@ -518,6 +534,7 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
                               run.layout.get(), brush);
         resetBand(banded);
     }
+    target.PopAxisAlignedClip();
 }
 
 // Paper size for previewing before the dialog runs, decided by locale only.

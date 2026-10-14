@@ -354,7 +354,7 @@ it rather than by its shape.
 
 | File | Lines | Note |
 |---|---|---|
-| `render.cpp` | 3,529 | Compiles, links and runs off Windows. Kept here because it is the file the native-mention table under **How complete is it?** tracks |
+| `render.cpp` | 3,536 | Compiles, links and runs off Windows. Kept here because it is the file the native-mention table under **How complete is it?** tracks |
 | `settings_win32.cpp` + `window_chrome_win32.cpp` | 223 + 50 | Windows by subject: the file association in the registry, and the DWM title-bar colours. Listed in `tests/windows-only-sources.txt` |
 
 Under one stack there is no permanent Windows half *of a seam*, so the old "will never move"
@@ -378,11 +378,11 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 54,489 / 66,750 | **81.6%** |
+| A. Source lines free of the Windows stack | 54,513 / 66,787 | **81.6%** |
 | B. `src/*.cpp` files compiling without Windows headers | 79 / 81 | 97.5% |
 | C. Files a running test links **off Windows** | 78 / 81 | 96.3% |
-| D. Test targets that *could* move, and do | 55 / 56 | 98.2% |
-| E. All test targets, run off Windows | 55 / 57 | 96.5% |
+| D. Test targets that *could* move, and do | 56 / 57 | 98.2% |
+| E. All test targets, run off Windows | 56 / 58 | 96.6% |
 
 - **A** is source lines in the `src/*.cpp` files on `tests/portable-sources.txt`, over every
   `.cpp` and `.h` under `src/` and `include/`.
@@ -394,7 +394,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 54,762 lines of the 66,750,
+numerator. With `src/*.cpp` totalling 54,786 lines of the 66,787,
 **basis A's ceiling is 82.0%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 
@@ -416,7 +416,7 @@ commit rather than carried forward:
 | `092afcd` image seam | 3,385 | 75 | 60 |
 | `cc292d4` path geometry seam | 3,379 | 55 | 38 |
 | `d1351e8` line-breaking seam | 3,301 | 38 | 22 |
-| current tree | 3,529 | 15 | 0 |
+| current tree | 3,536 | 15 | 0 |
 
 The same numerals recur with different meanings in that table, so read the column, not the digit.
 "Excluding whole-line comments" drops whole-line `//` comments only. The remaining mentions are all

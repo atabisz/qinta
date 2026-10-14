@@ -1175,13 +1175,13 @@ void walk(ExportCtx& ctx, const ElementPtr& elem) {
             // icon-and-label title line the viewer draws
             static const struct {
                 const char* cls;
-                const char* title;  // icon (text presentation) + label
+                const char* icon;  // text presentation; the label is alertLabel
             } kAlert[] = {
-                {"note", "\xE2\x93\x98\xEF\xB8\x8E  Note"},
-                {"tip", "\xF0\x9F\x92\xA1\xEF\xB8\x8E  Tip"},
-                {"important", "\xE2\x9D\x97\xEF\xB8\x8E  Important"},
-                {"warning", "\xE2\x9A\xA0\xEF\xB8\x8E  Warning"},
-                {"caution", "\xE2\x9B\x94\xEF\xB8\x8E  Caution"},
+                {"note", "\xE2\x93\x98\xEF\xB8\x8E  "},
+                {"tip", "\xF0\x9F\x92\xA1\xEF\xB8\x8E  "},
+                {"important", "\xE2\x9D\x97\xEF\xB8\x8E  "},
+                {"warning", "\xE2\x9A\xA0\xEF\xB8\x8E  "},
+                {"caution", "\xE2\x9B\x94\xEF\xB8\x8E  "},
             };
             int kind =
                 elem->alertKind >= 1 && elem->alertKind <= 5 ? elem->alertKind
@@ -1189,7 +1189,8 @@ void walk(ExportCtx& ctx, const ElementPtr& elem) {
             if (kind) {
                 const auto& a = kAlert[kind - 1];
                 ctx.out += std::string("<blockquote class=\"alert-") + a.cls +
-                           "\"><p class=\"alert-title\">" + a.title + "</p>";
+                           "\"><p class=\"alert-title\">" + a.icon +
+                           htmlEscape(toUtf8(alertLabel(ctx.app.currentLanguageIndex, kind))) + "</p>";
             } else {
                 ctx.out += "<blockquote>";
             }

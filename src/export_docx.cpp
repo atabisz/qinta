@@ -16,6 +16,7 @@
 #include "clipboard.h"
 #include "editor.h"
 #include "image_api.h"
+#include "i18n.h"
 #include "math_render.h"
 #include "mermaid_ext.h"
 // For ensureDashedStrokeStyle. The dashed stroke style used to be built HERE, from
@@ -1050,16 +1051,16 @@ void emitDiagramOrCode(DocxCtx& ctx, const std::string& source,
 
 // GitHub alert palette (light/dark hex pairs, same table as the viewer)
 struct AlertInfo {
-    const char* title;
+    const char* icon;  // text presentation; the label is alertLabel
     uint32_t light;
     uint32_t dark;
 };
 const AlertInfo kAlerts[] = {
-    {"\xE2\x93\x98\xEF\xB8\x8E  Note", 0x0969DA, 0x4493F8},
-    {"\xF0\x9F\x92\xA1\xEF\xB8\x8E  Tip", 0x1A7F37, 0x3FB950},
-    {"\xE2\x9D\x97\xEF\xB8\x8E  Important", 0x8250DF, 0xAB7DF8},
-    {"\xE2\x9A\xA0\xEF\xB8\x8E  Warning", 0x9A6700, 0xD29922},
-    {"\xE2\x9B\x94\xEF\xB8\x8E  Caution", 0xCF222E, 0xF85149},
+    {"\xE2\x93\x98\xEF\xB8\x8E  ", 0x0969DA, 0x4493F8},
+    {"\xF0\x9F\x92\xA1\xEF\xB8\x8E  ", 0x1A7F37, 0x3FB950},
+    {"\xE2\x9D\x97\xEF\xB8\x8E  ", 0x8250DF, 0xAB7DF8},
+    {"\xE2\x9A\xA0\xEF\xB8\x8E  ", 0x9A6700, 0xD29922},
+    {"\xE2\x9B\x94\xEF\xB8\x8E  ", 0xCF222E, 0xF85149},
 };
 
 std::string hexOfRgb(uint32_t rgb) {
@@ -1121,7 +1122,9 @@ void walkBlocks(DocxCtx& ctx, const ElementPtr& elem, ParaProps props,
                             "\"/></w:pBdr><w:ind w:left=\"240\"/></w:pPr>"
                             "<w:r><w:rPr><w:b/><w:color w:val=\"" + color +
                             "\"/></w:rPr><w:t xml:space=\"preserve\">" +
-                            xmlEscape(alert.title) + "</w:t></w:r></w:p>";
+                            xmlEscape(std::string(alert.icon) +
+                                      toUtf8(alertLabel(ctx.app.currentLanguageIndex, kind))) +
+                            "</w:t></w:r></w:p>";
             } else {
                 quote.borderColor = ctx.quoteBorderHex;
                 quote.indentTwips = 240;

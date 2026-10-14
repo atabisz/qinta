@@ -28,6 +28,8 @@
 #include "app.h"
 #include "document.h"
 #include "export.h"
+#include "config_dir.h"
+#include "i18n.h"
 #include "math_render.h"
 #include "mermaid_ext.h"
 #include "render.h"
@@ -290,6 +292,40 @@ int main() {
     check(!exportHtmlFile(emptyApp, never.wstring()),
           "an App with no document tree exports nothing and says so");
     check(!fs::exists(never), "...and writes no file at all");
+
+    // --- alert titles in the UI language -------------------------------------
+    // The title was hard-coded English while alert.* was translated in every language and
+    // had no caller. German, with English as the counter-case: one export cannot tell a
+    // translated title from a label that happens to be the same in both.
+    {
+        // German is seeded by loadLanguageOverrides, as main_qt.cpp does at startup; without it
+        // every non-built-in language reads English. The config dir is pinned to the probe's
+        // empty folder first, so no languages.ini of the machine's can change a string here.
+        pinTintaConfigDir(probeDir.wstring());
+        loadLanguageOverrides();
+        auto alert = parseDocument(parser, "> [!WARNING]\n> Careful.\n", "notes.md");
+        App alertApp;
+        alertApp.root = alert.root;
+        auto exportTitle = [&](int language) {
+            alertApp.currentLanguageIndex = language;
+            const fs::path out = probeDir / L"alert.html";
+            check(exportHtmlFile(alertApp, out.wstring()), "the alert document exports");
+            std::ifstream in(out, std::ios::binary);
+            std::ostringstream ss;
+            ss << in.rdbuf();
+            const std::string text = ss.str();
+            const size_t at = text.find("<p class=\"alert-title\">");
+            return at == std::string::npos ? std::string()
+                                           : text.substr(at, text.find("</p>", at) - at);
+        };
+        const int german = languageIndexById("de");
+        check(german > 0, "German is a known UI language");
+        const std::string germanTitle = exportTitle(german);
+        const std::string englishTitle = exportTitle(LANG_INDEX_EN);
+        checkContains(germanTitle, "Warnung", "a German UI exports the alert title in German");
+        checkAbsent(germanTitle, "Warning", "...and not in English");
+        checkContains(englishTitle, "Warning", "an English UI exports it in English");
+    }
 
     // --- THE STUB TRIPWIRES -------------------------------------------------
     // Every one of these must be false. A true means plain-markdown export now

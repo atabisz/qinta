@@ -465,6 +465,13 @@ struct RuntimeLanguage;
 const wchar_t* overrideFor(const std::string& id, const char* key);
 }
 
+const wchar_t* alertLabel(int langIndex, int kind) {
+    static const char* const kKeys[] = {"alert.note", "alert.tip", "alert.important",
+                                        "alert.warning", "alert.caution"};
+    if (kind < 1 || kind > 5) return L"";
+    return tr(langIndex, kKeys[kind - 1]);
+}
+
 const wchar_t* tr(int langIndex, const char* key) {
     if (!key) return L"";
     langIndex = clampLanguageIndex(langIndex);

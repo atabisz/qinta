@@ -1,4 +1,5 @@
 #include "render.h"
+#include "i18n.h"
 #include "inline_style.h"
 #include "utils.h"
 #include "syntax.h"
@@ -2433,18 +2434,19 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
     float startY = y;
     const LayoutSnapshot contentStart = takeSnapshot(app);
 
-    // GitHub alert callouts: accent-colored bar plus a bold title line.
-    // Colors are github.com's light/dark alert accents, picked by theme.
+    // GitHub alert callouts: accent-colored bar plus a bold title line, the icon here and
+    // the label in the UI language (alertLabel). Colors are github.com's light/dark alert
+    // accents, picked by theme.
     static const struct {
-        const wchar_t* title;
+        const wchar_t* icon;
         uint32_t light;
         uint32_t dark;
     } ALERT_STYLES[] = {
-        {L"\u24D8  Note",            0x0969DA, 0x4493F8},  // circled info
-        {L"\U0001F4A1\uFE0E  Tip",   0x1A7F37, 0x3FB950},  // bulb, text presentation
-        {L"\u2757\uFE0E  Important", 0x8250DF, 0xAB7DF8},  // exclamation
-        {L"\u26A0\uFE0E  Warning",   0x9A6700, 0xD29922},  // warning triangle
-        {L"\u26D4\uFE0E  Caution",   0xCF222E, 0xF85149},  // no-entry
+        {L"\u24D8  ",            0x0969DA, 0x4493F8},  // circled info
+        {L"\U0001F4A1\uFE0E  ",   0x1A7F37, 0x3FB950},  // bulb, text presentation
+        {L"\u2757\uFE0E  ", 0x8250DF, 0xAB7DF8},  // exclamation
+        {L"\u26A0\uFE0E  ",   0x9A6700, 0xD29922},  // warning triangle
+        {L"\u26D4\uFE0E  ",   0xCF222E, 0xF85149},  // no-entry
     };
 
     tinta::Color barColor = app.theme.blockquoteBorder;
@@ -2452,7 +2454,7 @@ static void layoutBlockquote(App& app, const ElementPtr& elem, float& y, float i
         const auto& style = ALERT_STYLES[elem->alertKind - 1];
         barColor = hexColor(app.theme.isDark ? style.dark : style.light);
 
-        std::wstring title = style.title;
+        std::wstring title = std::wstring(style.icon) + alertLabel(app.currentLanguageIndex, elem->alertKind);
         LayoutInfo info = createLayout(app, title, app.textFormat, 24.0f, app.bodyTypography);
         if (info.layout) {
             // On the seam, and its old comment said why it was not: "native for the

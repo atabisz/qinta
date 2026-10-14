@@ -58,6 +58,11 @@ const wchar_t* tr(int langIndex, const char* key);
 // Convenience overload using app.currentLanguageIndex.
 const wchar_t* tr(const App& app, const char* key);
 
+// The label of a GitHub alert, kind 1..5 (note, tip, important, warning, caution), in the UI
+// language. The viewer and both exporters prefix their own icon; this is the one place the
+// label comes from, so the three cannot drift into English again.
+const wchar_t* alertLabel(int langIndex, int kind);
+
 // Detect the user's preferred UI language via GetUserPreferredUILanguages.
 // Returns one of the LANG_INDEX_* values (always English as the last resort).
 int detectSystemLanguage();

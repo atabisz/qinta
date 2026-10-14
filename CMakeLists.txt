@@ -1987,6 +1987,10 @@ if(BUILD_TESTING)
     # off one sweep. Second pass: 0 removable, on a clean build directory because
     # stale objects from the previous list are still on disk otherwise.
     #
+    # i18n.cpp REJOINED on 2026-10-14, one entry, because export_html.cpp now takes its alert
+    # titles from alertLabel there (they were hard-coded English). Not re-swept for
+    # minimality: that adds one object and removes nothing. The reading below predates it.
+    #
     # Final reading, 21 objects, 0 removable, with omitting export_html.cpp itself as
     # the positive control (3 undefined). Undefined-symbol counts without each entry,
     # lowest first: themes.cpp, config_dir.cpp, document.cpp, file_dialog_qt.cpp and
@@ -2005,6 +2009,7 @@ if(BUILD_TESTING)
     add_executable(export_html_tests
         tests/export_html_tests.cpp
         src/export_html.cpp
+        src/i18n.cpp
         src/document.cpp
         src/markdown.cpp
         src/themes.cpp

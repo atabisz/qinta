@@ -2614,7 +2614,7 @@ struct AsyncImageResult {
 // UI thread, so dead links can't stall layout (#44). The worker owns its own
 // COM apartment and WIC factory; only plain pixel bytes cross the thread
 // boundary.
-static void asyncImageWorker(HWND hwnd, std::string src) {
+static void asyncImageWorker(std::string src) {
     auto* result = new AsyncImageResult();
     result->src = src;
 
@@ -2635,7 +2635,8 @@ static void asyncImageWorker(HWND hwnd, std::string src) {
         }
     }
 
-    if (!postWindowMessage(hwnd, WM_APP_IMAGE_READY, 0, (LPARAM)result)) {
+    if (!postWindowMessage(tinta::PostedMessage::ImageReady, 0,
+                           reinterpret_cast<std::intptr_t>(result))) {
         delete result;  // window already gone
     }
 }
@@ -2726,7 +2727,7 @@ static App::ImageEntry& getOrLoadImage(App& app, const std::string& src) {
         entry.failed = false;
         entry.pending = true;
         app.storeImageCacheEntry(src, std::move(entry));
-        std::thread(asyncImageWorker, app.hwnd, src).detach();
+        std::thread(asyncImageWorker, src).detach();
         return app.imageCache[src];
     } else {
         // Resolve relative to the current file's directory. Both strings are

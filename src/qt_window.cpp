@@ -275,39 +275,48 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // WORKER thread calls: the async image download and the folder scan post their results
     // from the threads that produced them. So this closure runs off the GUI thread, reads
     // nothing of app_, and does one thing -- queue the handler onto this widget's thread,
-    // which is what PostMessageW's queue does for WinMain. A message input.cpp has no
-    // handler for gets false, and its sender keeps ownership of whatever lParam points at.
+    // which is what PostMessageW's queue does for WinMain. A true hands the receiver
+    // ownership of whatever `pointer` points at.
     //
     // The update() after the handler is belt and braces: completeFolderSearch repaints
     // through canRepaint itself now, and completeAsyncImage's early exits do not.
     //
-    // WM_CLOSE is queued like the others -- its senders are mid-handler, and closing under
+    // Close is queued like the others -- its senders are mid-handler, and closing under
     // them is what the queue exists to prevent -- but it is answered by close(), which
     // runs closeEvent and so the same unsaved-buffer check WinMain's WM_CLOSE runs.
     //
-    // WM_SETTINGCHANGE is the follow-system toggle posting to itself, with a string literal
-    // for lParam, so there is nothing to own. It takes WinMain's case with this arm's reading.
-    tinta::setPostSink([this](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
-        if (!handlesPostedMessage(message)) return false;
+    // SettingChange is the follow-system toggle posting to itself, with a string literal
+    // for `pointer`, so there is nothing to own. It takes WinMain's case with this arm's reading.
+    //
+    // Every tinta::PostedMessage is taken: the switch below has a case for each and no default,
+    // as handlePostedMessage's does, so a message added without one fails the Linux build.
+    tinta::setPostSink([this](tinta::PostedMessage message, std::uintptr_t value,
+                              std::intptr_t pointer) {
         return QMetaObject::invokeMethod(
             this,
-            [this, message, wParam, lParam]() {
-                if (message == WM_CLOSE) {
+            [this, message, value, pointer]() {
+                using tinta::PostedMessage;
+                switch (message) {
+                case PostedMessage::Close:
                     close();
                     return;
-                }
-                if (message == WM_SETTINGCHANGE) {
-                    const auto* area = reinterpret_cast<const wchar_t*>(lParam);
+                case PostedMessage::SettingChange: {
+                    const auto* area = reinterpret_cast<const wchar_t*>(pointer);
                     if (area && std::wcscmp(area, L"ImmersiveColorSet") == 0 &&
                         followSystemAppearance(app_, tinta::systemPrefersLight())) {
                         update();
                     }
                     return;
                 }
-                syncViewport();
-                handlePostedMessage(app_, message, static_cast<WPARAM>(wParam),
-                                    static_cast<LPARAM>(lParam));
-                update();
+                case PostedMessage::ImageReady:
+                case PostedMessage::FolderSearch:
+                case PostedMessage::LayoutChunk:
+                case PostedMessage::PandocDone:
+                    syncViewport();
+                    handlePostedMessage(app_, message, value, pointer);
+                    update();
+                    return;
+                }
             },
             Qt::QueuedConnection);
     });

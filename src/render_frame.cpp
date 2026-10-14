@@ -73,14 +73,14 @@ void renderFrame(App& app) {
             // entering edit mode no longer blocks on a full layout (#77)
             layoutDocumentViewportFirst(app);
             if (!app.layoutComplete) {
-                postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+                postWindowMessage(tinta::PostedMessage::LayoutChunk);
             }
         } else {
             // Lay out the visible region first so this frame presents
             // immediately; the rest continues in WM_APP_LAYOUT_CHUNK slices
             layoutDocumentViewportFirst(app);
             if (!app.layoutComplete) {
-                postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
+                postWindowMessage(tinta::PostedMessage::LayoutChunk);
             }
         }
     }

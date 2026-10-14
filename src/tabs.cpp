@@ -254,7 +254,7 @@ void tabCloseIndex(App& app, HWND hwnd, int index) {
         // The last tab closes into the start page instead of taking the
         // window with it; closing the start page itself closes the window
         if (startPageActive(app)) {
-            postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+            postWindowMessage(tinta::PostedMessage::Close);
         } else {
             tabBecomeStartPage(app, hwnd);
         }
@@ -1437,7 +1437,7 @@ tinta::TabGhostCard ghostCardFor(App& app) {
 void dragCloseLocal(App& app, HWND hwnd, int index) {
     if (index < 0 || index >= (int)app.tabs.size()) return;
     if ((int)app.tabs.size() <= 1) {
-        postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+        postWindowMessage(tinta::PostedMessage::Close);
         return;
     }
     if (index == app.activeTab) {

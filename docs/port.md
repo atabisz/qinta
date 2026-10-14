@@ -354,7 +354,7 @@ it rather than by its shape.
 
 | File | Lines | Note |
 |---|---|---|
-| `render.cpp` | 3,526 | Compiles, links and runs off Windows. Kept here because it is the file the native-mention table under **How complete is it?** tracks |
+| `render.cpp` | 3,527 | Compiles, links and runs off Windows. Kept here because it is the file the native-mention table under **How complete is it?** tracks |
 | `settings_win32.cpp` + `window_chrome_win32.cpp` | 253 + 50 | Windows by subject: the file association in the registry, and the DWM title-bar colours. Listed in `tests/windows-only-sources.txt` |
 
 Under one stack there is no permanent Windows half *of a seam*, so the old "will never move"
@@ -378,7 +378,7 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 54,504 / 66,917 | **81.5%** |
+| A. Source lines free of the Windows stack | 54,518 / 66,920 | **81.5%** |
 | B. `src/*.cpp` files compiling without Windows headers | 79 / 81 | 97.5% |
 | C. Files a running test links **off Windows** | 78 / 81 | 96.3% |
 | D. Test targets that *could* move, and do | 55 / 56 | 98.2% |
@@ -394,7 +394,7 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 54,807 lines of the 66,917,
+numerator. With `src/*.cpp` totalling 54,821 lines of the 66,920,
 **basis A's ceiling is 81.9%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 
@@ -416,7 +416,7 @@ commit rather than carried forward:
 | `092afcd` image seam | 3,385 | 75 | 60 |
 | `cc292d4` path geometry seam | 3,379 | 55 | 38 |
 | `d1351e8` line-breaking seam | 3,301 | 38 | 22 |
-| current tree | 3,526 | 15 | 0 |
+| current tree | 3,527 | 15 | 0 |
 
 The same numerals recur with different meanings in that table, so read the column, not the digit.
 "Excluding whole-line comments" drops whole-line `//` comments only. The remaining mentions are all

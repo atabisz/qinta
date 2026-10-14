@@ -3251,18 +3251,13 @@ int main(int argc, char** argv) {
             const bool pandocRunningBefore = app.pandocRunning;
             app.signalChips.clear();
 
-            // The sink's own allowlist, with a message that must STAY refused beside it so a
-            // true reading cannot be a function that says yes to everything.
-            const bool takesDone = handlesPostedMessage(WM_APP_PANDOC_DONE);
-            const bool refusesOther = !handlesPostedMessage(WM_APP + 99);
-
             // Round one: a success. The flag is read BEFORE the post as well, because `false`
             // after is also what a flag nobody ever set reads.
             app.pandocRunning = true;
             const bool armedOnce = app.pandocRunning;
             bool postedOk = false;
             std::thread okWorker(
-                [&postedOk]() { postedOk = postWindowMessage(nullptr, WM_APP_PANDOC_DONE, 1, 0); });
+                [&postedOk]() { postedOk = postWindowMessage(tinta::PostedMessage::PandocDone, 1); });
             okWorker.join();
             const bool clearedOnce =
                 pumpUntil([&app]() { return !app.pandocRunning; }, 2000);
@@ -3281,7 +3276,7 @@ int main(int argc, char** argv) {
             const bool armedTwice = app.pandocRunning;
             bool postedFail = false;
             std::thread failWorker([&postedFail]() {
-                postedFail = postWindowMessage(nullptr, WM_APP_PANDOC_DONE, 0, 0);
+                postedFail = postWindowMessage(tinta::PostedMessage::PandocDone, 0);
             });
             failWorker.join();
             const bool clearedTwice =
@@ -3292,23 +3287,20 @@ int main(int argc, char** argv) {
                 app.signalChips.empty() ? -1 : app.signalChips.back().severity;
             const int failIcon = app.signalChips.empty() ? -1 : app.signalChips.back().icon;
 
-            std::printf("pandoc_done takes=%d refuses_other=%d posted=%d,%d armed=%d,%d "
+            std::printf("pandoc_done posted=%d,%d armed=%d,%d "
                         "cleared=%d,%d chips=%d ok=[%ls] sev=%d icon=%d fail=[%ls] sev=%d "
                         "icon=%d\n",
-                        takesDone ? 1 : 0, refusesOther ? 1 : 0, postedOk ? 1 : 0,
+                        postedOk ? 1 : 0,
                         postedFail ? 1 : 0, armedOnce ? 1 : 0, armedTwice ? 1 : 0,
                         clearedOnce ? 1 : 0, clearedTwice ? 1 : 0, (int)chipsAfterOk,
                         okText.c_str(), okSeverity, okIcon, failText.c_str(), failSeverity,
                         failIcon);
 
-            check(takesDone && refusesOther,
-                  "handlesPostedMessage names WM_APP_PANDOC_DONE and still refuses a message it "
-                  "does not handle");
             check(postedOk && postedFail,
                   "postWindowMessage ACCEPTS both completions from a worker thread -- it returned "
                   "false for the whole of this defect, which is how the worker learned nothing");
             check(armedOnce && clearedOnce,
-                  "a WM_APP_PANDOC_DONE post clears app.pandocRunning, the flag that was true for "
+                  "a PandocDone post clears app.pandocRunning, the flag that was true for "
                   "the life of the process");
             check(chipsAfterOk == 1 && okText == tr(app, "toast.pandoc_ok") &&
                       okSeverity == SIG_SUCCESS && okIcon == SIGI_CHECK,
@@ -3961,9 +3953,9 @@ int main(int argc, char** argv) {
         closeWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
         closeWindow.resize(800, 600);
 
-        // Clean: a posted WM_CLOSE is accepted, waits for the queue, then closes.
+        // Clean: a posted Close is accepted, waits for the queue, then closes.
         closeWindow.show();
-        const bool cleanPosted = postWindowMessage(nullptr, WM_CLOSE, 0, 0);
+        const bool cleanPosted = postWindowMessage(tinta::PostedMessage::Close);
         const bool visibleBeforeQueue = closeWindow.isVisible();
         QApplication::processEvents();
         const bool cleanClosed = !closeWindow.isVisible();
@@ -3977,7 +3969,7 @@ int main(int argc, char** argv) {
                                   closeWindow.isVisible();
         // With the dialog up, a posted close only re-marks the pending close.
         app.pendingWindowClose = false;
-        postWindowMessage(nullptr, WM_CLOSE, 0, 0);
+        postWindowMessage(tinta::PostedMessage::Close);
         QApplication::processEvents();
         const bool behindDialog = closeWindow.isVisible() && app.pendingWindowClose;
         // Keep editing cancels the whole close.
@@ -4225,14 +4217,15 @@ int main(int argc, char** argv) {
             followWindow.setAttribute(Qt::WA_DontShowOnScreen, true);
             followWindow.resize(800, 600);
             applyTheme(app, otherIdx);
-            posted = postWindowMessage(nullptr, WM_SETTINGCHANGE, 0,
-                                       reinterpret_cast<LPARAM>(L"ImmersiveColorSet"));
+            posted = postWindowMessage(tinta::PostedMessage::SettingChange, 0,
+                                       reinterpret_cast<std::intptr_t>(L"ImmersiveColorSet"));
             queued = app.currentThemeIndex == otherIdx;
             QApplication::processEvents();
             applied = app.currentThemeIndex == (reading ? lightIdx : darkIdx) &&
                       loadSettings().themeIndex == app.currentThemeIndex;
             applyTheme(app, otherIdx);
-            postWindowMessage(nullptr, WM_SETTINGCHANGE, 0, reinterpret_cast<LPARAM>(L"Policy"));
+            postWindowMessage(tinta::PostedMessage::SettingChange, 0,
+                              reinterpret_cast<std::intptr_t>(L"Policy"));
             QApplication::processEvents();
             otherAreaIgnored = app.currentThemeIndex == otherIdx;
         }

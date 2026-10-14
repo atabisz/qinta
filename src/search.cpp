@@ -43,9 +43,8 @@ void startFolderSearchScan(App& app) {
     // the only thing it is used for is platform::documentPathsEqual below, which
     // takes UTF-8. Once per scan instead of once per candidate file.
     std::string currentNameUtf8 = platform::toUtf8(current.filename().wstring());
-    HWND hwnd = app.hwnd;
 
-    std::thread([generation, queryLower, dir, currentNameUtf8, hwnd] {
+    std::thread([generation, queryLower, dir, currentNameUtf8] {
         auto* msg = new FolderScanMsg{generation, {}};
         std::error_code ec;
         int scanned = 0;
@@ -119,7 +118,7 @@ void startFolderSearchScan(App& app) {
         // `msg` transfers to the handler only if the post is accepted. Off Windows the
         // Qt window's post sink accepts this message; with no window it is refused,
         // and this line frees it -- on either stack, with no special case.
-        if (!postWindowMessage(hwnd, WM_APP_FOLDER_SEARCH, 0, (LPARAM)msg)) delete msg;
+        if (!postWindowMessage(tinta::PostedMessage::FolderSearch, 0, reinterpret_cast<std::intptr_t>(msg))) delete msg;
     }).detach();
 }
 
@@ -153,7 +152,7 @@ void performSearch(App& app) {
     // queue would start a thread whose results are deleted unread. On Windows both answers
     // are the window handle, so this is the old guard there.
     if (!app.editMode && app.folderSearchEnabled && canArmTimer(app.hwnd) &&
-        canPostWindowMessage(app.hwnd)) {
+        canPostWindowMessage()) {
         if (app.searchQuery.empty()) {
             clearFolderSearch(app);
         } else if (!app.currentFile.empty()) {

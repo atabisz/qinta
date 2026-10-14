@@ -105,26 +105,9 @@ inline int64_t usElapsed(Clock::time_point start) {
 // tree now calls the seam, including the three armTimer and one disarmTimer calls in
 // this header's own inline helpers below.
 
-// Posted to continue an incomplete document layout in time-budgeted chunks
-#define WM_APP_LAYOUT_CHUNK (WM_APP + 1)
-
-// Posted by an image download worker thread when a remote image finished
-// loading (lParam = AsyncImageResult*, ownership transfers to the handler)
-#define WM_APP_IMAGE_READY (WM_APP + 2)
-
-// Posted by the GPU warm-up thread once the D3D driver is initialized: the
-// software render target used for the instant first paint is then swapped
-// for a hardware one (cheap now that the driver is warm)
-#define WM_APP_GPU_READY (WM_APP + 3)
-
-// Posted by the folder-search worker with its scan results
-// (lParam = FolderScanMsg*, ownership transfers to the handler)
-#define WM_APP_FOLDER_SEARCH (WM_APP + 4)
-
-// WM_APP + 5 was WM_APP_UPDATE_CHECK, removed with the update check on 2026-10-11.
-
-// Pandoc worker finished; wParam = success (pandoc.cpp)
-#define WM_APP_PANDOC_DONE (WM_APP + 6)
+// The posted messages are tinta::PostedMessage in include/post_sink.h since 2026-10-14. The
+// WM_APP + n numbers that stood here are gone with it, including WM_APP_GPU_READY, which the
+// retired Direct2D warm-up thread posted and nothing has sent since 0b39ae6.
 
 // Startup metrics
 struct StartupMetrics {

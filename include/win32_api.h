@@ -218,17 +218,15 @@ inline bool canArmTimer([[maybe_unused]] HWND hwnd) {
 // mode that callers handle, an off-Windows implementation should USE that mode
 // rather than invent a third state.
 //
-// THAT FALSE IS NOW THE NO-SINK ANSWER, NOT THE ONLY ANSWER. Off the Win32 stack the
-// post goes to include/post_sink.h, which the Qt window fills with a closure that takes
-// WM_APP_IMAGE_READY, WM_APP_FOLDER_SEARCH, WM_CLOSE and WM_SETTINGCHANGE and queues them
-// onto its own thread. Every other message still gets false from that closure, so the
-// argument above holds unchanged for them: the three owning callers keep their `delete`,
-// and nothing is accepted that has no handler. With no window at all -- a test binary, a console build -- the answer is
-// false exactly as before.
-inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPARAM wParam,
-                              LPARAM lParam) {
-    return tinta::deliverPostedMessage(message, static_cast<std::uintptr_t>(wParam),
-                                       static_cast<std::intptr_t>(lParam));
+// THAT FALSE IS NOW THE NO-SINK ANSWER, NOT THE ONLY ANSWER. The post goes to
+// include/post_sink.h, which the Qt window fills with a closure that queues every
+// tinta::PostedMessage onto its own thread. The message is an enum since 2026-10-14, so there
+// is no longer a message the closure can refuse for want of a handler: a false means no
+// window -- a test binary, a console build -- and the owning callers keep their `delete` for
+// it exactly as before. No window handle: the sink is the window.
+inline bool postWindowMessage(tinta::PostedMessage message, std::uintptr_t value = 0,
+                              std::intptr_t pointer = 0) {
+    return tinta::deliverPostedMessage(message, value, pointer);
 }
 
 // Whether a post made now could be received -- canArmTimer's question, asked of the
@@ -237,7 +235,7 @@ inline bool postWindowMessage([[maybe_unused]] HWND hwnd, unsigned message, WPAR
 // before WinMain has a window would lose its result. Off that stack it is whether a
 // sink is installed. A sink that is installed can still refuse a given message; this
 // answers for the queue, and the return of postWindowMessage answers for the message.
-inline bool canPostWindowMessage([[maybe_unused]] HWND hwnd) {
+inline bool canPostWindowMessage() {
     return tinta::postSinkInstalled();
 }
 

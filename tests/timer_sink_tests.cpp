@@ -109,45 +109,51 @@ int main() {
 
     // --- The post sink ----------------------------------------------------------
     struct Posted {
-        unsigned message;
-        std::uintptr_t wParam;
-        std::intptr_t lParam;
+        tinta::PostedMessage message;
+        std::uintptr_t value;
+        std::intptr_t pointer;
         std::thread::id thread;
     };
     std::vector<Posted> posted;
+    constexpr auto Taken = tinta::PostedMessage::PandocDone;
+    constexpr auto Refused = tinta::PostedMessage::LayoutChunk;
     check(!tinta::postSinkInstalled(), "no post sink is installed at startup");
-    check(!tinta::deliverPostedMessage(7, 1, 2),
+    check(!tinta::deliverPostedMessage(Taken, 1, 2),
           "and a post with none is REFUSED, so an owning sender keeps its delete");
-    // Only message 7 is taken, as the Qt window takes only the ones handlesPostedMessage names.
-    tinta::setPostSink([&posted](unsigned message, std::uintptr_t wParam, std::intptr_t lParam) {
-        if (message != 7) return false;
-        posted.push_back({message, wParam, lParam, std::this_thread::get_id()});
+    // The slot lets a sink refuse a message; this one takes only `Taken`. (The Qt window's
+    // sink takes every tinta::PostedMessage.)
+    tinta::setPostSink([&posted](tinta::PostedMessage message, std::uintptr_t value,
+                                 std::intptr_t pointer) {
+        if (message != tinta::PostedMessage::PandocDone) return false;
+        posted.push_back({message, value, pointer, std::this_thread::get_id()});
         return true;
     });
     check(tinta::postSinkInstalled(), "setPostSink installs it");
-    check(tinta::deliverPostedMessage(7, 11, 22) && posted.size() == 1 &&
-              posted[0].wParam == 11 && posted[0].lParam == 22,
+    check(tinta::deliverPostedMessage(Taken, 11, 22) && posted.size() == 1 &&
+              posted[0].value == 11 && posted[0].pointer == 22,
           "an accepted post arrives with both parameters intact");
-    check(!tinta::deliverPostedMessage(8, 1, 2) && posted.size() == 1,
+    check(!tinta::deliverPostedMessage(Refused, 1, 2) && posted.size() == 1,
           "a message the sink does not take is refused and never recorded");
     bool fromThread = false;
-    std::thread worker([&fromThread]() { fromThread = tinta::deliverPostedMessage(7, 33, -44); });
+    std::thread worker([&fromThread]() {
+        fromThread = tinta::deliverPostedMessage(tinta::PostedMessage::PandocDone, 33, -44);
+    });
     worker.join();
-    check(fromThread && posted.size() == 2 && posted[1].lParam == -44 &&
+    check(fromThread && posted.size() == 2 && posted[1].pointer == -44 &&
               posted[1].thread != std::this_thread::get_id(),
-          "a post from a second thread is accepted, runs on that thread, lParam's sign intact");
+          "a post from a second thread is accepted, runs on that thread, pointer's sign intact");
 #ifndef _WIN32
     // The seam itself, off Windows only for the reason this file's header gives SetTimer:
     // PostMessageW(NULL, ...) does not fail, it posts a thread message nobody reads.
-    check(canPostWindowMessage(nullptr) && postWindowMessage(nullptr, 7, 55, 66) &&
-              posted.size() == 3 && posted[2].wParam == 55,
+    check(canPostWindowMessage() && postWindowMessage(Taken, 55, 66) &&
+              posted.size() == 3 && posted[2].value == 55,
           "postWindowMessage's off-Win32 arm reaches the installed post sink");
 #endif
     tinta::clearPostSink();
-    check(!tinta::postSinkInstalled() && !tinta::deliverPostedMessage(7, 1, 2),
+    check(!tinta::postSinkInstalled() && !tinta::deliverPostedMessage(Taken, 1, 2),
           "clearPostSink empties the slot and a post is refused again");
 #ifndef _WIN32
-    check(!canPostWindowMessage(nullptr) && !postWindowMessage(nullptr, 7, 1, 2),
+    check(!canPostWindowMessage() && !postWindowMessage(Taken, 1, 2),
           "and the seam answers false with it cleared -- the no-window answer from before");
 
     // canRepaint, the guard nine repaint callers ask. Off Win32 it follows the REPAINT sink,

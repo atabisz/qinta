@@ -24,12 +24,18 @@
 // destroyed. The closure must therefore be quick and must not post again; the Qt window's
 // queues a call onto its own thread and returns.
 //
-// THE CLOSURE DECIDES WHICH MESSAGES IT TAKES, and it must return false for the rest. A true
-// hands ownership of whatever lParam points at to the receiver, so a sink that accepted a
-// message it had no handler for would leak it where the caller's `delete` would have freed it.
+// ONE ENUM, SO A MESSAGE CANNOT BE HALF-WIRED. The messages were Win32 numbers (WM_APP + n,
+// WM_CLOSE, WM_SETTINGCHANGE), and the receiver was two lists that had to agree: an allowlist the
+// sink asked first, and the handler's chain of ifs. The Pandoc completion was in the second and
+// not the first, so every export after the first was refused silently (2026-10-12). Now the
+// sink and src/input.cpp's handlePostedMessage each switch over every enumerator with no
+// default, so a new message without a case is a -Wswitch warning, which the Linux job's
+// -Werror makes a failed build. The sink takes every message; a false is "no window".
 //
-// wParam and lParam travel as the integer types WPARAM and LPARAM are on every stack, so this
-// header needs neither windows.h nor win32_types.h.
+// The payload is two integers, as WPARAM and LPARAM were: `value` a number (the Pandoc
+// outcome), `pointer` an address. A true hands ownership of what `pointer` points at to the
+// receiver, so the owning posters keep their `delete` for a false. This header needs neither
+// windows.h nor win32_types.h.
 
 #include <cstdint>
 #include <functional>
@@ -38,8 +44,17 @@
 
 namespace tinta {
 
-using PostSink = std::function<bool(unsigned message, std::uintptr_t wParam,
-                                    std::intptr_t lParam)>;
+enum class PostedMessage {
+    ImageReady,     // render.cpp's image worker; pointer owns the result
+    FolderSearch,   // search.cpp's scan; pointer owns the result
+    LayoutChunk,    // the next slice of a document layout, posted from the window's thread
+    PandocDone,     // pandoc.cpp's worker; value is 1 for success, 0 for failure
+    Close,          // close the window once the sender has returned
+    SettingChange,  // pointer is a wide string naming the area, e.g. L"ImmersiveColorSet"
+};
+
+using PostSink = std::function<bool(PostedMessage message, std::uintptr_t value,
+                                    std::intptr_t pointer)>;
 
 // The single slot and its lock. Not part of the surface callers use.
 struct PostSinkSlot {
@@ -72,12 +87,12 @@ inline bool postSinkInstalled() {
     return static_cast<bool>(slot.sink);
 }
 
-// What postWindowMessage's off-Win32 arm calls, and its only caller. Any thread.
-inline bool deliverPostedMessage(unsigned message, std::uintptr_t wParam,
-                                 std::intptr_t lParam) {
+// What postWindowMessage calls, and its only caller. Any thread.
+inline bool deliverPostedMessage(PostedMessage message, std::uintptr_t value,
+                                 std::intptr_t pointer) {
     PostSinkSlot& slot = postSinkSlot();
     std::lock_guard<std::mutex> lock(slot.mutex);
-    return slot.sink ? slot.sink(message, wParam, lParam) : false;
+    return slot.sink ? slot.sink(message, value, pointer) : false;
 }
 
 }  // namespace tinta

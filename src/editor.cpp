@@ -1411,7 +1411,7 @@ void confirmExitAction(App& app, HWND hwnd, int action) {
         if (action == 3 || app.editMode) {
             app.pendingWindowClose = false;  // cancelled (or save failed)
         } else {
-            postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+            postWindowMessage(tinta::PostedMessage::Close);
         }
     }
     requestRepaint(hwnd);

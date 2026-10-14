@@ -853,7 +853,8 @@ static void settingsAction(App& app, HWND hwnd, int action) {
             if (app.followSystemTheme) {
                 if (app.theme.isDark) app.darkThemeIndex = app.currentThemeIndex;
                 else app.lightThemeIndex = app.currentThemeIndex;
-                postWindowMessage(hwnd, WM_SETTINGCHANGE, 0, (LPARAM)L"ImmersiveColorSet");
+                postWindowMessage(tinta::PostedMessage::SettingChange, 0,
+                                  reinterpret_cast<std::intptr_t>(L"ImmersiveColorSet"));
             }
             break;
         case SET_TOGGLE_WRAP:
@@ -1690,7 +1691,7 @@ static void invokeContextMenuAction(App& app, HWND hwnd, int item) {
             saveFileAs(app, hwnd);
             break;
         case CTX_EXIT:
-            postWindowMessage(hwnd, WM_CLOSE, 0, 0);
+            postWindowMessage(tinta::PostedMessage::Close);
             break;
         case CTX_NEW:
             closeSearchIfOpen(app);
@@ -3021,8 +3022,8 @@ void handleMouseUp(App& app, HWND hwnd, int mouseX, int mouseY) {
                 // snap to whatever the system mode wants
                 if (app.theme.isDark) app.darkThemeIndex = app.currentThemeIndex;
                 else app.lightThemeIndex = app.currentThemeIndex;
-                postWindowMessage(hwnd, WM_SETTINGCHANGE, 0,
-                                  (LPARAM)L"ImmersiveColorSet");
+                postWindowMessage(tinta::PostedMessage::SettingChange, 0,
+                                  reinterpret_cast<std::intptr_t>(L"ImmersiveColorSet"));
             }
             requestRepaint(hwnd);
             return;
@@ -4505,42 +4506,42 @@ bool windowCloseMayProceed(App& app, HWND hwnd) {
     return true;
 }
 
-// WM_CLOSE and WM_SETTINGCHANGE are the two here that no worker sends: their senders run on
-// the window's thread, and they are taken so the post sink can queue the Qt window's answer
-// behind them, as PostMessageW queues them for WinMain. Qt answers both in the window, not
-// here -- close(), and the follow-system switch with this arm's own appearance reading.
-bool handlesPostedMessage(unsigned message) {
-    return message == WM_APP_IMAGE_READY || message == WM_APP_FOLDER_SEARCH ||
-           message == WM_APP_LAYOUT_CHUNK || message == WM_APP_PANDOC_DONE ||
-           message == WM_CLOSE || message == WM_SETTINGCHANGE;
-}
-
-void handlePostedMessage(App& app, unsigned message, WPARAM wParam, LPARAM lParam) {
-    if (message == WM_APP_IMAGE_READY) completeAsyncImage(app, (void*)lParam);
-    if (message == WM_APP_FOLDER_SEARCH) completeFolderSearch(app, (void*)lParam);
-    // WinMain's WM_APP_LAYOUT_CHUNK case, moved here on 2026-10-06 when the frame went portable
-    // (src/render_frame.cpp posts it). The Qt post sink refused this message until then, so on
-    // qinta a long document laid out viewport-first would have stopped at its first slice.
-    // Continue an incomplete document layout in ~10ms slices, yielding to input between slices.
-    if (message == WM_APP_LAYOUT_CHUNK && !app.layoutDirty && !app.layoutComplete) {
-        bool done = layoutDocumentContinue(app, 10000);
-        requestRepaint(app.hwnd);  // scrollbar grows as layout fills in
-        if (!done) postWindowMessage(app.hwnd, WM_APP_LAYOUT_CHUNK, 0, 0);
-    }
-    // WinMain's WM_APP_PANDOC_DONE case, restored here on 2026-10-12. It went with the window
-    // procedure in 0b39ae6 and nothing took its place, so for five commits the Qt post sink
-    // refused the one message src/pandoc.cpp's worker sends. app.pandocRunning is written in
-    // exactly two places -- true when the worker starts, false in the catch for a worker that
-    // failed to start -- so with the completion dropped the flag stayed true for the life of
-    // the process and the guard in pandocExportFlow refused every export after the first,
-    // silently. The two toast strings below had zero callers for the same reason: the one site
-    // that used them was in the deleted procedure.
-    //
-    // wParam IS THE OUTCOME, which is why this function's wParam stopped being unnamed. The
-    // worker posts `ok ? 1 : 0` and the three other messages here carry nothing in it.
-    if (message == WM_APP_PANDOC_DONE) {
+// Close and SettingChange are the two here that no worker sends: their senders run on the
+// window's thread, and they are posted so the Qt window's answer is queued behind them, as
+// PostMessageW queued them for WinMain. Qt answers both in the window, not here -- close(), and
+// the follow-system switch with this arm's own appearance reading -- so their cases are empty.
+void handlePostedMessage(App& app, tinta::PostedMessage message, std::uintptr_t value,
+                         std::intptr_t pointer) {
+    using tinta::PostedMessage;
+    switch (message) {
+    case PostedMessage::ImageReady:
+        completeAsyncImage(app, reinterpret_cast<void*>(pointer));
+        break;
+    case PostedMessage::FolderSearch:
+        completeFolderSearch(app, reinterpret_cast<void*>(pointer));
+        break;
+    case PostedMessage::LayoutChunk:
+        // WinMain's WM_APP_LAYOUT_CHUNK case, moved here on 2026-10-06 when the frame went
+        // portable (src/render_frame.cpp posts it). The Qt post sink refused this message until
+        // then, so on qinta a long document laid out viewport-first would have stopped at its
+        // first slice. Continue an incomplete document layout in ~10ms slices, yielding to
+        // input between slices.
+        if (!app.layoutDirty && !app.layoutComplete) {
+            bool done = layoutDocumentContinue(app, 10000);
+            requestRepaint(app.hwnd);  // scrollbar grows as layout fills in
+            if (!done) postWindowMessage(tinta::PostedMessage::LayoutChunk);
+        }
+        break;
+    case PostedMessage::PandocDone:
+        // WinMain's WM_APP_PANDOC_DONE case, restored here on 2026-10-12. It went with the
+        // window procedure in 0b39ae6 and nothing took its place, so for five commits the Qt
+        // post sink refused the one message src/pandoc.cpp's worker sends. app.pandocRunning is
+        // written in exactly two places -- true when the worker starts, false in the catch for
+        // a worker that failed to start -- so with the completion dropped the flag stayed true
+        // for the life of the process and the guard in pandocExportFlow refused every export
+        // after the first, silently. `value` is the outcome: the worker posts `ok ? 1 : 0`.
         app.pandocRunning = false;
-        if (wParam) {
+        if (value) {
             signalPushKey(app, SIG_SUCCESS, SIGI_CHECK, "toast.pandoc_ok");
         } else {
             signalPushKey(app, SIG_ERROR, SIGI_WARNING, "toast.pandoc_fail");
@@ -4548,6 +4549,10 @@ void handlePostedMessage(App& app, unsigned message, WPARAM wParam, LPARAM lPara
         // signalPush repaints through canRepaint already; this is the procedure's own
         // requestRepaint, kept so the behaviour matches 0b39ae6's case exactly.
         requestRepaint(app.hwnd);
+        break;
+    case PostedMessage::Close:
+    case PostedMessage::SettingChange:
+        break;
     }
 }
 

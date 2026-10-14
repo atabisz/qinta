@@ -1,9 +1,11 @@
 #ifndef TINTA_INPUT_H
 #define TINTA_INPUT_H
 
+#include <cstdint>
 #include <vector>
 
 #include "app.h"
+#include "post_sink.h"
 // Real windows.h here, stand-ins for its value types off Windows. This header
 // names HWND by value and nothing else from Win32 -- no COM interfaces, no API
 // calls, and since the entry points below stopped taking message parameters,
@@ -89,22 +91,13 @@ void handleTimer(App& app, HWND hwnd, unsigned id);
 // which case it has already activated that tab and opened the unsaved-changes dialog
 // (or, with the dialog open, marked the close as pending behind it).
 bool windowCloseMayProceed(App& app, HWND hwnd);
-// The posted messages the Qt window's post sink (include/post_sink.h) takes. SIX, and this
-// comment is the authority on none of them -- handlesPostedMessage's body is, and this list
-// has been behind it twice: it named four until 2026-10-12, missing WM_APP_LAYOUT_CHUNK
-// (added 2026-10-06) and then WM_APP_PANDOC_DONE (added the same day this was corrected).
-// Read the function, and if you are adding a message, this sentence is the one that rots.
-//
-//   WM_APP_IMAGE_READY, WM_APP_FOLDER_SEARCH   posted by portable worker threads
-//   WM_APP_LAYOUT_CHUNK, WM_APP_PANDOC_DONE    posted from the window's own thread and the
-//                                              pandoc worker respectively, handled below
-//   WM_CLOSE, WM_SETTINGCHANGE                 the window answers these itself rather than
-//                                              through here
-//
-// handlesPostedMessage runs on the POSTING thread, so it reads nothing but its argument;
-// handlePostedMessage runs on the window's thread and takes ownership of lParam, as the
-// window procedure's two cases do. WinMain keeps its own cases and does not call these.
-bool handlesPostedMessage(unsigned message);
-void handlePostedMessage(App& app, unsigned message, WPARAM wParam, LPARAM lParam);
+// A posted message (tinta::PostedMessage, include/post_sink.h), on the window's thread, taking
+// ownership of what `pointer` points at. The enum is the list of messages: this switches over
+// every one with no default, as the Qt window's post sink does, so a message added without a
+// case fails the Linux build. Close and SettingChange are answered by the window itself and
+// reach here only as a no-op. This replaced handlesPostedMessage's allowlist, which twice fell
+// behind the handler (WM_APP_LAYOUT_CHUNK, then WM_APP_PANDOC_DONE) and refused the message.
+void handlePostedMessage(App& app, tinta::PostedMessage message, std::uintptr_t value,
+                         std::intptr_t pointer);
 
 #endif // TINTA_INPUT_H

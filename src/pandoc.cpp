@@ -142,7 +142,7 @@ void pandocWorker(PandocJob* job) {
         std::error_code ignored;
         std::filesystem::remove(job->tempFile, ignored);
     }
-    postWindowMessage(job->hwnd, WM_APP_PANDOC_DONE, ok ? 1 : 0, 0);
+    postWindowMessage(tinta::PostedMessage::PandocDone, ok ? 1 : 0);
     delete job;
 }
 

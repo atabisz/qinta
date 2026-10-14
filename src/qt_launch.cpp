@@ -195,7 +195,14 @@ void bringForward(QWidget& window) {
 
 void openArrivedDocument(App& app, QWidget& window, const std::string& utf8Path) {
     bringForward(window);
-    tabOpenPath(app, utf8Path, true);
+    // The start page holds no document, so a document arriving while it shows takes its place,
+    // as the start page's own recent-file click and the Finder's open do, rather than leaving a
+    // pathless start-page tab beside it.
+    if (startPageActive(app)) {
+        tabOpenPathReplacingStartPage(app, utf8Path);
+    } else {
+        tabOpenPath(app, utf8Path, true);
+    }
 }
 
 void openFileOpenEventDocument(App& app, QWidget& window, const std::string& utf8Path) {

@@ -158,7 +158,8 @@ void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptio
                            bool namedOnCommandLine);
 
 // A DOCUMENT HANDED TO THE RUNNING WINDOW FROM OUTSIDE IT, in WinMain's WM_COPYDATA shape: the
-// window comes forward and the document opens as a tab. A second launch's hand-off
+// window comes forward and the document opens as a tab -- in place of the start page, if that is
+// showing, since it holds no document. A second launch's hand-off
 // (instance_channel_qt.h) arrives here, and so does a macOS file-open event that joins. One
 // function, so main()'s arrivals and tests/qt_entry_tests.cpp run the same code -- the hand-off
 // test used to hold its own copy of the callback, which no defect in main()'s copy could fail.

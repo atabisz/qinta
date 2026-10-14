@@ -5140,6 +5140,27 @@ int main(int argc, char** argv) {
               "acknowledges it");
         check(joined,
               "join: the handed-over document opens as a new tab and becomes the current file");
+
+        // A hand-off into a window SHOWING THE START PAGE replaces it, as the Finder's open does
+        // and as the start page's own recent-file click does: the start page holds no document,
+        // so a tab of it left beside the handed-over one is a pathless tab nobody asked for.
+        const std::filesystem::path handoffPath =
+            std::filesystem::temp_directory_path() / "qinta-handoff-start-page.md";
+        { std::ofstream out(handoffPath, std::ios::binary); out << "# handed over\n"; }
+        const std::string handoffUtf8 = handoffPath.string();
+        tabOpenStartPage(app);
+        const bool handoffOnStartPage = startPageActive(app);
+        const size_t tabsBeforeStart = app.tabs.size();
+        tinta::openArrivedDocument(app, joinWindow, handoffUtf8);
+        const bool startReplaced = app.tabs.size() == tabsBeforeStart &&
+                                   app.currentFile == handoffUtf8 && !startPageActive(app);
+        std::printf("join start_page=%d tabs=%zu->%zu current_is_handed=%d\n", handoffOnStartPage,
+                    tabsBeforeStart, app.tabs.size(), app.currentFile == handoffUtf8);
+        check(handoffOnStartPage && startReplaced,
+              "join: a document handed to a window on the start page replaces the start page, "
+              "one tab in and one out");
+        std::error_code handoffEc;
+        std::filesystem::remove(handoffPath, handoffEc);
     }
 
     // ---- macOS FINDER: THE FILE-OPEN EVENT (2026-10-13) ---------------------------------------

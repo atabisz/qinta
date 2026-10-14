@@ -335,7 +335,7 @@ lines, nothing ported, because there was nothing left to port. Two files remain 
 by subject: `settings_win32.cpp` writes the file association to the registry and
 `window_chrome_win32.cpp` colours the title bar through DWM. Neither has anything to be ported to, so
 they are listed in `tests/windows-only-sources.txt` and counted in the table below
-instead of here: 2 files, 303 lines. The figure gate refuses an entry on that list unless it exists, is named
+instead of here: 2 files, 273 lines. The figure gate refuses an entry on that list unless it exists, is named
 `*_win32.cpp` and is not on the portable manifest, so the list cannot be used to hide a file. Bases
 A to C keep their full denominators, so this changes no basis by definition.
 
@@ -355,11 +355,11 @@ it rather than by its shape.
 | File | Lines | Note |
 |---|---|---|
 | `render.cpp` | 3,529 | Compiles, links and runs off Windows. Kept here because it is the file the native-mention table under **How complete is it?** tracks |
-| `settings_win32.cpp` + `window_chrome_win32.cpp` | 253 + 50 | Windows by subject: the file association in the registry, and the DWM title-bar colours. Listed in `tests/windows-only-sources.txt` |
+| `settings_win32.cpp` + `window_chrome_win32.cpp` | 223 + 50 | Windows by subject: the file association in the registry, and the DWM title-bar colours. Listed in `tests/windows-only-sources.txt` |
 
 Under one stack there is no permanent Windows half *of a seam*, so the old "will never move"
 category was work, and on 2026-10-07 the last four seam halves were deleted. What is left is not a
-seam half at all, **303 lines of it today**, and it is listed by name and checked rather than
+seam half at all, **273 lines of it today**, and it is listed by name and checked rather than
 excluded from the count on argument.
 
 ### How complete is it?
@@ -378,7 +378,7 @@ basis below is measured, on Windows and Linux:
 
 | Basis | Measured | |
 |---|---|---|
-| A. Source lines free of the Windows stack | 54,494 / 66,784 | **81.6%** |
+| A. Source lines free of the Windows stack | 54,482 / 66,742 | **81.6%** |
 | B. `src/*.cpp` files compiling without Windows headers | 79 / 81 | 97.5% |
 | C. Files a running test links **off Windows** | 78 / 81 | 96.3% |
 | D. Test targets that *could* move, and do | 55 / 56 | 98.2% |
@@ -394,8 +394,8 @@ basis below is measured, on Windows and Linux:
 
 **Basis A cannot reach 100%.** Its numerator sums only `src/*.cpp`, while its denominator also
 counts headers, so a header line is in the denominator permanently and can never enter the
-numerator. With `src/*.cpp` totalling 54,797 lines of the 66,784,
-**basis A's ceiling is 82.1%, not 100%**, and basis A should be read against that. Every new
+numerator. With `src/*.cpp` totalling 54,755 lines of the 66,742,
+**basis A's ceiling is 82.0%, not 100%**, and basis A should be read against that. Every new
 header lowers the ceiling slightly.
 
 **The test targets that run on Windows only**, with the count of `src/*.cpp` each one compiles
@@ -426,7 +426,7 @@ auditable while the thing it stands in for is still named somewhere.
 **0 direct `dwriteFactory->CreateTextLayout` calls remain in the tree**. A
 `grep` for the call returns 3, and all three are comments, not calls.
 
-**What is left is Windows by subject.** The remaining 303 lines of Windows backend are
+**What is left is Windows by subject.** The remaining 273 lines of Windows backend are
 `settings_win32.cpp` (the file association, in the registry) and `window_chrome_win32.cpp` (DWM
 title-bar colours), listed in `tests/windows-only-sources.txt`. Neither has anything to be ported
 to. Re-verifying Windows on the new stack is effort that appears in no line count here.

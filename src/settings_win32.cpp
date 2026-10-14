@@ -30,7 +30,6 @@
 // way to pick which compiles to run.
 #include <shlobj.h>
 #include <shellapi.h>
-#include <appmodel.h>
 #include <string>
 
 // QINTA'S OWN IDENTITY IN THE REGISTRY, since 2026-10-07, when /register came back on qinta.
@@ -51,13 +50,6 @@ static int settingsLanguageIndex(const Settings& settings) {
         if (index >= 0) return index;
     }
     return detectSystemLanguage();
-}
-
-// Packaged (MSIX/Store) installs declare file associations in AppxManifest.xml;
-// runtime registry writes would only land in the package's virtual registry.
-static bool isRunningPackaged() {
-    std::uint32_t length = 0;
-    return GetCurrentPackageFullName(&length, nullptr) != APPMODEL_ERROR_NO_PACKAGE;
 }
 
 static bool hasRegisteredFileAssociation(std::wstring_view extension) {
@@ -193,28 +185,6 @@ bool registerFileAssociationAndReport(const Settings& settings) {
 
 void askAndRegisterFileAssociation(Settings& settings) {
     int lang = settingsLanguageIndex(settings);
-    if (isRunningPackaged()) {
-        // Store installs: the package manifest already registers the file
-        // types, so only the "make default" choice is missing. Ask once per
-        // install (settings.ini lives in the package's private AppData, so
-        // it resets on uninstall) and deep-link straight to Tinta's page in
-        // Settings > Default apps. Windows 10 ignores the query part and
-        // opens the general Default Apps page instead.
-        if (settings.hasAskedFileAssociation) return;
-        int result = MessageBoxW(
-            nullptr,
-            tr(lang, "fileassoc.packaged.ask_body"),
-            tr(lang, "fileassoc.packaged.title"),
-            MB_YESNO | MB_ICONQUESTION);
-        if (result == IDYES) {
-            ShellExecuteW(nullptr, L"open",
-                L"ms-settings:defaultapps?registeredAppUser=Tinta%20Markdown%20Viewer",
-                nullptr, nullptr, SW_SHOWNORMAL);
-        }
-        settings.hasAskedFileAssociation = true;
-        saveSettings(settings);
-        return;
-    }
     if (settings.hasAskedFileAssociation) {
         if (hasRegisteredFileAssociation(L".md") &&
             !hasRegisteredFileAssociation(L".mmd") &&

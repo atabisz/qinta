@@ -274,7 +274,7 @@ static std::unique_ptr<tinta::TextLayout> spLayout(App& app,
     if (layout && trackingDip != 0.0f) {
         // This one line is why the seam grew a method this slice. It used to be a
         // QueryInterface for IDWriteTextLayout1 and a four-argument call with two
-        // literal zeros in it; the QI now lives in text_d2d.cpp and the two zeros
+        // literal zeros in it; the QI then moved into text_d2d.cpp (deleted in 0b39ae6) and the two zeros
         // are gone because no caller in the tree ever passed anything else. See
         // text_api.h, which had DECLINED this method and says why it changed.
         layout->SetCharacterSpacing(dpi(app, trackingDip),

@@ -25,8 +25,10 @@
 //      tests/portable-sources.txt as compile-only, and the paint pass lived inside
 //      main_d2d.cpp's WM_PAINT where no test could reach it.
 //   5. THE CHROME FORMATS AND THE TWO SCALES (runs 11-13). Ten formats whose only
-//      callers are still Windows-only files, so no pixel in here can see them and the
-//      by-name and by-SIZE assertions are the entire guard. The size half is not
+//      callers were Windows-only files when these runs were written, so no pixel in here
+//      could see them and the by-name and by-SIZE assertions were the entire guard; since
+//      2026-10-06 src/render_frame.cpp's renderFrame draws them in this window (run 11's
+//      own comment says what that changed). The size half is not
 //      pedantry: chrome is scaled by contentScale alone and editor text by
 //      contentScale * zoomFactor, both arrangements produce ten non-null formats, and
 //      only the numbers tell them apart.
@@ -1275,8 +1277,8 @@ int main(int argc, char** argv) {
           "all TEN chrome formats exist after installQtBackends -- search, signals, theme "
           "title, theme header, stats, folder browser, both TOC, editor text and gutter");
 
-    // THE SIZES, and they are not decoration. Every number here is copied from
-    // src/d2d_init.cpp, and a format that exists at the wrong size draws chrome that
+    // THE SIZES, and they are not decoration. Every number here was copied from
+    // the retired src/d2d_init.cpp, and a format that exists at the wrong size draws chrome that
     // looks deliberate: a stats box at 16 instead of 13 overflows its fixed rectangle,
     // which is the exact failure the two-scale rule in run 12 exists to prevent.
     //
@@ -4175,7 +4177,7 @@ int main(int argc, char** argv) {
     // FOLLOW-SYSTEM (slice 12). qinta loaded followSystemTheme and never acted on it: a
     // follow-on start drew the saved index, and the two in-app toggles post WM_SETTINGCHANGE
     // "ImmersiveColorSet", which the post sink refused. The switch is theme_apply.h's one body,
-    // shared with WinMain; the reading is qt_launch's systemPrefersLight.
+    // shared with WinMain until 0b39ae6; the reading is qt_launch's systemPrefersLight.
     {
         // A light and a dark theme past slot 0, and slot 0 (Paper, light) as a third index
         // neither of them is, so a switch cannot be mistaken for staying put.
@@ -4347,7 +4349,8 @@ int main(int argc, char** argv) {
 
     // THE TITLE BAR (slice 13). theme_qt.cpp's applyWindowChrome was `{}`, so the caption kept
     // the platform's colours under every theme. It now delivers windowChromeFor through the
-    // window sink, and on Windows the window paints it with the Direct2D stack's DWM calls.
+    // window sink, and on Windows the window paints it with the DWM calls the Direct2D stack
+    // made, now src/window_chrome_win32.cpp's applyDwmWindowChrome.
     {
         int lightIdx = -1;
         int darkIdx = -1;
@@ -4388,7 +4391,7 @@ int main(int argc, char** argv) {
             const tinta::WindowChrome wantDark = windowChromeFor(app);
             darkDelivered = chromeWindow.chromeCount() == 2 &&
                             sameChrome(chromeWindow.lastChrome(), wantDark) && wantDark.dark;
-            // What the colours ARE: the drawn tab strip and the theme's text, as WinMain paints.
+            // What the colours ARE: the drawn tab strip and the theme's text, as WinMain painted.
             formula = sameColor(wantDark.caption, tabStripBackground(app)) &&
                       sameColor(wantDark.text, app.theme.text);
             distinct = !sameColor(wantLight.caption, wantDark.caption);

@@ -7,15 +7,16 @@
 #include <QPageSize>
 #include <QPdfWriter>
 
-// The Qt arm of the PDF seam, and the second implementation that turns
-// include/pdf_export.h from an interface into a contract. QPdfWriter writes the PDF
-// itself rather than routing a print job at a driver, which is the one structural
-// difference from the Windows arm and the source of every other difference below.
+// The Qt arm of the PDF seam, and since 0b39ae6 the only one: it was the second
+// implementation that turned include/pdf_export.h from an interface into a contract.
+// QPdfWriter writes the PDF itself rather than routing a print job at a driver, which was
+// the one structural difference from the retired Windows arm and the source of every other
+// difference below.
 //
-// WHAT THIS ARM DOES NOT DO, AND THE WINDOWS ARM GETS FOR FREE: font embedding is
-// QPdfWriter's own business here, where the Windows arm delegates it to the
-// "Microsoft Print to PDF" driver. src/pdf_export_win32.cpp says that is why
-// printDocument is a later slice; the same sentence applies to this file from the
+// WHAT THIS ARM DOES NOT DO, AND THE WINDOWS ARM GOT FOR FREE: font embedding is
+// QPdfWriter's own business here, where the Windows arm delegated it to the
+// "Microsoft Print to PDF" driver. The retired src/pdf_export_win32.cpp said that was why
+// printDocument was a later slice; the same sentence applied to this file from the
 // other side. Nothing here has been measured against a CJK document yet, and that
 // measurement is the gate on the printDocument port rather than on this arm.
 //
@@ -28,7 +29,7 @@ namespace {
 
 // 1 DIP is 1/96 inch, which is what the whole tree means by a coordinate: the page
 // sizes reaching addPage come from print.cpp's PageGeometry in the same units the
-// Direct2D arm hands to ID2D1PrintControl::AddPage.
+// retired Direct2D arm handed to ID2D1PrintControl::AddPage.
 //
 // SETTING THE WRITER'S RESOLUTION TO 96 IS WHAT MAKES THE PAINTER'S UNIT A DIP, and
 // it is the reason no transform appears anywhere in this file. QPdfWriter's painter
@@ -63,13 +64,13 @@ public:
         // path yields a live writer whose first paint goes nowhere, so the seam would
         // return a sink and fail later. Opening the QFile here makes the failure
         // arrive where the seam's contract says it does -- as nullptr out of
-        // beginPdfDocument -- and it is checked by the shared assertions, which run
-        // this same case against the Windows arm.
+        // beginPdfDocument -- and it is checked by the shared assertions, which ran
+        // this same case against the Windows arm until 0b39ae6.
         //
         // A CONSEQUENCE WORTH NAMING: on failure this leaves NO file behind, where the
-        // Windows arm leaves an empty one (include/pdf_export.h documents that, having
-        // preserved it deliberately). The seam's promise is only about the return
-        // value, so both are conformant, and the shared assertions therefore assert on
+        // retired Windows arm left an empty one (include/pdf_export.h records that it was
+        // preserved deliberately). The seam's promise is only about the return
+        // value, so both were conformant, and the shared assertions therefore assert on
         // the nullptr and not on the filesystem.
         if (!file_.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
 
@@ -161,11 +162,11 @@ std::unique_ptr<PdfPageSink> beginPdfDocument(RenderTarget& target,
                                               const std::wstring& path,
                                               const std::wstring& documentTitle) {
     // `target` IS DELIBERATELY UNUSED, AND NOT ASSERTED ON. The parameter exists
-    // because the Windows arm needs a device to create a print control on, which
+    // because the retired Windows arm needed a device to create a print control on, which
     // include/pdf_export.h states at the declaration. QPdfWriter needs no device at
     // all, so this arm has nothing to recover from the argument.
     //
-    // The Windows arm asserts its target's dynamic type; mirroring that here would be
+    // The Windows arm asserted its target's dynamic type; mirroring that here would be
     // a constraint invented to look symmetrical. It would reject a target this backend
     // never touches, and it would make a shared assertion about foreign targets pass
     // for two unrelated reasons. So: unused, said out loud.

@@ -19,7 +19,7 @@
 // This used to be `{}` under "A REAL GAP, not a design: the title bar keeps the platform's
 // colours when the theme changes", and it is now HALF closed. On Windows the widget is a real
 // HWND under the windows platform plugin, so src/qt_window.cpp paints the chrome with the same
-// DWM calls as the Direct2D stack (src/window_chrome_win32.cpp).
+// DWM calls the retired Direct2D stack made (src/window_chrome_win32.cpp).
 //
 // ON LINUX AND macOS THE GAP STANDS. Qt has no portable caption-colour API and the frame
 // belongs to the window manager. QStyleHints::setColorScheme is not the fix: it is app-wide,

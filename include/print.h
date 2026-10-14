@@ -93,10 +93,10 @@ int printDebugPages(App& app, const std::wstring& outDir);
 // fixed beforehand) and it is recorded beside the CreateBitmap exclusion in
 // render_api.h, which is still where that trade is weighed rather than here.
 //
-// PORTABLE BODY, NOT A PORTABLE FILE: the rest of src/print.cpp keeps
+// PORTABLE BODY, NOT A PORTABLE FILE, when written: the rest of src/print.cpp kept
 // ID2D1PrintControl, DEVMODE and the printer dialog, so this function no longer
-// holds the file back but nothing else moved with it. (A PORTABLE FILE SINCE 2026-10-06:
-// those three moved to src/print_win32.cpp, and qinta's link peek runs this body.)
+// held the file back but nothing else moved with it. (A PORTABLE FILE SINCE 2026-10-06:
+// those three moved to src/print_win32.cpp, deleted in 0b39ae6, and qinta's link peek runs this body.)
 std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& path,
                                                 float widthDips, float& heightDips);
 

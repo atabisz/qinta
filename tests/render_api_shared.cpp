@@ -224,9 +224,9 @@ std::unique_ptr<tinta::TextFormat> makeFormat(RenderHarness& h, float size = 16.
 // why: it hardcodes the weight, so 193 assertions passed FontWeight::Normal and
 // nothing ever passed anything else. That was found by mutation -- replacing the
 // D2D backend's weight argument with a hardcoded DWRITE_FONT_WEIGHT_NORMAL left
-// all 193 green. Note what it does NOT mean: the enum VALUES are asserted from
-// both sides at compile time (text_d2d.cpp against DWRITE_, text_qt.cpp against
-// QFont::), thoroughly and correctly. The unasserted claim was the other one --
+// all 193 green. Note what it does NOT mean: the enum VALUES were asserted from
+// both sides at compile time (the retired text_d2d.cpp against DWRITE_, text_qt.cpp
+// against QFont::, which still does), thoroughly and correctly. The unasserted claim was the other one --
 // that CreateTextFormat hands its weight argument to anything at all. A pairing
 // assertion and a plumbing assertion are different claims, and a block of six
 // static_asserts reads like coverage of the parameter while having no opinion on
@@ -900,7 +900,7 @@ int runRenderApiAssertions(RenderHarness& h) {
     // and FOUR separate comments -- in that file, include/app.h, include/paint_document.h
     // and include/render_d2d.h -- each asserted colour emoji had "no seam equivalent".
     // The seam has carried DrawTextOptions::EnableColorFont since it was built, held
-    // value-equal to the Direct2D constant by a static_assert in src/render_d2d.cpp, with
+    // value-equal to the Direct2D constant by a static_assert in the retired src/render_d2d.cpp, with
     // a live caller in src/math_render.cpp. The four comments agreed with each other and
     // were all wrong, and the reason the duplicate branch survived is the same reason the
     // Clip block above gives for itself: an unexercised flag is indistinguishable from an
@@ -2019,16 +2019,17 @@ int runRenderApiAssertions(RenderHarness& h) {
     // Qt's ICO handler choose differently, and two libraries left to their defaults
     // would render a visibly different hero icon per platform with nothing in the build
     // to say so. image_api.h states the rule (smallest frame >= requested, else the
-    // largest, then scale to exactly the requested size) and both backends implement it.
+    // largest, then scale to exactly the requested size) and both backends implemented it;
+    // src/image_qt.cpp, the only one since 0b39ae6, still does.
     //
     // 32 AND 64 BOTH, because they exercise different branches of that rule: 32 is an
     // exact frame match and 64 is not. A test at 32 alone would be green while the
-    // interesting size diverged, which is also why NEITHER backend skips the scaler when
-    // the frame already matches -- see image_win32.cpp and image_qt.cpp.
+    // interesting size diverged, which is also why NEITHER backend skipped the scaler when
+    // the frame already matched -- see image_qt.cpp (and, until 0b39ae6, image_win32.cpp).
     //
-    // WHAT IT DELIBERATELY DOES NOT ASSERT: that the two backends produce the SAME
-    // PIXELS at 64. They resample from the 256 frame with different filters (Fant versus
-    // Qt's SmoothTransformation), so identical output is not claimed and a comparison
+    // WHAT IT DELIBERATELY DID NOT ASSERT: that the two backends produce the SAME
+    // PIXELS at 64. They resampled from the 256 frame with different filters (Fant versus
+    // Qt's SmoothTransformation), so identical output was not claimed and a comparison
     // here would be a false one. The contract asserted is the geometry and the refusals;
     // the resampling difference is published rather than tested away.
     //
@@ -2307,8 +2308,8 @@ int runRenderApiAssertions(RenderHarness& h) {
         // `renderPeekBitmap` (src/print.cpp) draws the hover panel at 2x and hands back a
         // `shared_ptr<Bitmap>` that reports HALF its pixel size in DIPs. It used to do
         // that with a native `D2D1_BITMAP_OPTIONS_TARGET` bitmap created at 192 dpi, so
-        // the 2x lived in the bitmap's own DPI. Through this seam it cannot: the WIC
-        // target `src/image_win32.cpp:628-631` builds is HARDCODED at 96 dpi, so the
+        // the 2x lived in the bitmap's own DPI. Through this seam it could not: the WIC
+        // target the retired `src/image_win32.cpp` built was HARDCODED at 96 dpi, so the
         // scale has to be a transform inside the callback and the 192 has to go on
         // `CreateBitmap` instead. Those are two different mechanisms reaching the same
         // result, and getting either wrong is silent -- the peek renders at half size in

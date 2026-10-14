@@ -7,13 +7,14 @@
 // word-boundary predicate and the element-tree flattener were all unmeasured
 // portable logic sitting inside a Windows-only translation unit.
 //
-// WHAT THIS TARGET DOES NOT DO, stated because the split was originally
-// proposed for a reason that measurement refuted: it does not make
-// src/selection.cpp testable. selection.cpp takes an App&, and App holds the
+// WHAT THIS TARGET DID NOT DO, stated because the split was originally
+// proposed for a reason that measurement refuted: it did not make
+// src/selection.cpp testable. selection.cpp takes an App&, and App then held the
 // Direct2D backends BY VALUE (renderTargetStorage, brushStorage, bitmapStorage,
 // textFactoryStorage, the *FormatStorage members), so linking anything that
-// instantiates an App off Windows wants vtables from src/render_d2d.cpp and
-// src/text_d2d.cpp. isWordBoundary was one of nine undefined symbols, not the
+// instantiated an App off Windows wanted vtables from src/render_d2d.cpp and
+// src/text_d2d.cpp (both deleted in 0b39ae6; tests/selection_tests.cpp records how App
+// stopped needing them). isWordBoundary was one of nine undefined symbols, not the
 // blocker. See the portable_compile_only note in CMakeLists.txt.
 //
 // Escapes rather than literal non-ASCII bytes throughout: \u in the wide

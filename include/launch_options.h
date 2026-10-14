@@ -12,27 +12,28 @@
 // that can be stood in for, neither is a call that cannot be, and both are algorithms over
 // values, so both can be implemented exactly once and tested on any platform.
 //
-// WHY THIS IS A SEAM AND NOT A SECOND PARSER. WinMain parses thirteen named options inline,
-// in a 36-line if/else chain. src/main_qt.cpp parses none of them: it reads argv[1] and opens
-// it as a document. Those are not two parsers that agree, they are one parser and one file
-// that has never been told the flags exist -- and the gap is not benign. `tinta --light a.md`
-// on the Qt arm today tries to open a document named "--light", fails, prints the failure,
-// and NEVER OPENS a.md. A flag is silently promoted to a filename and the filename is
-// silently dropped. Adding a second if/else chain next door would fix that case and start the
-// clock on the two chains disagreeing, so there is one chain and both arms call it.
+// WHY THIS IS A SEAM AND NOT A SECOND PARSER. When this was written, WinMain parsed thirteen
+// named options inline, in a 36-line if/else chain, and src/main_qt.cpp parsed none of them: it
+// read argv[1] and opened it as a document. Those were not two parsers that agreed, they were one
+// parser and one file that had never been told the flags existed -- and the gap was not benign.
+// `tinta --light a.md` on the Qt arm then tried to open a document named "--light", failed,
+// printed the failure, and NEVER OPENED a.md. A flag was silently promoted to a filename and the
+// filename silently dropped. Adding a second if/else chain next door would have fixed that case
+// and started the clock on the two chains disagreeing, so there was one chain and both arms
+// called it; since WinMain was retired (0b39ae6) src/main_qt.cpp is the only caller.
 //
-// TWO THINGS THIS DELIBERATELY DOES THAT WinMain DOES NOT.
+// TWO THINGS THIS DELIBERATELY DOES THAT THE RETIRED WinMain DID NOT.
 //
-// First, A FLAG WHOSE ARGUMENT IS MISSING IS AN ERROR, not a no-op. WinMain guards each
-// value-taking option with `&& i + 1 < argc`, so a trailing `--exportpdf` with no path fails
-// every branch, falls through to the positional test, fails that too because it starts with
-// '-', and VANISHES. This tree has already paid for that shape twice: `--printpages` with a
+// First, A FLAG WHOSE ARGUMENT IS MISSING IS AN ERROR, not a no-op. WinMain guarded each
+// value-taking option with `&& i + 1 < argc`, so a trailing `--exportpdf` with no path failed
+// every branch, fell through to the positional test, failed that too because it starts with
+// '-', and VANISHED. This tree has already paid for that shape twice: `--printpages` with a
 // mistyped path wrote one blank page that read as a passing arm, and `--exportpdf` with no
 // path at all produced an 858-byte blank PDF with a confident hash. Those are recorded in
 // `errors` here so a caller can refuse rather than proceed with a default.
 //
-// Second, AN UNRECOGNISED FLAG IS RECORDED rather than ignored. WinMain drops anything
-// starting with '-' or '/' that it does not know. A typo like `--lite` therefore behaves
+// Second, AN UNRECOGNISED FLAG IS RECORDED rather than ignored. WinMain dropped anything
+// starting with '-' or '/' that it did not know. A typo like `--lite` therefore behaved
 // exactly like no flag at all, which is the failure mode this tree keeps cataloguing under a
 // different name each time.
 //
@@ -122,7 +123,8 @@ LaunchOptions parseLaunchOptions(int argc, const char* const* argv,
 // THE SINGLE-INSTANCE RULE (Win11 Notepad model): a plain file launch joins the running window
 // as a new tab, unless it is a quick note, a cascade relaunch, a harness switch that writes and
 // exits, or the user turned tabs off. WinMain's inline condition, lifted here 2026-10-06 so the
-// Qt arm (src/instance_channel_qt.cpp) and WinMain answer it with one function.
+// Qt arm and WinMain answered it with one function. WinMain is retired (0b39ae6); the callers now
+// are src/main_qt.cpp's main and src/qt_launch.cpp's openFileOpenEventDocument.
 bool shouldJoinExistingWindow(const LaunchOptions& options, bool openInTabs);
 
 // THE THREE SELF-RELAUNCHES, as argument lists, so the window that starts a second window and

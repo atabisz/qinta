@@ -79,7 +79,7 @@ void storeThemeChoice(Settings& settings, const App& app) {
     settings.darkThemeIndex = app.darkThemeIndex;
 }
 
-// WinMain's block after loadSettings(), field for field, minus the theme. Until 2026-10-11
+// The retired WinMain's block after loadSettings(), field for field, minus the theme. Until 2026-10-11
 // qinta's launch copied 11 fields and the rest stayed at App's defaults, so zoom, reading
 // width, word wrap, the pins and the UI language reset every launch.
 void applySavedPreferences(App& app, const Settings& settings) {
@@ -105,7 +105,7 @@ void applySavedPreferences(App& app, const Settings& settings) {
     applyKeymap(app, settings);
 }
 
-// WinMain's WM_CLOSE block, field for field, minus the window placement.
+// The retired WinMain's WM_CLOSE block, field for field, minus the window placement.
 void storePreferences(Settings& settings, const App& app) {
     storeThemeChoice(settings, app);
     settings.zoomFactor = app.zoomFactor;

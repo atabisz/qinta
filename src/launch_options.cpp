@@ -18,7 +18,7 @@ bool isFlagLike(const std::string& arg, SlashPolicy slashPolicy) {
     return arg[0] == '/' && slashPolicy == SlashPolicy::FlagPrefix;
 }
 
-// _wtoi's behaviour on a non-numeric string is 0, and WinMain relies on that silently. Kept
+// _wtoi's behaviour on a non-numeric string is 0, and WinMain relied on that silently. Kept
 // rather than tightened: --pos arrives from tabDragEnd with numbers this tree printed itself,
 // so a strict parse would add a failure mode the shipping path cannot produce. The note is
 // here so the leniency reads as a decision rather than an oversight.
@@ -95,9 +95,9 @@ LaunchOptions parseLaunchOptions(const std::vector<std::string>& args,
         } else if (isFlagLike(arg, slashPolicy)) {
             out.unknown.push_back(arg);
         } else {
-            // THE LAST POSITIONAL WINS, matching WinMain, which assigns rather than appends.
-            // tinta opens one document per process; a second path is the caller's mistake and
-            // the Windows arm has always resolved it this way.
+            // THE LAST POSITIONAL WINS, matching the retired WinMain, which assigned rather than
+            // appended. tinta opens one document per process; a second path is the caller's
+            // mistake and the Windows arm always resolved it this way.
             out.inputFile = arg;
         }
     }

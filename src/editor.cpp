@@ -2825,9 +2825,10 @@ static void editorFillRangeRects(App& app, tinta::TextLayout* layout,
     if (!layout || rangeLen == 0) return;
     uint32_t count = 0;
     // The count-probe pass. Its return value is ignored here exactly as the
-    // HRESULT was: DirectWrite answers this shape with E_NOT_SUFFICIENT_BUFFER
-    // and a filled-in count, and text_d2d.cpp:410-416 forwards the count for
-    // that reason, so a `false` here is the expected reading and not a failure.
+    // HRESULT was: DirectWrite answered this shape with E_NOT_SUFFICIENT_BUFFER
+    // and a filled-in count, the retired text_d2d.cpp forwarded the count for
+    // that reason, and src/text_qt.cpp's QtTextLayout::HitTestTextRange keeps the
+    // same protocol, so a `false` here is the expected reading and not a failure.
     layout->HitTestTextRange((uint32_t)rangeStart, (uint32_t)rangeLen, 0, 0,
                              nullptr, 0, &count);
     if (count == 0) return;

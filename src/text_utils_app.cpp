@@ -55,8 +55,8 @@ float measureText(App& app, const std::wstring& text, tinta::TextFormat* format)
         text.c_str(), (uint32_t)text.length(), format, 10000.0f, 100.0f);
     if (!layout) return 0;
 
-    // RAII, because tinta::TextLayout OWNS its native (text_d2d.h) -- the manual
-    // Release the native path in utils.cpp still needs is gone here, not merely moved.
+    // RAII, because tinta::TextLayout OWNS what it wraps (its native, in the retired
+    // text_d2d.h) -- the manual Release the native path needed is gone here, not merely moved.
     tinta::TextMetrics metrics{};
     layout->GetMetrics(&metrics);
     return metrics.widthIncludingTrailingWhitespace;

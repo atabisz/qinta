@@ -1,6 +1,6 @@
 // THE FIRST TEST THE #25 OFF-SCREEN CLAMP HAS EVER HAD.
 //
-// The logic it exercises shipped inside WinMain, where nothing in this tree can reach it, so
+// The logic it exercises shipped inside WinMain (retired in 0b39ae6), where nothing in this tree could reach it, so
 // for its whole life its evidence was that it looked right and nobody complained. That is
 // not the same as a passing test, and the difference is the reason this file exists rather
 // than the clamp being moved quietly.

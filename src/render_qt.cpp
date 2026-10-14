@@ -194,8 +194,8 @@ std::unique_ptr<tinta::PathGeometry> QtPathSink::Close() {
 namespace {
 
 // Returns null rather than asserting on the wrong backend, which is the opposite of
-// nativePathGeometry in render_d2d.cpp. Deliberate: that one can assert because
-// <cassert> and a Windows-only translation unit are both already there, and this
+// nativePathGeometry in the retired render_d2d.cpp. Deliberate: that one could assert because
+// <cassert> and a Windows-only translation unit were both already there, and this
 // file is compiled on three platforms where an abort in a paint call is a worse
 // outcome than a missing shape. The dynamic_cast still catches the mistake -- it
 // just declines to draw instead of terminating.

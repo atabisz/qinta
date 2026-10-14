@@ -242,8 +242,8 @@ bool clipboardHasImage();
 //
 // `pngBytes` is the SAME image already encoded as PNG -- tinta::encodePng(image) -- and
 // it is a parameter rather than something this seam computes, which is a link decision
-// and not a style one. tinta::encodePng lives in src/image_win32.cpp and src/image_qt.cpp;
-// calling it from here would put the whole WIC and Direct2D link line onto
+// and not a style one. tinta::encodePng lives in src/image_qt.cpp (and, until 0b39ae6, in
+// src/image_win32.cpp); calling it from here would put the whole image backend's link line onto
 // tests/clipboard_tests, a target whose entire value is that it links ONE platform file
 // and nothing else. The caller already has the bytes at both existing call sites.
 //

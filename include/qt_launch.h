@@ -22,7 +22,7 @@
 // right, one that the request reached the window.
 //
 // THIS IS NOT A SECOND DECISION. Neither of the first two functions decides anything about
-// placement -- that is tinta::choosePlacement, shared with WinMain, and it is deliberately
+// placement -- that is tinta::choosePlacement, once shared with the retired WinMain, and it is deliberately
 // not called from here. They supply its INPUTS from the two sources only the Qt arm has: Qt's
 // screen list and this arm's parse. Putting the decision here as well would recreate exactly
 // the two-chains problem that made the shared parse necessary.
@@ -79,33 +79,33 @@ void applyPlacement(QWidget& window, const WindowRect& placement);
 // --light: the one appearance flag that needs nothing Windows-only.
 //
 // Three fields that have to move TOGETHER, which is the reason this is a function and not
-// three lines in main(). The index comes from theme_data.h so WinMain and the Qt arm cannot
-// disagree about which slot "light" means, and `darkMode` is READ OFF the chosen theme rather
+// three lines in main(). The index comes from theme_data.h so the retired WinMain and the Qt arm
+// could not disagree about which slot "light" means, and `darkMode` is READ OFF the chosen theme rather
 // than assumed false -- assuming it is how a renamed or reordered theme table turns a light
 // window into a light window drawn with dark-mode decisions.
 void applyLightMode(App& app);
 
-// --stats and --tabbed: two App fields, set before the window exists, as WinMain sets them right
-// after the parse. Refused by name on this arm until 2026-10-06, each citing src/input.cpp, which
+// --stats and --tabbed: two App fields, set before the window exists, as the retired WinMain set
+// them right after the parse. Refused by name on this arm until 2026-10-06, each citing src/input.cpp, which
 // had been linked into qinta since the key router (2026-09-25).
 void applyLaunchFlags(App& app, const LaunchOptions& options);
 
-// --new and --edit, entered AFTER the window exists, as WinMain enters them after its first
-// frame: --new opens an untitled quick note, --edit puts the loaded document in the editor.
-// --new wins when both are given, which is WinMain's `if (quickNote) ... else if (edit)`.
+// --new and --edit, entered AFTER the window exists, as the retired WinMain entered them after
+// its first frame: --new opens an untitled quick note, --edit puts the loaded document in the
+// editor. --new wins when both are given, which was WinMain's `if (quickNote) ... else if (edit)`.
 // These are what make the two self-relaunches (src/window_launch_qt.cpp) land where the
-// Windows ones do.
+// retired Windows ones did.
 void enterLaunchMode(App& app, const LaunchOptions& options);
 
 // THE THEME FIELDS settings.ini HOLDS, LOADED BECAUSE THIS ARM WRITES THEM. The theme picker's
 // persistThemeChoice and the close save both read-modify-write these four, so an arm that
 // wrote them without loading them put App's defaults over the user's saved light/dark pair --
-// on Windows in the settings.ini tinta itself reads. The start index is WinMain's rule: an
+// on Windows in the settings.ini tinta itself read. The start index is the retired WinMain's rule: an
 // index past the registry (a deleted custom theme) falls back to slot 0. With follow-system on
-// the start index is the one `systemPrefersLight` picks, as WinMain's autoThemeIndex does.
+// the start index is the one `systemPrefersLight` picks, as WinMain's autoThemeIndex did.
 void applySavedTheme(App& app, const Settings& settings, bool systemPrefersLight);
 
-// This arm's reading of the system appearance, WinMain's AppsUseLightTheme counterpart. On Qt
+// This arm's reading of the system appearance, the retired WinMain's AppsUseLightTheme counterpart. On Qt
 // 6.5+ it is QStyleHints::colorScheme, and Unknown reads as light the way a missing registry
 // value does. Below 6.5 there is no such property, so it is the palette's window lightness --
 // a reading of what the platform theme drew, taken when asked, with no change notification.
@@ -121,7 +121,7 @@ void showPlaced(QWidget& window, bool maximized);
 // geometry, as the inverse of applyPlacement: frame position, client size.
 void saveClosingState(const App& app, const QWidget& window);
 
-// THE LAST SESSION, WinMain's rule: reopened on a plain launch -- no file argument, not a quick
+// THE LAST SESSION, the retired WinMain's rule: reopened on a plain launch -- no file argument, not a quick
 // note, a cascaded new window, an edit-mode launch or a harness switch -- and only with "Open
 // files in tabs" on, since with it off a window holds one document. Paths that no longer exist
 // are dropped, and `active` follows its path through the filtering. Empty means no session.
@@ -144,20 +144,20 @@ std::string absoluteLaunchPath(const std::string& path);
 std::vector<std::string> launchArguments();
 
 // Whether this window owns the session the close save writes: not a cascaded new window and not
-// a quick note, as in WinMain. Those keep what is on disk (storePreferences).
+// a quick note, as in the retired WinMain. Those keep what is on disk (storePreferences).
 bool ownsSession(const LaunchOptions& options);
 
 // After the launch document has loaded: its saved reading position and, when it differs, its
 // zoom, as openDocumentInViewer does for an in-app open -- except under --edit, which opens at
-// the top, as in WinMain. A file named on the command line also goes to the head of the recent
+// the top, as in the retired WinMain. A file named on the command line also goes to the head of the recent
 // files, unless this is a harness run (--printpages, --export*): a headless export is not the
-// user opening a document, and WinMain recording it is how a scripted run came to rewrite the
+// user opening a document, and WinMain recording it was how a scripted run came to rewrite the
 // user's settings. Then the text formats, if the zoom they were built at (installQtBackends,
 // before any setting was read) is no longer the one in force.
 void restoreLaunchDocument(App& app, const Settings& settings, const LaunchOptions& options,
                            bool namedOnCommandLine);
 
-// A DOCUMENT HANDED TO THE RUNNING WINDOW FROM OUTSIDE IT, in WinMain's WM_COPYDATA shape: the
+// A DOCUMENT HANDED TO THE RUNNING WINDOW FROM OUTSIDE IT, in the retired WinMain's WM_COPYDATA shape: the
 // window comes forward and the document opens as a tab -- in place of the start page, if that is
 // showing, since it holds no document. A second launch's hand-off
 // (instance_channel_qt.h) arrives here, and so does a macOS file-open event that joins. One

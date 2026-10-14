@@ -13,7 +13,8 @@
 
 // The PDF seam. exportPdfFile below is now a page-geometry decision and one call into
 // it, and the SHCreateStreamOnFileEx / IPrintDocumentPackageTarget / CreatePrintControl
-// half of what it used to be lives in src/pdf_export_win32.cpp. tinta::PagePainter also
+// half of what it used to be lived in src/pdf_export_win32.cpp until 0b39ae6; the seam's one
+// arm now is src/pdf_export_qt.cpp. tinta::PagePainter also
 // comes from here -- see the alias below.
 #include "pdf_export.h"
 
@@ -499,7 +500,7 @@ void drawDocumentRange(App& app, tinta::RenderTarget& target,
         // D2D1_BITMAP_INTERPOLATION_MODE_LINEAR explicitly, and those are precisely the
         // seam's defaults -- chosen to be Direct2D's own so that a 2-argument call means
         // opacity 1 and linear filtering on either backend (render_api.h says so where
-        // DrawBitmap is declared, and render_d2d.cpp asserts the enum values match).
+        // DrawBitmap is declared, and the retired render_d2d.cpp asserted the enum values match).
         target.DrawBitmap(bmp.bitmap.get(),
             tinta::rectF(bmp.destRect.left + dx, bmp.destRect.top + dy,
                         bmp.destRect.right + dx, bmp.destRect.bottom + dy));
@@ -902,8 +903,9 @@ int printDebugPages(App& app, const std::wstring& outDir) {
 //
 // Pages use the last print-preview paper choice, or the locale default before any
 // preview ran. Everything after that geometry decision is the seam's: how a PDF gets
-// written is include/pdf_export.h's question, and on this platform the answer is still
-// the print pipeline aimed at a file stream (src/pdf_export_win32.cpp says how and why).
+// written is include/pdf_export.h's question, and on every platform the answer is now
+// QPdfWriter (src/pdf_export_qt.cpp); until 0b39ae6 the Windows answer was the print
+// pipeline aimed at a file stream, in the retired src/pdf_export_win32.cpp.
 //
 // THE SIGNATURE DOES NOT MOVE, AND THAT IS A CONSTRAINT RATHER THAN A PREFERENCE.
 // tests/export_html_tests.cpp links its own stub definition of this function, so a
@@ -915,10 +917,10 @@ bool exportPdfFile(App& app, const std::wstring& path) {
     //
     // app.deviceContext LEFT THE GUARD ON 2026-10-06, and the paragraph that kept it said
     // dropping it "would have relaxed the guard on a platform assumption". The assumption
-    // can be read in the code instead. src/pdf_export_win32.cpp's beginPdfDocument
-    // QueryInterfaces the same native for an ID2D1DeviceContext and returns nullptr when
-    // that fails, before it opens a stream. So a Windows build with no device context still
-    // gets no PDF and no file, and the check was a duplicate of the seam's own. On Qt the
+    // could be read in the code instead. The retired src/pdf_export_win32.cpp's beginPdfDocument
+    // QueryInterfaced the same native for an ID2D1DeviceContext and returned nullptr when
+    // that failed, before it opened a stream. So a Windows build with no device context still
+    // got no PDF and no file, and the check was a duplicate of the seam's own. On Qt the
     // check was not a duplicate: app.deviceContext is always null there, so it was the
     // whole reason this function refused.
     if (!app.root || !app.renderTarget) return false;
@@ -1073,9 +1075,9 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     // rasteriser in the tree is gone" and it was still false: this file held TWO
     // CreateBitmap-with-NULL-pixels sites, ONE target+staging pair, in
     // rasterizePreviewPage above. That pair is gone too since 2026-10-06, so this file
-    // holds none, which is a claim about this FILE. The tree still has offscreen Direct2D
-    // targets in src/image_win32.cpp, which is the backend of the seam everything here
-    // calls.
+    // holds none, which is a claim about this FILE. The tree still had offscreen Direct2D
+    // targets in src/image_win32.cpp, the backend of the seam everything here calls,
+    // until that file went with the Direct2D stack in 0b39ae6.
     //
     // IT SAID FOUR AND TWO PAIRS UNTIL 2026-09-20, and the other pair's departure is why
     // the count moved: the page rasteriser below ALSO drew offscreen into a staging bitmap,
@@ -1089,8 +1091,8 @@ std::shared_ptr<tinta::Bitmap> renderPeekBitmap(App& app, const std::wstring& pa
     //
     // THE 2x IS A TRANSFORM HERE, NOT A DPI, AND THAT IS THE ONE REAL DIFFERENCE FROM THE
     // OLD BODY. The old code set 192 DPI on its own device context so 1 DIP became 2 px.
-    // The seam's offscreen target is built by the backend and neither arm offers a DPI to
-    // set: src/image_win32.cpp hardcodes its WIC render target at 96, and src/image_qt.cpp
+    // The seam's offscreen target is built by the backend and neither arm offered a DPI to
+    // set: the retired src/image_win32.cpp hardcoded its WIC render target at 96, and src/image_qt.cpp
     // paints into a bare QImage where one coordinate unit is one pixel by construction. So
     // the scale has to come from inside the callback, and a 2x scale transform is
     // equivalent for drawing that is all in DIPs -- which everything below is. Probed

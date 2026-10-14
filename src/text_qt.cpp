@@ -11,10 +11,11 @@
 #include <QTextLine>
 #include <QTextOption>
 
-// The pairings text_api.h promises, from the Qt side. render_d2d.cpp and
-// text_d2d.cpp make the same assertions against the DirectWrite headers; making
-// them from BOTH sides is what turns the enum values from a convention into a
-// checked fact, because the two sets of assertions can disagree with each other.
+// The pairings text_api.h promises, from the Qt side. The retired render_d2d.cpp and
+// text_d2d.cpp made the same assertions against the DirectWrite headers until 0b39ae6;
+// making them from BOTH sides was what turned the enum values from a convention into a
+// checked fact, because the two sets of assertions could disagree with each other.
+// These are the only side left.
 
 static_assert(static_cast<int>(tinta::FontWeight::Light) == static_cast<int>(QFont::Light),
               "tinta::FontWeight::Light must equal QFont::Light");

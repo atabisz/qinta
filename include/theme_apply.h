@@ -7,7 +7,8 @@
 #include <string>
 #include <vector>
 
-// Switching theme and rebuilding the text formats, for both stacks.
+// Switching theme and rebuilding the text formats, for both stacks until 0b39ae6 and for the
+// Qt stack, the only one, since.
 //
 // applyTheme and updateTextFormats are PORTABLE and live in src/theme_apply_app.cpp. They
 // used to live in src/d2d_init.cpp, and what kept them Windows-only was that home rather than
@@ -22,9 +23,10 @@
 void applyTheme(App& app, int themeIndex);
 void updateTextFormats(App& app);
 
-// FOLLOW-SYSTEM MODE, with the system's light/dark reading passed IN. Each stack reads it its
-// own way -- WinMain the AppsUseLightTheme registry value, the Qt arm QStyleHints (qt_launch.h)
-// -- and what to do with the reading is this one body, so the two cannot disagree about it.
+// FOLLOW-SYSTEM MODE, with the system's light/dark reading passed IN. Each stack read it its
+// own way -- the retired WinMain the AppsUseLightTheme registry value, the Qt arm QStyleHints
+// (qt_launch.h) -- and what to do with the reading is this one body, so the two could not
+// disagree about it.
 //
 // The theme follow mode wants for that reading: the saved light or dark preference.
 int followThemeIndex(const App& app, bool systemPrefersLight);
@@ -34,7 +36,8 @@ bool followSystemAppearance(App& app, bool systemPrefersLight);
 
 // The title bar for the current theme: the dark caption variant, the caption and border fill
 // -- the drawn tab strip's colour, so the frame blends with it -- and the caption text. One
-// body for both stacks' applyWindowChrome arms.
+// body, read by src/theme_qt.cpp's applyWindowChrome (and, until 0b39ae6, by the Direct2D
+// stack's arm too).
 tinta::WindowChrome windowChromeFor(const App& app);
 
 // THE THREE BACKEND HOOKS. One definition each, in src/theme_qt.cpp: applyWindowChrome,

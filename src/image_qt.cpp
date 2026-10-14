@@ -151,8 +151,8 @@ DecodedImage decodeImageFile(const std::wstring& path) {
 // silently accepted one would let a Qt build limp along holding a Direct2D target until
 // something else noticed. The cast goes to QtRenderTarget rather than away from
 // D2DRenderTarget for a mechanical reason as well as a symmetry one: D2DRenderTarget's
-// typeinfo lives in render_d2d.cpp, which does not compile off Windows, so naming it
-// here would be a link error rather than a check.
+// typeinfo lived in render_d2d.cpp, which never compiled off Windows, so naming it
+// here would have been a link error rather than a check (and since 0b39ae6 the type is gone).
 std::shared_ptr<Bitmap> decodeImageFileToBitmap(RenderTarget& target,
                                                 const std::wstring& path) {
     assert(dynamic_cast<QtRenderTarget*>(&target) != nullptr &&

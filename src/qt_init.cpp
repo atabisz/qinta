@@ -149,7 +149,7 @@ void installQtBackends(App& app) {
     // theme change nothing would ever seat the list, and every ideograph in the session
     // would resolve in whatever order the platform configuration gave -- which is exactly
     // the state #155 describes. On Windows the equivalent call sat inside updateTextFormats
-    // and WinMain ran it at startup, so the hole is this stack's alone.
+    // and WinMain ran it at startup, so the hole was this stack's alone.
     //
     // BEFORE installQtTextFormats, though it need not be: the families are attached to
     // layouts, never to formats, so no format built below can be missing them. Ordered this
@@ -203,7 +203,7 @@ void installQtBackends(App& app) {
     //
     // THE THEME PREVIEWS ARE STILL NOT HERE, deliberately: ~30 formats across every theme,
     // wanted only when the chooser opens, and ensureQtThemePreviewFormats below is the lazy
-    // door -- same division of labour as Windows, and now literally the same function.
+    // door -- the division of labour the retired Windows stack had, and now literally the same function.
     installChromeFormats(app);
 
     // AND THE TYPOGRAPHY, WHICH THIS STACK HAD NEVER HAD. createTypography lived in

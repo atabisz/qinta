@@ -86,7 +86,7 @@ void enterLaunchMode(App& app, const LaunchOptions& options) {
 
 bool systemPrefersLight() {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
-    // Unknown counts as light, as WinMain's registry read does when the value is missing.
+    // Unknown counts as light, as the retired WinMain's registry read did when the value was missing.
     return QGuiApplication::styleHints()->colorScheme() != Qt::ColorScheme::Dark;
 #else
     return QGuiApplication::palette().color(QPalette::Window).lightness() >= 128;
@@ -97,7 +97,7 @@ void applySavedTheme(App& app, const Settings& settings, bool systemPrefersLight
     app.followSystemTheme = settings.followSystemTheme;
     app.lightThemeIndex = settings.lightThemeIndex;
     app.darkThemeIndex = settings.darkThemeIndex;
-    // WinMain checks only the top end; a negative index from a hand-edited file would be kept
+    // WinMain checked only the top end; a negative index from a hand-edited file would be kept
     // there as currentThemeIndex while themeAt drew slot 0, so the two would disagree.
     int start = settings.followSystemTheme ? followThemeIndex(app, systemPrefersLight)
                                            : settings.themeIndex;

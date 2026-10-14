@@ -111,8 +111,8 @@ inline Typography codeTypographySet() {
 // the full table, including the one prediction it refuted.
 //
 // Not idempotent-sensitive: the sets are values, so a second call overwrites rather than
-// accumulating, which is why the Windows path's single call from WinMain and the Qt path's
-// single call from installQtBackends need no release counterpart. There is nothing to free
+// accumulating, which is why the Qt path's single call from installQtBackends needs no release
+// counterpart, as the retired Windows path's single call from WinMain needed none. There is nothing to free
 // -- App used to hold two IDWriteTypography objects here and holds two values now.
 void installTypography(App& app);
 

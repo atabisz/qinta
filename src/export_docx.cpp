@@ -1558,8 +1558,8 @@ bool copyDiagramImage(App& app, const std::string& sourceUtf8) {
 
     // The PNG is encoded HERE and passed in rather than being computed inside the seam,
     // and that is a link decision rather than a division of labour: tinta::encodePng
-    // lives in src/image_win32.cpp and src/image_qt.cpp, so calling it from the clipboard
-    // seam would put the whole WIC and Direct2D link line onto tests/clipboard_tests.
+    // lives in src/image_qt.cpp (and, until 0b39ae6, in src/image_win32.cpp), so calling it
+    // from the clipboard seam would put the whole image backend's link line onto tests/clipboard_tests.
     // See include/clipboard.h at setClipboardImage. An empty result is not a failure --
     // it means the image lands as a bitmap only, which is what this code always did.
     return platform::setClipboardImage(image, tinta::encodePng(image));

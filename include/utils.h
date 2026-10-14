@@ -17,8 +17,9 @@ struct InlineSpan {
     bool underline;
 };
 
-// The IDWriteTextFormat* overload HAS LEFT THIS HEADER -- it is include/d2d_init.h
-// now, beside the four calls in updateTextFormats that were its only callers. This
+// The IDWriteTextFormat* overload HAS LEFT THIS HEADER -- it moved to include/d2d_init.h,
+// beside the four calls in updateTextFormats that were its only callers, and went with
+// that header in 0b39ae6. This
 // is the seam-handle version, and it is the one the rest of the tree measures with.
 float measureText(App& app, const std::wstring& text, tinta::TextFormat* format);
 std::wstring_view textViewForRect(const App& app, const App::TextRect& tr);

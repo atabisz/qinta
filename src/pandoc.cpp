@@ -182,7 +182,7 @@ void pandocResolve(App& app) {
     // here rather than behind the seam on purpose: the seam answers "what is this
     // variable set to", and which variables are worth asking about is knowledge
     // about pandoc's installer, not about the platform. Putting the table in
-    // platform_paths_win32.cpp would make a platform file own a fact about pandoc.
+    // src/platform_paths_qt.cpp would make a platform file own a fact about pandoc.
     //
     // The honest consequence, stated rather than discovered later: off Windows all
     // three are simply unset, every probe returns empty, and resolution has already

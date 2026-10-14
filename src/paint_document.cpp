@@ -14,7 +14,7 @@
 // true of every target that existed then. qinta is a WINDOWS target with no Direct2D
 // backend, so _WIN32 was defined, the colour-emoji branch then in the run loop compiled,
 // and the link came back `unresolved external symbol nativeTextLayout` out of
-// src/text_d2d.cpp -- a file qinta correctly does not compile. The dashed block further
+// src/text_d2d.cpp -- a file qinta correctly did not compile (deleted in 0b39ae6). The dashed block further
 // down was worse: it resolves through d2d1.lib, so it would have LINKED and then
 // dereferenced a null app.d2dFactory at the first dashed mermaid connector.
 //
@@ -413,7 +413,7 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         }
         app.brush->SetColor(run.color);
         tinta::PointF drawPos = tinta::pointF(run.pos.x - app.scrollX, run.pos.y - app.scrollY);
-        // ONE CALL, BOTH BACKENDS, AND THE COLOUR-EMOJI OPTION GOES THROUGH THE SEAM.
+        // ONE CALL, EVERY BACKEND, AND THE COLOUR-EMOJI OPTION GOES THROUGH THE SEAM.
         //
         // This was two arms until 2026-09-19: a `#ifdef TINTA_D2D_BACKEND` branch calling
         // app.deviceContext->DrawTextLayout(..., D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT)
@@ -422,18 +422,18 @@ void paintDocumentLayout(App& app, const DocumentViewport& viewport) {
         // has carried since it was built, and four comments in this tree -- here, in app.h,
         // in paint_document.h and in render_d2d.h -- each asserted colour emoji had "no seam
         // equivalent", citing one another. All four were wrong the whole time:
-        // tinta::DrawTextOptions::EnableColorFont (the enumerator in include/text_api.h) is
+        // tinta::DrawTextOptions::EnableColorFont (the enumerator in include/text_api.h) was
         // static_assert'd equal to D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT near the top of
         // src/render_d2d.cpp and forwarded by D2DRenderTarget::DrawTextLayout in that same
-        // file, and src/math_render.cpp was already passing it.
+        // file (both deleted in 0b39ae6), and src/math_render.cpp was already passing it.
         //
         // Those three citations were LINE NUMBERS until 2026-09-19 and two of them were
         // already stale -- include/text_api.h:184 had become :205 and the forward is not on
         // the line named -- both moved by the very comments written to fix this class of rot.
         // Symbols do not move; grep for them.
         //
-        // Measured before and after, not argued: tests/render_api_shared.cpp now asserts this
-        // flag across both backends, and it reads channel spread 0 without the flag against
+        // Measured before and after, not argued: tests/render_api_shared.cpp asserted this
+        // flag across both backends, and it read channel spread 0 without the flag against
         // 214 with it on Direct2D -- a black brush cannot produce a saturated pixel any other
         // way. Qt reads 209 either way, because QTextLayout hands the run to QPainter, which
         // resolves a colour font itself; Qt has therefore been rendering colour emoji all

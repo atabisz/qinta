@@ -111,11 +111,11 @@ class RenderTarget;
 void installQtBackends(App& app);
 
 // The per-theme preview triple -- three formats for every theme in theme_data -- created
-// on first use and not at startup. The Qt counterpart of ensureThemePreviewFormats
-// (include/d2d_init.h), and public for the same reason that one is: its caller is the
+// on first use and not at startup. The Qt counterpart of ensureThemePreviewFormats (in the
+// retired include/d2d_init.h, deleted in 0b39ae6), and public for the same reason that one was: its caller is the
 // theme chooser, which lives in src/overlays.cpp and has not been ported.
 //
-// Idempotent by the same test the Windows version uses: it returns early when
+// Idempotent by the same test the retired Windows version used: it returns early when
 // App::themePreviewFormats is non-empty, which is why releaseQtBackends CLEARS that
 // vector rather than merely nulling the wrappers inside it.
 void ensureQtThemePreviewFormats(App& app);

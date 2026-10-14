@@ -30,12 +30,13 @@
 // with: every line already drew through the tinta::RenderTarget seam and App::brush. If a
 // pixel changes on Windows, the extraction is wrong.
 //
-// WHAT DOES NOT WORK YET OFF WINDOWS, stated rather than left to be discovered: the
-// HOVER and DRAG states. App::scrollbarHovered and App::scrollbarDragging are set by
-// src/input.cpp's mouse handling, which is Windows-only, so on Qt the thumb is drawn in
-// its resting 6 DIP / 0.3 alpha form and cannot be dragged. The Qt window has no mouse
-// handling at all, so this is a missing caller and not a missing implementation -- the
-// code below reads those flags and will honour them the moment something sets them.
+// WHAT DID NOT WORK OFF WINDOWS when this was written: the HOVER and DRAG states.
+// App::scrollbarHovered and App::scrollbarDragging are set by src/input.cpp's mouse
+// handling (handleMouseDown, handleMouseMove, handleMouseUp), and the Qt window then had no
+// mouse handling at all, so on Qt the thumb sat in its resting 6 DIP / 0.3 alpha form and
+// could not be dragged. That was a missing caller and not a missing implementation: since
+// slice 3 src/qt_window.cpp routes the mouse into those handlers, and the code below reads
+// the flags it set all along.
 
 struct App;
 struct DocumentViewport;

@@ -27,11 +27,11 @@
 // the count sat directly above its own refutation for several slices. The occurrence
 // figure is deliberately NOT replaced with a fresh one: it moves on almost every port
 // slice, nothing checks it, and the structural claim (pointers only) is what the
-// forward declarations actually depend on. It embeds tinta's own D2D* wrapper types by value
+// forward declarations actually depend on. It embedded tinta's own D2D* wrapper types by value
 // -- which is why the first attempt at this reported that forward declarations
-// could not work -- but those wrappers only store native pointers and dereference
-// none of them inline, so render_d2d.h and text_d2d.h are declaration-only off
-// Windows too. See their headers.
+// could not work -- but those wrappers only stored native pointers and dereferenced
+// none of them inline, so the retired render_d2d.h and text_d2d.h (deleted in 0b39ae6)
+// were declaration-only off Windows too.
 //
 // This is the tree's existing convention, not a new one: geometry.h already has 11
 // `_WIN32` guards and keymap.h defines the VK_ codes itself off Windows. app.h was

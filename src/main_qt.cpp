@@ -18,7 +18,7 @@
 //     (settings.h) now copies every field WinMain copied, storePreferences writes them back at
 //     close, and the last session's tabs reopen (qt_launch.h). followSystemTheme is acted on: it
 //     starts the theme the system reading picks, and the window follows changes to that reading.
-//   * loadCustomThemes() now runs, as it does in WinMain, because the saved theme index can
+//   * loadCustomThemes() now runs, as it did in WinMain, because the saved theme index can
 //     name a custom theme. The bullet that stood here said it "would change nothing" while
 //     the only index this file set was the built-in kLightModeThemeIndex.
 //   * THE FLAGS ARE PARSED, THREE ARE HONOURED, AND THE REST ARE REFUSED BY NAME. What
@@ -28,7 +28,7 @@
 //     says it cannot, and never opens notes.md. A flag was promoted to a filename and the
 //     filename was dropped. tests/launch_options_tests.cpp opens with that case.
 //
-//     Now: tinta::parseLaunchOptions (one chain, shared with WinMain) does the reading.
+//     Now: tinta::parseLaunchOptions (one chain, shared with WinMain until 0b39ae6) does the reading.
 //     --light, --pos and --cascade are honoured here for real, and since 2026-10-06 so are
 //     --printpages, --exporthtml, --exportdocx and --exportpdf, which write and exit without a
 //     window, and --tabbed, --new, --edit and --stats followed the same day. /register is
@@ -133,7 +133,7 @@ int main(int argc, char** argv) {
     // learned that same fact from a linker three separate times.
     App app;
 
-    // Before the settings load, as in WinMain, because a saved theme index may name a custom
+    // Before the settings load, as in the retired WinMain, because a saved theme index may name a custom
     // theme -- and before installQtBackends, which sizes the theme picker's preview formats
     // to themeCount() at install.
     loadCustomThemes();
@@ -220,7 +220,7 @@ int main(int argc, char** argv) {
     // --tabbed, --new, --edit AND --stats WERE REFUSED HERE, each citing src/input.cpp, until
     // 2026-10-06. The note above already said that citation had stopped being a measured blocker;
     // the flag slice asked the question it set, and all four are honoured below through
-    // src/qt_launch.cpp, the same way WinMain honours them.
+    // src/qt_launch.cpp, the same way WinMain honoured them.
 #ifndef _WIN32
     // /register IS HONOURED ON WINDOWS since 2026-10-07 (below, after the settings load); it
     // stays refused elsewhere, where there is no registry and LaunchServices / xdg-mime are
@@ -245,7 +245,7 @@ int main(int argc, char** argv) {
     // 2026-10-06, the last three behind a long note on why the PDF one looked cheap and was
     // not: the exporters needed the print code, which was Windows-bound then. It is portable
     // now, and src/qt_init.cpp keeps a render target outside paint, so all four run below
-    // as headless harness switches, as they do in WinMain.
+    // as headless harness switches, as they did in WinMain.
 
     const Settings saved = loadSettings();
 
@@ -256,7 +256,7 @@ int main(int argc, char** argv) {
     if (options.forceRegister) return registerFileAssociationAndReport(saved) ? 0 : 1;
 #endif
 
-    // THE SINGLE-INSTANCE HAND-OFF (2026-10-06), WinMain's FindWindowW + WM_COPYDATA. A plain
+    // THE SINGLE-INSTANCE HAND-OFF (2026-10-06), the retired WinMain's FindWindowW + WM_COPYDATA. A plain
     // file launch hands its document to the running window and exits, under the same rule
     // (tinta::shouldJoinExistingWindow) and with the same fallback: nobody listening, or no
     // acknowledgement, means this launch opens its own window. The path goes absolute first,
@@ -273,7 +273,7 @@ int main(int argc, char** argv) {
     // both read-modify-write the four theme fields, so skipping the load wrote defaults over
     // them. With follow-system on the start theme is the system's pick instead. See qt_launch.h.
     tinta::applySavedTheme(app, saved, tinta::systemPrefersLight());
-    // Every other saved preference, in WinMain's order: after the theme, before the document.
+    // Every other saved preference, in the retired WinMain's order: after the theme, before the document.
     // The keymap and the UI language are in it (settings.h).
     applySavedPreferences(app, saved);
     app.sessionOwner = tinta::ownsSession(options);
@@ -282,7 +282,7 @@ int main(int argc, char** argv) {
     // moves live in src/qt_launch.cpp rather than here, so tests/qt_entry_tests.cpp can grab a
     // window before and after the SAME function this line calls -- a test with its own copy of
     // the three assignments could not fail on a defect planted in this one. After the saved
-    // theme, so the flag wins, and the close save then persists it, as WinMain's does.
+    // theme, so the flag wins, and the close save then persists it, as WinMain's did.
     if (options.lightMode) tinta::applyLightMode(app);
 
     tinta::applyLaunchFlags(app, options);
@@ -298,10 +298,10 @@ int main(int argc, char** argv) {
     // Removing fromLocal8Bit removed a SYMPTOM and not the cause, which was argv itself: the
     // Microsoft runtime fills it in the ANSI code page, so a non-ASCII path did not open. The
     // parse above reads tinta::launchArguments() instead, since 2026-10-14.
-    // --new takes no file: WinMain's quick note is an empty buffer with no backing path, even
+    // --new takes no file: WinMain's quick note was an empty buffer with no backing path, even
     // when a path was also given. With no file at all, the last session's active tab opens
     // (tinta::sessionToRestore has WinMain's conditions), and the rest of it joins the tab strip
-    // below. A session tab that will not load leaves the start page, as in WinMain.
+    // below. A session tab that will not load leaves the start page, as in the retired WinMain.
     int sessionActive = 0;
     const std::vector<std::string> session = tinta::sessionToRestore(options, saved, sessionActive);
     bool namedOnCommandLine = false;
@@ -346,7 +346,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    // WHERE THE WINDOW GOES, decided by the same function WinMain calls.
+    // WHERE THE WINDOW GOES, decided by the same function the retired WinMain called.
     //
     // Four geometry fields out of Settings, plus windowMaximized; every other field was applied
     // above by applySavedTheme and applySavedPreferences. The saved size is the request's size, so a
@@ -390,7 +390,7 @@ int main(int argc, char** argv) {
     // -- the same call a line earlier would have been dropped on the floor.
     updateWindowTitle(app);
     tinta::showPlaced(window, saved.windowMaximized);
-    // After the window, as WinMain enters these after its first frame.
+    // After the window, as WinMain entered these after its first frame.
     tinta::enterLaunchMode(app, options);
     // AGAIN, and it is not redundant: --new's quick note is entered by enterLaunchMode above,
     // which clears currentFile and turns on edit mode, so the caption computed before it says
@@ -400,7 +400,7 @@ int main(int argc, char** argv) {
     updateWindowTitle(app);
 
     // And this window becomes the one later launches join. A document arriving opens as a tab and
-    // the window comes forward, as WinMain's WM_COPYDATA case restores and foregrounds. If the
+    // the window comes forward, as WinMain's WM_COPYDATA case restored and foregrounded. If the
     // name is already held by another live window, this one simply does not listen.
     tinta::InstanceServer instanceServer([&app, &window](const std::string& path) {
         tinta::openArrivedDocument(app, window, path);

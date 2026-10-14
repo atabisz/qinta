@@ -124,7 +124,8 @@ std::shared_ptr<tinta::TextLayout> makeRunLayout(App& app, const std::wstring& t
     // Unconditional, where the block this replaces was guarded on app.fontFallback --
     // and the behaviour is the same rather than merely similar, because the guard moved
     // instead of vanishing. ApplyFontFallback() reads the chain through the factory's
-    // slot AT APPLY TIME (src/text_d2d.cpp:576) and returns without touching the layout
+    // slot -- AT APPLY TIME in the retired src/text_d2d.cpp, and on Qt as copied into the
+    // layout when CreateTextLayout ran (src/text_qt.cpp, QtTextLayout) -- and returns without touching the layout
     // when there is none, so a maths run gets the chain exactly when app.fontFallback is
     // set -- before and after. The QueryInterface for IDWriteTextLayout2 and its silent
     // tolerance of an older DirectWrite moved with it.

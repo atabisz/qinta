@@ -56,8 +56,8 @@ struct LayoutInfo {
 //
 // This used to open "THE ONE NATIVE REACH-THROUGH LEFT IN THIS FILE'S TEXT PATH" and
 // hold an IDWriteTextLayout2 QI, an IDWriteFontFallback and a Release. Those five lines
-// were the reason this file could not compile off Windows at line 81, and they now live
-// in D2DTextLayout::ApplyFontFallback, moved verbatim.
+// were the reason this file could not compile off Windows at line 81, and they then lived
+// in D2DTextLayout::ApplyFontFallback, moved verbatim, until the Direct2D stack went in 0b39ae6.
 //
 // THE REFUSAL THAT KEPT THEM HERE IS NOT REVERSED, and the difference is worth being
 // exact about, because "it moved into the backend" is precisely what that refusal said
@@ -174,10 +174,10 @@ static void addTextRun(App& app, LayoutInfo&& info, const tinta::PointF& pos,
     // again." That is exactly what happened -- App::LayoutTextRun::layout is
     // untouched by this commit, and this site stops naming a backend at all.
     //
-    // It also means this file no longer constructs a D2DTextLayout anywhere, taking
+    // It also meant this file no longer constructed a D2DTextLayout anywhere, taking
     // the population from three to two (text_d2d.cpp's factory and math_render.cpp's
-    // maths-box retain). text_d2d.h's constructor comment records both the count and
-    // the fact that it has now been wrong once.
+    // maths-box retain). text_d2d.h's constructor comment recorded both the count and
+    // the fact that it had been wrong once; D2DTextLayout and both files went in 0b39ae6.
     run.layout = std::move(info.layout);
     run.pos = pos;
     run.bounds = bounds;
@@ -441,9 +441,10 @@ static bool imageDisplaySize(App& app, const ElementPtr& elem, float maxWidth,
 
 // --- UAX#14 line-break analysis ---
 //
-// The 75-line IDWriteTextAnalysisSource/Sink pair that used to sit here has moved to
+// The 75-line IDWriteTextAnalysisSource/Sink pair that used to sit here moved to
 // src/text_d2d.cpp behind tinta::TextFactory::AnalyzeLineBreaks, with its CJK reasoning
-// intact. What stays here is the part that is not DirectWrite's: the ASCII fast path,
+// intact, and went with that file in 0b39ae6; the seam's one implementation now is
+// src/text_qt.cpp's QtTextFactory::AnalyzeLineBreaks. What stays here is the part that is not DirectWrite's: the ASCII fast path,
 // and the space-only fallback for when a backend cannot answer.
 //
 // The seam call replaces a direct app.textAnalyzer use, and App::textAnalyzer is gone

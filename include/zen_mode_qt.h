@@ -8,9 +8,9 @@
 // THE QT ARM OF ZEN MODE: showFullScreen() over the monitor the Win32 arm would have picked.
 //
 // This file names Qt types because it IS the Qt arm; include/window_placement.h names neither
-// Qt's nor Windows'. The state both arms carry -- `tinta::ZenRestore` -- comes from there, which is
-// what lets these two functions and include/zen_mode_win32.h's two be written against one idea of
-// "the window I have to give back" instead of two.
+// Qt's nor Windows'. The state both arms carried -- `tinta::ZenRestore` -- comes from there, which is
+// what let these two functions and the retired include/zen_mode_win32.h's two (deleted in 0b39ae6)
+// be written against one idea of "the window I have to give back" instead of two.
 //
 // IT TAKES `QWidget&`, NOT THE APP'S OWN WINDOW CLASS, and not `App&`. Zen mode needs a top-level
 // widget and nothing else -- no document, no theme, no layout -- so a test can drive both functions

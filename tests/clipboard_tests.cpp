@@ -330,12 +330,12 @@ void testImageSeam() {
     // A CF_BITMAP has no alpha channel and GetDIBits leaves the fourth byte undefined.
     //
     // WHAT THIS ONE DOES AND DOES NOT PROVE, measured rather than reasoned: deleting the
-    // forced-alpha line from src/clipboard_win32.cpp leaves this check GREEN, because the
-    // bytes it is reading back were written by this same seam with alpha 255. So this
+    // forced-alpha line from the retired src/clipboard_win32.cpp left this check GREEN, because
+    // the bytes it is reading back were written by this same seam with alpha 255. So this
     // contract proves the seam does not DAMAGE alpha, and nothing more. The claim that the
     // force is load-bearing needs a producer that publishes zero there, which is what
-    // publishZeroAlphaDib supplies further down -- and that one does go red when the line
-    // is deleted. Both are kept: this one covers the path the application actually uses.
+    // publishZeroAlphaDib supplies further down -- and that one did go red when the line
+    // was deleted. Both are kept: this one covers the path the application actually uses.
     unsigned notOpaque = 0;
     for (size_t i = 3; i < back.pixels.size(); i += 4) {
         if (back.pixels[i] != 255) notOpaque++;

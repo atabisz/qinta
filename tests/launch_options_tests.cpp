@@ -105,7 +105,7 @@ int main() {
     //
     // This tree has paid for this shape twice already: --printpages with a mistyped path wrote
     // one blank page that read as a passing arm, and --exportpdf with no path produced an
-    // 858-byte blank PDF with a confident hash. WinMain's `&& i + 1 < argc` guard makes the
+    // 858-byte blank PDF with a confident hash. The retired WinMain's `&& i + 1 < argc` guard made the
     // option VANISH; here it is an error.
     {
         for (const char* flag : {"--printpages", "--exporthtml", "--exportdocx",

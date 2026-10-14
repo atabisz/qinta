@@ -74,23 +74,25 @@ protected:
 // Opens `path` for writing and returns a sink for its pages, or nullptr if the file
 // or the backend document could not be created.
 //
-// `target` is the live render target, and it is here because the Windows arm needs a
-// device it can create a print control on. That is the established idiom for a
-// portable seam recovering its own backend -- src/image_win32.cpp does
-// dynamic_cast<D2DRenderTarget*> then native(), and asserts rather than tolerates a
+// `target` is the live render target, and it is here because the retired Windows arm
+// (src/pdf_export_win32.cpp, deleted in 0b39ae6) needed a device it could create a print
+// control on; the Qt arm, now the only one, leaves it unused. That was the established idiom
+// for a portable seam recovering its own backend -- the retired src/image_win32.cpp did
+// dynamic_cast<D2DRenderTarget*> then native(), and asserted rather than tolerated a
 // foreign target. The two rejected alternatives are worth naming because each looks
-// reasonable for one line: passing App& would drag the app's whole header, and
-// therefore windows.h, into a portable seam; passing a factory would put
+// reasonable for one line: passing App& would have dragged the app's whole header, and
+// with it windows.h, into a portable seam; passing a factory would have put
 // IWICImagingFactory in this file.
 //
-// `documentTitle` is the document's name. The Windows arm spends it as the XPS print
-// job name; a QPdfWriter arm would set it as the PDF title.
+// `documentTitle` is the document's name. The QPdfWriter arm sets it as the PDF title; the
+// retired Windows arm spent it as the XPS print job name.
 //
-// NULLPTR STILL LEAVES A FILE AT `path`. The Windows arm creates the stream before it
-// can know whether a print control is obtainable, and this is the behaviour the code
-// had inline before the seam existed -- preserved deliberately rather than tidied,
-// because the acceptance test for the extraction was byte-identity and a caller that
-// wants the failed file gone can delete it.
+// NULLPTR LEFT A FILE AT `path` ON THE RETIRED WINDOWS ARM, which created the stream before
+// it could know whether a print control was obtainable -- the behaviour the code had inline
+// before the seam existed, preserved deliberately rather than tidied, because the acceptance
+// test for the extraction was byte-identity. The Qt arm opens its QFile first and leaves no
+// file on failure (src/pdf_export_qt.cpp, QtPdfPageSink::open); the seam's promise is only
+// about the return value.
 std::unique_ptr<PdfPageSink> beginPdfDocument(RenderTarget& target,
                                               const std::wstring& path,
                                               const std::wstring& documentTitle);

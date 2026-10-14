@@ -112,11 +112,11 @@
 namespace tinta {
 
 // All five enums below take their values from the DWRITE_ enum they mirror, so
-// the Windows backend can cast instead of switching and the call sites that
-// currently pass DWRITE_FONT_WEIGHT_SEMI_BOLD (20 sites) or
-// DWRITE_TEXT_ALIGNMENT_CENTER (17) keep meaning exactly what they meant.
-// render_text_d2d.cpp static_asserts every pairing; the assertion cannot live
-// here because this header must not include <dwrite.h>.
+// the retired Windows backend could cast instead of switching and the call sites that
+// then passed DWRITE_FONT_WEIGHT_SEMI_BOLD (20 sites) or
+// DWRITE_TEXT_ALIGNMENT_CENTER (17) kept meaning exactly what they meant.
+// The retired src/text_d2d.cpp static_asserted the pairings until 0b39ae6; the assertion
+// could not live here because this header must not include <dwrite.h>.
 
 enum class FontWeight {
     Light = 300,
@@ -630,9 +630,9 @@ public:
     // native; with startpage.cpp being ported it stops being free and becomes a
     // visible regression -- the "Tinta" wordmark loosens and the two section labels
     // tighten, off Windows only. The QueryInterface that the objection was actually
-    // about has NOT moved onto this header: it lives in text_d2d.cpp, where COM
-    // belongs, and a version negotiation inside one backend is that backend's
-    // business. That is the same distinction SetTypography turned on.
+    // about did NOT move onto this header: it lived in text_d2d.cpp, where COM
+    // belonged, until that file was deleted in 0b39ae6, and a version negotiation inside
+    // one backend is that backend's business. That is the same distinction SetTypography turned on.
     //
     // AND IT IS NARROWED TO THE POPULATION RATHER THAN MIRRORING DWRITE. The native
     // call takes THREE floats -- leading, trailing, minimumAdvanceWidth -- and Qt

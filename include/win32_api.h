@@ -158,7 +158,7 @@ inline void setWindowTitle(const wchar_t* title) {
 // cursor should blink, when a notification fade needs repainting -- and only one
 // statement of MECHANISM each, which is why the mechanism is what got extracted.
 //
-// Off the Win32 stack both reach include/timer_sink.h, which the Qt window fills with
+// On every platform both reach include/timer_sink.h, which the Qt window fills with
 // a QTimer per id; a tick calls input.cpp's handleTimer, the same dispatch WM_TIMER
 // calls. THIS COMMENT USED TO READ "Off Windows these do nothing ... The Qt path is a
 // QTimer per id" over `(void)` bodies, so on qinta every armed timer was dropped and
@@ -176,11 +176,11 @@ inline void disarmTimer(unsigned id) {
 // app.h need, which used to be spelled `if (app.hwnd)` and so was false for the whole of
 // a qinta run -- the cursor never blinked and a notification chip never drained.
 //
-// On the Win32 stack it is STILL the window handle, and that is not a formality:
+// On the retired Win32 stack it was STILL the window handle, and that was not a formality:
 // SetTimer(NULL, id, ...) does not fail, it makes a THREAD timer with a system-chosen id,
-// so arming before WinMain has a window would leak a timer WM_TIMER never sees under the
-// id it was armed with. Off that stack the question is whether a sink is installed,
-// which the Qt window's constructor does.
+// so arming before WinMain had a window would leak a timer WM_TIMER never saw under the
+// id it was armed with. Since that stack went (0b39ae6) the question on every platform is
+// whether a sink is installed, which the Qt window's constructor does.
 inline bool canArmTimer() {
     return tinta::timerSinkInstalled();
 }
@@ -195,7 +195,7 @@ inline bool canArmTimer() {
 // four different ways of naming the window, and four sites casting a pointer into
 // lParam. So this seam keeps the full four-argument shape.
 //
-// OFF WINDOWS THIS RETURNS false, AND THAT IS THE INTERESTING PART. A no-op
+// OFF WINDOWS THIS RETURNED false (before the sink below), AND THAT IS THE INTERESTING PART. A no-op
 // returning true would be the worst possible answer, because of what the lParam
 // casts carry: three of those four sites hand OWNERSHIP of a `new` allocation to
 // the handler, so a pretend success leaks it and silently drops the work.
@@ -230,10 +230,10 @@ inline bool postWindowMessage(tinta::PostedMessage message, std::uintptr_t value
 }
 
 // Whether a post made now could be received -- canArmTimer's question, asked of the
-// queue. On the Win32 stack it is the window handle: PostMessageW(NULL, ...) does not
+// queue. On the retired Win32 stack it was the window handle: PostMessageW(NULL, ...) does not
 // fail, it posts a THREAD message that no window procedure sees, so a worker started
-// before WinMain has a window would lose its result. Off that stack it is whether a
-// sink is installed. A sink that is installed can still refuse a given message; this
+// before WinMain had a window would lose its result. Since 0b39ae6 it is, on every platform,
+// whether a sink is installed. A sink that is installed can still refuse a given message; this
 // answers for the queue, and the return of postWindowMessage answers for the message.
 inline bool canPostWindowMessage() {
     return tinta::postSinkInstalled();
@@ -254,7 +254,7 @@ inline bool canPostWindowMessage() {
 // `QCoreApplication::instance()`, a global, not through a widget. An `HWND` parameter accepted and
 // ignored would be a lie about what the call depends on.
 //
-// OFF THE WIN32 WINDOW STACK THE REQUEST GOES TO include/window_sink.h. This header cannot reach
+// ON EVERY PLATFORM, SINCE THE WIN32 WINDOW STACK WENT, THE REQUEST GOES TO include/window_sink.h. This header cannot reach
 // `QCoreApplication::quit()` itself: every function here is `inline` in a header that app.h pulls
 // into nearly every portable translation unit, including the `portable_compile_only` targets that
 // link no Qt at all. So the Qt window registers the quit as a closure, as it does its repaint.
@@ -320,10 +320,10 @@ inline bool requestQuit() {
 // as a consolidation and nowhere else as an improvement.
 //
 // Off Windows this did nothing until slice 3 (2026-09-25), and it was a REAL gap rather
-// than a cosmetic one: WinMain returns TRUE from WM_SETCURSOR over the client area, so
-// on Windows this seam is the ONLY source of the cursor, and qinta showed the arrow over
+// than a cosmetic one: WinMain returned TRUE from WM_SETCURSOR over the client area, so
+// on Windows this seam was the ONLY source of the cursor, and qinta showed the arrow over
 // text, links and the split-pane handle. The widget App lacks is reached the way repaints
-// reach it: the off-Win32 arm delivers to include/window_sink.h, and QtAppWindow maps the
+// reach it: the seam delivers to include/window_sink.h on every platform, and QtAppWindow maps the
 // four shapes to Qt::ArrowCursor, PointingHandCursor, IBeamCursor and SplitHCursor.
 enum class CursorShape { Arrow, Hand, IBeam, SizeWE };
 

@@ -87,7 +87,7 @@ bool isCtrlDown();
 
 // THE EVENT'S OWN ANSWER, FOR THE LENGTH OF ONE HANDLER. An input layer that holds the event
 // opens one of these before calling into src/input.cpp, and while it is open both predicates
-// above answer from it instead of from the platform call. Both backends honour it.
+// above answer from it instead of from the platform call. The Qt backend, now the only one, honours it.
 //
 // Needed because neither platform call reliably sees a SYNTHESISED event. GetKeyState reads
 // the thread's real key state and sees none of them. QGuiApplication::keyboardModifiers() is
@@ -99,10 +99,10 @@ bool isCtrlDown();
 // and 3 kept Ctrl+O and the wheel out of the router and dropped the checks that would have
 // measured them.
 //
-// Two bools and not a Qt::KeyboardModifiers, because this header is compiled by the Windows
-// build with no Qt on the include path, and by the same measurement that made the predicates
-// two: nothing asks about any other key. tinta's WinMain never opens one, so on that stack
-// the predicates are exactly the GetKeyState calls they were.
+// Two bools and not a Qt::KeyboardModifiers, because this header was compiled by the Windows
+// build with no Qt on the include path until 2026-10-07, and by the same measurement that made
+// the predicates two: nothing asks about any other key. tinta's WinMain never opened one, so on
+// that stack the predicates were exactly the GetKeyState calls they had been.
 //
 // A scope rather than a setter, because the answer is only true while the handler runs; each
 // scope restores the one it displaced, so nesting is safe.

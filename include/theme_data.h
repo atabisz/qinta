@@ -140,13 +140,13 @@ inline tinta::Color hexColor(uint32_t hex, float alpha = 1.0f) {
 extern const D2DTheme THEMES[];
 extern const int THEME_COUNT;
 
-// What `-l` / `--light` selects. Named here, in the header both entry points already
-// include, because the two arms apply light mode SEPARATELY -- WinMain in its own block,
-// src/main_qt.cpp in its own -- and the three assignments each makes are mechanical while
-// the INDEX is the actual policy. An index typed twice is the half that can drift: move
-// Paper out of slot 0 and one arm goes light while the other goes dark, with nothing to
-// catch it. The state changes themselves are not shared because src/themes.cpp cannot see
-// App and making it able to is a heavier include change than either arm needs.
+// What `-l` / `--light` selects. Named here, in the header both entry points included,
+// because the two arms applied light mode SEPARATELY -- the retired WinMain in its own block,
+// src/main_qt.cpp in its own -- and the three assignments each made were mechanical while
+// the INDEX was the actual policy. An index typed twice is the half that can drift: move
+// Paper out of slot 0 and one arm would go light while the other went dark, with nothing to
+// catch it. The state changes themselves were not shared because src/themes.cpp cannot see
+// App and making it able to was a heavier include change than either arm needed.
 //
 // Global scope, not namespace tinta, to match THEMES/THEME_COUNT/themeAt in this same
 // header. Everything here is global; one namespaced name among them would be the odd one

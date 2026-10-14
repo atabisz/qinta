@@ -83,10 +83,10 @@ void handleFileWatchTimer(App& app);
 void handleSelectScrollTimer(App& app);
 // Dwell timer fired over a local .md link: load the peek preview
 void handleLinkPeekTimer(App& app);
-// One tick of timer `id`: WM_TIMER's dispatch, shared by WinMain and the Qt window's
-// timer sink.
+// One tick of timer `id`: WM_TIMER's dispatch, called from the Qt window's timer sink (and
+// shared with the retired WinMain until 0b39ae6).
 void handleTimer(App& app, unsigned id);
-// WM_CLOSE's question, shared by WinMain's case and the Qt window's closeEvent: true when
+// WM_CLOSE's question, asked by the Qt window's closeEvent (and the retired WinMain's case): true when
 // the window may close now. False when an unsaved buffer has to be resolved first, in
 // which case it has already activated that tab and opened the unsaved-changes dialog
 // (or, with the dialog open, marked the close as pending behind it).

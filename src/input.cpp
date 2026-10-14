@@ -3452,14 +3452,14 @@ void handleMouseUp(App& app, int mouseX, int mouseY) {
 // handler's side effect rather than as a capability the app has.
 //
 // WHAT STAYED is the part that is genuinely about this file: the flag flips, the layout is dirtied,
-// a repaint is asked for. Those are the same on both platforms. What left is in
-// include/zen_mode_win32.h and include/zen_mode_qt.h, one arm each, with the state they hand back and
-// forth in include/window_placement.h.
+// a repaint is asked for. Those are the same on every platform. What left went to
+// include/zen_mode_win32.h (deleted in 0b39ae6) and include/zen_mode_qt.h, one arm each, with the
+// state they hand back and forth in include/window_placement.h.
 //
-// THE `#if` IS NOT A GAP, unlike the one around launchQuickNoteWindow below. Both arms are written
-// and both are reached: `App` holds an `HWND` rather than a `QWidget*`, so the Qt arm cannot be named
-// from here, and include/window_sink.h is how the Qt window hands it in -- the same route requestQuit
-// takes. Entering through a sink that is not installed returns an invalid restore, which the
+// THE `#if` THAT STOOD HERE WAS NOT A GAP, unlike the one around launchQuickNoteWindow below: both
+// arms were written and both reached. `App` held an `HWND` rather than a `QWidget*`, so the Qt arm
+// could not be named from here, and include/window_sink.h is how the Qt window hands it in -- the
+// same route requestQuit takes, and since 0b39ae6 the only route. Entering through a sink that is not installed returns an invalid restore, which the
 // check below already reads as "entering failed", so a Qt build with no window stays out of zen mode
 // rather than drawing a reading column for a window that never went fullscreen.
 void toggleZenMode(App& app) {

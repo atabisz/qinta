@@ -1418,8 +1418,9 @@ bool tabMenuMouseDown(App& app, int x, int y) {
 
 // The drag ghost -- the layered card that follows the cursor while a tab is
 // pulled clear of the strip -- is a seam now: its size, shape, placement and
-// detach threshold are in tab_ghost.h, and the layered window that draws it on
-// Windows is in tab_ghost_win32.cpp. What used to be here read App directly,
+// detach threshold are in tab_ghost.h, and the window that draws it is in
+// src/tab_ghost_qt.cpp on every platform (the layered window of the retired
+// tab_ghost_win32.cpp drew it on Windows until 0b39ae6). What used to be here read App directly,
 // which is why it could only ever be exercised by running the app.
 
 namespace {

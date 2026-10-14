@@ -9,12 +9,12 @@
 
 class QLocalServer;
 
-// THE SINGLE-INSTANCE HAND-OFF ON QT: qinta's equivalent of WinMain's FindWindowW("Tinta") +
+// THE SINGLE-INSTANCE HAND-OFF ON QT: qinta's equivalent of the retired WinMain's FindWindowW("Tinta") +
 // WM_COPYDATA. A running window owns an InstanceServer; a second launch that
 // tinta::shouldJoinExistingWindow says should join sends its document's absolute path through
 // sendToRunningInstance and exits, and the running window opens it as a tab. No server reachable
-// means no window to join, and the launch opens its own -- WinMain's fallback when FindWindowW
-// returns null.
+// means no window to join, and the launch opens its own -- the retired WinMain's fallback when
+// FindWindowW returned null.
 //
 // QLocalServer/QLocalSocket: a named pipe on Windows, a Unix domain socket elsewhere. One channel
 // per USER, so two accounts on one machine do not hand documents to each other.

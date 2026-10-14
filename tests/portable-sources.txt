@@ -64,9 +64,9 @@ platform_paths_qt.cpp
 render_qt.cpp
 
 # The Qt side of the TEXT seam, listed for the same reason and with the same
-# consequence. Its Direct2D counterpart, src/text_d2d.cpp, must never appear here:
-# it includes <dwrite.h> and is Windows-only by design, exactly like
-# src/render_d2d.cpp.
+# consequence. Its Direct2D counterpart, the retired src/text_d2d.cpp (deleted in
+# 0b39ae6), never appeared here: it included <dwrite.h> and was Windows-only by design,
+# exactly like src/render_d2d.cpp.
 text_qt.cpp
 
 # The Qt side of the MODIFIER-KEY seam (include/keyboard.h), and the first Qt file
@@ -77,10 +77,10 @@ text_qt.cpp
 #
 # Unlike render_qt.cpp and text_qt.cpp, this one is LINKED AND RUN off Windows, by
 # keyboard_tests. Read the section it is in for what that does and does not prove:
-# the assertions with weight are on the pure predicate in the header, which is shared
+# the assertions with weight are on the pure predicate in the header, which was shared
 # by both backends, while the two platform calls can only be asserted to return false
-# with nothing held -- a result a stub also produces. Its Windows counterpart,
-# src/keyboard_win32.cpp, must never appear here.
+# with nothing held -- a result a stub also produces. Its Windows counterpart, the retired
+# src/keyboard_win32.cpp (deleted in 160ff18), never appeared here.
 keyboard_qt.cpp
 
 # The Qt side of the IMAGE seam (include/image_api.h): remote fetch, raster decode,
@@ -98,12 +98,12 @@ keyboard_qt.cpp
 # discovered later.
 #
 # What it claims is unusually strong for this manifest: image_tests asserts the
-# artifact both backends promise -- tightly packed premultiplied BGRA -- against a PNG
-# the test emits byte by byte, so this is one of the few lines where the Qt file and
-# its Windows counterpart are held to the SAME numbers rather than to each other's
-# absence. Its counterpart, src/image_win32.cpp, must never appear here: it includes
-# <urlmon.h>, <shlwapi.h> and <d2d1_3.h>, which are the three unguarded headers that
-# made src/render.cpp fatal off Windows for six spans.
+# artifact both backends promised -- tightly packed premultiplied BGRA -- against a PNG
+# the test emits byte by byte, so this was one of the few lines where the Qt file and
+# its Windows counterpart were held to the SAME numbers rather than to each other's
+# absence. Its counterpart, the retired src/image_win32.cpp (deleted in 0b39ae6), never
+# appeared here: it included <urlmon.h>, <shlwapi.h> and <d2d1_3.h>, which are the three
+# unguarded headers that made src/render.cpp fatal off Windows for six spans.
 image_qt.cpp
 
 # The Qt side of the FILE-PICKER seam (include/file_dialog.h): the Open and Save
@@ -120,19 +120,19 @@ image_qt.cpp
 # A MISSING reading from this line therefore says "Qt or Widgets is gone" and cannot
 # mean "a test was quietly dropped", because the configure would have stopped first.
 #
-# Its counterpart, src/file_dialog_win32.cpp, must never appear here: it includes
-# <commdlg.h>. That file is now the ONLY place under src/ including <commdlg.h> for a
-# file dialog -- src/print.cpp keeps its own for PRINTDLGW, which is a different
-# dialog and a different seam nobody has cut yet.
+# Its counterpart, the retired src/file_dialog_win32.cpp (deleted in 0b39ae6), never
+# appeared here: it included <commdlg.h>, and was then the ONLY place under src/ including
+# <commdlg.h> for a file dialog -- src/print.cpp kept its own for PRINTDLGW, a different
+# dialog and a different seam, until its Windows half moved out on 2026-10-06.
 file_dialog_qt.cpp
 
 # clipboard_qt.cpp -- the non-Windows half of include/clipboard.h, the TEXT clipboard.
 # LINKED AND RUN off Windows, by clipboard_tests, which does more than compile it: it
 # writes a sentinel through the seam, reads it back and restores what was there before.
 #
-# Its counterpart src/clipboard_win32.cpp must never appear here; it includes
-# <windows.h> and holds the only raw clipboard calls left in the tree apart from the
-# IMAGE half in src/export_docx.cpp, which is deliberately outside this seam.
+# Its counterpart, the retired src/clipboard_win32.cpp (deleted in 160ff18), never appeared
+# here; it included <windows.h> and held the only raw clipboard calls then left in the tree
+# apart from the IMAGE half in src/export_docx.cpp, which was deliberately outside this seam.
 #
 # WHAT clipboard_tests MEASURED RATHER THAN ASSERTED, because the seam does not promise
 # it: whether a CRLF written to the clipboard reads back as a CRLF. Both platforms say
@@ -148,14 +148,14 @@ clipboard_qt.cpp
 # quoting rule. It also provokes both failure modes deliberately -- a missing executable
 # (launched=false) and a child that outlives its budget (timedOut=true, terminated).
 #
-# Its counterpart src/platform_process_win32.cpp must never appear here; it includes
-# <windows.h>. This is the file that one collapses into when the Direct2D backend goes,
-# because QProcess is correct on Windows too -- the same relationship the paths seam has,
-# and the reason neither is named _posix.
+# Its counterpart, the retired src/platform_process_win32.cpp, never appeared here; it
+# included <windows.h>. This is the file that one collapsed into once the Direct2D backend
+# went (160ff18), because QProcess is correct on Windows too -- the same relationship the
+# paths seam has, and the reason neither is named _posix.
 #
-# THE ONE ASYMMETRY THE TWO ARMS CANNOT HIDE, measured rather than reasoned about: the Qt
+# THE ONE ASYMMETRY THE TWO ARMS COULD NOT HIDE, measured rather than reasoned about: the Qt
 # arm spends the caller's timeout TWICE in the worst case, once in waitForStarted and once
-# in waitForFinished, where the Win32 arm has a single WaitForSingleObject. The timeout
+# in waitForFinished, where the Win32 arm had a single WaitForSingleObject. The timeout
 # assertion in process_tests is written against the CHILD'S sleep and not against the
 # budget for exactly that reason.
 platform_process_qt.cpp
@@ -173,8 +173,9 @@ platform_process_qt.cpp
 # reading from this line is not the only instrument watching the file; a WRONG one has a red
 # test behind it.
 #
-# Its counterpart src/pdf_export_win32.cpp must never appear here: it is <d2d1_1.h>,
-# <documenttarget.h> and an XPS print control, and it is the arm the cutover deletes.
+# Its counterpart, the retired src/pdf_export_win32.cpp, never appeared here: it was
+# <d2d1_1.h>, <documenttarget.h> and an XPS print control, and it was the arm the cutover
+# deleted (0b39ae6).
 #
 # WHAT THE SHARED ASSERTIONS DELIBERATELY DO NOT CLAIM, because it would be a statement
 # about one producer rather than about the seam: that the two arms' BYTES match (different
@@ -381,14 +382,16 @@ text_formats_app.cpp
 #     `--pos` to reach. 2026-09-21: the parsing half is delivered -- src/launch_options.cpp
 #     is ONE parse called by both entry points -- and the reaching half was right about two
 #     of those four flags, not all four. `--cascade` and `--pos` now reach real Qt window
-#     state and are tested against read-back geometry. `--new` and `--tabbed` still reach
-#     nothing and are refused BY NAME instead of accepted, so the silent success this block
-#     kept warning about is the one thing that can no longer happen here.
+#     state and are tested against read-back geometry. `--new` and `--tabbed` then still
+#     reached nothing and were refused BY NAME instead of accepted, so the silent success this
+#     block kept warning about was the one thing that could no longer happen here.
 #
-#     What still stands: the chain is parser -> Qt window/tab/placement state -> process
-#     seam, and the middle link is src/input.cpp, now 4,394 lines reading `fatal 0,
-#     errors 98` rather than fatal on windowsx.h -- and still scoring ZERO under the
-#     README's native-mention pattern, so it is a windowing port and not a Direct2D one.
+#     What stood on 2026-09-21: the chain is parser -> Qt window/tab/placement state ->
+#     process seam, and the middle link was src/input.cpp, then 4,394 lines reading `fatal 0,
+#     errors 98` rather than fatal on windowsx.h -- and scoring ZERO under the README's
+#     native-mention pattern, so it was a windowing port and not a Direct2D one. That no
+#     longer stands either: input.cpp is an entry on this manifest, and `--new` and
+#     `--tabbed` are honoured since 2026-10-06 (include/qt_launch.h).
 #     The full argument was the comment in the retired src/quicknote_win32.cpp; this copy exists
 #     because the claim was here too and a correction remembered in one place is a
 #     correction half made -- which is why this file is being corrected a second time
@@ -1057,10 +1060,11 @@ scroll.cpp
 # between the two builds. Moving the existing code costs the same and produces the same
 # pixels. include/scrollbar.h has the full argument.
 #
-# WHAT IT DOES NOT CLAIM: that the scrollbar is INTERACTIVE off Windows. App's hover and
-# drag flags are set by src/input.cpp's mouse handling, so on Qt the thumb draws in its
-# resting 6 DIP / 0.3 alpha form and cannot be dragged. The code reads those flags and will
-# honour them the moment something sets them -- a missing caller, not a missing half.
+# WHAT IT DID NOT CLAIM when listed: that the scrollbar was INTERACTIVE off Windows. App's
+# hover and drag flags are set by src/input.cpp's mouse handling, which the Qt window did not
+# yet route, so on Qt the thumb drew in its resting 6 DIP / 0.3 alpha form and could not be
+# dragged -- a missing caller, not a missing half. src/qt_window.cpp routes the mouse into
+# those handlers now, and the code reads the flags they set.
 scrollbar.cpp
 
 # --- The frame, compiled AND RUN off Windows -------------------------------------
@@ -1312,20 +1316,21 @@ tab_ghost_qt.cpp
 # launchQuickNoteWindow. Four things, none of them large.
 #
 # WHAT LISTING IT DOES NOT BUY, stated here because the opposite was claimed out loud one
-# slice ago and was wrong. This unblocks ZERO test targets. The five ${INPUT_TEST_SOURCES}
-# targets each compile seventeen non-portable src/*.cpp and input.cpp was one of seventeen;
-# sixteen remain. It does not even lower that seventeen -- see the next paragraph, which is
+# slice ago and was wrong. This unblocked ZERO test targets. The five ${INPUT_TEST_SOURCES}
+# targets each compiled seventeen non-portable src/*.cpp and input.cpp was one of seventeen;
+# sixteen remained. (That variable and ${SOURCES} went with the Direct2D target in 0b39ae6.)
+# It did not even lower that seventeen -- see the next paragraph, which is
 # the sharper half of the finding.
 input.cpp
 
-# src/zen_mode_win32.cpp must NEVER appear here, for exactly tab_ghost_win32.cpp's reason:
-# it calls SetWindowLongW, SetWindowPos, GetWindowPlacement, SetWindowPlacement and
-# MonitorFromWindow, and it is in the Windows-only ${SOURCES} target. Its Qt counterpart IS
+# src/zen_mode_win32.cpp (deleted in 0b39ae6) must NEVER appear here, for exactly
+# tab_ghost_win32.cpp's reason: it called SetWindowLongW, SetWindowPos, GetWindowPlacement,
+# SetWindowPlacement and MonitorFromWindow, and it was in the Windows-only ${SOURCES} target. Its Qt counterpart IS
 # listed, and the paragraph below is the record of my having argued the opposite.
 #
 # AND THAT IS WHY THE FIVE ROWS' SEVENTEEN DID NOT BECOME SIXTEEN. The slice that made
 # input.cpp portable created zen_mode_win32.cpp to hold the fifteen lines that stopped it,
-# and ${SOURCES} carries that new file into the same five targets. One file left the
+# and ${SOURCES} carried that new file into the same five targets. One file left the
 # non-portable set and one joined it on the same commit, so the measured blocker count moved
 # by ZERO -- which is not a disappointment, it is what "extract the Win32 part" means
 # arithmetically, and it is invisible unless the census is read rather than predicted. The

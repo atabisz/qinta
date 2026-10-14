@@ -132,9 +132,9 @@
 //     and it was REJECTED: an offscreen render target is construction, so adding it
 //     would have made this paragraph false while claiming to implement it.
 //     What shipped instead is a FREE FUNCTION -- tinta::rasterizeToImage in
-//     image_api.h -- whose two implementations each live inside their own backend
-//     (src/image_win32.cpp holds the CreateWicBitmapRenderTarget, src/image_qt.cpp a
-//     QImage plus QPainter), taking a live RenderTarget& only to reach that
+//     image_api.h -- whose implementations each lived inside their own backend
+//     (the retired src/image_win32.cpp held the CreateWicBitmapRenderTarget; src/image_qt.cpp,
+//     now the only one, a QImage plus QPainter), taking a live RenderTarget& only to reach that
 //     backend's factories. So "a concrete backend owns its own construction" is
 //     SATISFIED rather than narrowed, and NO virtual was added to the interface
 //     below. That is a better outcome than the CreateBitmap precedent two entries
@@ -145,9 +145,9 @@
 //     -- src/print.cpp's renderPeekBitmap routes through it, on the measurement
 //     recorded in the CreateBitmap entry below. The retired sentence is kept here
 //     because the COUNT was never the argument and the reasoning under it is
-//     unchanged: there are exactly two CreateWicBitmapRenderTarget sites in the tree
-//     and the other is src/image_win32.cpp itself, which must not route through a
-//     seam it implements. So the justification is still its callers' portability and
+//     unchanged: there were exactly two CreateWicBitmapRenderTarget sites in the tree
+//     and the other was src/image_win32.cpp itself, which could not route through a
+//     seam it implemented (both deleted in 0b39ae6). So the justification is still its callers' portability and
 //     NOT deduplication -- unlike decodeIconBytesToBitmap, whose shape it copies. Two
 //     callers does not make "it's shared" true either; a seam's stated reason gets
 //     quoted back, and that one would still be false.
@@ -233,7 +233,7 @@
 //         the exclusion's own falsifier fired.
 //         THE 2x IS NOW A TRANSFORM AND NOT A DPI, which is the one thing that did
 //         not survive the move unchanged. The native bitmap carried the scale in
-//         its own 192 DPI; src/image_win32.cpp builds its WIC target hardcoded at
+//         its own 192 DPI; the retired src/image_win32.cpp built its WIC target hardcoded at
 //         96, so the ported body scales with SetTransform(matrixScale(2,2)) inside
 //         the callback and puts the 192 on CreateBitmap below instead. Getting
 //         either half wrong is silent -- a peek at half size in the corner of a
@@ -293,11 +293,11 @@
 
 namespace tinta {
 
-// Values match D2D1_ANTIALIAS_MODE so the Windows backend can cast rather than
-// switch, and so the call sites that name a D2D1_ANTIALIAS_MODE_* constant today
-// keep meaning exactly what they meant. render_d2d will static_assert the pairing
-// the way geometry.h asserts its layouts -- an assertion cannot live here,
-// because this header must not include <d2d1.h>.
+// Values match D2D1_ANTIALIAS_MODE so the retired Windows backend could cast rather than
+// switch, and so the call sites that then named a D2D1_ANTIALIAS_MODE_* constant
+// kept meaning exactly what they meant. render_d2d.cpp static_asserted the pairing
+// the way geometry.h asserted its layouts -- an assertion could not live here,
+// because this header must not include <d2d1.h> -- until both went in 0b39ae6.
 //
 // BOTH VALUES ARE LIVE, and an earlier version of this comment said otherwise. It
 // claimed all 9 PushAxisAlignedClip sites pass D2D1_ANTIALIAS_MODE_ALIASED. Five
@@ -312,8 +312,8 @@ enum class AntialiasMode {
     Aliased = 1,
 };
 
-// Values match D2D1_BITMAP_INTERPOLATION_MODE, asserted in render_d2d.cpp for the
-// same reason and in the same place as AntialiasMode's pairing.
+// Values match D2D1_BITMAP_INTERPOLATION_MODE, asserted in the retired render_d2d.cpp for
+// the same reason and in the same place as AntialiasMode's pairing.
 //
 // The default below is Linear because that is Direct2D's own default for the
 // 2- and 3-argument DrawBitmap overloads, and because the three sites that name a
@@ -434,8 +434,8 @@ public:
 // "(src/main_d2d.cpp, src/print.cpp)" passing "through tinta::asD2DPointArray" --
 // which was a description of the hand-rolled ID2D1GeometrySink builders this
 // interface replaced. They are src/paint_document.cpp:270 and src/print.cpp:362, both
-// spelled sink->AddLines(...), and asD2DPointArray is now reached only from inside
-// D2DPathSink::AddLines where it belongs. The COUNT of 2 was and is correct; the
+// spelled sink->AddLines(...), and asD2DPointArray was then reached only from inside
+// D2DPathSink::AddLines where it belonged, until both went with the Direct2D stack in 0b39ae6. The COUNT of 2 was and is correct; the
 // example list went stale twice over -- main_d2d.cpp's copy moved when the paint pass
 // was extracted, and print.cpp's stopped being native when drawDocumentRange took a
 // RenderTarget&. Kept as a correction rather than a deletion because the count is the

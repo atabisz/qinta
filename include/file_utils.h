@@ -18,7 +18,7 @@ void populateFolderItems(App& app);
 //
 // Declared here rather than in document.h because the FILE READ is the part that needed
 // writing; parseDocument already existed and is what this calls. See the definition for
-// why it is not the two lambdas inside WinMain, and for the std::filesystem::path step
+// why it is not the two lambdas inside the retired WinMain, and for the std::filesystem::path step
 // that makes the ifstream portable.
 bool loadDocumentFromPath(App& app, const std::string& path);
 

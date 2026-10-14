@@ -70,7 +70,7 @@
 // keyboard behaviours are the ones tinta has rather than a subset copied here. Ctrl+O is
 // the one key kept local -- see keyPressEvent for why. The MOUSE, as of slice 3: press,
 // move, release, double-click, the context menu and the two side buttons go through
-// src/input.cpp the way WinMain routes them, and the cursor comes back through the window
+// src/input.cpp the way the retired WinMain routed them, and the cursor comes back through the window
 // sink. The WHEEL, as of slice 4, goes to handleMouseWheel and handleMouseHWheel, so an
 // open overlay takes it before the document; Ctrl+wheel zoom joined it in slice 5, once
 // timers were ported -- see wheelEvent. Every routed handler opens a platform::EventModifierScope
@@ -102,7 +102,7 @@
 //
 // AND THE POSTED MESSAGES, as of slice 8: the post sink (include/post_sink.h) queues
 // WM_APP_IMAGE_READY and WM_APP_FOLDER_SEARCH from their worker threads onto this widget,
-// where input.cpp's handlePostedMessage runs the handlers WinMain's window procedure calls.
+// where input.cpp's handlePostedMessage runs the handlers the retired WinMain's window procedure called.
 // It also queues WM_CLOSE (slice 10) and WM_SETTINGCHANGE (slice 12), which the window
 // answers itself: close(), and the follow-system switch with qt_launch's appearance reading.
 // On Qt 6.5+ the constructor also connects colorSchemeChanged to that same switch.
@@ -114,7 +114,8 @@
 // handleDropFiles and not in the drag handler.
 //
 // AND THE TITLE BAR, as of slice 13: the window sink's chrome member receives applyTheme's
-// colours and, on Windows, paints them with the Direct2D stack's DWM calls on winId(). The
+// colours and, on Windows, paints them with the DWM calls the Direct2D stack made, now
+// src/window_chrome_win32.cpp's applyDwmWindowChrome on winId(). The
 // constructor applies the current theme's once, because the first applyTheme ran before the
 // window existed. Linux and macOS record the colours and paint nothing -- src/theme_qt.cpp.
 //
@@ -270,7 +271,7 @@ protected:
     // Does NOT relayout -- see the header comment above for why that stays in the paint.
     void resizeEvent(QResizeEvent* event) override;
 
-    // WinMain's WM_CLOSE question, asked through windowCloseMayProceed: an unsaved buffer
+    // The retired WinMain's WM_CLOSE question, asked through windowCloseMayProceed: an unsaved buffer
     // IGNORES the close and opens the unsaved-changes dialog, whose resolution posts
     // WM_CLOSE again. Every close reaches this -- the title bar, close(), and a posted
     // WM_CLOSE through the post sink.

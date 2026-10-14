@@ -76,7 +76,7 @@ constexpr float kPlaceholderBandHalfHeight = 40.0f;
 
 // Qt reports wheel rotation in eighths of a degree; 120 of them is one notch, the same
 // unit WHEEL_DELTA defines on Windows. Dividing here hands handleMouseWheel and
-// handleMouseHWheel the notches WinMain gives them after dividing by WHEEL_DELTA.
+// handleMouseHWheel the notches the retired WinMain gave them after dividing by WHEEL_DELTA.
 constexpr float kAngleDeltaPerNotch = 120.0f;
 
 // The four-way mapping include/win32_api.h has named since the seam was written. SplitH
@@ -275,7 +275,7 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     // WORKER thread calls: the async image download and the folder scan post their results
     // from the threads that produced them. So this closure runs off the GUI thread, reads
     // nothing of app_, and does one thing -- queue the handler onto this widget's thread,
-    // which is what PostMessageW's queue does for WinMain. A true hands the receiver
+    // which is what PostMessageW's queue did for WinMain. A true hands the receiver
     // ownership of whatever `pointer` points at.
     //
     // The update() after the handler is belt and braces: completeFolderSearch repaints
@@ -283,10 +283,10 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
     //
     // Close is queued like the others -- its senders are mid-handler, and closing under
     // them is what the queue exists to prevent -- but it is answered by close(), which
-    // runs closeEvent and so the same unsaved-buffer check WinMain's WM_CLOSE runs.
+    // runs closeEvent and so the same unsaved-buffer check WinMain's WM_CLOSE ran.
     //
     // SettingChange is the follow-system toggle posting to itself, with a string literal
-    // for `pointer`, so there is nothing to own. It takes WinMain's case with this arm's reading.
+    // for `pointer`, so there is nothing to own. It takes the retired WinMain's case with this arm's reading.
     //
     // Every tinta::PostedMessage is taken: the switch below has a case for each and no default,
     // as handlePostedMessage's does, so a message added without one fails the Linux build.
@@ -321,7 +321,7 @@ QtAppWindow::QtAppWindow(App& app, QWidget* parent) : QWidget(parent), app_(app)
             Qt::QueuedConnection);
     });
 
-    // The system's own appearance change, WinMain's WM_SETTINGCHANGE from outside. Qt 6.5
+    // The system's own appearance change, the retired WinMain's WM_SETTINGCHANGE from outside. Qt 6.5
     // added the signal; below it there is none, so a follow-on window there changes only when
     // the toggle is used or the app starts.
 #if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
@@ -415,7 +415,7 @@ void QtAppWindow::promptOpenDocument() {
     openDocument(toUtf8(picked->path));
 }
 
-// THE WHEEL, ROUTED (slice 4). WinMain sends WM_MOUSEWHEEL to handleMouseWheel and
+// THE WHEEL, ROUTED (slice 4). WinMain sent WM_MOUSEWHEEL to handleMouseWheel and
 // WM_MOUSEHWHEEL to handleMouseHWheel, each in notches; Qt carries both axes in one event, so
 // each non-zero axis makes the call its own message would. The modifier scope is what made
 // this routable: handleMouseWheel's Shift branch asks platform::isShiftDown.
@@ -513,7 +513,7 @@ void QtAppWindow::keyPressEvent(QKeyEvent* event) {
 // here, unlike keyPressEvent: WM_MOUSEMOVE does not invalidate, the handlers request their
 // own repaints through the sink, and a repaint per hover move would redraw constantly.
 //
-// Only the LEFT button presses and releases, because WinMain handles only WM_LBUTTON*; the
+// Only the LEFT button presses and releases, because WinMain handled only WM_LBUTTON*; the
 // right button reaches handleContextMenu through contextMenuEvent, which is WM_CONTEXTMENU's
 // counterpart, and the middle button (tab-strip close) is out of this slice's scope.
 void QtAppWindow::mousePressEvent(QMouseEvent* event) {
@@ -728,7 +728,7 @@ void QtAppWindow::paintEvent(QPaintEvent* event) {
 
     // WM_SIZE's half, done at paint time because a widget can be resized before it is shown,
     // when no resize event has been delivered yet. A changed viewport needs a relayout, which
-    // is what WinMain's WM_SIZE asks for with the same flag.
+    // is what WinMain's WM_SIZE asked for with the same flag.
     if (syncViewport()) app_.layoutDirty = true;
 
     // THE WHOLE FRAME, tinta's, since 2026-10-06: src/render_frame.cpp is the body that was

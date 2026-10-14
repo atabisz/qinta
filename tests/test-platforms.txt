@@ -31,20 +31,21 @@
 #   scripts/probe-portable-linux.sh  asserts this file's both+linux-only set equals what a fresh
 #                                    non-Windows configure actually produces, both directions.
 #
-# A `windows-only` row is a statement that work is owed, not that the target is finished. None of the
-# twelve below is a CMakeLists entry away from moving: they are owed the Direct2D rasteriser's removal,
-# or nothing at all because their subject has no non-Windows meaning.
+# A `windows-only` row is a statement that work is owed, not that the target is finished. When this was
+# written none of the twelve such rows was a CMakeLists entry away from moving: they were owed the
+# Direct2D rasteriser's removal, or nothing at all because their subject has no non-Windows meaning.
+# That removal landed in 0b39ae6; count what is left from the rows below, not from this sentence.
 #
 # 17 -> 16 ON 2026-09-24: src/settings_app.cpp, which ${INPUT_TEST_SOURCES} links, joined
 # tests/portable-sources.txt. No Win32 arm was extracted, so unlike the paragraph below it is a real
-# fall of one; the five targets still need the Direct2D rasteriser's removal to move.
+# fall of one; the five targets then still needed the Direct2D rasteriser's removal to move.
 #
 # THE input.cpp PORT LANDED 2026-09-21 AND MOVED NO ROW, which is worth stating because the opposite
 # was the stated expectation. The five ${INPUT_TEST_SOURCES} rows read `sources: 17` before that port
 # and `sources: 17` after it: src/input.cpp entered tests/portable-sources.txt and src/zen_mode_win32.cpp
 # -- the Win32 arm the port extracted -- entered ${SOURCES} on the same commit, and by that manifest's
-# own must-never-appear rule it can never be listed, because it calls SetWindowLongW, SetWindowPos,
-# GetWindowPlacement, SetWindowPlacement and MonitorFromWindow. One file left the non-portable set and
+# own must-never-appear rule it could never be listed, because it called SetWindowLongW, SetWindowPos,
+# GetWindowPlacement, SetWindowPlacement and MonitorFromWindow (deleted in 0b39ae6). One file left the non-portable set and
 # one joined it, so the census measured 17 both times. Extracting a Win32 arm is arithmetically
 # NET-ZERO on a blocker count; the gain is the ratio inside the file, 4,553 portable lines for ~90
 # non-portable ones, and this column cannot see that. Do not read an unchanged 17 as unchanged work --
@@ -52,8 +53,8 @@
 # of this row that can rot while the number stays green. It did: it led with input.cpp for one commit
 # too long.
 #
-# 17 → 18 ON 2026-09-23, AND THAT IS NOT MORE WORK OWED. src/tab_tearoff_win32.cpp is tabs.cpp's
-# tear-off arm, extracted so tabs.cpp compiles off Windows (errors 40 → 0). But tabs.cpp stayed OFF the
+# 17 → 18 ON 2026-09-23, AND THAT IS NOT MORE WORK OWED. src/tab_tearoff_win32.cpp was tabs.cpp's
+# tear-off arm (deleted in 0b39ae6), extracted so tabs.cpp compiles off Windows (errors 40 → 0). But tabs.cpp stayed OFF the
 # manifest for one commit, so nothing left the set and one file joined it.
 #
 # 18 → 17 THE SAME DAY, WHEN THE DONOR LEFT, AND THE REASON IT HAD STAYED WAS WRONG. The sentence here

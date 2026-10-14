@@ -45,12 +45,12 @@
 // returns 33 textual hits, of which 3 are backend definitions or forwards (src/render_d2d.cpp
 // twice, src/render_qt.cpp once) and 1 is a comment -- leaving 29 call sites, of which TWO
 // pass tinta::DrawTextOptions::EnableColorFont (here and src/math_render.cpp) and 27 pass
-// nothing at all. On Direct2D, where the flag is what gates colour, that means the same emoji
-// renders in COLOUR in the document pane and MONOCHROME in the editor pane (src/editor.cpp,
-// five option-less sites), the overlays (seven) and the tab strip. Qt shows no such split,
-// because that backend paints colour glyphs whether or not the flag arrives.
+// nothing at all. On the retired Direct2D stack, where the flag was what gated colour, that
+// meant the same emoji rendered in COLOUR in the document pane and MONOCHROME in the editor pane
+// (src/editor.cpp, five option-less sites), the overlays (seven) and the tab strip. Qt, now the
+// only backend, shows no such split, because it paints colour glyphs whether or not the flag arrives.
 //
-// This is a real inconsistency and it is deliberately not fixed here -- widening it is a
+// The option-less sites are still an inconsistency in the source, and it is deliberately not fixed here -- widening it is a
 // behaviour change for each pane that wants its own decision, not a side effect of deleting a
 // duplicate branch. Two places to start if it is taken up: src/editor.cpp's five sites, and
 // the sole DrawTextLayout in src/export_docx.cpp -- a second exporter that omits the flag

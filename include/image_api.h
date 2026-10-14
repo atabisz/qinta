@@ -202,14 +202,14 @@ DecodedImage rasterizeSvgFile(const std::wstring& path, float scale,
 // decodeImageFile: the copy is the reason, and it is measured there rather than asserted.
 //
 // `target` is where the bitmap comes from and it MUST be the backend's own render target
-// -- the same object App::renderTarget holds. Each implementation downcasts it, which is
-// the same asserted-downcast shape nativeTextLayout uses in text_d2d.h: a Qt target
-// arriving in the Windows implementation is a configuration error and trips rather than
+// -- the same object App::renderTarget holds. The implementation downcasts it, which is
+// the same asserted-downcast shape nativeTextLayout used in the retired text_d2d.h: a target
+// of the wrong backend arriving there is a configuration error and trips rather than
 // silently returning nullptr, because a null return is indistinguishable from an
 // unreadable file and would be diagnosed as one.
 //
 // NOT const, and the asymmetry with every other function here is deliberate: creating a
-// device bitmap is a mutation of the target on Direct2D. The rest of this header is pure.
+// device bitmap was a mutation of the target on the retired Direct2D stack. The rest of this header is pure.
 //
 // kMaxImageDimension is NOT enforced here, and that is the one place this entry point is
 // weaker than decodeImageFile. Neither backend allocates a pixel buffer on this path --
@@ -294,9 +294,9 @@ std::shared_ptr<Bitmap> decodeIconBytesToBitmap(RenderTarget& target, const void
 //
 // THE ARGUMENT DOES NOT CHANGE WITH THE COUNT, which is the point of restating it here:
 // `decodeIconBytesToBitmap` above had two call sites and deduplication was half its
-// justification. This still has none of that. The tree's only other offscreen target is
-// in src/image_win32.cpp, which is the Windows image backend and must not route through a
-// seam it implements, so all four callers are here for PORTABILITY and none is here to
+// justification. This still has none of that. The tree's only other offscreen target was
+// in the retired src/image_win32.cpp (deleted in 0b39ae6), the Windows image backend, which
+// could not route through a seam it implemented, so all four callers are here for PORTABILITY and none is here to
 // share code with the others -- one rasterises a diagram into a docx part, one draws a
 // hover panel at 2x, one paints a paginated A4 page for a test harness, one paints the
 // page the print preview shows. Said plainly because a seam's stated reason gets quoted

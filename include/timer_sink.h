@@ -3,9 +3,9 @@
 
 // WHERE armTimer AND disarmTimer GO WHEN THERE IS NO HWND.
 //
-// win32_api.h's two timer calls are the tree's single timer seam. On Windows they are
-// SetTimer and KillTimer, and the window procedure's WM_TIMER hands each id to
-// input.cpp's handleTimer. Off the Win32 window stack their bodies were `(void)` casts,
+// win32_api.h's two timer calls are the tree's single timer seam. On the retired Win32
+// window stack they were SetTimer and KillTimer, and the window procedure's WM_TIMER handed
+// each id to input.cpp's handleTimer. Off that stack their bodies were `(void)` casts,
 // so on qinta every timer the tree armed was dropped: TIMER_ZOOM_APPLY never cleared
 // app.zoomApplyPending, which is why Ctrl+wheel zoom could not be routed until this file.
 // The comment above them said "The Qt path is a QTimer per id" -- a plan written where

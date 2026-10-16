@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(tinta VERSION 1.0.0 LANGUAGES C CXX)
+project(tinta VERSION 1.1.0 LANGUAGES C CXX)
 
 # QINTA'S OWN NUMBERING, RESTARTED AT 0.0.1 ON 2026-10-11. 3.6.7 was upstream tinta's last
 # version, and upstream's v3.x tags are not in qinta's history, so carrying the number on would

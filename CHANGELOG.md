@@ -2,9 +2,49 @@
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-10-16
+
+### Added
+- A menu bar on macOS: Settings in the application menu, then File, Edit, View and Help, in the
+  UI language and relabelled when it changes. View > Zen mode is on ⌃⌘F, because F11 never
+  reaches the window on a Mac keyboard, and Edit > Find and Replace is on ⌥⌘F, because macOS
+  takes ⌘H for Hide.
+- Qinta claims Mermaid (`.mmd`) files on macOS and Linux, so they open with it from Finder or
+  the file manager. Before, no application on macOS claimed them at all.
+- Chinese, Japanese and Korean ideographs are drawn in the variant that matches the UI
+  language. These scripts share code points but draw some characters differently, and before,
+  whichever font the system found first decided for the whole document.
+
 ### Fixed
+- macOS: double-clicking a document in Finder, or using Open With, opens it. Nothing opened
+  from Finder before.
+- Dropping files on the window opens them again, on every platform.
+- The window caption shows the document's name and a `*` while it has unsaved changes. It had
+  stopped updating, and it now follows the UI language.
+- Middle-click on a tab closes it, and Esc during a tab drag lets go of the mouse.
+- Pandoc export works more than once a session. After the first export, every later one was
+  refused without a message.
+- German, French and Italian work as UI languages, and `languages.ini` is read. Choosing one of
+  them left every string in English.
+- GitHub alert titles (Note, Tip, Important, Warning, Caution) follow the UI language in the
+  viewer and in HTML and DOCX exports.
+- Windows: a file whose path has non-ASCII characters, such as `café.md` or `笔记.md`, opens
+  from the command line or a double-click.
+- A file handed to a window that is showing the start page replaces the start page, rather than
+  opening in a tab beside it.
+- Printing: a code block or table row no longer splits at the foot of a page, which left an
+  empty grey box there and moved the content to the next page. A table's header stays with its
+  first row.
 - `==highlight==` marks only the height of its text. The marker used to fill the whole line,
   so a band of colour hung about half a letter's height below every highlighted word.
+- Strikethrough crosses the middle of the text; it sat on the baseline and read as an
+  underline. It now also strikes code spans, and `~~` and `==` reach across bold, italic, links
+  and code inside them.
+- Bold and italic inside a heading keep the heading's size and baseline instead of shrinking
+  to body size like a superscript. Italic in a table header cell stays bold.
+- macOS and Linux: Reveal in folder selects the file and names the platform's file manager
+  rather than Explorer. Start-page dates follow the region format, and a torn-off tab's title
+  is drawn in the tab strip's font.
 
 ## [v1.0.0] - 2026-10-12
 

@@ -63,6 +63,11 @@
 
 set -u
 
+# Byte order for every sort and comm below. Measured 2026-11-02 on Ubuntu with uutils
+# coreutils 0.10.0 and LANG=en_AU.UTF-8: `sort` collated by locale (mermaid.cpp after
+# mermaid_charts2.cpp), `comm` then rejected both lists as unsorted, and the census read 0.
+export LC_ALL=C
+
 # The figures this checks moved out of README.md into docs/port.md on 2026-10-11, with the
 # port section that states them. The variable keeps its name so the messages below still read.
 README=docs/port.md
